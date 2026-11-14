@@ -46,3 +46,6 @@ java = ["src/DaySensors.java"]
 # Xcode link with: without this the class lookup panics the first time a reading is asked for.
 [package.metadata.day.ios]
 frameworks = ["CoreMotion"]
+
+[lints]
+workspace = true

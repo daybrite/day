@@ -36,6 +36,7 @@ fn class_for_kind(kind: Option<PieceKind>) -> &'static str {
 
 /// The raw `ArkUI_NodeHandle` behind `node` and its node type name. `None` when the node is
 /// layout-only or disposed.
+#[must_use]
 pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
     let (handle, kind) = day_core::with_tree(|t| (t.node_handle_any(node), t.node_kind(node)));
     let h = handle?.downcast::<crate::AHandle>().ok()?;

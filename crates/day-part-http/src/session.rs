@@ -2,11 +2,16 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Runtime routing. Selection is captured for a logical request; changes affect the next one.
-use crate::{Capabilities, simulation::Simulation, statistics::Store, transport::*};
+use crate::{
+    Capabilities,
+    simulation::Simulation,
+    statistics::Store,
+    transport::{Transport, TransportConfig},
+};
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub(crate) struct Resolved {
@@ -58,6 +63,7 @@ impl Default for Session {
     }
 }
 impl Session {
+    #[must_use]
     pub fn new() -> Self {
         Self(Arc::new(Inner {
             settings: Mutex::new(Settings {
@@ -82,11 +88,13 @@ impl Session {
     pub fn set_simulation(&self, simulation: Option<Simulation>) {
         lock(&self.0.settings).simulation = simulation;
     }
+    #[must_use]
     pub fn statistics(&self) -> crate::Statistics {
         self.0.stats.snapshot()
     }
     /// The latest 256 exchanges/sockets, including in-progress operations; totals are unbounded
     /// counters, but history storage is bounded. These are not physical TCP connection counts.
+    #[must_use]
     pub fn transfers(&self) -> Vec<crate::TransferStatistics> {
         self.0.stats.transfers()
     }

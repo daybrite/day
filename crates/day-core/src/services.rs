@@ -60,6 +60,10 @@ impl std::fmt::Debug for NotificationEvent {
 pub static NOTIFICATION_HANDLERS: [fn(&NotificationEvent)];
 
 /// Forward a native delegate callback to linked optional parts.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature; toolkits hand over the event they built"
+)]
 pub fn notification(event: NotificationEvent) {
     #[cfg(not(target_arch = "wasm32"))]
     for handler in NOTIFICATION_HANDLERS {

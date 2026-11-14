@@ -33,6 +33,7 @@ pub enum SensorKind {
 }
 impl SensorKind {
     /// Select the platform's bias-corrected or uncalibrated source explicitly.
+    #[must_use]
     pub const fn with_calibration(self, calibration: Calibration) -> Sensor {
         Sensor {
             kind: self,
@@ -123,6 +124,10 @@ pub fn is_available(sensor: impl Into<Sensor>) -> bool {
 /// dispatcher; web callbacks run on the browser thread. A callback may create or drop watches.
 ///
 /// Bind the handle to a Day page with `Scope::current().on_cleanup(move || drop(watch))`.
+///
+/// # Panics
+///
+/// Panics if the OS cannot start the dispatcher thread that the first native watch needs.
 pub fn watch(
     sensor: impl Into<Sensor>,
     on_sample: impl FnMut(SensorReading) + Send + 'static,
@@ -231,7 +236,7 @@ struct Hub {
     ready: std::sync::Condvar,
 }
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 fn hub() -> &'static Arc<Hub> {
     static HUB: OnceLock<Arc<Hub>> = OnceLock::new();
@@ -362,7 +367,11 @@ impl Hub {
                 state.running = false;
                 return;
             }
-            drop(self.ready.wait(state).unwrap_or_else(|e| e.into_inner()));
+            drop(
+                self.ready
+                    .wait(state)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            );
         }
     }
 }

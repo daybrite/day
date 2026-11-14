@@ -18,6 +18,7 @@
 //! transport drives the page instead (docs/web.md).
 
 use std::cell::{OnceCell, RefCell};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use day_reactive::Signal;
@@ -33,6 +34,7 @@ pub use day_script_protocol::{steps_from_yaml, steps_to_yaml};
 /// comment sits on the `id:` line for a tap/input/select and the `route:` line for a navigate, so a
 /// reader sees `route: focus # "Focus"`. Comments are ordinary YAML, so an annotated script parses
 /// and replays exactly as the bare one does; this is the form the recorder streams and saves.
+#[must_use]
 pub fn annotate_yaml(steps: &[Step], labels: &[Option<String>]) -> String {
     let yaml = steps_to_yaml(steps);
     // serde_norway renders each step as a `- <op>:` list item followed by indented params. Walk the
@@ -69,7 +71,7 @@ pub fn annotate_yaml(steps: &[Step], labels: &[Option<String>]) -> String {
                 .collect::<Vec<_>>()
                 .join(" ")
                 .replace('"', "");
-            out.push_str(&format!(" # \"{clean}\""));
+            let _ = write!(out, " # \"{clean}\"");
             done_this_step = true;
         }
         out.push('\n');
@@ -137,7 +139,7 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
         // Day-Skies' weather.yaml uses, so a recorded toggle replays without a `toggle` step.
         Event::ToggleChanged(on) => id.map(|id| Step::Select {
             id: id.to_string(),
-            index: *on as i64,
+            index: i64::from(*on),
             if_present: false,
         }),
         // The settled value of a slider, not the drag. `ValueChanged` fires on every tick (a
@@ -249,8 +251,8 @@ enum Disposition {
 /// destination. Taps never coalesce (each is its own action).
 fn coalesces(last: &Step, next: &Step) -> bool {
     match (last, next) {
-        (Step::Input { id: a, .. }, Step::Input { id: b, .. }) => a == b,
-        (Step::Select { id: a, .. }, Step::Select { id: b, .. }) => a == b,
+        (Step::Input { id: a, .. }, Step::Input { id: b, .. })
+        | (Step::Select { id: a, .. }, Step::Select { id: b, .. }) => a == b,
         (Step::Navigate { .. }, Step::Navigate { .. }) => true,
         _ => false,
     }
@@ -343,6 +345,7 @@ day_reactive::tls_group! {
 /// The reactive recording flag: `true` while recording. Bind a control's label/style to it (the
 /// showcase's Record↔Stop button does). The same global handle every call, so reads from any page
 /// track the one signal.
+#[must_use]
 pub fn recording_signal() -> Signal<bool> {
     FLAG.with(|c| *c.get_or_init(|| Signal::global(false)))
 }
@@ -350,6 +353,7 @@ pub fn recording_signal() -> Signal<bool> {
 /// A counter that increments each time a step is recorded (or the recording is cleared). A UI can
 /// watch it to react to recording *progress* (a live step count, say) without owning the mirrored
 /// buffer signal. Global-scoped, so it survives page rebuilds.
+#[must_use]
 pub fn version() -> Signal<u64> {
     VERSION.with(|c| *c.get_or_init(|| Signal::global(0)))
 }
@@ -391,7 +395,7 @@ fn is_excluded(id: Option<&str>, prefix: &str) -> bool {
 /// (routine when `day launch` tears the app down) would unwind into non-Rust frames and abort the
 /// process (`panic_cannot_unwind`, the reason `day_core::diag` exists). Errors are dropped.
 fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
-    use std::fmt::Write as _;
+    use std::io::Write as _;
     // The prefix says which mode produced the line: a recording is accumulating a script you can
     // save, action logging is only narrating. Same vocabulary either way: a logged line and the
     // step a recording would have written are the same thing.
@@ -440,7 +444,6 @@ fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
         );
     }
     let mut out = std::io::stdout();
-    use std::io::Write as _;
     let _ = writeln!(out, "{line}");
     let _ = out.flush();
 }
@@ -602,6 +605,7 @@ pub fn stop() {
 }
 
 /// Whether a recording is currently live.
+#[must_use]
 pub fn is_recording() -> bool {
     REC.with(|r| r.borrow().active)
 }
@@ -642,16 +646,19 @@ pub fn log_actions(on: bool) {
 }
 
 /// Whether [`log_actions`] is on.
+#[must_use]
 pub fn is_logging_actions() -> bool {
     REC.with(|r| r.borrow().echo)
 }
 
 /// The recorded script as canonical dayscript YAML ([`steps_to_yaml`]); `flow: []` when empty.
+#[must_use]
 pub fn script() -> String {
     REC.with(|r| steps_to_yaml(&r.borrow().steps))
 }
 
 /// The recorded steps, cloned.
+#[must_use]
 pub fn steps() -> Vec<Step> {
     REC.with(|r| r.borrow().steps.clone())
 }
@@ -670,6 +677,10 @@ pub fn clear() {
 }
 
 /// Write the recorded script to `path`.
+///
+/// # Errors
+///
+/// Returns the I/O error when `path` cannot be written.
 pub fn save(path: &Path) -> std::io::Result<()> {
     std::fs::write(path, script().as_bytes())
 }
@@ -689,6 +700,10 @@ pub fn exclude_prefix(prefix: &str) {
 /// step to the main thread and awaits its reply, mirroring the engine's connection loop. Returns
 /// as soon as the run is *dispatched* (the steps then run asynchronously against the live UI).
 /// Refuses while a recording is live, so a replay never records itself.
+///
+/// # Errors
+///
+/// Returns the errors of [`play_with_delay`].
 #[cfg(not(target_arch = "wasm32"))]
 pub fn play(yaml: &str) -> Result<(), String> {
     play_with_delay(yaml, 0.0)
@@ -702,6 +717,11 @@ pub fn play(yaml: &str) -> Result<(), String> {
 /// with [`stop_playback`]; [`playing_signal`] and [`paused_signal`] are what a transport control
 /// binds to. Refuses while a run is already live, so two Play presses cannot interleave two scripts
 /// against the same UI.
+///
+/// # Errors
+///
+/// Returns an error when a recording is live, a script is already playing, or the script does not
+/// parse or has no steps.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
     if is_recording() {
@@ -727,7 +747,7 @@ pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
             |step| {
                 // Best-effort: driven over a socket a failed step reports through the reply path, but
                 // here there is no runner to read it, so carry on to the next step.
-                let _ = crate::run_step_with_wait(step);
+                let _ = crate::run_step_with_wait(&step);
             },
         );
         set_playing(false);
@@ -777,11 +797,13 @@ const PAUSE_POLL_MS: u64 = 50;
 /// enabled button that silently does nothing is worse than a disabled one. Recording has no such
 /// limit: it rides the event observer on the main thread and works on every target.
 #[cfg(not(target_arch = "wasm32"))]
+#[must_use]
 pub fn playback_supported() -> bool {
     true
 }
 
 #[cfg(target_arch = "wasm32")]
+#[must_use]
 pub fn playback_supported() -> bool {
     false
 }
@@ -801,12 +823,14 @@ thread_local! {
 
 /// The reactive "a script is playing" flag, which a Play/Pause button binds its icon to.
 #[cfg(not(target_arch = "wasm32"))]
+#[must_use]
 pub fn playing_signal() -> Signal<bool> {
     PLAYING_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
 }
 
 /// The reactive "playback is paused" flag. Only meaningful while [`playing_signal`] is set.
 #[cfg(not(target_arch = "wasm32"))]
+#[must_use]
 pub fn paused_signal() -> Signal<bool> {
     PAUSED_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
 }
@@ -864,6 +888,7 @@ pub fn stop_playback() {
 }
 
 /// Whether `yaml` is a non-empty, parseable script, which a Play button binds its enabled state to.
+#[must_use]
 pub fn is_playable(yaml: &str) -> bool {
     steps_from_yaml(yaml).is_ok_and(|s| !s.is_empty())
 }
@@ -871,11 +896,20 @@ pub fn is_playable(yaml: &str) -> bool {
 /// wasm has no background thread and no `Instant` (the executor's wait loop traps there), so
 /// in-process playback isn't available; drive the page over the dayscript WebSocket transport
 /// instead (docs/web.md).
+///
+/// # Errors
+///
+/// Always returns an error on web.
 #[cfg(target_arch = "wasm32")]
-pub fn play(_yaml: &str) -> Result<(), String> {
-    play_with_delay(_yaml, 0.0)
+pub fn play(yaml: &str) -> Result<(), String> {
+    play_with_delay(yaml, 0.0)
 }
 
+/// The web stand-in for delayed playback; see [`play`].
+///
+/// # Errors
+///
+/// Always returns an error on web.
 #[cfg(target_arch = "wasm32")]
 pub fn play_with_delay(_yaml: &str, _step_delay_secs: f64) -> Result<(), String> {
     Err(
@@ -891,11 +925,13 @@ pub fn play_with_delay(_yaml: &str, _step_delay_secs: f64) -> Result<(), String>
 // Transport controls, present on wasm so a UI compiles unchanged there: nothing plays, so nothing
 // can be paused or stopped, and the flags a Play/Pause button binds to are permanently off.
 #[cfg(target_arch = "wasm32")]
+#[must_use]
 pub fn playing_signal() -> Signal<bool> {
     PLAYING_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
 }
 
 #[cfg(target_arch = "wasm32")]
+#[must_use]
 pub fn paused_signal() -> Signal<bool> {
     PAUSED_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
 }
@@ -907,11 +943,13 @@ thread_local! {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[must_use]
 pub fn is_playing() -> bool {
     false
 }
 
 #[cfg(target_arch = "wasm32")]
+#[must_use]
 pub fn is_paused() -> bool {
     false
 }

@@ -16,6 +16,7 @@
 // ---------------------------------------------------------------------------
 
 use std::ffi::CStr;
+use std::fmt::Write as _;
 use std::os::raw::{c_char, c_int};
 
 use day_spec::{Event, Icon, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPatch, ToolbarValue};
@@ -32,6 +33,10 @@ pub(crate) fn glyph_for(s: Symbol) -> &'static str {
     glyph(s)
 }
 
+#[expect(
+    clippy::match_same_arms,
+    reason = "symbols with no stock glyph are listed so the gap reads as deliberate"
+)]
 pub(super) fn glyph(s: Symbol) -> &'static str {
     match s {
         Symbol::Add => "E710",
@@ -160,7 +165,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
         let mut sug = String::new();
         let (kind, on, text, placeholder) = match &item.kind {
             ToolbarItemKind::Button => ("B", 0, "", ""),
-            ToolbarItemKind::Toggle { on } => ("T", *on as i32, "", ""),
+            ToolbarItemKind::Toggle { on } => ("T", i32::from(*on), "", ""),
             // "G" — the segment lines follow, as a menu's items do, closed by the same `X`.
             // `on` carries the selected index.
             ToolbarItemKind::Segmented { selected, .. } => ("G", *selected as i32, "", ""),
@@ -224,12 +229,13 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             day_spec::LabelStyle::TitleOnly => "title",
             _ => "",
         };
-        out.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        let _ = writeln!(
+            out,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
             kind,
             clean(&item.id),
             item.action,
-            item.enabled as i32,
+            i32::from(item.enabled),
             on,
             glyph_hex,
             image,
@@ -241,7 +247,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             geom, // already escaped above; `clean` would eat the spec's own tabs
             place,
             style,
-        ));
+        );
         if let ToolbarItemKind::Menu { items } = &item.kind {
             serialize_menu_xaml(items, &mut out);
             out.push_str("X\t\n");
@@ -253,7 +259,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
                     Some(Icon::Image(name)) => ("", icon_file_name(name)),
                     None => ("", String::new()),
                 };
-                out.push_str(&format!("g\t{}\t{}\t{}\n", g, img, clean(&seg.title)));
+                let _ = writeln!(out, "g\t{}\t{}\t{}", g, img, clean(&seg.title));
             }
             out.push_str("X\t\n");
         }
@@ -263,7 +269,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
 
 impl Xaml {
     /// Edit the window's toolbar (docs/toolbars.md): each op adds or takes away one command, and
-    /// the shim puts a new one right after its predecessor in its region of the CommandBar.
+    /// the shim puts a new one right after its predecessor in its region of the `CommandBar`.
     pub(crate) fn edit_toolbar(&mut self, h: &WinHandle, ops: &[day_spec::ToolbarOp]) -> bool {
         // Into the window that asked for it. Secondary windows carry the same docked chrome as
         // the primary (docs/windows.md), so an app that declares a toolbar per window — which is
@@ -275,7 +281,7 @@ impl Xaml {
         for op in ops {
             match op {
                 day_spec::ToolbarOp::Remove { id } => unsafe {
-                    ffi::day_xaml_toolbar_remove(win, cstr(id).as_ptr())
+                    ffi::day_xaml_toolbar_remove(win, cstr(id).as_ptr());
                 },
                 day_spec::ToolbarOp::Insert { index, item } => {
                     let spec = serialize_toolbar(std::slice::from_ref(item));
@@ -285,7 +291,7 @@ impl Xaml {
                             secondary,
                             *index as c_int,
                             cstr(&spec).as_ptr(),
-                        )
+                        );
                     };
                 }
             }
@@ -311,7 +317,7 @@ impl Xaml {
             }
             ToolbarPatch::On { item, on } => {
                 let id = cstr(item);
-                unsafe { ffi::day_xaml_toolbar_set_checked(win, id.as_ptr(), *on as c_int) };
+                unsafe { ffi::day_xaml_toolbar_set_checked(win, id.as_ptr(), c_int::from(*on)) };
             }
             ToolbarPatch::Selected { item, index } => {
                 let id = cstr(item);
@@ -323,7 +329,7 @@ impl Xaml {
             }
             ToolbarPatch::Enabled { item, on } => {
                 let id = cstr(item);
-                unsafe { ffi::day_xaml_toolbar_set_enabled(win, id.as_ptr(), *on as c_int) };
+                unsafe { ffi::day_xaml_toolbar_set_enabled(win, id.as_ptr(), c_int::from(*on)) };
             }
             // Not applied yet: the shim has no setter for a command's label, tooltip or a search
             // box's prompt, so a language change leaves the old words until the bar is next

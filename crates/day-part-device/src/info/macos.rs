@@ -21,7 +21,7 @@ fn sysctl_string(name: &str) -> Option<String> {
         libc::sysctlbyname(
             cname.as_ptr(),
             std::ptr::null_mut(),
-            &mut size,
+            &raw mut size,
             std::ptr::null_mut(),
             0,
         )
@@ -34,8 +34,8 @@ fn sysctl_string(name: &str) -> Option<String> {
     let rc = unsafe {
         libc::sysctlbyname(
             cname.as_ptr(),
-            buf.as_mut_ptr() as *mut c_void,
-            &mut size,
+            buf.as_mut_ptr().cast::<c_void>(),
+            &raw mut size,
             std::ptr::null_mut(),
             0,
         )

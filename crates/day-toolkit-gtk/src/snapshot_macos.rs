@@ -1,6 +1,6 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! GTK snapshots omit Cocoa child views, including embedded WKWebView. Capture the
+//! GTK snapshots omit Cocoa child views, including embedded `WKWebView`. Capture the
 //! composited window and crop to the requested GTK widget without pumping the UI loop.
 use gtk4::{glib::translate::ToGlibPtr, prelude::*};
 use objc2::AllocAnyThread;

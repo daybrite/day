@@ -58,7 +58,7 @@ fn main() {
             len: Rc::new(|| 2),
             token_at: Rc::new(|i| i as u64),
             bind_row: Rc::new(move |index, raw| {
-                let cell = unsafe { Retained::retain(raw as *mut NSView) }.unwrap();
+                let cell = unsafe { Retained::retain(raw.cast::<NSView>()) }.unwrap();
                 // Nested content exercises discovery through the native cell's layout wrapper.
                 let mut row_toolkit = AppKit::new();
                 let content = row_toolkit.realize(

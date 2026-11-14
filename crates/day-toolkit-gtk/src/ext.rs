@@ -4,7 +4,7 @@
 //! Tweaks (docs/tweaks.md): typed access to the `gtk4::Widget` behind a Day-created piece.
 //!
 //! `with_native` clones the widget handle (a gobject ref) out of the realized tree and hands `f`
-//! the widget together with its concrete native **class name** (the GType name, e.g. `"GtkLabel"`,
+//! the widget together with its concrete native **class name** (the `GType` name, e.g. `"GtkLabel"`,
 //! `"GtkScale"`), so a tweak can branch on the realized class instead of guessing. Downcast for
 //! widget-specific API:
 //!
@@ -26,7 +26,7 @@
 use day_core::RNode;
 use day_pieces::Decorate;
 
-/// Run `f` with the native `gtk4::Widget` behind `node` and its GType class name. `None` when the
+/// Run `f` with the native `gtk4::Widget` behind `node` and its `GType` class name. `None` when the
 /// node is layout-only or disposed.
 pub fn with_native<R>(node: RNode, f: impl FnOnce(&gtk4::Widget, &str) -> R) -> Option<R> {
     use gtk4::prelude::ObjectExt;

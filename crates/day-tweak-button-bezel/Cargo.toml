@@ -20,3 +20,6 @@ appkit = ["dep:day-toolkit-appkit", "dep:objc2-app-kit"]
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
 backends = ["appkit"]
+
+[lints]
+workspace = true

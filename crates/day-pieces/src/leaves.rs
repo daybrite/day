@@ -35,6 +35,7 @@ use crate::*;
 /// )
 /// ```
 #[derive(Clone, Debug, Default)]
+#[must_use]
 pub struct TextBuilder {
     text: String,
     runs: Vec<day_spec::TextRun>,
@@ -181,11 +182,13 @@ impl TextBuilder {
         })
     }
     /// The assembled text and its runs.
+    #[must_use]
     pub fn build(self) -> (String, Vec<day_spec::TextRun>) {
         (self.text, self.runs)
     }
 }
 
+#[must_use]
 pub struct Label {
     // pub(crate): `forms` builds Label literals directly (they were co-located before the split).
     pub(crate) text: TextSource,
@@ -225,7 +228,7 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
         wraps: true,
         max_lines: 0,
         color: None,
-        role: Default::default(),
+        role: TextRole::default(),
         runs: Vec::new(),
         markdown: false,
         align: day_spec::props::TextAlign::Leading,
@@ -425,7 +428,10 @@ impl Piece for Label {
                     tabular: self.tabular,
                     monospace: self.monospace,
                 },
-                color: self.color.as_ref().map(|c| c.get_untracked()),
+                color: self
+                    .color
+                    .as_ref()
+                    .map(super::canvas::Reactive::get_untracked),
                 role: self.role,
                 wraps: self.wraps,
                 max_lines: self.max_lines,
@@ -513,6 +519,7 @@ pub fn open_link(target: &str) {
 /// link(res::str::settings(), "#settings")
 /// link(res::str::email_us(), "mailto:hi@example.com").font(Font::Footnote)
 /// ```
+#[must_use]
 pub struct Link {
     label: Label,
     url: String,
@@ -560,7 +567,10 @@ impl Piece for Link {
                 italic: label.italic,
                 ..Default::default()
             };
-            let color = label.color.as_ref().map(|c| c.get_untracked());
+            let color = label
+                .color
+                .as_ref()
+                .map(super::canvas::Reactive::get_untracked);
             let target = url.clone();
             let runs = move |text: &str| {
                 vec![day_spec::TextRun {
@@ -602,6 +612,7 @@ impl Piece for Link {
     }
 }
 
+#[must_use]
 pub struct Button {
     title: TextSource,
     icon: Reactive<Option<day_spec::Icon>>,
@@ -726,7 +737,7 @@ impl Button {
     }
 
     /// Mark this button as the current choice among its peers: a document tab, one view of a
-    /// switcher. The platform draws its own checked or selected look (an NSButton's on state,
+    /// switcher. The platform draws its own checked or selected look (an `NSButton`'s on state,
     /// `UIButton.isSelected`, GTK's `:checked`, a checked `QPushButton`, a checked
     /// `MaterialButton`, `aria-pressed` on the web) and announces it as selected, while the
     /// button stays enabled, focusable and activatable, which a disabled stand-in is not.
@@ -781,7 +792,7 @@ impl Piece for Button {
                                 day_spec::props::ButtonStyleSpec::Tinted(*col),
                             )),
                             false,
-                        )
+                        );
                     });
                 },
             );
@@ -833,7 +844,7 @@ impl Piece for Button {
                 },
                 move |content: &day_spec::props::ButtonContent| {
                     with_tree(|t| {
-                        t.patch(node, Box::new(ButtonPatch::Content(content.clone())), true)
+                        t.patch(node, Box::new(ButtonPatch::Content(content.clone())), true);
                     });
                 },
             );
@@ -842,6 +853,7 @@ impl Piece for Button {
     }
 }
 
+#[must_use]
 pub struct Toggle<S: Binding<bool>> {
     value: S,
     enabled: Reactive<bool>,
@@ -904,6 +916,7 @@ impl<S: Binding<bool>> Piece for Toggle<S> {
     }
 }
 
+#[must_use]
 pub struct Slider<S: Binding<f64>> {
     value: S,
     min: f64,
@@ -1005,6 +1018,7 @@ impl<S: Binding<f64>> Piece for Slider<S> {
 ///
 /// How it takes its text is set with `.secure(_)`, `.read_only(_)`, `.input_purpose(_)`,
 /// `.submit_label(_)` and `.max_length(_)`; [`secure_field`] is the password-field shorthand.
+#[must_use]
 pub struct TextField<S: Binding<String>> {
     value: S,
     placeholder: Option<TextSource>,
@@ -1147,7 +1161,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
         let ph = self
             .placeholder
             .as_ref()
-            .map(|p| p.initial())
+            .map(super::sources::TextSource::initial)
             .unwrap_or_default();
         let node = cx.leaf(
             kinds::TEXT_FIELD,
@@ -1228,7 +1242,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
                             from_native,
                         }),
                         false,
-                    )
+                    );
                 });
             },
         );
@@ -1267,7 +1281,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
                                     from_native: false,
                                 }),
                                 false,
-                            )
+                            );
                         });
                         cut
                     }
@@ -1305,7 +1319,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
             let scope = day_reactive::Scope::current();
             day_reactive::watch(
                 move || trigger.track(),
-                move |_, _| {
+                move |(), _| {
                     let (range, value) = (range.clone(), value.clone());
                     day_reactive::at_turn_end(move || {
                         if !scope.is_alive() {
@@ -1314,8 +1328,8 @@ impl<S: Binding<String>> Piece for TextField<S> {
                         let sel = range().clamped(&value.peek());
                         day_reactive::on_main(move || {
                             with_tree(|t| {
-                                t.patch(node, Box::new(TextFieldPatch::Select(sel)), false)
-                            })
+                                t.patch(node, Box::new(TextFieldPatch::Select(sel)), false);
+                            });
                         });
                     });
                 },
@@ -1327,6 +1341,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
 
 /// A progress indicator: a determinate bar (from [`progress`]) or an indeterminate spinner
 /// (from [`spinner`]). See docs/progress.md.
+#[must_use]
 pub struct Progress {
     /// `None` = indeterminate (spinner); `Some` = a determinate fraction source.
     value: Option<FractionSource>,
@@ -1372,7 +1387,10 @@ impl Progress {
 impl Piece for Progress {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let determinate = self.value.is_some();
-        let initial = self.value.as_ref().map(|f| f.initial());
+        let initial = self
+            .value
+            .as_ref()
+            .map(super::sources::FractionSource::initial);
         let node = cx.leaf(
             kinds::PROGRESS,
             &ProgressProps {
@@ -1393,7 +1411,7 @@ impl Piece for Progress {
                 move || f(),
                 move |on| {
                     day_core::with_tree(|t| {
-                        t.patch(node, Box::new(ProgressPatch::Animating(*on)), false)
+                        t.patch(node, Box::new(ProgressPatch::Animating(*on)), false);
                     });
                 },
             );
@@ -1407,6 +1425,7 @@ impl Piece for Progress {
 
 /// A hairline between neighbors: across a column's width by default, down a row's height
 /// with [`Divider::vertical`].
+#[must_use]
 pub struct Divider {
     vertical: bool,
 }
@@ -1470,6 +1489,7 @@ impl Layout for VerticalLeaf {
 
 pub struct Spacer;
 
+#[must_use]
 pub fn spacer() -> Spacer {
     Spacer
 }

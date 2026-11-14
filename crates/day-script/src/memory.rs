@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use day_script_protocol::{MemorySize, Reply};
+use std::fmt::Write as _;
 
 pub(crate) fn sample(limit: Option<MemorySize>) -> Reply {
     let reply = report(day_core::lifecycle::resident_memory(), limit);
@@ -48,10 +49,11 @@ fn report(bytes: Option<u64>, limit: Option<MemorySize>) -> Reply {
     );
     let mut message = format!("Memory usage: {usage} [{}]", metric());
     if let Some(limit) = limit {
-        message.push_str(&format!(
+        let _ = write!(
+            message,
             "; limit {:.2} MB ({limit} bytes)",
             limit as f64 / 1e6
-        ));
+        );
     }
     let error = match bytes {
         None => Some(format!("{message}; cannot measure current app memory")),

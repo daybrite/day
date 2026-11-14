@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day_pieces::datetime: core date and time pickers with native toolkit renderers and a composed DOM fallback
+//! `day_pieces::datetime`: core date and time pickers with native toolkit renderers and a composed DOM fallback
 //! (docs/datepicker.md; DESIGN.md §15).
 //!
 //! ```ignore
@@ -38,7 +38,8 @@ pub use day_spec::controls::datetime::*;
 
 /// How the pickers are realized on the compiled backend: `Native` (a platform picker
 /// control) or `Emulated` (GTK, where GTK4/libadwaita have no stock date/time picker, so the
-/// renderer composes native primitives: GtkCalendar in a popover, linked spin buttons; also mock).
+/// renderer composes native primitives: `GtkCalendar` in a popover, linked spin buttons; also mock).
+#[must_use]
 pub fn support() -> day_spec::Support {
     let support = day_core::capability(day_spec::Cap::DateTimePicker);
     if support == day_spec::Support::Unsupported {
@@ -49,6 +50,7 @@ pub fn support() -> day_spec::Support {
 }
 
 /// A native date picker bound two-way to a [`DayDate`] signal. Build with [`date_picker`].
+#[must_use]
 pub struct DatePicker<S: Binding<DayDate>> {
     date: S,
     style: Style,
@@ -153,6 +155,7 @@ impl<S: Binding<DayDate>> Piece for DatePicker<S> {
 }
 
 /// A native time picker bound two-way to a [`DayTime`] signal. Build with [`time_picker`].
+#[must_use]
 pub struct TimePicker<S: Binding<DayTime>> {
     time: S,
     style: Style,

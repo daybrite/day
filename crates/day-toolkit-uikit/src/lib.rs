@@ -48,7 +48,7 @@ mod imp {
     use std::any::Any;
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
-    use std::ffi::{c_char, c_int};
+    use std::ffi::c_int;
     use std::ptr::NonNull;
     use std::rc::Rc;
 
@@ -127,7 +127,7 @@ mod imp {
     /// The day-core event sink (node-id keyed).
     type Sink = Rc<dyn Fn(NodeId, Event)>;
 
-    /// DAY_DIAG_NAV tracing, resolved once — the layout and nav-delegate hot paths run on
+    /// `DAY_DIAG_NAV` tracing, resolved once — the layout and nav-delegate hot paths run on
     /// every pass and must not re-query the environment each time.
     static DIAG_NAV: std::sync::LazyLock<bool> =
         std::sync::LazyLock::new(|| std::env::var("DAY_DIAG_NAV").is_ok());
@@ -389,7 +389,7 @@ mod imp {
     /// The style every window wears unless it has its own: the app's `set_appearance`, else
     /// `DAY_THEME=light|dark` (themed CI runs), else the system's.
     fn app_style() -> objc2_ui_kit::UIUserInterfaceStyle {
-        APP_STYLE.with(|a| a.get()).unwrap_or_else(|| {
+        APP_STYLE.with(std::cell::Cell::get).unwrap_or_else(|| {
             interface_style(match std::env::var("DAY_THEME").ok().as_deref() {
                 Some("dark") => Some(true),
                 Some("light") => Some(false),
@@ -475,7 +475,7 @@ mod imp {
     /// The scene entry whose Day root is `host` (a window's content container, as day-core
     /// addresses windows), applied to `f`.
     fn with_scene_of_host<R>(host: &UIView, f: impl FnOnce(&SceneEntry) -> R) -> Option<R> {
-        let hp = host as *const UIView as usize;
+        let hp = std::ptr::from_ref::<UIView>(host) as usize;
         SCENES.with(|s| {
             s.borrow()
                 .iter()
@@ -569,7 +569,7 @@ mod imp {
         (w > 0.0 && h > 0.0).then(|| Size::new(w, h))
     }
 
-    /// Build one Day window into `scene`: UIWindow + DayRootVC + DayHolderView + the
+    /// Build one Day window into `scene`: `UIWindow` + `DayRootVC` + `DayHolderView` + the
     /// safe-area-inset day root — the construction `didFinishLaunching` used to own,
     /// factored so every scene (primary and secondary) gets identical chrome.
     fn build_scene_window(
@@ -640,8 +640,7 @@ mod imp {
         unsafe { root_view.setFrame(inner) };
         if *DIAG_NAV {
             let min = unsafe { scene.sizeRestrictions() }
-                .map(|r| unsafe { r.minimumSize() })
-                .unwrap_or(CGSize::new(0.0, 0.0));
+                .map_or(CGSize::new(0.0, 0.0), |r| unsafe { r.minimumSize() });
             log::debug!(
                 "DAYDIAG launch window {}x{} safe(t{} b{} l{} r{}) -> root {}x{} min {}x{}",
                 bounds.size.width,
@@ -700,7 +699,7 @@ mod imp {
     /// day root node id under `day.node` (docs/windows.md).
     const DAY_WINDOW_ACTIVITY: &str = "dev.daybrite.day.window";
 
-    /// Scroll the focused field's nearest enclosing UIScrollView so the field is visible
+    /// Scroll the focused field's nearest enclosing `UIScrollView` so the field is visible
     /// (keyboard avoidance, docs/focus.md). Runs a turn after the keyboard-driven root resize
     /// so Day's relayout has settled the frames it converts.
     fn reveal_focused_field() {
@@ -773,7 +772,12 @@ mod imp {
                     } else {
                         0.0
                     };
-                    if extra.bottom != wanted {
+                    #[expect(
+                        clippy::float_cmp,
+                        reason = "unchanged-value check against the inset set last time"
+                    )]
+                    let changed = extra.bottom != wanted;
+                    if changed {
                         extra.bottom = wanted;
                         unsafe { vc.setAdditionalSafeAreaInsets(extra) };
                     }
@@ -790,7 +794,7 @@ mod imp {
     }
 
     fn ptr_of(v: &UIView) -> usize {
-        (v as *const UIView).cast::<()>() as usize
+        std::ptr::from_ref::<UIView>(v).cast::<()>() as usize
     }
 
     /// An image view's rendering (`IMAGE_MODES`).
@@ -930,7 +934,7 @@ mod imp {
     }
     /// Apply row-level deltas as animated table updates. Indexes are sequential (each
     /// delta describes the set as the previous ones left it), so each gets its own batch —
-    /// UITableView's combined-batch index rules would re-interpret them.
+    /// `UITableView`'s combined-batch index rules would re-interpret them.
     fn apply_row_deltas(table: &objc2_ui_kit::UITableView, deltas: &[day_spec::props::RowDelta]) {
         // Day's deltas are sequential, each counted against the list as the one before left
         // it. UITableView counts every batch against the data source, which already answers
@@ -962,15 +966,15 @@ mod imp {
                         objc2_ui_kit::UITableViewRowAnimation::Automatic,
                     ),
                 day_spec::props::RowDelta::Move(from, to) => {
-                    table.moveRowAtIndexPath_toIndexPath(&path(*from), &path(*to))
+                    table.moveRowAtIndexPath_toIndexPath(&path(*from), &path(*to));
                 }
             }
             table.endUpdates();
         }
     }
 
-    fn view_of<T: AsRef<UIView>>(x: Retained<T>) -> Handle {
-        Retained::from(x.as_ref())
+    fn view_of<T: AsRef<UIView>>(x: &Retained<T>) -> Handle {
+        Retained::from((**x).as_ref())
     }
 
     /// The OUTERMOST view controller behind a host handle, or `None` for an ordinary view.
@@ -1016,12 +1020,11 @@ mod imp {
         // `as_ref` stops at the declared superclass, so these go up the chain by deref coercion.
         NAV_STATE
             .with(|m| {
-                m.borrow().get(&key).map(|s| match s.split.as_ref() {
-                    Some(parts) => {
+                m.borrow().get(&key).map(|s| {
+                    if let Some(parts) = s.split.as_ref() {
                         let vc: &UIViewController = &parts.split_vc;
                         Retained::from(vc)
-                    }
-                    None => {
+                    } else {
                         let vc: &UIViewController = &s.nav;
                         Retained::from(vc)
                     }
@@ -1181,7 +1184,7 @@ mod imp {
                     } else if let Some(sw) = obj.downcast_ref::<UISwitch>() {
                         emit(node, Event::ToggleChanged(unsafe { sw.isOn() }));
                     } else if let Some(sl) = obj.downcast_ref::<UISlider>() {
-                        emit(node, Event::ValueChanged(unsafe { sl.value() } as f64));
+                        emit(node, Event::ValueChanged(f64::from(unsafe { sl.value() })));
                     } else if let Some(tf) = obj.downcast_ref::<UITextField>() {
                         let s = unsafe { tf.text() }.map(|s| s.to_string()).unwrap_or_default();
                         emit(node, Event::TextChanged(s));
@@ -1202,7 +1205,7 @@ mod imp {
                     if let Some(sl) = obj.downcast_ref::<UISlider>() {
                         emit(
                             self.ivars().node,
-                            Event::ValueCommitted(unsafe { sl.value() } as f64),
+                            Event::ValueCommitted(f64::from(unsafe { sl.value() })),
                         );
                     }
                 });
@@ -1264,7 +1267,9 @@ mod imp {
     /// `A` must be the setter's exact C argument type (`NSInteger` for the enum traits, an
     /// object pointer for `setTextContentType:`).
     unsafe fn send_input_trait<A>(tf: &UITextField, sel: Sel, arg: A) {
-        let recv = (tf as *const UITextField).cast::<AnyObject>().cast_mut();
+        let recv = std::ptr::from_ref::<UITextField>(tf)
+            .cast::<AnyObject>()
+            .cast_mut();
         // SAFETY: `recv` is a live main-thread `UITextField`; the caller vouches that `sel`
         // takes one `A` and returns `void`, matching this `(id, SEL, A) -> ()` retyping of
         // `objc_msgSend` (which is `extern "C-unwind"`).
@@ -1281,7 +1286,9 @@ mod imp {
     /// # Safety
     /// `tf` must be a live `UITextField`, used on the main thread.
     unsafe fn is_secure_text_entry(tf: &UITextField) -> bool {
-        let recv = (tf as *const UITextField).cast::<AnyObject>().cast_mut();
+        let recv = std::ptr::from_ref::<UITextField>(tf)
+            .cast::<AnyObject>()
+            .cast_mut();
         // SAFETY: `recv` is a live main-thread `UITextField`; `isSecureTextEntry` takes no
         // argument and returns `BOOL`, matching this `(id, SEL) -> Bool` retyping of
         // `objc_msgSend` (which is `extern "C-unwind"`).
@@ -1449,7 +1456,7 @@ mod imp {
     }
 
     /// One window's toolbar: the model as the app last set it, and the targets its live
-    /// items fire — kept alive here because UIBarButtonItem holds its target weakly.
+    /// items fire — kept alive here because `UIBarButtonItem` holds its target weakly.
     struct WindowToolbar {
         root: Retained<UIView>,
         items: Vec<day_spec::ToolbarItem>,
@@ -1513,8 +1520,8 @@ mod imp {
                 if let Some(it) = items.iter_mut().find(|i| i.id == *item)
                     && (it.label != *label || it.tooltip != *tooltip)
                 {
-                    it.label = label.clone();
-                    it.tooltip = tooltip.clone();
+                    it.label.clone_from(label);
+                    it.tooltip.clone_from(tooltip);
                     return true;
                 }
             }
@@ -1523,7 +1530,7 @@ mod imp {
         false
     }
 
-    /// Fresh UIBarButtonItems for one page. Built per page rather than shared: a bar button
+    /// Fresh `UIBarButtonItems` for one page. Built per page rather than shared: a bar button
     /// item belongs to one bar at a time, and every page under the navigation controller
     /// carries its own copy of the window's bar.
     fn build_toolbar_items(
@@ -1632,25 +1639,25 @@ mod imp {
                             .get(*selected)
                             .and_then(|s| menu_image(s.icon.as_ref()))
                     });
-                    match current {
-                        Some(img) => unsafe {
+                    if let Some(img) = current {
+                        unsafe {
                             UIBarButtonItem::initWithImage_menu(
                                 UIBarButtonItem::alloc(mtm),
                                 Some(&img),
                                 Some(&menu),
                             )
-                        },
-                        None => unsafe {
+                        }
+                    } else {
+                        unsafe {
                             let word = segments
                                 .get(*selected)
-                                .map(|s| NSString::from_str(&s.title))
-                                .unwrap_or_else(|| title.clone());
+                                .map_or_else(|| title.clone(), |s| NSString::from_str(&s.title));
                             UIBarButtonItem::initWithTitle_menu(
                                 UIBarButtonItem::alloc(mtm),
                                 Some(&word),
                                 Some(&menu),
                             )
-                        },
+                        }
                     }
                 }
                 K::Button | K::Toggle { .. } => {
@@ -1796,7 +1803,7 @@ mod imp {
 
     /// A page controller's identity, for the per-page records below.
     fn vc_key(vc: &UIViewController) -> usize {
-        (vc as *const UIViewController).cast::<()>() as usize
+        std::ptr::from_ref::<UIViewController>(vc).cast::<()>() as usize
     }
 
     fn bar_placement(nav: &objc2_ui_kit::UINavigationController) -> BarPlacement {
@@ -1814,7 +1821,7 @@ mod imp {
                                     None => o.nav.view(),
                                 };
                                 host_view.is_some_and(|hv| {
-                                    !std::ptr::eq(&*hv, &*nv)
+                                    !std::ptr::eq(&raw const *hv, &raw const *nv)
                                         && unsafe { nv.isDescendantOfView(&hv) }
                                 })
                             })
@@ -2202,7 +2209,8 @@ mod imp {
                     };
                     let mut list = bar.to_vec();
                     let Some(i) = list.iter().position(|b| {
-                        unsafe { b.customView() }.is_some_and(|v| std::ptr::eq(&*v, &*row))
+                        unsafe { b.customView() }
+                            .is_some_and(|v| std::ptr::eq(&raw const *v, &raw const *row))
                     }) else {
                         continue;
                     };
@@ -2279,34 +2287,33 @@ mod imp {
         let lines: Vec<&str> = text.lines().collect();
         let existing: Vec<Retained<UIView>> = unsafe { stack.arrangedSubviews() }.to_vec();
         for (index, line) in lines.iter().enumerate() {
-            let label = match existing
+            let label = if let Some(label) = existing
                 .get(index)
                 .and_then(|v| v.clone().downcast::<UILabel>().ok())
             {
-                Some(label) => label,
-                None => {
-                    let label = UILabel::new(mtm);
-                    let color = if index == 0 {
-                        UIColor::labelColor()
-                    } else {
-                        UIColor::secondaryLabelColor()
-                    };
-                    unsafe {
-                        label.setFont(Some(&font));
-                        let _: () = msg_send![&*label, setAdjustsFontForContentSizeCategory: true];
-                        label.setTextColor(Some(&color));
-                        label.setTextAlignment(objc2_ui_kit::NSTextAlignment::Center);
-                        // Just under the buttons' resistance, so a long status truncates before a
-                        // button gives way, but well over the flexible spaces', which would
-                        // otherwise squeeze the status to nothing.
-                        label.setContentCompressionResistancePriority_forAxis(
-                            objc2_ui_kit::UILayoutPriorityDefaultHigh - 1.0,
-                            objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
-                        );
-                        stack.addArrangedSubview(&label);
-                    }
-                    label
+                label
+            } else {
+                let label = UILabel::new(mtm);
+                let color = if index == 0 {
+                    UIColor::labelColor()
+                } else {
+                    UIColor::secondaryLabelColor()
+                };
+                unsafe {
+                    label.setFont(Some(&font));
+                    let _: () = msg_send![&*label, setAdjustsFontForContentSizeCategory: true];
+                    label.setTextColor(Some(&color));
+                    label.setTextAlignment(objc2_ui_kit::NSTextAlignment::Center);
+                    // Just under the buttons' resistance, so a long status truncates before a
+                    // button gives way, but well over the flexible spaces', which would
+                    // otherwise squeeze the status to nothing.
+                    label.setContentCompressionResistancePriority_forAxis(
+                        objc2_ui_kit::UILayoutPriorityDefaultHigh - 1.0,
+                        objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+                    );
+                    stack.addArrangedSubview(&label);
                 }
+                label
             };
             label.setText(Some(&NSString::from_str(line)));
         }
@@ -2326,7 +2333,7 @@ mod imp {
         root: usize,
         window_items: &[day_spec::ToolbarItem],
     ) {
-        apply_items_styled(mtm, item, root, window_items, true)
+        apply_items_styled(mtm, item, root, window_items, true);
     }
 
     /// [`apply_items_to`], choosing how the trailing items are attached. Item GROUPS give a
@@ -2492,7 +2499,8 @@ mod imp {
         // The targets outlive the bar buttons, which hold theirs weakly. Keyed by the navigation
         // item, so a tabs host's shared bar and a page's own each keep their own.
         NAV_ITEM_TARGETS.with(|m| {
-            m.borrow_mut().insert(item as *const _ as usize, targets);
+            m.borrow_mut()
+                .insert(std::ptr::from_ref(item) as usize, targets);
         });
     }
 
@@ -2538,7 +2546,7 @@ mod imp {
                 let item = shown.and_then(|vc| {
                     let inner = vc
                         .downcast_ref::<objc2_ui_kit::UINavigationController>()
-                        .map(|n| n.retain())
+                        .map(objc2::Message::retain)
                         .or_else(|| {
                             unsafe { vc.childViewControllers() }.iter().find_map(|c| {
                                 c.downcast::<objc2_ui_kit::UINavigationController>().ok()
@@ -2546,12 +2554,11 @@ mod imp {
                         })?;
                     unsafe { inner.topViewController() }.map(|top| unsafe { top.navigationItem() })
                 });
-                match item {
-                    Some(it) => apply_items_to(mtm, &it, root, &controls),
-                    None => {
-                        let nav_item = unsafe { tabbar.navigationItem() };
-                        apply_items_styled(mtm, &nav_item, root, &controls, false);
-                    }
+                if let Some(it) = item {
+                    apply_items_to(mtm, &it, root, &controls);
+                } else {
+                    let nav_item = unsafe { tabbar.navigationItem() };
+                    apply_items_styled(mtm, &nav_item, root, &controls, false);
                 }
             }
             return;
@@ -2568,13 +2575,13 @@ mod imp {
         }
         undock_window_toolbar(root, &root_view);
         for nav in navs {
-            for vc in unsafe { nav.viewControllers() }.iter() {
+            for vc in &unsafe { nav.viewControllers() } {
                 apply_window_toolbar_to(&nav, &vc);
             }
         }
     }
 
-    /// Keep navigation controls legible over nested scrolling content (including WKWebView
+    /// Keep navigation controls legible over nested scrolling content (including `WKWebView`
     /// inside a pager). UIKit's implicit scroll-edge appearance is transparent, and it may
     /// not track a nested scroll view's offset. Configure every height/edge state explicitly.
     fn configure_navigation_bar(bar: &UINavigationBar, mtm: MainThreadMarker) {
@@ -2599,7 +2606,7 @@ mod imp {
         unsafe { bar.setTranslucent(false) };
     }
 
-    /// The window's own bar, built or refreshed: a UINavigationBar across the top of the
+    /// The window's own bar, built or refreshed: a `UINavigationBar` across the top of the
     /// window, carrying the items exactly as a page's own bar carries them — as optional
     /// groups, so a phone that cannot fit twelve commands folds the trailing ones into the
     /// bar's overflow menu instead of clipping them. One iOS presentation for the window
@@ -2628,7 +2635,7 @@ mod imp {
             unsafe {
                 bar.setItems(Some(&objc2_foundation::NSArray::from_retained_slice(&[
                     item,
-                ])))
+                ])));
             };
             holder.addSubview(&bar);
             bar
@@ -2681,7 +2688,7 @@ mod imp {
             if bar_placement(&nav) == BarPlacement::Nested {
                 continue;
             }
-            for vc in unsafe { nav.viewControllers() }.iter() {
+            for vc in &unsafe { nav.viewControllers() } {
                 unsafe { vc.setToolbarItems(None) };
             }
             unsafe { nav.setToolbarHidden_animated(true, false) };
@@ -2778,7 +2785,7 @@ mod imp {
             if *self.ivars().last.borrow() == text {
                 return;
             }
-            *self.ivars().last.borrow_mut() = text.clone();
+            (*self.ivars().last.borrow_mut()).clone_from(&text);
             self.send(day_spec::ToolbarValue::Text(text));
         }
 
@@ -2858,7 +2865,7 @@ mod imp {
             let shown = unsafe { tabbar.selectedViewController() }?;
             let inner = shown
                 .downcast_ref::<objc2_ui_kit::UINavigationController>()
-                .map(|n| n.retain())
+                .map(objc2::Message::retain)
                 .or_else(|| {
                     unsafe { shown.childViewControllers() }
                         .iter()
@@ -2908,7 +2915,7 @@ mod imp {
             let item = entry.vc.navigationItem();
             if item
                 .searchController()
-                .is_some_and(|sc| std::ptr::eq(&*sc, &*entry.sc))
+                .is_some_and(|sc| std::ptr::eq(&raw const *sc, &raw const *entry.sc))
             {
                 item.setSearchController(None);
             }
@@ -2962,67 +2969,62 @@ mod imp {
                 .get(&vc_key(&vc))
                 .map(|e| (e.sc.clone(), e.handler.clone()))
         });
-        let (sc, handler) = match existing {
-            Some(found) => found,
-            None => {
-                // A sidebar root carries its navigation surface's own search; that one stays.
-                if unsafe { nav_item.searchController() }.is_some() {
-                    return None;
-                }
-                let handler = DayPageSearch::new(mtm, item.action, text);
-                let sc = unsafe {
-                    objc2_ui_kit::UISearchController::initWithSearchResultsController(
-                        objc2_ui_kit::UISearchController::alloc(mtm),
-                        None,
-                    )
-                };
-                unsafe {
-                    sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(&*handler)));
-                    // The results replace the page's own content, so nothing is dimmed.
-                    sc.setObscuresBackgroundDuringPresentation(false);
-                    let bar = sc.searchBar();
-                    bar.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
-                    // Already UISearchBar's default; said here because Return means "search".
-                    if let Some(field) = search_text_field(&bar) {
-                        send_input_trait(
-                            &field,
-                            sel!(setReturnKeyType:),
-                            UIReturnKeyType::Search.0,
-                        );
-                    }
-                    if !text.is_empty() {
-                        bar.setText(Some(&NSString::from_str(text)));
-                    }
-                    // Mail's: the bar slides away with the content and comes back on a pull.
-                    // Pinned for the turn it arrives in, though: a field that joins a page
-                    // already on screen (a feed that had to load first) would otherwise start
-                    // collapsed, behind a pull nobody knows to make. Showing first and turning
-                    // the hiding on once it has drawn is UIKit's own recipe for that.
-                    nav_item.setHidesSearchBarWhenScrolling(false);
-                    hide_page_search_when_drawn(vc.clone(), 0);
-                    // Under the title, at every width: an iPad would otherwise fold it into the
-                    // bar's trailing end, away from the page title it searches under.
-                    if os_at_least(16) {
-                        nav_item.setPreferredSearchBarPlacement(
-                            objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
-                        );
-                    }
-                    // A push while the field is active must cover it, not run under it.
-                    vc.setDefinesPresentationContext(true);
-                }
-                PAGE_SEARCH.with(|m| {
-                    m.borrow_mut().insert(
-                        vc_key(&vc),
-                        PageSearch {
-                            root,
-                            vc: vc.clone(),
-                            sc: sc.clone(),
-                            handler: handler.clone(),
-                        },
-                    )
-                });
-                (sc, handler)
+        let (sc, handler) = if let Some(found) = existing {
+            found
+        } else {
+            // A sidebar root carries its navigation surface's own search; that one stays.
+            if unsafe { nav_item.searchController() }.is_some() {
+                return None;
             }
+            let handler = DayPageSearch::new(mtm, item.action, text);
+            let sc = unsafe {
+                objc2_ui_kit::UISearchController::initWithSearchResultsController(
+                    objc2_ui_kit::UISearchController::alloc(mtm),
+                    None,
+                )
+            };
+            unsafe {
+                sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(&*handler)));
+                // The results replace the page's own content, so nothing is dimmed.
+                sc.setObscuresBackgroundDuringPresentation(false);
+                let bar = sc.searchBar();
+                bar.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
+                // Already UISearchBar's default; said here because Return means "search".
+                if let Some(field) = search_text_field(&bar) {
+                    send_input_trait(&field, sel!(setReturnKeyType:), UIReturnKeyType::Search.0);
+                }
+                if !text.is_empty() {
+                    bar.setText(Some(&NSString::from_str(text)));
+                }
+                // Mail's: the bar slides away with the content and comes back on a pull.
+                // Pinned for the turn it arrives in, though: a field that joins a page
+                // already on screen (a feed that had to load first) would otherwise start
+                // collapsed, behind a pull nobody knows to make. Showing first and turning
+                // the hiding on once it has drawn is UIKit's own recipe for that.
+                nav_item.setHidesSearchBarWhenScrolling(false);
+                hide_page_search_when_drawn(vc.clone(), 0);
+                // Under the title, at every width: an iPad would otherwise fold it into the
+                // bar's trailing end, away from the page title it searches under.
+                if os_at_least(16) {
+                    nav_item.setPreferredSearchBarPlacement(
+                        objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
+                    );
+                }
+                // A push while the field is active must cover it, not run under it.
+                vc.setDefinesPresentationContext(true);
+            }
+            PAGE_SEARCH.with(|m| {
+                m.borrow_mut().insert(
+                    vc_key(&vc),
+                    PageSearch {
+                        root,
+                        vc: vc.clone(),
+                        sc: sc.clone(),
+                        handler: handler.clone(),
+                    },
+                )
+            });
+            (sc, handler)
         };
         handler.ivars().action.set(item.action);
         unsafe {
@@ -3230,7 +3232,7 @@ mod imp {
                         return;
                     };
                     LAST_LINK_TAP.with(|l| {
-                        *l.borrow_mut() = Some((url.clone(), std::time::Instant::now()))
+                        *l.borrow_mut() = Some((url.clone(), std::time::Instant::now()));
                     });
                     emit(*self.ivars(), Event::LinkActivated(url));
                 });
@@ -3293,7 +3295,9 @@ mod imp {
             if let Some(url) = value.downcast_ref::<objc2_foundation::NSURL>() {
                 return url.absoluteString().map(|s| s.to_string());
             }
-            value.downcast_ref::<NSString>().map(|s| s.to_string())
+            value
+                .downcast_ref::<NSString>()
+                .map(std::string::ToString::to_string)
         }
     }
 
@@ -3323,7 +3327,7 @@ mod imp {
     /// The side-table key for a view: its address, the same key `release` sweeps.
     fn ptr_of_view(v: &UITextView) -> usize {
         let v: &UIView = v.as_ref();
-        v as *const UIView as usize
+        std::ptr::from_ref::<UIView>(v) as usize
     }
 
     /// A label backing that can activate links: a read-only, non-scrolling `UITextView` laid out
@@ -3407,7 +3411,7 @@ mod imp {
             fn simultaneous(&self, a: &UIGestureRecognizer, b: &UIGestureRecognizer) -> bool {
                 day_spec::ffi_guard::contain(false, || {
                     let same_view = match (unsafe { a.view() }, unsafe { b.view() }) {
-                        (Some(x), Some(y)) => std::ptr::eq(&*x, &*y),
+                        (Some(x), Some(y)) => std::ptr::eq(&raw const *x, &raw const *y),
                         _ => false,
                     };
                     if !same_view {
@@ -3462,8 +3466,7 @@ mod imp {
                             // exactly Event::Pinch's contract.
                             let scale = obj
                                 .downcast_ref::<UIPinchGestureRecognizer>()
-                                .map(|p| unsafe { p.scale() })
-                                .unwrap_or(1.0);
+                                .map_or(1.0, |p| unsafe { p.scale() });
                             emit(
                                 node,
                                 Event::Pinch {
@@ -3479,8 +3482,7 @@ mod imp {
                             // exactly Event::Rotate's contract.
                             let rotation = obj
                                 .downcast_ref::<UIRotationGestureRecognizer>()
-                                .map(|r| unsafe { r.rotation() })
-                                .unwrap_or(0.0);
+                                .map_or(0.0, |r| unsafe { r.rotation() });
                             emit(
                                 node,
                                 Event::Rotate {
@@ -3505,7 +3507,7 @@ mod imp {
                                     pan.setTranslation_inView(
                                         CGPoint::new(0.0, 0.0),
                                         view.as_deref(),
-                                    )
+                                    );
                                 };
                                 day_spec::Point::new(t.x, t.y)
                             } else {
@@ -3646,7 +3648,10 @@ mod imp {
 
     /// Default label for a standard role left unlabeled by the app.
     fn ui_role_label(role: day_spec::MenuRole) -> &'static str {
-        use day_spec::MenuRole::*;
+        use day_spec::MenuRole::{
+            About, CheckForUpdates, CloseWindow, Copy, Cut, Delete, Fullscreen, Minimize,
+            NewWindow, Paste, Preferences, Quit, Redo, SelectAll, Undo,
+        };
         match role {
             Cut => "Cut",
             Copy => "Copy",
@@ -3666,10 +3671,10 @@ mod imp {
         }
     }
 
-    /// The UIResponder standard-edit nav host a role routes to (None → a no-op labeled action, since
+    /// The `UIResponder` standard-edit nav host a role routes to (None → a no-op labeled action, since
     /// iOS has no responder equivalent — e.g. Quit/About/window management).
     fn ui_role_selector(role: day_spec::MenuRole) -> Option<objc2::runtime::Sel> {
-        use day_spec::MenuRole::*;
+        use day_spec::MenuRole::{Copy, Cut, Delete, Paste, SelectAll};
         Some(match role {
             Cut => sel!(cut:),
             Copy => sel!(copy:),
@@ -3827,7 +3832,7 @@ mod imp {
         }
     }
 
-    /// Build a single UIAction; `handler` runs on the main thread when chosen.
+    /// Build a single `UIAction`; `handler` runs on the main thread when chosen.
     /// The item's glyph: an SF Symbol for a standard symbol (the shared Apple table), or a
     /// bundled image for an app's own vocabulary — the staged vector first, exactly as every
     /// other image channel resolves (docs/vectors.md).
@@ -3885,7 +3890,7 @@ mod imp {
         Retained::into_super(action)
     }
 
-    /// Lower one run of items (already split on separators) into UIMenuElements.
+    /// Lower one run of items (already split on separators) into `UIMenuElements`.
     fn ui_menu_elements(
         mtm: MainThreadMarker,
         items: &[day_spec::MenuItem],
@@ -3954,7 +3959,7 @@ mod imp {
         out
     }
 
-    /// Build a UIMenu whose children preserve separators as inline sections (the native iOS look).
+    /// Build a `UIMenu` whose children preserve separators as inline sections (the native iOS look).
     fn build_ui_menu(
         mtm: MainThreadMarker,
         title: &str,
@@ -4042,11 +4047,11 @@ mod imp {
         list_vc: std::cell::RefCell<Option<Retained<UIViewController>>>,
         /// Triple-column only: a blank root the SECONDARY stack holds whenever Day has no
         /// detail page. Older runtimes (iOS 16) throw "Cannot display a nested
-        /// UINavigationController with zero viewControllers" the moment a collapse nests an
+        /// `UINavigationController` with zero viewControllers" the moment a collapse nests an
         /// empty column; the placeholder keeps the nav non-empty and `apply_ops` swaps
         /// it for real pages. Never in the `vcs` mirror.
         secondary_placeholder: Option<Retained<UIViewController>>,
-        _split_delegate: Retained<DaySplitDelegate>,
+        split_delegate: Retained<DaySplitDelegate>,
     }
 
     struct NavState {
@@ -4063,7 +4068,7 @@ mod imp {
         /// Pending column request only; native viewControllers remains the stack authority.
         pending_list: std::cell::Cell<Option<(u64, bool)>>,
         column_request: std::cell::Cell<Option<std::time::Instant>>,
-        _delegate: Retained<DayNavDelegate>,
+        delegate: Retained<DayNavDelegate>,
         /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
         /// searchable or its placement resolved elsewhere. Retained here because the navigation
@@ -4234,7 +4239,7 @@ mod imp {
                         }
                     }
                     if *DIAG_NAV {
-                        let sup = unsafe { self.superview() }.map(|v| v.bounds()).unwrap_or(bounds);
+                        let sup = unsafe { self.superview() }.map_or(bounds, |v| v.bounds());
                         let winf = unsafe { self.convertRect_toView(bounds, None) };
                         log::debug!(
                             "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) bleed={} -> report {}x{} super={}x{} hidden={}",
@@ -4422,7 +4427,7 @@ mod imp {
                             // fix).
                             let bar: Retained<UINavigationBar> = Retained::from(bar);
                             modal_after_idle(move || {
-                                for v in unsafe { bar.subviews() }.iter() {
+                                for v in &unsafe { bar.subviews() } {
                                     unsafe { v.setAlpha(1.0) };
                                 }
                             });
@@ -4557,7 +4562,7 @@ mod imp {
             // this very call. Reported as a back it pops day's model, which deselects the row
             // the user was on, and the widened split then fills its empty detail with the first
             // row — the page they were reading replaced by the first one in the list.
-            if CLASS_TRANSITIONS.with(|c| c.get()) > 0 {
+            if CLASS_TRANSITIONS.with(std::cell::Cell::get) > 0 {
                 if *DIAG_NAV {
                     log::debug!(
                         "DAYDIAG pop during a size-class transition: UIKit's own, not reported"
@@ -4958,7 +4963,7 @@ mod imp {
         // collapsed, and only the page that has the controller is touched.
         if search {
             for nav in [&primary_nav, &nav] {
-                for vc in unsafe { nav.viewControllers() }.iter() {
+                for vc in &unsafe { nav.viewControllers() } {
                     let item = unsafe { vc.navigationItem() };
                     if unsafe { item.searchController() }.is_some() {
                         configure_sidebar_search(&item, nav, hides_on_scroll, initially_hidden);
@@ -5096,7 +5101,7 @@ mod imp {
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 let bounds = self.bounds();
-                for v in unsafe { self.subviews() }.iter() {
+                for v in &unsafe { self.subviews() } {
                     unsafe { v.setFrame(bounds) };
                 }
             }
@@ -5161,10 +5166,10 @@ mod imp {
                 day_pages(&state.nav, parts.secondary_placeholder.as_deref()),
                 parts.list_vc.borrow().clone(),
                 parts.container.clone(),
-                parts._split_delegate.clone(),
+                parts.split_delegate.clone(),
                 list_width,
                 triple,
-                state._delegate.clone(),
+                state.delegate.clone(),
             ))
         });
         let Some((
@@ -5272,10 +5277,10 @@ mod imp {
         placeholder: Option<&UIViewController>,
     ) -> Vec<Retained<UIViewController>> {
         let mut out = Vec::new();
-        for vc in unsafe { nav.viewControllers() }.iter() {
+        for vc in &unsafe { nav.viewControllers() } {
             if let Some(nested) = vc.downcast_ref::<objc2_ui_kit::UINavigationController>() {
                 out.extend(day_pages(nested, placeholder));
-            } else if !placeholder.is_some_and(|p| std::ptr::eq(p, &*vc)) {
+            } else if !placeholder.is_some_and(|p| std::ptr::eq(p, &raw const *vc)) {
                 out.push(vc);
             }
         }
@@ -5284,11 +5289,15 @@ mod imp {
 
     /// Whether `vc` is a Day page at all (a nav page's controller, `PAGE_VCS`), and which pane
     /// it was declared for.
+    #[expect(
+        clippy::option_option,
+        reason = "outer `None` is a controller that is no Day page; the inner value is the page's optional pane"
+    )]
     fn pane_of(vc: &UIViewController) -> Option<Option<day_spec::props::Pane>> {
         let handle = PAGE_VCS.with(|m| {
             m.borrow()
                 .iter()
-                .find(|(_, v)| std::ptr::eq(&***v, vc))
+                .find(|(_, v)| std::ptr::eq(&raw const ***v, vc))
                 .map(|(h, _)| *h)
         })?;
         Some(PAGE_PANE.with(|t| t.get(handle)))
@@ -5309,7 +5318,7 @@ mod imp {
                     pane_of(vc),
                     Some(pane) if !matches!(
                         pane,
-                        Some(day_spec::props::Pane::Sidebar) | Some(day_spec::props::Pane::List)
+                        Some(day_spec::props::Pane::Sidebar | day_spec::props::Pane::List)
                     )
                 )
             })
@@ -5334,12 +5343,15 @@ mod imp {
         retry: bool,
         quiet: bool,
     ) {
+        use objc2_ui_kit::{
+            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
+        };
         let current = day_pages(nav, None);
         let unchanged = current.len() == target.len()
             && current
                 .iter()
                 .zip(&target)
-                .all(|(a, b)| std::ptr::eq(&**a, &**b));
+                .all(|(a, b)| std::ptr::eq(&raw const **a, &raw const **b));
         if unchanged {
             settled(host, generation);
             return;
@@ -5361,9 +5373,6 @@ mod imp {
             // No transition: the set applied on the spot.
             settled(host, generation);
             return;
-        };
-        use objc2_ui_kit::{
-            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
         };
         {
             let mtm = MainThreadMarker::new().expect("nav changes run on main");
@@ -5388,7 +5397,7 @@ mod imp {
                         let mtm = MainThreadMarker::new().expect("dispatched to main");
                         let (nav, target) = again.into_inner(mtm);
                         day_spec::ffi_guard::contain((), || {
-                            set_stack(host, generation, &nav, target, false, false)
+                            set_stack(host, generation, &nav, target, false, false);
                         });
                     });
                 },
@@ -5696,11 +5705,16 @@ mod imp {
             for op in ops {
                 match op {
                     NavOp::Push(vc) => {
-                        if !details.iter().any(|v| std::ptr::eq(&**v, &*vc)) {
+                        if !details
+                            .iter()
+                            .any(|v| std::ptr::eq(&raw const **v, &raw const *vc))
+                        {
                             details.push(vc);
                         }
                     }
-                    NavOp::Pop(vc) => details.retain(|v| !std::ptr::eq(&**v, &*vc)),
+                    NavOp::Pop(vc) => {
+                        details.retain(|v| !std::ptr::eq(&raw const **v, &raw const *vc));
+                    }
                 }
             }
             if details.is_empty() {
@@ -5746,7 +5760,7 @@ mod imp {
         for op in ops {
             match op {
                 NavOp::Push(vc) => target.push(vc),
-                NavOp::Pop(vc) => target.retain(|v| !std::ptr::eq(&**v, &*vc)),
+                NavOp::Pop(vc) => target.retain(|v| !std::ptr::eq(&raw const **v, &raw const *vc)),
             }
         }
         let generation = NAV_OPS.with(|q| {
@@ -5800,7 +5814,9 @@ mod imp {
             for op in entry.map(|e| e.ops.as_slice()).unwrap_or_default() {
                 match op {
                     NavOp::Push(vc) => stack.push(vc.clone()),
-                    NavOp::Pop(vc) => stack.retain(|v| !std::ptr::eq(&**v, &**vc)),
+                    NavOp::Pop(vc) => {
+                        stack.retain(|v| !std::ptr::eq(&raw const **v, &raw const **vc));
+                    }
                 }
             }
             stack.last().cloned()
@@ -5821,18 +5837,21 @@ mod imp {
         let stack: Vec<Retained<UIViewController>> =
             unsafe { nav.viewControllers() }.iter().collect();
         for (i, entry) in stack.iter().enumerate() {
-            if std::ptr::eq(&**entry, vc) {
+            if std::ptr::eq(&raw const **entry, vc) {
                 let below = (i > 0).then(|| stack[i - 1].clone());
                 return Some((nav.retain(), below));
             }
             if let Some(nested) = entry.downcast_ref::<objc2_ui_kit::UINavigationController>() {
                 let inner: Vec<Retained<UIViewController>> =
                     unsafe { nested.viewControllers() }.iter().collect();
-                if inner.first().is_some_and(|r| std::ptr::eq(&**r, vc)) {
+                if inner
+                    .first()
+                    .is_some_and(|r| std::ptr::eq(&raw const **r, vc))
+                {
                     let below = (i > 0).then(|| stack[i - 1].clone());
                     return Some((nav.retain(), below));
                 }
-                if let Some(j) = inner.iter().position(|v| std::ptr::eq(&**v, vc)) {
+                if let Some(j) = inner.iter().position(|v| std::ptr::eq(&raw const **v, vc)) {
                     return Some((nested.retain(), Some(inner[j - 1].clone())));
                 }
             }
@@ -5850,7 +5869,7 @@ mod imp {
                 if let Some(s) = m.borrow().get(&host) {
                     s.day_pop.set(on);
                 }
-            })
+            });
         };
         set(true);
         f();
@@ -6102,21 +6121,19 @@ mod imp {
                     if *DIAG_NAV {
                         let host = self.ivars().host.get();
                         let (mirror, active) = NAV_STATE.with(|m| {
-                            m.borrow()
-                                .get(&host)
-                                .map(|s| {
-                                    let a = s.active_nav();
-                                    (
-                                        day_pages(&a, None).len(),
-                                        std::ptr::addr_eq(
-                                            (&*a as *const DayNavController)
-                                                .cast::<std::ffi::c_void>(),
-                                            (nav as *const objc2_ui_kit::UINavigationController)
-                                                .cast::<std::ffi::c_void>(),
-                                        ),
-                                    )
-                                })
-                                .unwrap_or((0, false))
+                            m.borrow().get(&host).map_or((0, false), |s| {
+                                let a = s.active_nav();
+                                (
+                                    day_pages(&a, None).len(),
+                                    std::ptr::addr_eq(
+                                        (&raw const *a).cast::<std::ffi::c_void>(),
+                                        std::ptr::from_ref::<objc2_ui_kit::UINavigationController>(
+                                            nav,
+                                        )
+                                        .cast::<std::ffi::c_void>(),
+                                    ),
+                                )
+                            })
                         });
                         log::debug!(
                             "DAYDIAG didShow host={host:x} native={} mirror={mirror} active={active}",
@@ -6208,7 +6225,7 @@ mod imp {
         unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
     }
 
-    /// Whether the screen `window` shows on is being recorded, mirrored or AirPlayed. iOS 17
+    /// Whether the screen `window` shows on is being recorded, mirrored or `AirPlayed`. iOS 17
     /// moved the answer onto the scene's trait collection and deprecated the screen's flag; the
     /// older spelling stays for the earlier releases this backend supports.
     fn window_captured(window: &UIWindow) -> bool {
@@ -6273,7 +6290,7 @@ mod imp {
 
     /// Record a scene's shield window (or its removal) against the scene that owns `window`.
     fn store_shield(window: &UIWindow, shield: Option<Retained<UIWindow>>) {
-        let wp = window as *const UIWindow as usize;
+        let wp = std::ptr::from_ref::<UIWindow>(window) as usize;
         SCENES.with(|s| {
             if let Some(e) = s
                 .borrow()
@@ -6287,7 +6304,7 @@ mod imp {
 
     /// Day `Edges` bits → `UIRectEdge` (leading/trailing map to left/right).
     fn rect_edges() -> UIRectEdge {
-        let bits = DEFER_EDGES.with(|e| e.get());
+        let bits = DEFER_EDGES.with(std::cell::Cell::get);
         let mut edge = UIRectEdge::empty();
         if bits & Edges::TOP.0 != 0 {
             edge |= UIRectEdge::Top;
@@ -6311,7 +6328,7 @@ mod imp {
         if depth == 0 {
             return None;
         }
-        for child in unsafe { view.subviews() }.iter() {
+        for child in &unsafe { view.subviews() } {
             if let Some(scroll) = first_content_scroll(&child, depth - 1) {
                 return Some(scroll);
             }
@@ -6368,7 +6385,7 @@ mod imp {
                     });
                 if at_top {
                     PAGE_RESTORE_TOP.with(|p| {
-                        p.borrow_mut().insert(self as *const Self as usize);
+                        p.borrow_mut().insert(std::ptr::from_ref::<Self>(self) as usize);
                     });
                 }
             }
@@ -6377,7 +6394,7 @@ mod imp {
             fn view_did_layout_subviews(&self) {
                 unsafe {
                     let _: () = msg_send![super(self), viewDidLayoutSubviews];
-                    let key = self as *const Self as usize;
+                    let key = std::ptr::from_ref::<Self>(self) as usize;
                     if PAGE_RESTORE_TOP.with(|p| p.borrow_mut().remove(&key))
                         && let Some(view) = self.viewIfLoaded()
                         && let Some(scroll) = first_content_scroll(&view, 12)
@@ -6490,7 +6507,7 @@ mod imp {
             /// while its window is fullscreen (docs/windows.md).
             #[unsafe(method(prefersStatusBarHidden))]
             fn prefers_status_bar_hidden(&self) -> bool {
-                STATUS_BAR_HIDDEN.with(|h| h.get()) || vc_window_fullscreen(self)
+                STATUS_BAR_HIDDEN.with(std::cell::Cell::get) || vc_window_fullscreen(self)
             }
 
             /// And for the home indicator, which fades while the window is fullscreen.
@@ -6577,15 +6594,15 @@ mod imp {
             #[unsafe(method(undo))]
             fn do_undo(&self) {
                 day_spec::ffi_guard::contain((), || {
-                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: false })
-                })
+                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: false });
+                });
             }
 
             #[unsafe(method(redo))]
             fn do_redo(&self) {
                 day_spec::ffi_guard::contain((), || {
-                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: true })
-                })
+                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: true });
+                });
             }
 
             #[unsafe(method_id(undoMenuItemTitle))]
@@ -6634,7 +6651,7 @@ mod imp {
             /// stays nil, so one answer covers every page.
             #[unsafe(method(prefersStatusBarHidden))]
             fn prefers_status_bar_hidden(&self) -> bool {
-                STATUS_BAR_HIDDEN.with(|h| h.get()) || vc_window_fullscreen(self)
+                STATUS_BAR_HIDDEN.with(std::cell::Cell::get) || vc_window_fullscreen(self)
             }
 
             #[unsafe(method(preferredStatusBarUpdateAnimation))]
@@ -6676,13 +6693,14 @@ mod imp {
                     dyn objc2_ui_kit::UIViewControllerTransitionCoordinator,
                 >,
             ) {
-                let _: () = unsafe {
-                    msg_send![
+                // SAFETY: forwards the override's own arguments to the superclass implementation.
+                unsafe {
+                    let () = msg_send![
                         super(self),
                         willTransitionToTraitCollection: traits,
                         withTransitionCoordinator: coordinator,
-                    ]
-                };
+                    ];
+                }
                 day_spec::ffi_guard::contain((), || begin_class_transition(coordinator));
             }
         }
@@ -6762,16 +6780,20 @@ mod imp {
                             bar.setFrame(CGRect::new(
                                 CGPoint::new(0.0, insets.top),
                                 CGSize::new(bounds.size.width, h),
-                            ))
+                            ));
                         };
                         inner.origin.y += h;
                         inner.size.height = (inner.size.height - h).max(0.0);
                     }
-                    if inner.origin.x == base.origin.x
+                    #[expect(
+                        clippy::float_cmp,
+                        reason = "unchanged-frame check against the exact frame stored last time"
+                    )]
+                    let unchanged = inner.origin.x == base.origin.x
                         && inner.origin.y == base.origin.y
                         && inner.size.width == base.size.width
-                        && inner.size.height == base.size.height
-                    {
+                        && inner.size.height == base.size.height;
+                    if unchanged {
                         return;
                     }
                     // Stored before `emit`, and with the registry borrow already dropped: the
@@ -6915,13 +6937,13 @@ mod imp {
         /// The `UITab` per page, parallel to `vcs`. Each carries its index as its IDENTIFIER,
         /// which is what turns a delegate callback back into a Day row and what `Select` looks up.
         tabs: Vec<Retained<objc2_ui_kit::UITab>>,
-        /// Row labels, glyphs and badges from the host's NAV_MENU, which is where a nav host's
+        /// Row labels, glyphs and badges from the host's `NAV_MENU`, which is where a nav host's
         /// rows live. Kept current by the menu's `NavMenuPatch::Items` (a language change, a
         /// badge count), which re-syncs the tabs.
         rows: NavTabRows,
-        /// The NAV_MENU's view, which is how that patch finds the host it feeds.
+        /// The `NAV_MENU`'s view, which is how that patch finds the host it feeds.
         menu_view: std::cell::Cell<usize>,
-        /// The NAV_MENU's node — a tab tap emits against it, exactly as a sidebar row click does,
+        /// The `NAV_MENU`'s node — a tab tap emits against it, exactly as a sidebar row click does,
         /// so the two are one event to everything above this backend.
         menu_node: std::cell::Cell<i64>,
         /// Suppresses the echo while Day drives the controller.
@@ -6948,7 +6970,7 @@ mod imp {
     fn enclosing_tabs_host(v: &UIView) -> Option<usize> {
         let mut cur = Some(v.retain());
         while let Some(view) = cur {
-            let p = ptr_of(&view_of(view.clone()));
+            let p = ptr_of(&view_of(&view));
             if NAV_TABS.with(|m| m.borrow().contains_key(&p)) {
                 return Some(p);
             }
@@ -6981,7 +7003,7 @@ mod imp {
             fn did_select_vc(&self, _tabbar: &UITabBarController, selected: &UIViewController) {
                 day_spec::ffi_guard::contain((), || {
                     let sel = ptr_of(&view_of(
-                        unsafe { selected.view() }.expect("selected page view"),
+                        &unsafe { selected.view() }.expect("selected page view"),
                     ));
                     let found = NAV_TABS.with(|m| {
                         let m = m.borrow();
@@ -6991,7 +7013,7 @@ mod imp {
                         }
                         t.pending_selection.set(None);
                         let idx = t.vcs.iter().position(|vc| {
-                            unsafe { vc.view() }.is_some_and(|v| ptr_of(&view_of(v)) == sel)
+                            unsafe { vc.view() }.is_some_and(|v| ptr_of(&view_of(&v)) == sel)
                         })?;
                         Some((t.menu_node.get(), idx as i64))
                     });
@@ -7167,7 +7189,7 @@ mod imp {
                     // rows change — leaves two tabs claiming one controller, and UIKit
                     // asserts in `-[UITab viewController]` the moment it resolves the
                     // second. Only the title and the glyph are re-applied.
-                    let key = ptr_of(&view_of(unsafe { vc.view() }.expect("page view")));
+                    let key = ptr_of(&view_of(&unsafe { vc.view() }.expect("page view")));
                     if let Some(existing) = t
                         .tabs
                         .iter()
@@ -7207,7 +7229,7 @@ mod imp {
         let Some((tabbar, tabs)) = built else { return };
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow_mut().get_mut(&host) {
-                t.tabs = tabs.clone();
+                t.tabs.clone_from(&tabs);
                 t.suppress.set(true);
             }
         });
@@ -7393,8 +7415,7 @@ mod imp {
             ) -> isize {
                 self.groups()
                     .get(section as usize)
-                    .map(|(_, _, len)| *len as isize)
-                    .unwrap_or(0)
+                    .map_or(0, |(_, _, len)| *len as isize)
             }
 
             /// The section's heading, as a list HEADER supplementary (docs/navigation.md).
@@ -7467,7 +7488,12 @@ mod imp {
                     .get(row)
                     .cloned()
                     .unwrap_or_else(|| NSString::from_str(""));
-                let img = self.ivars().icons.borrow().get(row).and_then(|o| o.clone());
+                let img = self
+                    .ivars()
+                    .icons
+                    .borrow()
+                    .get(row)
+                    .and_then(std::clone::Clone::clone);
                 let tint = self.ivars().tints.borrow().get(row).copied().flatten();
                 let badge_text = self.ivars().badges.borrow().get(row).cloned().flatten();
                 let bimg = self
@@ -7475,7 +7501,7 @@ mod imp {
                     .badge_icons
                     .borrow()
                     .get(row)
-                    .and_then(|o| o.clone());
+                    .and_then(std::clone::Clone::clone);
                 let btint = self
                     .ivars()
                     .badge_tints
@@ -7625,7 +7651,7 @@ mod imp {
     );
 
     /// Load a bundled image by NAME for a nav/tab icon (docs/navigation.md): by-name from the
-    /// DayPieces asset catalog first — the reliable iOS path, same as the `image()` piece — then a
+    /// `DayPieces` asset catalog first — the reliable iOS path, same as the `image()` piece — then a
     /// loose staged file (dev / assets). Callers apply `.alwaysTemplate` so it tints with the
     /// control's color.
     /// The bundle Day's staged glyphs live in — the SwiftPM resource bundle the Apple stager
@@ -7798,11 +7824,16 @@ mod imp {
     /// Only for callers that hold NO borrow of `NAV_MENUS` and no `DayNavTableData` of their own.
     /// The ones that do call [`select_nav_path`] with `path_of` applied to the data they already
     /// have: this lookup borrows the map, and doing that from inside a `borrow_mut` panicked the
-    /// whole nav build ("RefCell already mutably borrowed", contained at the FFI boundary, so the
+    /// whole nav build ("`RefCell` already mutably borrowed", contained at the FFI boundary, so the
     /// app came up with no navigation host at all).
     fn select_nav_row(cv: &objc2_ui_kit::UICollectionView, row: Option<usize>) {
         let path = row.and_then(|r| {
-            NAV_MENUS.with(|m| m.borrow().get(&ptr_of(&view_of(cv.retain())))?.0.path_of(r))
+            NAV_MENUS.with(|m| {
+                m.borrow()
+                    .get(&ptr_of(&view_of(&cv.retain())))?
+                    .0
+                    .path_of(r)
+            })
         });
         select_nav_path(cv, path);
     }
@@ -7858,7 +7889,7 @@ mod imp {
                 tints: RefCell::new(tints.to_vec()),
                 menus: RefCell::new(menus.to_vec()),
                 sections: RefCell::new(sections.to_vec()),
-                headers: std::cell::Cell::new(sections.iter().any(|s| s.is_some())),
+                headers: std::cell::Cell::new(sections.iter().any(std::option::Option::is_some)),
             });
             unsafe { msg_send![super(this), init] }
         }
@@ -7947,7 +7978,7 @@ mod imp {
         ds: RefCell<
             Option<Retained<objc2_ui_kit::UICollectionViewDiffableDataSource<NSObject, NSObject>>>,
         >,
-        /// token → its interned NSNumber: the diffable identifiers compare by isEqual, and
+        /// token → its interned `NSNumber`: the diffable identifiers compare by isEqual, and
         /// One object per token also keeps snapshot identity stable across reloads.
         items: RefCell<HashMap<u64, Retained<objc2_foundation::NSNumber>>>,
         /// Disclosure by token, as last patched — what a rebuilt snapshot restores.
@@ -8092,7 +8123,7 @@ mod imp {
             unsafe { msg_send![super(this), init] }
         }
 
-        /// The same NSNumber for a token, every time (see `TreeIvars::items`).
+        /// The same `NSNumber` for a token, every time (see `TreeIvars::items`).
         fn intern(&self, token: u64) -> Retained<objc2_foundation::NSNumber> {
             self.ivars()
                 .items
@@ -8104,7 +8135,7 @@ mod imp {
 
         fn token_of_item(item: &AnyObject) -> Option<u64> {
             item.downcast_ref::<objc2_foundation::NSNumber>()
-                .map(|n| n.as_u64())
+                .map(objc2_foundation::NSNumber::as_u64)
         }
 
         /// The one section's identifier (a lone list has exactly one).
@@ -8121,7 +8152,7 @@ mod imp {
             let Some(ds) = ds else { return };
             let mut tokens = Vec::new();
             if let Some(paths) = cv.indexPathsForSelectedItems() {
-                for ip in paths.iter() {
+                for ip in &paths {
                     if let Some(tok) = ds
                         .itemIdentifierForIndexPath(&ip)
                         .and_then(|it| Self::token_of_item(&it))
@@ -8249,8 +8280,7 @@ mod imp {
                 attrs.setFrame(frame);
                 unsafe {
                     Retained::retain(
-                        attrs as *const objc2_ui_kit::UICollectionViewLayoutAttributes
-                            as *mut objc2_ui_kit::UICollectionViewLayoutAttributes,
+                        std::ptr::from_ref::<objc2_ui_kit::UICollectionViewLayoutAttributes>(attrs).cast_mut(),
                     )
                 }
                 .expect("attributes retained")
@@ -8307,7 +8337,12 @@ mod imp {
                         // it, and the table's width again once editing ends.
                         let full = table.bounds().size.width;
                         let reported = self.ivars().reported.get();
-                        if (width - full).abs() < 0.5 && (reported == 0.0 || reported == width) {
+                        #[expect(
+                            clippy::float_cmp,
+                            reason = "0.0 is the never-reported sentinel and `reported` holds the exact width sent last"
+                        )]
+                        let settled = reported == 0.0 || reported == width;
+                        if (width - full).abs() < 0.5 && settled {
                             break;
                         }
                         let entry = LIST_STATE.with(|m| {
@@ -8413,12 +8448,12 @@ mod imp {
         }
     }
 
-    /// `dealloc` (the macro routes `Drop` there): UITableView is done with this cell for good.
+    /// `dealloc` (the macro routes `Drop` there): `UITableView` is done with this cell for good.
     /// It reuses queued cells but also discards surplus ones, and every discarded cell used to
     /// leave the row Day built in its content view behind in day-core. Release that row
     /// (docs/list.md). Posted, because a cell can deallocate inside a reload Day is applying.
     /// Nothing is retained here: a first version took the content view and the list entry
-    /// along on the post, and UITableView then died on its own "dataSource is not set"
+    /// along on the post, and `UITableView` then died on its own "dataSource is not set"
     /// assertion mid-layout on iOS 18; copying the addresses recorded at creation does not.
     /// The content key stays this cell's until the release runs, because day-core holds the
     /// content view until then; the node id keeps a later table at the same address from
@@ -8694,8 +8729,7 @@ mod imp {
                                 .and_then(|t| unsafe {
                                     t.indexPathForRowAtPoint(CGPoint::new(0.0, offset))
                                 })
-                                .map(|ip| self.display_of(&ip))
-                                .unwrap_or(0)
+                                .map_or(0, |ip| self.display_of(&ip))
                         } else {
                             (offset / self.ivars().row_height.get().max(1.0)) as usize
                         };
@@ -8716,8 +8750,7 @@ mod imp {
                         .source
                         .borrow()
                         .as_ref()
-                        .map(|s| (s.len)())
-                        .unwrap_or(0);
+                        .map_or(0, |s| (s.len)());
                     if !self.ivars().sections {
                         return len as isize;
                     }
@@ -8836,7 +8869,7 @@ mod imp {
                             tv.deleteRowsAtIndexPaths_withRowAnimation(
                                 &paths,
                                 objc2_ui_kit::UITableViewRowAnimation::Automatic,
-                            )
+                            );
                         };
                     }
                 });
@@ -9336,7 +9369,7 @@ mod imp {
                     day_spec::ffi_guard::contain((), || {
                         perform(row, edge, index);
                         unsafe { done.as_ref().call((objc2::runtime::Bool::YES,)) };
-                    })
+                    });
                 },
             );
             let style = if a.destructive {
@@ -9385,14 +9418,14 @@ mod imp {
         impl DayFocusableContainer {
             #[unsafe(method(canBecomeFirstResponder))]
             fn can_become_first_responder(&self) -> bool {
-                KEY_NODES.with(|t| t.get((self as *const Self).cast::<UIView>() as usize)).is_some()
+                KEY_NODES.with(|t| t.get(std::ptr::from_ref::<Self>(self).cast::<UIView>() as usize)).is_some()
             }
 
             #[unsafe(method(becomeFirstResponder))]
             fn become_first_responder(&self) -> bool {
                 let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
                 if became {
-                    let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                    let ptr = std::ptr::from_ref::<DayFocusableContainer>(self).cast::<UIView>() as usize;
                     if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                         day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
                     }
@@ -9404,7 +9437,7 @@ mod imp {
             fn resign_first_responder(&self) -> bool {
                 let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
                 if resigned {
-                    let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                    let ptr = std::ptr::from_ref::<DayFocusableContainer>(self).cast::<UIView>() as usize;
                     if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                         day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
                     }
@@ -9435,7 +9468,7 @@ mod imp {
                 presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
                 event: Option<&objc2_ui_kit::UIPressesEvent>,
             ) {
-                let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                let ptr = std::ptr::from_ref::<DayFocusableContainer>(self).cast::<UIView>() as usize;
                 let handled = day_spec::ffi_guard::contain(false, || {
                     let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
                         return false;
@@ -9444,7 +9477,7 @@ mod imp {
                         return false;
                     }
                     let mut any = false;
-                    for press in presses.iter() {
+                    for press in presses {
                         let Some(key) = (unsafe { press.key(self.mtm()) }) else {
                             continue;
                         };
@@ -9488,7 +9521,7 @@ mod imp {
         impl DayCanvasView {
             #[unsafe(method(drawRect:))]
             fn draw_rect(&self, _dirty: CGRect) {
-                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                 let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
                 paint_ops(&ops);
             }
@@ -9515,7 +9548,7 @@ mod imp {
             // docs say so.
             #[unsafe(method(conformsToProtocol:))]
             fn conforms_to_protocol(&self, protocol: &objc2::runtime::AnyProtocol) -> bool {
-                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                 let takes_keyboard = KEY_NODES
                     .with(|t| t.get(ptr))
                     .is_some_and(|node| day_spec::ffi_guard::contain(false, || day_spec::keys::text(node)));
@@ -9539,7 +9572,7 @@ mod imp {
 
             #[unsafe(method(insertText:))]
             fn insert_text(&self, text: &NSString) {
-                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                 let text = text.to_string();
                 if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                     day_spec::ffi_guard::contain((), || emit_inserted_text(node, &text));
@@ -9548,7 +9581,7 @@ mod imp {
 
             #[unsafe(method(deleteBackward))]
             fn delete_backward(&self) {
-                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                 if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                     day_spec::ffi_guard::contain((), || {
                         emit(node, Event::Key(day_spec::KeyEvent::named("Backspace", 0)));
@@ -9600,7 +9633,7 @@ mod imp {
             fn become_first_responder(&self) -> bool {
                 let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
                 if became {
-                    let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                    let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                     if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                         day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
                     }
@@ -9612,7 +9645,7 @@ mod imp {
             fn resign_first_responder(&self) -> bool {
                 let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
                 if resigned {
-                    let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                    let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                     if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                         day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
                     }
@@ -9635,7 +9668,7 @@ mod imp {
             ) -> Option<Retained<UIView>> {
                 let hit: Option<Retained<UIView>> =
                     unsafe { msg_send![super(self), hitTest: point, withEvent: event] };
-                let this = (self as *const DayCanvasView).cast::<UIView>();
+                let this = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>();
                 let is_self = hit.as_ref().is_some_and(|h| std::ptr::eq(Retained::as_ptr(h), this));
                 let recognizes = unsafe { self.gestureRecognizers() }.is_some_and(|g| g.count() > 0);
                 let interacts = unsafe { self.interactions() }.count() > 0;
@@ -9668,7 +9701,7 @@ mod imp {
                 presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
                 event: Option<&objc2_ui_kit::UIPressesEvent>,
             ) {
-                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                 // The presses this canvas did not claim go to `super` together, so a text
                 // press in the same set as a claimed arrow still reaches the text input
                 // system, and a set nobody wanted walks the responder chain as before.
@@ -9682,7 +9715,7 @@ mod imp {
                         }
                         let full = day_spec::keys::text(node);
                         let mut rest = Vec::new();
-                        for press in presses.iter() {
+                        for press in presses {
                             let claimed = match unsafe { press.key(self.mtm()) } {
                                 Some(key) if full => full_route_press(&key),
                                 Some(key) => key_name(&key).map(|name| {
@@ -9863,7 +9896,7 @@ mod imp {
             RefCell::new(HashMap::new());
     }
 
-    /// Put `ButtonProps::selected` on a UIButton. `isSelected` is the control's own state, from
+    /// Put `ButtonProps::selected` on a `UIButton`. `isSelected` is the control's own state, from
     /// which VoiceOver adds the selected trait; the look is the system's tinted configuration,
     /// the treatment iOS gives a chosen filter chip, and deselecting restores the button's own
     /// style. A touch never toggles `isSelected`, so nothing has to be put back after a press.
@@ -9889,7 +9922,7 @@ mod imp {
         }
     }
 
-    /// Put a [`day_spec::props::ButtonStyleSpec`] on a `UIButton`, keeping it a UIButton.
+    /// Put a [`day_spec::props::ButtonStyleSpec`] on a `UIButton`, keeping it a `UIButton`.
     ///
     /// Bordered / Prominent map to `UIButtonConfiguration` tiers (iOS 15+) — the plain system
     /// button reads as a LINK, not a button. A tint is the FILLED configuration with
@@ -9933,8 +9966,8 @@ mod imp {
         unsafe { UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a) }
     }
 
-    /// Apply a `background`/`corner_radius` surface to a container view: UIView carries a native
-    /// `backgroundColor`; the corner radius / rounded clip go on its typed CALayer
+    /// Apply a `background`/`corner_radius` surface to a container view: `UIView` carries a native
+    /// `backgroundColor`; the corner radius / rounded clip go on its typed `CALayer`
     /// (objc2-quartz-core). Idempotent — called at realize and on a background patch.
     fn apply_surface(v: &UIView, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
         unsafe {
@@ -10427,7 +10460,7 @@ mod imp {
         image: &objc2_ui_kit::UIImage,
         pixels: Size,
         scale: f64,
-    ) -> Option<Retained<objc2_ui_kit::UIImage>> {
+    ) -> Retained<objc2_ui_kit::UIImage> {
         use objc2::AllocAnyThread as _;
         let w = (pixels.width * scale).round().max(1.0);
         let h = (pixels.height * scale).round().max(1.0);
@@ -10445,15 +10478,14 @@ mod imp {
         };
         let src: Retained<objc2_ui_kit::UIImage> = Retained::from(image);
         // SAFETY: the renderer runs the block synchronously, inside this call.
-        let out = unsafe {
+        unsafe {
             let block = block2::RcBlock::new(
                 move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
                     src.drawInRect(bounds);
                 },
             );
-            renderer.imageWithActions(&*block as *const _ as *mut _)
-        };
-        Some(out)
+            renderer.imageWithActions(&raw const *block as *mut _)
+        }
     }
 
     /// Re-encode a decoded bitmap (docs/images.md).
@@ -10475,7 +10507,7 @@ mod imp {
                     .min(fit.height / info.pixels.height)
                     .min(1.0);
                 if s < 1.0 {
-                    scaled_image(&image, info.pixels, s).ok_or(day_spec::ImageError::Encode)?
+                    scaled_image(&image, info.pixels, s)
                 } else {
                     image
                 }
@@ -10664,7 +10696,7 @@ mod imp {
                         PathSeg::Move(a) => CGContext::move_to_point(Some(ctx), a.x, a.y),
                         PathSeg::Line(a) => CGContext::add_line_to_point(Some(ctx), a.x, a.y),
                         PathSeg::Quad(c, a) => {
-                            CGContext::add_quad_curve_to_point(Some(ctx), c.x, c.y, a.x, a.y)
+                            CGContext::add_quad_curve_to_point(Some(ctx), c.x, c.y, a.x, a.y);
                         }
                         PathSeg::Cubic(c1, c2, a) => CGContext::add_curve_to_point(
                             Some(ctx),
@@ -10721,7 +10753,7 @@ mod imp {
                     style.dash_phase,
                     pattern.as_ptr(),
                     pattern.len(),
-                )
+                );
             };
         }
     }
@@ -10770,7 +10802,7 @@ mod imp {
                     day_spec::ffi_guard::contain((), || paint_ops(&ops));
                 },
             );
-            renderer.imageWithActions(&*block as *const _ as *mut _)
+            renderer.imageWithActions(&raw const *block as *mut _)
         };
         // A renderer that could not allocate its backing store hands back an empty image
         // rather than an error; that is the only refusal UIKit reports here.
@@ -10781,7 +10813,7 @@ mod imp {
             )));
         }
         let info = day_spec::BitmapInfo {
-            pixels: Size::new(pw as f64, ph as f64),
+            pixels: Size::new(f64::from(pw), f64::from(ph)),
             scale,
             format: None,
             has_alpha: true,
@@ -10809,12 +10841,14 @@ mod imp {
         // and CFString is toll-free bridged with NSString, so the pointer reads as one.
         let (title_key, author_key) = unsafe {
             (
-                &*(objc2_core_graphics::kCGPDFContextTitle
-                    as *const objc2_core_foundation::CFString)
-                    .cast::<NSString>(),
-                &*(objc2_core_graphics::kCGPDFContextAuthor
-                    as *const objc2_core_foundation::CFString)
-                    .cast::<NSString>(),
+                &*std::ptr::from_ref::<objc2_core_foundation::CFString>(
+                    objc2_core_graphics::kCGPDFContextTitle,
+                )
+                .cast::<NSString>(),
+                &*std::ptr::from_ref::<objc2_core_foundation::CFString>(
+                    objc2_core_graphics::kCGPDFContextAuthor,
+                )
+                .cast::<NSString>(),
             )
         };
         for (key, value) in [(title_key, &info.title), (author_key, &info.author)] {
@@ -10850,7 +10884,7 @@ mod imp {
                     });
                 },
             );
-            renderer.PDFDataWithActions(&*block as *const _ as *mut _)
+            renderer.PDFDataWithActions(&raw const *block as *mut _)
         };
         if data.is_empty() {
             return Err(day_spec::ExportError::Failed(
@@ -10910,7 +10944,7 @@ mod imp {
                     v.drawViewHierarchyInRect_afterScreenUpdates(v.bounds(), true);
                 },
             );
-            renderer.imageWithActions(&*block as *const _ as *mut _)
+            renderer.imageWithActions(&raw const *block as *mut _)
         };
         let data = image.png_representation().ok_or("png encode failed")?;
         Ok(data.to_vec())
@@ -11025,6 +11059,7 @@ mod imp {
     }
 
     impl Uikit {
+        #[must_use]
         pub fn new() -> Self {
             let mut registry = Registry::default();
             for f in RENDERERS {
@@ -11053,6 +11088,7 @@ mod imp {
         /// The main-thread marker every UIKit call needs, for a standalone piece's renderer
         /// (docs/extending.md) — the same accessor day-toolkit-appkit offers. Sound for the same reason
         /// the free function above is: holding `&mut Uikit` means a Toolkit duty is running.
+        #[must_use]
         pub fn mtm(&self) -> MainThreadMarker {
             mtm()
         }
@@ -11125,7 +11161,7 @@ mod imp {
         }
     }
 
-    /// Day `Role` → the UIAccessibility trait bit to add (explicit canvas/custom roles only —
+    /// Day `Role` → the `UIAccessibility` trait bit to add (explicit canvas/custom roles only —
     /// native controls self-describe, §13). UIKit has no toggle/meter trait, so those are `None`.
     fn ui_traits(role: day_spec::Role) -> Option<objc2_ui_kit::UIAccessibilityTraits> {
         use day_spec::Role;
@@ -11147,7 +11183,7 @@ mod imp {
         }
     }
 
-    /// Native UIAccessibility traits → Day `Role` (best-effort, for `read_native`/`a11y_audit`).
+    /// Native `UIAccessibility` traits → Day `Role` (best-effort, for `read_native`/`a11y_audit`).
     fn day_role_from_traits(t: objc2_ui_kit::UIAccessibilityTraits) -> day_spec::Role {
         use day_spec::Role;
         use objc2_ui_kit::{
@@ -11333,6 +11369,10 @@ mod imp {
             Font::Title => 28.0,
             Font::Title2 => 22.0,
             Font::Title3 => 20.0,
+            #[expect(
+                clippy::match_same_arms,
+                reason = "one row per text style, in the order of Apple's Dynamic Type table"
+            )]
             Font::Headline => 17.0,
             Font::Subheadline => 15.0,
             Font::Body => 17.0,
@@ -11340,8 +11380,7 @@ mod imp {
             Font::Footnote => 13.0,
             Font::Caption => 12.0,
             Font::Caption2 => 11.0,
-            Font::System(pt) => pt,
-            Font::Custom(_, pt) => pt,
+            Font::System(pt) | Font::Custom(_, pt) => pt,
         }
     }
 
@@ -11354,7 +11393,7 @@ mod imp {
             Font::System(pt) => unsafe {
                 // A custom size, weighted, then run through UIFontMetrics so it also honors Dynamic
                 // Type (accessibility text scale) instead of being a fixed pixel size.
-                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let w = spec.weight.map_or(UIFontWeightRegular, ui_weight);
                 let raw = UIFont::systemFontOfSize_weight(pt, w);
                 UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
             },
@@ -11363,16 +11402,16 @@ mod imp {
             // tracks Dynamic Type. Unknown families fall back to the system font, loudly. A
             // weight override maps to the bold trait below (the family decides what it has).
             Font::Custom(name, pt) => unsafe {
-                let raw = match UIFont::fontWithName_size(&NSString::from_str(name), pt) {
-                    Some(f) => f,
-                    None => {
-                        log::warn!(
-                            "unknown font family {name:?} — falling back to the system \
-                             font (is the file in the project's fonts/ directory?)"
-                        );
-                        let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
-                        UIFont::systemFontOfSize_weight(pt, w)
-                    }
+                let raw = if let Some(f) = UIFont::fontWithName_size(&NSString::from_str(name), pt)
+                {
+                    f
+                } else {
+                    log::warn!(
+                        "unknown font family {name:?} — falling back to the system \
+                         font (is the file in the project's fonts/ directory?)"
+                    );
+                    let w = spec.weight.map_or(UIFontWeightRegular, ui_weight);
+                    UIFont::systemFontOfSize_weight(pt, w)
                 };
                 UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
             },
@@ -11405,7 +11444,9 @@ mod imp {
         {
             extra |= UIFontDescriptorSymbolicTraits::TraitBold;
         }
-        let font = if !extra.is_empty() {
+        let font = if extra.is_empty() {
+            base
+        } else {
             unsafe {
                 let desc = base.fontDescriptor();
                 let traits = desc.symbolicTraits() | extra;
@@ -11414,8 +11455,6 @@ mod imp {
                     None => base,
                 }
             }
-        } else {
-            base
         };
         // Tabular figures: UIKit exposes them as a whole font (like AppKit), so re-pick the
         // system face at the resolved size/weight. System styles only — a bundled family keeps
@@ -11423,7 +11462,7 @@ mod imp {
         // still goes through UIFontMetrics below, so Dynamic Type keeps working.
         let font = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
             unsafe {
-                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let w = spec.weight.map_or(UIFontWeightRegular, ui_weight);
                 let raw = UIFont::monospacedDigitSystemFontOfSize_weight(font.pointSize(), w);
                 UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
             }
@@ -11434,7 +11473,7 @@ mod imp {
         // on UIKit too, kept inside UIFontMetrics so inline code still scales with Dynamic Type.
         let font = if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
             unsafe {
-                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let w = spec.weight.map_or(UIFontWeightRegular, ui_weight);
                 let raw = UIFont::monospacedSystemFontOfSize_weight(font.pointSize(), w);
                 UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
             }
@@ -11444,10 +11483,15 @@ mod imp {
         // Relative size (`FontSpec::scale`), applied last over whatever face the traits settled
         // on. `fontWithSize:` keeps the typeface, and because the size it scales is the one
         // Dynamic Type already produced, a scaled run keeps tracking the reader's setting.
-        if spec.scale != 1.0 {
-            unsafe { font.fontWithSize(spec.resolved_points(font.pointSize())) }
-        } else {
+        #[expect(
+            clippy::float_cmp,
+            reason = "1.0 is the exact unscaled default of `FontSpec::scale`"
+        )]
+        let unscaled = spec.scale == 1.0;
+        if unscaled {
             font
+        } else {
+            unsafe { font.fontWithSize(spec.resolved_points(font.pointSize())) }
         }
     }
 
@@ -11473,7 +11517,7 @@ mod imp {
             // Always a foreground: a UITextView draws an attributed range with no color
             // attribute in black, which is invisible in dark mode. `labelColor` is the adaptive
             // default a plain label would have used.
-            let fg = color.map(uicolor).unwrap_or_else(UIColor::labelColor);
+            let fg = color.map_or_else(UIColor::labelColor, uicolor);
             s.addAttribute_value_range(objc2_ui_kit::NSForegroundColorAttributeName, &fg, whole);
         }
         for r in runs {
@@ -11571,7 +11615,7 @@ mod imp {
     pub(crate) fn placeholder_view(kind: PieceKind) -> Handle {
         let label = unsafe { UILabel::new(mtm()) };
         unsafe { label.setText(Some(&NSString::from_str(&format!("⟨{kind}⟩")))) };
-        view_of(label)
+        view_of(&label)
     }
 
     impl Toolkit for Uikit {
@@ -11674,6 +11718,10 @@ mod imp {
         fn set_drop_target(&mut self, h: &Handle, target: day_spec::transfer::Target) {
             crate::transfer::target(h, target);
         }
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one arm per capability, each documented with the UIKit mechanism behind it"
+        )]
         fn capability(&self, cap: Cap) -> Support {
             match cap {
             // A `UIActivity` per app action, listed with the sheet's own actions.
@@ -11856,7 +11904,7 @@ mod imp {
                             apply_surface(&v, p.background, p.corner_radius, p.clips);
                         }
                     }
-                    view_of(v)
+                    view_of(&v)
                 }
                 Some(Builtin::Nav) => {
                     // Mismatched props degrade to the placeholder rather than panicking in a
@@ -11890,7 +11938,7 @@ mod imp {
                                 },
                             )
                         });
-                        return view_of(host);
+                        return view_of(&host);
                     }
                     let nav = DayNavController::new(mtm, 0); // host ptr set just below
                     // Child-VC containment under the window's root VC (v1: app root).
@@ -11925,7 +11973,7 @@ mod imp {
                                 tabbar.didMoveToParentViewController(Some(root_vc));
                             }
                         }
-                        let host = view_of(unsafe { tabbar.view() }.expect("tabbar view"));
+                        let host = view_of(&unsafe { tabbar.view() }.expect("tabbar view"));
                         let hp = ptr_of(&host);
                         let delegate = DayNavTabsDelegate::new(mtm, hp);
                         unsafe { tabbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
@@ -11962,7 +12010,7 @@ mod imp {
                                 nav.didMoveToParentViewController(Some(&root_vc));
                             }
                         }
-                        let host = view_of(unsafe { nav.view() }.expect("nav view"));
+                        let host = view_of(&unsafe { nav.view() }.expect("nav view"));
                         // Day owns this frame. UIKit gives every controller's view a W+H
                         // autoresizing mask, and a masked child of a superview that grows FROM
                         // ZERO gets its own size plus the delta — a host Day had already sized
@@ -11970,7 +12018,7 @@ mod imp {
                         // after Day's pass, with the list's trailing edge and the bar title off
                         // the phone. No mask: a frame set once is the frame.
                         unsafe {
-                            host.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty())
+                            host.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty());
                         };
                         (host, None)
                     } else {
@@ -12005,7 +12053,7 @@ mod imp {
                         primary_nav.ivars().host.set(ptr_of(&host));
                         let split_delegate = DaySplitDelegate::new(mtm, ptr_of(&host));
                         unsafe {
-                            split_vc.setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)))
+                            split_vc.setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)));
                         };
                         (
                             host,
@@ -12018,7 +12066,7 @@ mod imp {
                                 container,
                                 list_vc: std::cell::RefCell::new(None),
                                 secondary_placeholder,
-                                _split_delegate: split_delegate,
+                                split_delegate,
                             }),
                         )
                     };
@@ -12092,7 +12140,7 @@ mod imp {
                                 day_pop: std::cell::Cell::new(false),
                                 pending_list: std::cell::Cell::new(None),
                                 column_request: std::cell::Cell::new(None),
-                                _delegate: delegate,
+                                delegate,
                                 search,
                                 search_hides_on_scroll: p
                                     .search
@@ -12120,7 +12168,7 @@ mod imp {
                         vc.setView(Some(&outer));
                         vc.setTitle(Some(&NSString::from_str(&p.title)));
                     }
-                    let handle = view_of(content);
+                    let handle = view_of(&content);
                     PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
                     PAGE_PANE.with(|t| t.insert(ptr_of(&handle), p.pane));
@@ -12150,7 +12198,7 @@ mod imp {
                             UIModalPresentationStyle::FullScreen
                         });
                     }
-                    let handle = view_of(content);
+                    let handle = view_of(&content);
                     COVER_STATE.with(|m| {
                         m.borrow_mut()
                             .insert(ptr_of(&handle), CoverState { vc, node: id })
@@ -12180,7 +12228,8 @@ mod imp {
                     // sidebar's own idiom for them, so the model needs no new vocabulary — the
                     // rows are grouped into sections and each carries its heading as a header
                     // supplementary.
-                    let layout = nav_list_layout(mtm, p.sections.iter().any(|s| s.is_some()));
+                    let layout =
+                        nav_list_layout(mtm, p.sections.iter().any(std::option::Option::is_some));
                     let table = unsafe {
                         objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
                             objc2_ui_kit::UICollectionView::alloc(mtm),
@@ -12216,7 +12265,7 @@ mod imp {
                     // marking the same page, not blank. Through `data` rather than the map,
                     // which this row is not in until the insert below.
                     select_nav_path(&table, p.selected.and_then(|r| data.path_of(r)));
-                    let view = view_of(table);
+                    let view = view_of(&table);
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
                     // Remember the rows for a `.tabSidebar` host: UIKit draws both its tab bar
                     // and its sidebar from the tabs, so a nav host's row labels have to reach the
@@ -12305,14 +12354,15 @@ mod imp {
                                 let Ok(cell) = cell.downcast::<DayTreeListCell>() else {
                                     return core::ptr::null_mut();
                                 };
-                                let Some(data) = tree_entry_u(cv as *const _ as usize) else {
+                                let Some(data) = tree_entry_u(std::ptr::from_ref(cv) as usize)
+                                else {
                                     return Retained::autorelease_return(cell)
-                                        as *mut objc2_ui_kit::UICollectionViewCell;
+                                        .cast::<objc2_ui_kit::UICollectionViewCell>();
                                 };
                                 cell.ivars().row_height.set(data.ivars().row_height.get());
                                 let Some(tok) = DayTreeData::token_of_item(item) else {
                                     return Retained::autorelease_return(cell)
-                                        as *mut objc2_ui_kit::UICollectionViewCell;
+                                        .cast::<objc2_ui_kit::UICollectionViewCell>();
                                 };
                                 let (expandable, header, bind) = {
                                     let src = data.ivars().source.borrow();
@@ -12341,10 +12391,10 @@ mod imp {
                                     };
                                     if header {
                                         unsafe {
-                                            disc.setStyle(objc2_ui_kit::UICellAccessoryOutlineDisclosureStyle::Header)
+                                            disc.setStyle(objc2_ui_kit::UICellAccessoryOutlineDisclosureStyle::Header);
                                         };
                                     }
-                                    let cv_key = cv as *const _ as usize;
+                                    let cv_key = std::ptr::from_ref(cv) as usize;
                                     let handler = block2::RcBlock::new(move || {
                                         day_spec::ffi_guard::contain((), || {
                                             let Some(data) = tree_entry_u(cv_key) else {
@@ -12390,7 +12440,7 @@ mod imp {
                                     bind(tok, Retained::as_ptr(&content) as RawHandle);
                                 }
                                 Retained::autorelease_return(cell)
-                                    as *mut objc2_ui_kit::UICollectionViewCell
+                                    .cast::<objc2_ui_kit::UICollectionViewCell>()
                             })
                         },
                     );
@@ -12398,12 +12448,12 @@ mod imp {
                         objc2_ui_kit::UICollectionViewDiffableDataSource::<NSObject, NSObject>::initWithCollectionView_cellProvider(
                             objc2_ui_kit::UICollectionViewDiffableDataSource::alloc(mtm),
                             &cv,
-                            &*provider as *const block2::DynBlock<_> as *mut block2::DynBlock<_>,
+                            &raw const *provider as *mut block2::DynBlock<_>,
                         )
                     };
                     data.ivars().ds.replace(Some(ds));
                     TREE_STATE.with(|m| m.borrow_mut().insert(key, data));
-                    view_of(cv)
+                    view_of(&cv)
                 }
                 Some(Builtin::List) => {
                     let Some(p) = day_spec::props_of::<ListProps>(kind, "uikit", props) else {
@@ -12492,13 +12542,13 @@ mod imp {
                             table.setEditing_animated(true, false);
                         }
                     }
-                    let view = view_of(table.clone());
+                    let view = view_of(&table);
                     LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
                     view
                 }
                 Some(Builtin::Scroll) => {
                     let sv = unsafe { UIScrollView::new(mtm) };
-                    view_of(sv)
+                    view_of(&sv)
                 }
                 Some(Builtin::Label) => {
                     let Some(p) = day_spec::props_of::<LabelProps>(kind, "uikit", props) else {
@@ -12511,7 +12561,7 @@ mod imp {
                     // upgrade the backing: `patch` has no way to hand back a new handle.
                     if p.runs.iter().any(|r| r.link.is_some()) {
                         let tv = link_text_view(p, id, mtm);
-                        return view_of(tv);
+                        return view_of(&tv);
                     }
                     let label = unsafe { UILabel::new(mtm) };
                     unsafe {
@@ -12527,7 +12577,7 @@ mod imp {
                     match (p.color, p.role) {
                         (Some(c), _) => unsafe { label.setTextColor(Some(&uicolor(c))) },
                         (None, day_spec::props::TextRole::Secondary) => unsafe {
-                            label.setTextColor(Some(&UIColor::secondaryLabelColor()))
+                            label.setTextColor(Some(&UIColor::secondaryLabelColor()));
                         },
                         (None, day_spec::props::TextRole::Primary) => {}
                     }
@@ -12536,7 +12586,7 @@ mod imp {
                         unsafe { label.setAttributedText(Some(&s)) };
                     }
                     set_text_alignment(&label, p.align);
-                    view_of(label)
+                    view_of(&label)
                 }
                 Some(Builtin::Button) => {
                     let Some(p) = day_spec::props_of::<ButtonProps>(kind, "uikit", props) else {
@@ -12560,7 +12610,7 @@ mod imp {
                             UIControlEvents::TouchUpInside,
                         );
                     }
-                    let view = view_of(btn);
+                    let view = view_of(&btn);
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
@@ -12580,7 +12630,7 @@ mod imp {
                             UIControlEvents::ValueChanged,
                         );
                     }
-                    let view = view_of(sw);
+                    let view = view_of(&sw);
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
@@ -12607,7 +12657,7 @@ mod imp {
                             UIControlEvents::TouchUpInside | UIControlEvents::TouchUpOutside,
                         );
                     }
-                    let view = view_of(sl);
+                    let view = view_of(&sl);
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
@@ -12649,14 +12699,14 @@ mod imp {
                             UIControlEvents::EditingDidEndOnExit,
                         );
                     }
-                    let view = view_of(tf);
+                    let view = view_of(&tf);
                     TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                     view
                 }
                 Some(Builtin::Divider) => {
                     let v = unsafe { UIView::new(mtm) };
                     unsafe { v.setBackgroundColor(Some(&UIColor::separatorColor())) };
-                    view_of(v)
+                    view_of(&v)
                 }
                 Some(Builtin::Progress) => {
                     let Some(p) = day_spec::props_of::<ProgressProps>(kind, "uikit", props) else {
@@ -12665,23 +12715,20 @@ mod imp {
                     if p.value.is_none() {
                         return crate::controls::spinner::make(self, p, id);
                     }
-                    match p.value {
-                        Some(v) => {
-                            let pv = unsafe { UIProgressView::new(mtm) };
-                            unsafe { pv.setProgress(v as f32) };
-                            view_of(pv)
-                        }
-                        None => {
-                            let ai = unsafe { UIActivityIndicatorView::new(mtm) };
-                            unsafe { ai.startAnimating() };
-                            view_of(ai)
-                        }
+                    if let Some(v) = p.value {
+                        let pv = unsafe { UIProgressView::new(mtm) };
+                        unsafe { pv.setProgress(v as f32) };
+                        view_of(&pv)
+                    } else {
+                        let ai = unsafe { UIActivityIndicatorView::new(mtm) };
+                        unsafe { ai.startAnimating() };
+                        view_of(&ai)
                     }
                 }
                 Some(Builtin::Canvas) => {
                     let canvas = DayCanvasView::new(mtm);
                     KEY_NODES.with(|t| t.insert(Retained::as_ptr(&canvas) as usize, id));
-                    view_of(canvas)
+                    view_of(&canvas)
                 }
                 Some(Builtin::Image) => {
                     let Some(p) = day_spec::props_of::<ImageProps>(kind, "uikit", props) else {
@@ -12730,7 +12777,7 @@ mod imp {
                             },
                         )
                     });
-                    view_of(iv)
+                    view_of(&iv)
                 }
                 Some(Builtin::ListItem) => {
                     let Some(p) =
@@ -12742,11 +12789,13 @@ mod imp {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell)
-                | Some(Builtin::Inspector)
-                | Some(Builtin::InspectorPane)
-                | Some(Builtin::Split)
-                | Some(Builtin::SplitPane)
+                Some(
+                    Builtin::ListCell
+                    | Builtin::Inspector
+                    | Builtin::InspectorPane
+                    | Builtin::Split
+                    | Builtin::SplitPane,
+                )
                 | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
@@ -12770,14 +12819,14 @@ mod imp {
                         return;
                     };
                     let props = LIST_ITEMS.with(|m| {
+                        use day_spec::props::ListItemPatch as P;
                         let mut m = m.borrow_mut();
                         let props = m.get_mut(&ptr_of(h))?;
-                        use day_spec::props::ListItemPatch as P;
                         match p {
-                            P::Title(t) => props.title = t.clone(),
-                            P::Subtitle(t) => props.subtitle = t.clone(),
-                            P::Detail(t) => props.detail = t.clone(),
-                            P::Icon(i) => props.icon = i.clone(),
+                            P::Title(t) => props.title.clone_from(t),
+                            P::Subtitle(t) => props.subtitle.clone_from(t),
+                            P::Detail(t) => props.detail.clone_from(t),
+                            P::Icon(i) => props.icon.clone_from(i),
                             P::IconTint(c) => props.icon_tint = *c,
                             P::Checked(on) => props.checked = *on,
                         }
@@ -12833,7 +12882,7 @@ mod imp {
                                 if let Some(img) = uikit_image_for(source) {
                                     let template = IMAGE_MODES
                                         .with(|t| t.get(ptr_of(iv)))
-                                        .is_some_and(|m| m.renders_template());
+                                        .is_some_and(ImageMode::renders_template);
                                     let img = if template {
                                         unsafe {
                                             img.imageWithRenderingMode(
@@ -12932,7 +12981,7 @@ mod imp {
                                     // Header mode is baked into the LAYOUT, so a data-driven set
                                     // that gains or loses its headings needs a new one — without
                                     // this those headings would simply never draw.
-                                    let headers = sections.iter().any(|s| s.is_some());
+                                    let headers = sections.iter().any(std::option::Option::is_some);
                                     if headers != data.ivars().headers.get()
                                         && let Some(mtm) = MainThreadMarker::new()
                                     {
@@ -12940,44 +12989,41 @@ mod imp {
                                         unsafe {
                                             cv.setCollectionViewLayout(&nav_list_layout(
                                                 mtm, headers,
-                                            ))
+                                            ));
                                         };
                                     }
-                                    match rows_changed {
-                                        // The same rows with new words or counts: reconfigure
-                                        // just those cells, which keeps each cell and the
-                                        // selection where they are.
-                                        Some(rows) => {
-                                            let paths: Vec<Retained<objc2_foundation::NSIndexPath>> =
-                                                rows.iter()
-                                                    .filter_map(|r| data.path_of(*r))
-                                                    .map(|(section, item)| unsafe {
-                                                        objc2_foundation::NSIndexPath::indexPathForItem_inSection(
-                                                            item as isize,
-                                                            section as isize,
-                                                        )
-                                                    })
-                                                    .collect();
-                                            if !paths.is_empty() {
-                                                unsafe {
-                                                    cv.reconfigureItemsAtIndexPaths(
-                                                        &objc2_foundation::NSArray::from_retained_slice(
-                                                            &paths,
-                                                        ),
+                                    // The same rows with new words or counts: reconfigure
+                                    // just those cells, which keeps each cell and the
+                                    // selection where they are.
+                                    if let Some(rows) = rows_changed {
+                                        let paths: Vec<Retained<objc2_foundation::NSIndexPath>> =
+                                            rows.iter()
+                                                .filter_map(|r| data.path_of(*r))
+                                                .map(|(section, item)| unsafe {
+                                                    objc2_foundation::NSIndexPath::indexPathForItem_inSection(
+                                                        item as isize,
+                                                        section as isize,
                                                     )
-                                                };
-                                            }
+                                                })
+                                                .collect();
+                                        if !paths.is_empty() {
+                                            unsafe {
+                                                cv.reconfigureItemsAtIndexPaths(
+                                                    &objc2_foundation::NSArray::from_retained_slice(
+                                                        &paths,
+                                                    ),
+                                                );
+                                            };
                                         }
-                                        None => {
-                                            unsafe { cv.reloadData() };
-                                            // Resolved from this data source, which the borrow
-                                            // above holds: `select_nav_row` would borrow the same
-                                            // map again.
-                                            select_nav_path(
-                                                cv,
-                                                selected.and_then(|r| data.path_of(r)),
-                                            );
-                                        }
+                                    } else {
+                                        unsafe { cv.reloadData() };
+                                        // Resolved from this data source, which the borrow
+                                        // above holds: `select_nav_row` would borrow the same
+                                        // map again.
+                                        select_nav_path(
+                                            cv,
+                                            selected.and_then(|r| data.path_of(r)),
+                                        );
                                     }
                                 }
                             }
@@ -13168,12 +13214,15 @@ mod imp {
                                 // The page itself arrives through the insert duty and leaves
                                 // through the remove duty, which carry its identity; the stack
                                 // change is made there (`push_page`, `pop_page`).
+                                #[expect(
+                                    clippy::match_same_arms,
+                                    reason = "each group of no-op patches keeps its own arm and the comment saying why"
+                                )]
                                 NavPatch::Pushed { .. } | NavPatch::Popped => Act::None,
                                 // Retitle the TOP page's controller — the navigation bar
                                 // mirrors the top item's title live.
                                 NavPatch::Title(t) => current_top(ptr_of(h), &state.active_nav())
-                                    .map(|vc| Act::Title(vc, t.clone()))
-                                    .unwrap_or(Act::None),
+                                    .map_or(Act::None, |vc| Act::Title(vc, t.clone())),
                                 // Arm the back guard: `shouldPopItem:` vetoes the button and
                                 // `gestureRecognizerShouldBegin:` the swipe, both asking Day
                                 // instead (docs/navigation.md). The gesture stays enabled.
@@ -13185,6 +13234,10 @@ mod imp {
                                 // re-presents (the pieces layer gates it on `Cap::NavRepresent`);
                                 // `Select` belongs to tab hosts; representable split hosts
                                 // already track presentation through UIKit (docs/navigation.md).
+                                #[expect(
+                                    clippy::match_same_arms,
+                                    reason = "each group of no-op patches keeps its own arm and the comment saying why"
+                                )]
                                 NavPatch::Presentation(_)
                                 | NavPatch::Select(_)
                                 | NavPatch::Reorder(_) => Act::None,
@@ -13236,7 +13289,7 @@ mod imp {
                     ) {
                         match p {
                             LabelPatch::Text(t) => unsafe {
-                                label.setText(Some(&NSString::from_str(t)))
+                                label.setText(Some(&NSString::from_str(t)));
                             },
                             LabelPatch::Font(f) => apply_font(label, *f),
                             LabelPatch::Runs(text, runs) => {
@@ -13263,7 +13316,7 @@ mod imp {
                         // `set_selectable` swap); the same patches route there.
                         match p {
                             LabelPatch::Text(t) => unsafe {
-                                tv.setText(Some(&NSString::from_str(t)))
+                                tv.setText(Some(&NSString::from_str(t)));
                             },
                             LabelPatch::Font(f) => {
                                 let font = resolve_font(*f);
@@ -13299,7 +13352,7 @@ mod imp {
                     ) {
                         match p {
                             ButtonPatch::Content(c) => {
-                                apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only)
+                                apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only);
                             }
                             ButtonPatch::Title(t) => unsafe {
                                 // A configured (bordered/prominent) button titles via its
@@ -13311,7 +13364,7 @@ mod imp {
                                     btn.setTitle_forState(
                                         Some(&NSString::from_str(t)),
                                         UIControlState::Normal,
-                                    )
+                                    );
                                 }
                             },
                             ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
@@ -13361,7 +13414,7 @@ mod imp {
                     ) {
                         match p {
                             SliderPatch::Value(v) => {
-                                if (unsafe { sl.value() } as f64 - v).abs() > 0.001 {
+                                if (f64::from(unsafe { sl.value() }) - v).abs() > 0.001 {
                                     unsafe { sl.setValue(*v as f32) };
                                 }
                             }
@@ -13380,7 +13433,7 @@ mod imp {
                     if let Some(ProgressPatch::Value(Some(val))) =
                         patch.downcast_ref::<ProgressPatch>()
                         && let Some(pv) = (**h).downcast_ref::<UIProgressView>()
-                        && (unsafe { pv.progress() } as f64 - val).abs() > 0.0001
+                        && (f64::from(unsafe { pv.progress() }) - val).abs() > 0.0001
                     {
                         unsafe { pv.setProgress(*val as f32) };
                     }
@@ -13402,7 +13455,7 @@ mod imp {
                                 }
                             }
                             TextFieldPatch::Placeholder(t) => unsafe {
-                                tf.setPlaceholder(Some(&NSString::from_str(t)))
+                                tf.setPlaceholder(Some(&NSString::from_str(t)));
                             },
                             TextFieldPatch::Enabled(e) => unsafe { tf.setEnabled(*e) },
                             // UITextInput positions count UTF-16 units. A field holds a
@@ -13468,7 +13521,7 @@ mod imp {
                             let Some(cv) = cv else { return };
                             // Programmatic (de)selects never fire the delegate — no echo.
                             if let Some(paths) = cv.indexPathsForSelectedItems() {
-                                for ip in paths.iter() {
+                                for ip in &paths {
                                     cv.deselectItemAtIndexPath_animated(&ip, false);
                                 }
                             }
@@ -13482,7 +13535,7 @@ mod imp {
                                             Some(&ip),
                                             false,
                                             objc2_ui_kit::UICollectionViewScrollPosition::empty(),
-                                        )
+                                        );
                                     };
                                 }
                             }
@@ -13507,7 +13560,7 @@ mod imp {
                                         &ip,
                                         objc2_ui_kit::UICollectionViewScrollPosition::CenteredVertically,
                                         false,
-                                    )
+                                    );
                                 };
                             }
                         }));
@@ -13612,7 +13665,10 @@ mod imp {
 
             // Backstop for a released window root whose scene never disconnected
             // (docs/windows.md — disconnect normally prunes first).
-            SCENES.with(|s| s.borrow_mut().retain(|e| !std::ptr::eq(&*e.root_view, &*h)));
+            SCENES.with(|s| {
+                s.borrow_mut()
+                    .retain(|e| !std::ptr::eq(&raw const *e.root_view, &raw const *h));
+            });
             TARGETS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
@@ -13859,7 +13915,7 @@ mod imp {
                     unsafe {
                         vc.navigationItem().setLargeTitleDisplayMode(
                             objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
-                        )
+                        );
                     };
                 }
                 if is_sidebar && let Some(parts) = state.split.as_ref() {
@@ -13984,23 +14040,20 @@ mod imp {
             let Some(mtm) = MainThreadMarker::new() else {
                 return;
             };
-            match self.pointers.get(&key) {
-                Some((delegate, interaction)) => {
-                    *delegate.ivars().cursor.borrow_mut() = cursor;
-                    // Re-request the style if the pointer is already over the view.
-                    unsafe { interaction.invalidate() };
-                }
-                None => {
-                    let delegate = DayPointerDelegate::new(mtm, cursor);
-                    let interaction = unsafe {
-                        UIPointerInteraction::initWithDelegate(
-                            UIPointerInteraction::alloc(mtm),
-                            Some(ProtocolObject::from_ref(&*delegate)),
-                        )
-                    };
-                    unsafe { h.addInteraction(ProtocolObject::from_ref(&*interaction)) };
-                    self.pointers.insert(key, (delegate, interaction));
-                }
+            if let Some((delegate, interaction)) = self.pointers.get(&key) {
+                *delegate.ivars().cursor.borrow_mut() = cursor;
+                // Re-request the style if the pointer is already over the view.
+                unsafe { interaction.invalidate() };
+            } else {
+                let delegate = DayPointerDelegate::new(mtm, cursor);
+                let interaction = unsafe {
+                    UIPointerInteraction::initWithDelegate(
+                        UIPointerInteraction::alloc(mtm),
+                        Some(ProtocolObject::from_ref(&*delegate)),
+                    )
+                };
+                unsafe { h.addInteraction(ProtocolObject::from_ref(&*interaction)) };
+                self.pointers.insert(key, (delegate, interaction));
             }
         }
 
@@ -14055,9 +14108,9 @@ mod imp {
             if prev.purpose != traits.purpose {
                 let (keyboard, content_type, caps, corrects) = purpose_traits(traits.purpose);
                 // UITextAutocorrectionType / UITextSpellCheckingType: 0 = Default, 1 = No.
-                let correction: isize = if corrects { 0 } else { 1 };
+                let correction: isize = isize::from(!corrects);
                 let content_type: *const NSString =
-                    content_type.map_or(std::ptr::null(), |s| s as *const NSString);
+                    content_type.map_or(std::ptr::null(), std::ptr::from_ref::<NSString>);
                 // SAFETY: the enum traits are `NSInteger` properties and the content type an
                 // `NSString *` (nil clears it), as `send_input_trait` requires.
                 unsafe {
@@ -14154,7 +14207,7 @@ mod imp {
                     label.removeFromSuperview();
                 }
             }
-            Some(view_of(tv))
+            Some(view_of(&tv))
         }
 
         fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
@@ -14167,14 +14220,11 @@ mod imp {
                     // Headings take room too, so a sectioned sidebar measures taller than its rows
                     // alone — the flat count under-reported it by a heading band per group.
                     let (rows, headings) = NAV_MENUS.with(|m| {
-                        m.borrow()
-                            .get(&ptr_of(h))
-                            .map(|(data, n)| {
-                                let headings =
-                                    data.groups().iter().filter(|(t, _, _)| t.is_some()).count();
-                                (*n, headings)
-                            })
-                            .unwrap_or((0, 0))
+                        m.borrow().get(&ptr_of(h)).map_or((0, 0), |(data, n)| {
+                            let headings =
+                                data.groups().iter().filter(|(t, _, _)| t.is_some()).count();
+                            (*n, headings)
+                        })
                     });
                     Size::new(
                         p.width.unwrap_or(320.0),
@@ -14276,6 +14326,7 @@ mod imp {
                 // and center are independent of the transform, so a transformed view takes
                 // those. Others keep `setFrame`: a scroll view's bounds origin is its offset.
                 let t = v.transform();
+                #[expect(clippy::float_cmp, reason = "exact identity-transform test")]
                 let identity = t.a == 1.0
                     && t.b == 0.0
                     && t.c == 0.0
@@ -14391,7 +14442,7 @@ mod imp {
                             CGSize::new(target.size.width, target.size.height),
                         ),
                         animated,
-                    )
+                    );
                 };
             }
         }
@@ -14550,6 +14601,9 @@ mod imp {
         }
 
         fn set_button_menu(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+            /// The completion block UIKit hands a deferred element's provider.
+            type Completion =
+                block2::DynBlock<dyn Fn(NonNull<objc2_foundation::NSArray<UIMenuElement>>)>;
             // docs/menus.md "Menu buttons": the button's own menu is its primary action, and
             // the one element in it is deferred and uncached, so UIKit asks the provider each
             // time the menu opens and the entries are the current ones. Both APIs are iOS 14/15,
@@ -14558,9 +14612,6 @@ mod imp {
                 return;
             };
             let mtm = mtm();
-            /// The completion block UIKit hands a deferred element's provider.
-            type Completion =
-                block2::DynBlock<dyn Fn(NonNull<objc2_foundation::NSArray<UIMenuElement>>)>;
             let provider = block2::RcBlock::new(move |done: NonNull<Completion>| {
                 // Guarded: the provider is app code. The same lowering a context menu
                 // uses; its children (separator runs as inline sections) fill the menu.
@@ -14681,7 +14732,7 @@ mod imp {
 
         fn adopt(&mut self, raw: RawHandle) -> Handle {
             // A recycling UITableViewCell's contentView — Day fills/rebinds its row content there.
-            let ptr = raw as *mut UIView;
+            let ptr = raw.cast::<UIView>();
             unsafe { Retained::retain(ptr) }.expect("adopt: null list cell content")
         }
 
@@ -14802,7 +14853,9 @@ mod imp {
                     // a text view (a text area or a selectable label) has no enabled state.
                     enabled: match &picker {
                         Some((_, on)) => *on,
-                        None => (**h).downcast_ref::<UIControl>().map(|c| c.isEnabled()),
+                        None => (**h)
+                            .downcast_ref::<UIControl>()
+                            .map(objc2_ui_kit::UIControl::isEnabled),
                     },
                     visible: Some(native_visible(h)),
                     frame: native_frame(h),
@@ -14885,7 +14938,7 @@ mod imp {
                         // "may have alpha", the harmless direction.
                         has_alpha: !matches!(
                             format,
-                            Some(day_spec::ImageFormat::Jpeg) | Some(day_spec::ImageFormat::Bmp)
+                            Some(day_spec::ImageFormat::Jpeg | day_spec::ImageFormat::Bmp)
                         ),
                     };
                     BITMAPS.with(|m| m.borrow_mut().insert(id.0, UikitBitmap { image, info }));
@@ -14999,13 +15052,13 @@ mod imp {
         fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
             use objc2_ui_kit::*;
             let mut out = Vec::new();
-            for family in unsafe { UIFont::familyNames() }.iter() {
+            for family in &unsafe { UIFont::familyNames() } {
                 let name = family.to_string();
                 if name.starts_with('.') {
                     continue;
                 }
                 let mut faces = Vec::new();
-                for font_name in unsafe { UIFont::fontNamesForFamilyName(&family) }.iter() {
+                for font_name in &unsafe { UIFont::fontNamesForFamilyName(&family) } {
                     let Some(font) = (unsafe { UIFont::fontWithName_size(&font_name, 12.0) })
                     else {
                         continue;
@@ -15119,12 +15172,13 @@ mod imp {
             options: &day_spec::WindowOptions,
             kind: day_spec::WindowKind,
         ) -> day_spec::WindowOpenReply<Handle> {
+            use objc2::AnyThread as _;
             let m = mtm();
             let app = UIApplication::sharedApplication(m);
             // A scene the platform already handed us is waiting for exactly one window's
             // content (the scene delegate calls day-core from inside willConnect). Take it
             // rather than asking for another scene, and name the node it is now the window of.
-            if ADOPTING.with(|a| a.get()) {
+            if ADOPTING.with(std::cell::Cell::get) {
                 ADOPTING.with(|a| a.set(false));
                 ADOPTING_SCENE.with(|n| n.set(Some(id)));
                 return day_spec::WindowOpenReply::Pending;
@@ -15136,7 +15190,6 @@ mod imp {
             }
             // Ask UIKit for a new scene; its willConnect completes the open through
             // `finish_window_open` (the Pending path).
-            use objc2::AnyThread as _;
             let activity = unsafe {
                 objc2_foundation::NSUserActivity::initWithActivityType(
                     objc2_foundation::NSUserActivity::alloc(),
@@ -15150,7 +15203,7 @@ mod imp {
                 objc2_foundation::NSDictionary::from_retained_objects(&[&*key], &[obj]);
             // The API takes the untyped dictionary; the typed one IS that object.
             let untyped =
-                unsafe { &*(Retained::as_ptr(&dict) as *const objc2_foundation::NSDictionary) };
+                unsafe { &*Retained::as_ptr(&dict).cast::<objc2_foundation::NSDictionary>() };
             unsafe { activity.addUserInfoEntriesFromDictionary(untyped) };
             // The non-deprecated activateSceneSessionForRequest: needs iOS 17; this form
             // covers the whole deployment range.
@@ -15172,7 +15225,7 @@ mod imp {
             let session = SCENES.with(|s| {
                 s.borrow()
                     .iter()
-                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .find(|e| std::ptr::eq(&raw const *e.root_view, &raw const **host))
                     .and_then(|e| e.window.windowScene())
                     .map(|ws| unsafe { ws.session() })
             });
@@ -15187,7 +15240,7 @@ mod imp {
             let session = SCENES.with(|s| {
                 s.borrow()
                     .iter()
-                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .find(|e| std::ptr::eq(&raw const *e.root_view, &raw const **host))
                     .and_then(|e| e.window.windowScene())
                     .map(|ws| unsafe { ws.session() })
             });
@@ -15211,7 +15264,7 @@ mod imp {
                 if let Some(ws) = s
                     .borrow()
                     .iter()
-                    .find(|e| std::ptr::eq(&*e.root_view, &**host))
+                    .find(|e| std::ptr::eq(&raw const *e.root_view, &raw const **host))
                     .and_then(|e| e.window.windowScene())
                 {
                     unsafe { ws.setTitle(Some(&NSString::from_str(title))) };
@@ -15614,22 +15667,19 @@ mod imp {
                 if let Some(popover) = sheet.popoverPresentationController() {
                     // An iPad presents the sheet as a popover: point it at the control that
                     // asked, or, without one, at the window's top trailing corner.
-                    match anchor {
-                        Some(view) => {
-                            popover.setSourceView(Some(view));
-                            popover.setSourceRect(view.bounds());
-                        }
-                        None => {
-                            let Some(view) = parent.view() else {
-                                return false;
-                            };
-                            popover.setSourceView(Some(&view));
-                            let bounds = view.bounds();
-                            popover.setSourceRect(CGRect::new(
-                                CGPoint::new(bounds.size.width - 30.0, 30.0),
-                                CGSize::new(1.0, 1.0),
-                            ));
-                        }
+                    if let Some(view) = anchor {
+                        popover.setSourceView(Some(view));
+                        popover.setSourceRect(view.bounds());
+                    } else {
+                        let Some(view) = parent.view() else {
+                            return false;
+                        };
+                        popover.setSourceView(Some(&view));
+                        let bounds = view.bounds();
+                        popover.setSourceRect(CGRect::new(
+                            CGPoint::new(bounds.size.width - 30.0, 30.0),
+                            CGSize::new(1.0, 1.0),
+                        ));
                     }
                 }
                 parent.presentViewController_animated_completion(&sheet, true, None);
@@ -15695,7 +15745,7 @@ mod imp {
                             .collect::<Vec<_>>()
                     })
                     .into_iter()
-                    .map(|vc| vc.into_super()),
+                    .map(objc2::rc::Retained::into_super),
             );
             let update = block2::RcBlock::new(move || {
                 for vc in &vcs {
@@ -15746,7 +15796,9 @@ mod imp {
             .resolvedColorWithTraitCollection(&traits);
             let (mut r, mut g, mut b, mut a) = (0.0, 0.0, 0.0, 0.0);
             // SAFETY: each out pointer refers to a live CGFloat on this stack.
-            if unsafe { color.getRed_green_blue_alpha(&mut r, &mut g, &mut b, &mut a) } {
+            if unsafe {
+                color.getRed_green_blue_alpha(&raw mut r, &raw mut g, &raw mut b, &raw mut a)
+            } {
                 day_spec::Color::rgba(r, g, b, a)
             } else {
                 role.fallback(dark)
@@ -15754,6 +15806,7 @@ mod imp {
         }
 
         fn dark_mode(&mut self) -> bool {
+            use objc2_ui_kit::UIUserInterfaceStyle as Style;
             // A DAY_THEME launch override wins (themed capture runs); else the current
             // trait collection's interface style.
             match std::env::var("DAY_THEME").ok().as_deref() {
@@ -15761,7 +15814,6 @@ mod imp {
                 Some("light") => return false,
                 _ => {}
             }
-            use objc2_ui_kit::UIUserInterfaceStyle as Style;
             // The WINDOW's own style, not the AMBIENT `currentTraitCollection`. An override
             // applied through `set_appearance` is on the window immediately, while the ambient
             // trait collection only picks it up at the next layout pass — and
@@ -15772,7 +15824,9 @@ mod imp {
             //
             // The app-wide choice, not the primary window's own style: that window may carry a
             // per-window override (`WindowChange::Appearance`), which is not the app's answer.
-            let override_style = APP_STYLE.with(|a| a.get()).unwrap_or(Style::Unspecified);
+            let override_style = APP_STYLE
+                .with(std::cell::Cell::get)
+                .unwrap_or(Style::Unspecified);
             if override_style != Style::Unspecified {
                 return override_style == Style::Dark;
             }
@@ -15862,8 +15916,8 @@ mod imp {
         }
 
         fn ui_idle(&mut self) -> bool {
-            let modal =
-                MODAL_BUSY.with(|c| c.get()) || MODAL_QUEUE.with(|q| !q.borrow().is_empty());
+            let modal = MODAL_BUSY.with(std::cell::Cell::get)
+                || MODAL_QUEUE.with(|q| !q.borrow().is_empty());
             let top = topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some());
             // A nav push/pop animates on its UINavigationController, which topmost_vc()
             // (presented modals only) never reaches — so without this a scripted screenshot
@@ -15895,7 +15949,7 @@ mod imp {
             // frame before the final composite, and a capture in that gap still shows a
             // sliver of the outgoing page.
             UI_LAST_ACTIVE
-                .with(|t| t.get())
+                .with(std::cell::Cell::get)
                 .is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(250))
         }
     }
@@ -15944,12 +15998,14 @@ mod imp {
     /// pumps, so one lost completion can't freeze every later dialog and deferred nav op.
     fn modal_begin_transition() {
         MODAL_BUSY.with(|c| c.set(true));
-        let generation = MODAL_GEN.with(|c| c.get()).wrapping_add(1);
+        let generation = MODAL_GEN.with(std::cell::Cell::get).wrapping_add(1);
         MODAL_GEN.with(|c| c.set(generation));
         let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_secs(4))
             .unwrap_or(dispatch2::DispatchTime::NOW);
         let _ = dispatch2::DispatchQueue::main().after(when, move || {
-            if MODAL_BUSY.with(|c| c.get()) && MODAL_GEN.with(|c| c.get()) == generation {
+            if MODAL_BUSY.with(std::cell::Cell::get)
+                && MODAL_GEN.with(std::cell::Cell::get) == generation
+            {
                 log::warn!("modal transition completion lost — unjamming the queue");
                 MODAL_BUSY.with(|c| c.set(false));
                 modal_pump();
@@ -15959,7 +16015,7 @@ mod imp {
 
     /// Normal end of a transition: clear busy, invalidate the watchdog, run the next op.
     fn modal_end_transition() {
-        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(|c| c.get()).wrapping_add(1)));
+        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(std::cell::Cell::get).wrapping_add(1)));
         MODAL_BUSY.with(|c| c.set(false));
         modal_pump();
     }
@@ -15969,7 +16025,7 @@ mod imp {
     fn modal_defer_retry(op: ModalOp) {
         MODAL_QUEUE.with(|q| q.borrow_mut().push_front(op));
         MODAL_BUSY.with(|c| c.set(true)); // hold the queue while we wait
-        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(|c| c.get()).wrapping_add(1)));
+        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(std::cell::Cell::get).wrapping_add(1)));
         let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
             .unwrap_or(dispatch2::DispatchTime::NOW);
         let _ = dispatch2::DispatchQueue::main().after(when, || {
@@ -16011,7 +16067,7 @@ mod imp {
         if *DIAG_NAV {
             log::debug!(
                 "DAYDIAG size-class transition begins (depth {})",
-                CLASS_TRANSITIONS.with(|c| c.get())
+                CLASS_TRANSITIONS.with(std::cell::Cell::get)
             );
         }
         let completion = block2::RcBlock::new(
@@ -16023,7 +16079,7 @@ mod imp {
                     if *DIAG_NAV {
                         log::debug!(
                             "DAYDIAG size-class transition ends (depth {})",
-                            CLASS_TRANSITIONS.with(|c| c.get())
+                            CLASS_TRANSITIONS.with(std::cell::Cell::get)
                         );
                     }
                 });
@@ -16037,8 +16093,8 @@ mod imp {
             .unwrap_or(dispatch2::DispatchTime::NOW);
         let _ = dispatch2::DispatchQueue::main().after(when, move || {
             day_spec::ffi_guard::contain((), || {
-                if CLASS_TRANSITION_GEN.with(|c| c.get()) == generation
-                    && CLASS_TRANSITIONS.with(|c| c.get()) > 0
+                if CLASS_TRANSITION_GEN.with(std::cell::Cell::get) == generation
+                    && CLASS_TRANSITIONS.with(std::cell::Cell::get) > 0
                 {
                     log::warn!("size-class transition completion lost — releasing the flag");
                     CLASS_TRANSITIONS.with(|c| c.set(0));
@@ -16090,7 +16146,7 @@ mod imp {
                 .unwrap_or(dispatch2::DispatchTime::NOW);
             let _ = dispatch2::DispatchQueue::main().after(when, move || {
                 day_spec::ffi_guard::contain((), || {
-                    tabs_apply_when_settled(hp, i, attempt + 1, ticket)
+                    tabs_apply_when_settled(hp, i, attempt + 1, ticket);
                 });
             });
             return;
@@ -16127,7 +16183,8 @@ mod imp {
     }
 
     fn modal_after_idle(f: impl FnOnce() + 'static) {
-        let idle = !MODAL_BUSY.with(|c| c.get()) && MODAL_QUEUE.with(|q| q.borrow().is_empty());
+        let idle =
+            !MODAL_BUSY.with(std::cell::Cell::get) && MODAL_QUEUE.with(|q| q.borrow().is_empty());
         if idle {
             f();
         } else {
@@ -16138,7 +16195,7 @@ mod imp {
     /// Run the next queued modal op if no transition is in flight. Each op's completion clears
     /// the busy flag and pumps again.
     fn modal_pump() {
-        if MODAL_BUSY.with(|c| c.get()) {
+        if MODAL_BUSY.with(std::cell::Cell::get) {
             return;
         }
         let Some(op) = MODAL_QUEUE.with(|q| q.borrow_mut().pop_front()) else {
@@ -16173,7 +16230,7 @@ mod imp {
                         &vc,
                         !day_core::testing::fast_animations(),
                         Some(&completion),
-                    )
+                    );
                 };
             }
             ModalOp::Dismiss(req, tries) => {
@@ -16237,7 +16294,7 @@ mod imp {
                 modal_begin_transition();
                 let completion = block2::RcBlock::new(modal_end_transition);
                 unsafe {
-                    presenting.dismissViewControllerAnimated_completion(true, Some(&completion))
+                    presenting.dismissViewControllerAnimated_completion(true, Some(&completion));
                 };
             }
             ModalOp::Cover(vc, tries) => {
@@ -16451,7 +16508,7 @@ mod imp {
             #[unsafe(method(canPerformAction:withSender:))]
             fn can_perform(&self, action: objc2::runtime::Sel, sender: *mut AnyObject) -> bool {
                 day_spec::ffi_guard::contain(false, || {
-                    let state = EDIT_STATE.with(|s| s.get());
+                    let state = EDIT_STATE.with(std::cell::Cell::get);
                     if action == sel!(selectAll:) {
                         state.can_select_all
                     } else if action == sel!(cut:) {
@@ -16495,8 +16552,7 @@ mod imp {
                 WINDOW.with(|w| {
                     w.borrow()
                         .as_ref()
-                        .map(|r| &**r as *const UIWindow as *mut UIWindow)
-                        .unwrap_or(std::ptr::null_mut())
+                        .map_or(std::ptr::null_mut(), |r| (&raw const **r).cast_mut())
                 })
             }
             #[unsafe(method(setWindow:))]
@@ -16521,7 +16577,7 @@ mod imp {
                             sel!(keyboardWillChange:),
                             Some(objc2_ui_kit::UIKeyboardWillChangeFrameNotification),
                             None,
-                        )
+                        );
                 };
                 // The system reduce-motion switch (docs/accessibility.md): app-scoped like
                 // the setting itself; the handler re-reads it into day-core's gate.
@@ -16532,7 +16588,7 @@ mod imp {
                             sel!(reduceMotionChanged:),
                             Some(objc2_ui_kit::UIAccessibilityReduceMotionStatusDidChangeNotification),
                             None,
-                        )
+                        );
                 };
                 // The system text size (Dynamic Type) changing under a running app: labels
                 // take the new size by themselves, Day's measurements of them do not.
@@ -16543,7 +16599,7 @@ mod imp {
                             sel!(textSizeChanged:),
                             Some(objc2_ui_kit::UIContentSizeCategoryDidChangeNotification),
                             None,
-                        )
+                        );
                 };
                 // Screen recording and mirroring starting or stopping (docs/windows.md): the
                 // content-protection shields follow it. Any screen will do: the handler
@@ -16555,7 +16611,7 @@ mod imp {
                             sel!(screenCaptureChanged:),
                             Some(objc2_ui_kit::UIScreenCapturedDidChangeNotification),
                             None,
-                        )
+                        );
                 };
                 true
             }
@@ -16633,6 +16689,7 @@ mod imp {
             #[unsafe(method(keyboardWillChange:))]
             fn keyboard_will_change(&self, notification: &objc2_foundation::NSNotification) {
                 day_spec::ffi_guard::contain((), || {
+                    use objc2_ui_kit::NSValueUIGeometryExtensions;
                     // The KEY window's scene (docs/windows.md): the keyboard belongs to
                     // whichever Day window holds the focused field.
                     let Some((root, base, target)) = with_key_scene(|e| {
@@ -16649,7 +16706,6 @@ mod imp {
                     else {
                         return;
                     };
-                    use objc2_ui_kit::NSValueUIGeometryExtensions;
                     let kb = unsafe { val.CGRectValue() };
                     avoid_keyboard_in_covers(kb);
                     // The holder fills the window, so the root's frame is in window == screen
@@ -16661,7 +16717,12 @@ mod imp {
                         base.size.height
                     };
                     let f = CGRect::new(base.origin, CGSize::new(base.size.width, new_h));
-                    if unsafe { root.frame() }.size.height != new_h {
+                    #[expect(
+                        clippy::float_cmp,
+                        reason = "unchanged-value check against the exact height set last time"
+                    )]
+                    let resized = unsafe { root.frame() }.size.height != new_h;
+                    if resized {
                         unsafe { root.setFrame(f) };
                         // The shrink is the keyboard's, so the size class keeps the window's
                         // own height, as the trait collection does (docs/size-classes.md).
@@ -16758,7 +16819,7 @@ mod imp {
                                 root_view.clone(),
                                 inner,
                                 None,
-                            ))
+                            ));
                         });
                         // The take() cannot miss: the `is_some` gate above just read it, and
                         // both run on the main thread.
@@ -16768,7 +16829,7 @@ mod imp {
                             return;
                         };
                         let size = Size::new(inner.size.width, inner.size.height);
-                        ready(backend, view_of(root_view), size);
+                        ready(backend, view_of(&root_view), size);
                         // Cold launch via deep link or quick action (docs/deep-links.md): both
                         // ride the connection options; `request_route` buffers until the mount
                         // that `ready` just kicked off completes.
@@ -16799,7 +16860,7 @@ mod imp {
                             root_view.clone(),
                             inner,
                             Some(node),
-                        ))
+                        ));
                     });
                     // Keep the adopted root alive for the entry's lifetime; the tree holds the
                     // other retain through `Toolkit::adopt`.
@@ -16951,7 +17012,7 @@ mod imp {
                 .find(|e| {
                     e.window
                         .windowScene()
-                        .is_some_and(|ws| std::ptr::eq(&*ws, win_scene))
+                        .is_some_and(|ws| std::ptr::eq(&raw const *ws, win_scene))
                 })
                 .and_then(|e| e.node)
         })
@@ -16981,7 +17042,7 @@ mod imp {
         ADOPTING_SCENE.with(|n| n.set(None));
         let opened = day_core::open_new_window();
         ADOPTING.with(|a| a.set(false));
-        let node = ADOPTING_SCENE.with(|n| n.take());
+        let node = ADOPTING_SCENE.with(std::cell::Cell::take);
         let (Some(_), Some(node)) = (opened, node) else {
             log::info!("day-toolkit-uikit: no new-window content registered; returning the scene");
             request_scene_destruction(mtm, session);
@@ -16989,7 +17050,7 @@ mod imp {
         };
         SCENES.with(|s| {
             s.borrow_mut()
-                .push(SceneEntry::new(window, root_view, inner, Some(node)))
+                .push(SceneEntry::new(window, root_view, inner, Some(node)));
         });
         if !day_core::finish_window_open(node, raw, size) {
             SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
@@ -17007,14 +17068,15 @@ mod imp {
 
     /// Mobile backends deliver the FULL lifecycle (docs/lifecycle.md), including the background,
     /// foreground, and memory-warning phases desktops lack. `const` for `day::require_lifecycle!`.
+    #[must_use]
     pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
         true
     }
 
     /// Register bundled font files (§18.4) with CoreText so `Font::Custom` families resolve via
-    /// `UIFont(name:)`. The files ride the DayPieces SwiftPM bundle (`fonts/` copied by `day
+    /// `UIFont(name:)`. The files ride the `DayPieces` SwiftPM bundle (`fonts/` copied by `day
     /// build`, which also lists them in the app's `UIAppFonts` — this call covers dev builds and
-    /// doubles as the loud failure path). Duplicate registration (UIAppFonts already loaded the
+    /// doubles as the loud failure path). Duplicate registration (`UIAppFonts` already loaded the
     /// file) fails harmlessly, so failures here are only logged when the family is then missing.
     fn register_bundled_fonts() {
         // CFURLRef is toll-free bridged with NSURL.
@@ -17048,7 +17110,7 @@ mod imp {
                 };
                 unsafe {
                     let _ = CTFontManagerRegisterFontsForURL(
-                        Retained::as_ptr(&url) as *const std::ffi::c_void,
+                        Retained::as_ptr(&url).cast::<std::ffi::c_void>(),
                         1,
                         std::ptr::null_mut(),
                     );
@@ -17068,7 +17130,7 @@ mod imp {
             // Force-register the delegate class: UIApplicationMain looks it up by name before
             // any Rust code touches it (pane's exact fix).
             let _ = <AppDelegate as objc2::ClassType>::class();
-            let arg0 = c"Day".as_ptr() as *mut c_char;
+            let arg0 = c"Day".as_ptr().cast_mut();
             let mut argv = [arg0];
             let argv_ptr = NonNull::new(argv.as_mut_ptr()).unwrap();
             let delegate = NSString::from_str("DayAppDelegate");

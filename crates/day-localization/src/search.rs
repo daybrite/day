@@ -73,6 +73,7 @@ fn word_starts(text: &str) -> Vec<usize> {
 /// assert!(day_localization::matches_search_in("en", "Canvas & shapes", "canvas &"));
 /// assert!(!day_localization::matches_search_in("en", "Toolbars", "s"));
 /// ```
+#[must_use]
 pub fn matches_search_in(locale: &str, text: &str, query: &str) -> bool {
     let needle = fold(locale, query.trim());
     if needle.is_empty() {
@@ -93,6 +94,7 @@ pub fn matches_search_in(locale: &str, text: &str, query: &str) -> bool {
 /// [`matches_search_in`] against the current locale. Reads the locale signal (tracked), so a
 /// filtered list inside a reactive closure re-filters when the language changes, the same
 /// contract [`crate::compare`] has.
+#[must_use]
 pub fn matches_search(text: &str, query: &str) -> bool {
     let locale = crate::locale().get();
     matches_search_in(&locale, text, query)

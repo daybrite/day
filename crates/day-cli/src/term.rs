@@ -48,7 +48,7 @@ pub const fn help_styles() -> clap::builder::Styles {
 }
 
 /// A compact sunrise signature for the root help page. No emoji or background-color blocks;
-/// it also reads cleanly when clap strips styling for a pipe or NO_COLOR.
+/// it also reads cleanly when clap strips styling for a pipe or `NO_COLOR`.
 pub fn help_banner() -> String {
     format!(
         "{SUN}   \\ | /{SUN:#}    {SKY_BOLD}d a y{SKY_BOLD:#}\n\

@@ -138,7 +138,7 @@ fn a_top_rounded_bar_is_square_at_its_base_and_curved_at_its_top() {
     // And it stays inside its rectangle, control points included.
     let bounds = day_spec::Path {
         segs: segs.clone(),
-        rule: Default::default(),
+        rule: day_spec::FillRule::default(),
     }
     .bounds();
     assert!(near(bounds.origin.x, 10.0) && near(bounds.origin.y, 20.0));
@@ -165,7 +165,16 @@ fn a_quarter_arc_is_one_cubic_through_its_ends_and_nothing_degenerate_draws() {
     // Clockwise in device space: from +x down to +y.
     assert!(near_pt(end, Point::new(0.0, 10.0)));
     assert_eq!(arc_cubics(Point::new(0.0, 0.0), 10.0, 0.0, 270.0).len(), 3);
-    assert!(arc_cubics(Point::new(0.0, 0.0), 0.0, 0.0, 90.0).is_empty());
-    assert!(arc_cubics(Point::new(0.0, 0.0), 10.0, 0.0, 0.0).is_empty());
-    assert!(arc_cubics(Point::new(0.0, 0.0), f64::NAN, 0.0, 90.0).is_empty());
+    assert_eq!(
+        arc_cubics(Point::new(0.0, 0.0), 0.0, 0.0, 90.0),
+        [] as [day_spec::PathSeg; 0]
+    );
+    assert_eq!(
+        arc_cubics(Point::new(0.0, 0.0), 10.0, 0.0, 0.0),
+        [] as [day_spec::PathSeg; 0]
+    );
+    assert_eq!(
+        arc_cubics(Point::new(0.0, 0.0), f64::NAN, 0.0, 90.0),
+        [] as [day_spec::PathSeg; 0]
+    );
 }

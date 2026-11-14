@@ -16,7 +16,7 @@
 //!
 //! Platform selection is `#[cfg(target_os)]`: the data protection keychain on iOS and macOS, the
 //! Android Keystore over files in the app's no-backup directory, DPAPI over files under
-//! `%LOCALAPPDATA%` on Windows, the Secret Service (GNOME Keyring, KDE's ksecretd, KeePassXC)
+//! `%LOCALAPPDATA%` on Windows, the Secret Service (GNOME Keyring, KDE's ksecretd, `KeePassXC`)
 //! through libsecret on desktop Linux, and the Universal Keystore over files in the app sandbox
 //! on HarmonyOS. The web has no store a page may rely on for a secret, so [`support`] reports
 //! `Unsupported` there and every call fails with [`KeychainError::Unsupported`].
@@ -76,21 +76,25 @@ impl Secret {
     }
 
     /// The bytes.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
     /// The bytes as text, when they are valid UTF-8.
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.0).ok()
     }
 
     /// The number of bytes.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     /// Whether there are no bytes.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -302,6 +306,7 @@ impl std::error::Error for KeychainError {}
 /// store, `Emulated` where the store is a stand-in with weaker guarantees (an unsigned macOS
 /// development build's login keychain), `Unsupported` where there is none (the web, a Linux
 /// session with no Secret Service).
+#[must_use]
 pub fn support() -> Support {
     imp::support()
 }
@@ -309,6 +314,7 @@ pub fn support() -> Support {
 /// Whether one [`Protection`] level is realized here: `Native` where the OS binds the item to it,
 /// `Emulated` where the crate gates the read without a binding (Windows user presence),
 /// `Unsupported` where nothing can honor it (Linux user presence, every level on the web).
+#[must_use]
 pub fn protection_support(protection: Protection) -> Support {
     imp::protection_support(protection)
 }
@@ -319,12 +325,19 @@ pub fn protection_support(protection: Protection) -> Support {
 ///
 /// This names the implementation, not its current availability. Linux reports `secret-service`
 /// even when the session has no reachable service; use [`support`] to check availability.
+#[must_use]
 pub fn backend() -> &'static str {
     imp::backend()
 }
 
 /// Store `secret` under `key` at `protection`, replacing any item with that key (whatever its
 /// level). Never shows a dialog.
+///
+/// # Errors
+///
+/// [`KeychainError::InvalidKey`] for a key outside the key rules, [`KeychainError::TooLarge`]
+/// for a secret over [`MAX_SECRET_LEN`] bytes, [`KeychainError::Unsupported`] when the platform
+/// has no store or cannot realize `protection`, and otherwise the store's own failure.
 pub fn set(key: &str, secret: &Secret, protection: Protection) -> Result<(), KeychainError> {
     check_key(key)?;
     if secret.len() > MAX_SECRET_LEN {
@@ -335,6 +348,12 @@ pub fn set(key: &str, secret: &Secret, protection: Protection) -> Result<(), Key
 
 /// The item under `key`, without a dialog. A [`Protection::UserPresence`] item answers
 /// [`KeychainError::NeedsPresence`]; use [`get_async`] or [`get_future`] for it.
+///
+/// # Errors
+///
+/// [`KeychainError::InvalidKey`] for a key outside the key rules, [`KeychainError::NotFound`]
+/// when no item has this key, [`KeychainError::NeedsPresence`] for an item that needs the
+/// person present, and otherwise the store's own failure.
 pub fn get(key: &str) -> Result<Secret, KeychainError> {
     check_key(key)?;
     imp::get(key).map(Secret)
@@ -364,6 +383,11 @@ pub fn get_async(
 }
 
 /// [`get_async`] as a future.
+///
+/// # Errors
+///
+/// The future resolves to the [`KeychainError`] that [`get_async`] reports, or to
+/// [`KeychainError::Cancelled`] when the read ends without an answer.
 pub fn get_future(
     key: &str,
     reason: &str,
@@ -374,18 +398,33 @@ pub fn get_future(
 }
 
 /// Remove the item under `key`. [`KeychainError::NotFound`] when there is none.
+///
+/// # Errors
+///
+/// [`KeychainError::InvalidKey`] for a key outside the key rules, [`KeychainError::NotFound`]
+/// when no item has this key, and otherwise the store's own failure.
 pub fn remove(key: &str) -> Result<(), KeychainError> {
     check_key(key)?;
     imp::remove(key)
 }
 
 /// Whether an item exists under `key`, without reading it and without a dialog.
+///
+/// # Errors
+///
+/// [`KeychainError::InvalidKey`] for a key outside the key rules, and otherwise the store's own
+/// failure, such as [`KeychainError::Unavailable`].
 pub fn contains(key: &str) -> Result<bool, KeychainError> {
     check_key(key)?;
     imp::contains(key)
 }
 
 /// Every item this app stored, with its level, without the secrets and without a dialog.
+///
+/// # Errors
+///
+/// The store's own failure when it cannot be listed, such as [`KeychainError::Unavailable`] or
+/// [`KeychainError::Unsupported`].
 pub fn entries() -> Result<Vec<Entry>, KeychainError> {
     let mut all = imp::entries()?;
     all.sort_by(|a, b| a.key.cmp(&b.key));
@@ -652,7 +691,7 @@ mod tests {
             KeychainError::Platform("x".into()),
         ];
         for e in all {
-            assert!(!e.to_string().is_empty());
+            assert_ne!(e.to_string(), "");
         }
     }
 }

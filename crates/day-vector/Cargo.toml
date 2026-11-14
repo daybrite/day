@@ -23,3 +23,6 @@ tiny-skia = "0.12"
 # so variant extraction cuts the original markup by byte range. Already in the tree as a usvg
 # dependency, so no new compiled crate.
 roxmltree = "0.21"
+
+[lints]
+workspace = true

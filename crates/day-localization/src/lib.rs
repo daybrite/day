@@ -126,8 +126,7 @@ fn ensure_state() {
         }
         let initial = std::env::var("DAY_LOCALE")
             .ok()
-            .map(normalize)
-            .unwrap_or_else(|| "en".to_string());
+            .map_or_else(|| "en".to_string(), |l| normalize(&l));
         *s.borrow_mut() = Some(State {
             app: HashMap::new(),
             scoped: HashMap::new(),
@@ -180,6 +179,10 @@ pub fn set_launch_locales(locales: &[String]) {
 /// building the root piece. The built-in core catalog is preserved (and remains the fallback); the
 /// app's strings take precedence over it, and re-registering reuses the existing locale [`Signal`]
 /// so bindings created earlier keep working.
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "`ensure_state` has filled the state the `unwrap` reads, so it cannot fail"
+)]
 pub fn install(default: &str, locales: &[(&str, &str)]) {
     ensure_state();
     STATE.with(|s| {
@@ -202,18 +205,17 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
         };
         let candidates = std::env::var("DAY_LOCALE")
             .ok()
-            .map(|l| vec![l])
-            .unwrap_or_else(|| LAUNCH_LOCALES.with(|l| l.borrow().clone()));
+            .map_or_else(|| LAUNCH_LOCALES.with(|l| l.borrow().clone()), |l| vec![l]);
         let initial = candidates
             .into_iter()
-            .map(normalize)
+            .map(|l| normalize(&l))
             .find(|l| serves(l))
             .unwrap_or_else(|| default.to_string());
         st.locale.set(initial);
     });
 }
 
-fn normalize(l: String) -> String {
+fn normalize(l: &str) -> String {
     // fr_FR / fr-FR → try exact, else the language half.
     l.replace('_', "-")
 }
@@ -226,6 +228,11 @@ fn base_locale(l: &str) -> &str {
 }
 
 /// The current locale (a tracked read inside bindings).
+#[must_use]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "`ensure_state` has filled the state the `unwrap` reads, so it cannot fail"
+)]
 pub fn locale() -> Signal<String> {
     ensure_state();
     STATE.with(|s| s.borrow().as_ref().unwrap().locale)
@@ -233,7 +240,7 @@ pub fn locale() -> Signal<String> {
 
 /// Switch the locale at runtime; every `tr`/binding re-runs.
 pub fn set_locale(l: &str) {
-    locale().set(normalize(l.to_string()));
+    locale().set(normalize(l));
 }
 
 #[derive(Clone)]
@@ -358,6 +365,10 @@ fn message_from(
 
 /// Make a catalog available for qualified scripting lookups. Generated accessors call this
 /// automatically. Registration never changes the app locale or its default catalog.
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "`ensure_state` has filled the state the `unwrap` reads, so it cannot fail"
+)]
 pub fn register_catalog(catalog: &'static Catalog) {
     ensure_state();
     STATE.with(|s| {
@@ -365,7 +376,7 @@ pub fn register_catalog(catalog: &'static Catalog) {
             .as_mut()
             .unwrap()
             .scoped
-            .entry(catalog as *const Catalog as usize)
+            .entry(std::ptr::from_ref::<Catalog>(catalog) as usize)
             .or_insert_with(|| ScopedBundles {
                 catalog,
                 bundles: build_bundles(catalog.locales),
@@ -375,6 +386,11 @@ pub fn register_catalog(catalog: &'static Catalog) {
 
 /// Format within one private namespace; missing keys fall back only to this catalog's default.
 /// App/core catalogs cannot accidentally supply a similarly named key from another component.
+#[must_use]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "`register_catalog` has filled the state and the scope the lookups read"
+)]
 pub fn format_catalog(
     catalog: &'static Catalog,
     locale_name: &str,
@@ -384,7 +400,8 @@ pub fn format_catalog(
     register_catalog(catalog);
     STATE.with(|s| {
         let st = s.borrow();
-        let scope = &st.as_ref().unwrap().scoped[&(catalog as *const Catalog as usize)];
+        let scope =
+            &st.as_ref().unwrap().scoped[&(std::ptr::from_ref::<Catalog>(catalog) as usize)];
         resolve_scoped(scope, locale_name, key, args)
     })
 }
@@ -414,6 +431,11 @@ fn resolve_scoped(
 /// locale, then core English. A pseudo-locale (`en-XA`, `fr-XA`: any locale with the `-XA` suffix)
 /// resolves against the locale under the suffix and accents the result. Signal args are tracked
 /// reads.
+#[must_use]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "`ensure_state` has filled the state the `unwrap` reads, so it cannot fail"
+)]
 pub fn format_in(locale_name: &str, key: &str, args: &[(String, FArg)]) -> String {
     ensure_state();
     STATE.with(|s| {
@@ -456,6 +478,7 @@ pub fn format_in(locale_name: &str, key: &str, args: &[(String, FArg)]) -> Strin
 /// Resolve `key` in the current locale (no args): the one-shot form the framework's own strings use
 /// (dialog buttons, menu-role labels), which are resolved once at present/build time. The key is
 /// always a generated name, `t(key::day_cancel)`, never a string literal.
+#[must_use]
 pub fn t(key: &str) -> String {
     format_in(&locale().get(), key, &[])
 }
@@ -494,6 +517,7 @@ fn pseudolocalize(s: &str) -> String {
 }
 
 /// Strip Fluent's FSI/PDI isolation marks (dayscript text comparison, §14.3).
+#[must_use]
 pub fn strip_isolates(s: &str) -> String {
     s.chars()
         .filter(|c| !matches!(c, '\u{2068}' | '\u{2069}'))
@@ -672,7 +696,7 @@ mod scoped_tests {
             &[("en", "game_title = Application\nonly_a = App impostor\n")],
         );
         for catalog in [&B, &A, &B, &A] {
-            let expected = if std::ptr::eq(catalog, &A) {
+            let expected = if std::ptr::eq(catalog, &raw const A) {
                 "Alpha"
             } else {
                 "Beta"
@@ -709,6 +733,11 @@ mod scoped_tests {
 
     #[test]
     fn qualified_scripts_are_explicit_and_ambiguous_names_fail_closed() {
+        static DUPLICATE: Catalog = Catalog {
+            name: "game_a",
+            default: "en",
+            locales: &[("en", "game_title = Other version\n")],
+        };
         register_catalog(&A);
         register_catalog(&B);
         assert_eq!(format_in("en", "game_a::game_title", &[]), "Alpha");
@@ -717,11 +746,6 @@ mod scoped_tests {
             format_in("en", "absent::game_title", &[]),
             "⟨absent::game_title⟩"
         );
-        static DUPLICATE: Catalog = Catalog {
-            name: "game_a",
-            default: "en",
-            locales: &[("en", "game_title = Other version\n")],
-        };
         register_catalog(&DUPLICATE);
         assert_eq!(
             format_in("en", "game_a::game_title", &[]),

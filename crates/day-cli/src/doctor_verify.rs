@@ -217,7 +217,7 @@ fn builds_on(target: &Target, host: &str) -> bool {
 }
 
 fn skip_reason(slot: &Slot) -> &str {
-    slot.skip.as_ref().map(|s| s.reason.as_str()).unwrap_or("")
+    slot.skip.as_ref().map_or("", |s| s.reason.as_str())
 }
 
 /// The `day` a run checks: the CLI binary that runs new/build/pack, and the version its scaffold
@@ -725,10 +725,10 @@ fn artifacts_from(json: Option<&serde_json::Value>, project: &Path) -> Vec<(Stri
             } else {
                 project.join(path)
             };
-            let name = abs
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string());
+            let name = abs.file_name().map_or_else(
+                || path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
             out.push((name, bytes_on_disk(&abs)));
         }
     }
@@ -897,10 +897,10 @@ fn write_step_summary(
     total: f64,
     day: &str,
 ) {
+    use std::fmt::Write as _;
     let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") else {
         return;
     };
-    use std::fmt::Write as _;
     let mut md = format!("## day doctor verify — day {day}\n\n");
     md.push_str("| combo | result | build | pack | total | artifacts |\n");
     md.push_str("| --- | --- | --: | --: | --: | --- |\n");
@@ -1009,10 +1009,18 @@ mod tests {
     use super::*;
 
     /// A host where everything is installed.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "passed to `plan_for` as its readiness probe, which returns an `Option`"
+    )]
     fn all_ready(_: &str) -> Option<Readiness> {
         Some(Readiness::default())
     }
 
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the tail of readiness-probe closures, which return an `Option`"
+    )]
     fn missing_build(name: &'static str) -> Option<Readiness> {
         Some(Readiness {
             missing_build: vec![doctor::Missing {
@@ -1037,7 +1045,10 @@ mod tests {
         requested: &[&str],
         ready: &dyn Fn(&str) -> Option<Readiness>,
     ) -> Result<Vec<Slot>, String> {
-        let raw: Vec<String> = requested.iter().map(|s| s.to_string()).collect();
+        let raw: Vec<String> = requested
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect();
         let resolved = resolve(&raw, host)?;
         plan(host, &resolved, ready)
     }
@@ -1143,7 +1154,7 @@ mod tests {
     fn auto_skips_a_toolkit_with_no_builtin_checks() {
         let none = |_: &str| -> Option<Readiness> { None };
         let slots = plan_for("macos", &[], &none).unwrap();
-        assert!(names(&slots).is_empty());
+        assert_eq!(names(&slots), [] as [&str; 0]);
         assert!(slots.iter().all(|s| {
             skip_reason(s).contains("no builtin toolkit checks")
                 || !builds_on(s.target, "macos")

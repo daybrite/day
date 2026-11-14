@@ -33,6 +33,7 @@ pub mod envelope {
 
     impl Envelope {
         /// Serialize to the wire layout `DayEnvelope.java` produces.
+        #[must_use]
         pub fn encode(&self) -> Vec<u8> {
             let mut meta = String::new();
             for (k, v) in &self.meta {
@@ -52,6 +53,11 @@ pub mod envelope {
 
         /// Parse the wire layout. `Err` is a malformed envelope (truncated), not a sentinel:
         /// sentinel statuses parse fine and are the caller's to interpret.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error when `bytes` is shorter than the 8-byte header or than the
+        /// meta length the header declares.
         pub fn decode(bytes: &[u8]) -> Result<Envelope, &'static str> {
             if bytes.len() < 8 {
                 return Err("short envelope");
@@ -85,6 +91,7 @@ pub mod envelope {
         }
 
         /// For a sentinel (negative-status) envelope: the error message text.
+        #[must_use]
         pub fn error_message(&self) -> String {
             String::from_utf8_lossy(&self.payload).into_owned()
         }
@@ -111,7 +118,7 @@ pub mod envelope {
         fn sentinel_carries_the_message() {
             let raw = Envelope {
                 status: -3,
-                meta: vec![("boom: handshake".into(), "".into())],
+                meta: vec![("boom: handshake".into(), String::new())],
                 payload: Vec::new(),
             };
             // Encode as Java's error() does: message in the meta block, no payload.
@@ -159,6 +166,10 @@ mod imp {
     /// Cache the JVM and the host's class loader, then validate linked Java bindings.
     /// Call on a Java-owned thread before using services, after setting `DayRuntime.ctx`.
     /// Repeated calls retain the process-wide JVM and class loader.
+    ///
+    /// # Errors
+    ///
+    /// Returns the JNI error when the JVM or `host_class`'s class loader cannot be obtained.
     pub fn init(env: &mut Env, host_class: &JClass) -> jni::errors::Result<()> {
         let vm = env.get_java_vm()?;
         let loader = host_class.get_class_loader(env)?;
@@ -206,7 +217,7 @@ mod imp {
                 let mut buf = [0u8; 2048];
                 let mut line: Vec<u8> = Vec::new();
                 loop {
-                    let n = unsafe { read(read_fd, buf.as_mut_ptr() as *mut c_void, buf.len()) };
+                    let n = unsafe { read(read_fd, buf.as_mut_ptr().cast::<c_void>(), buf.len()) };
                     if n <= 0 {
                         break;
                     }
@@ -217,7 +228,7 @@ mod imp {
                                 __android_log_write(
                                     prio,
                                     tag.as_ptr(),
-                                    line.as_ptr() as *const c_char,
+                                    line.as_ptr().cast::<c_char>(),
                                 );
                             }
                             line.clear();
@@ -231,7 +242,7 @@ mod imp {
     }
 
     static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
-    /// GlobalRef to the app's ClassLoader (supplied by the host at init), so a
+    /// `GlobalRef` to the app's `ClassLoader` (supplied by the host at init), so a
     /// `java_class!` binding resolves app classes from Rust-spawned threads too: their
     /// `FindClass` sees only the system loader, and parts like day-part-http call Java from the
     /// caller's worker thread.
@@ -244,6 +255,10 @@ mod imp {
     /// binding call whose error was dropped must not leave one behind, where it would fail every
     /// JNI call after it and, back in Java, be thrown from whatever called into Rust. Calls that
     /// care about the failure go through [`java`], which clears at the call.
+    ///
+    /// # Panics
+    ///
+    /// Panics when [`init`] has not run, or when the thread cannot be attached to the JVM.
     pub fn with_env<R>(f: impl FnOnce(&mut Env) -> R) -> R {
         let vm = JAVA_VM
             .get()
@@ -292,6 +307,11 @@ mod imp {
     /// `obj` as the bound class `T`, for calling `T`'s instance methods on a View Day holds (a
     /// tweak's `with_native` handle, say). The cast is checked (`IsInstanceOf`), and the result
     /// is a local reference of this call's frame, so it never outlives `env`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the JNI error when `obj` is not an instance of `T`, or when the local
+    /// reference cannot be made.
     pub fn downcast<'l, T: jni::refs::Reference>(
         env: &mut Env<'l>,
         obj: &JObject,
@@ -391,6 +411,10 @@ mod imp {
     /// The `load_class` hook every [`java_class!`](crate::java_class) binding uses: the app's
     /// class loader, cached at `init`, so a binding first used on a thread Rust started still
     /// finds app classes. That thread's own loader is the system one, which cannot (see `dfind`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the JNI error when the class cannot be found or loaded.
     pub fn load_app_class<'l, T: jni::refs::Reference>(
         env: &mut Env<'l>,
         context: &jni::refs::LoaderContext,
@@ -413,6 +437,7 @@ mod imp {
 
     /// Read a Java `String` local ref into a Rust `String` (`None` when the ref is null). Public:
     /// the `day` crate's JNI native methods use it to decode incoming string args.
+    #[must_use]
     pub fn read_jstring(env: &Env, s: &JString) -> Option<String> {
         if s.is_null() {
             None
@@ -438,6 +463,10 @@ mod imp {
     }
 
     /// A Java `String` as a Rust `String` (MUTF-8 decoded).
+    ///
+    /// # Errors
+    ///
+    /// Returns the JNI error when the string's characters cannot be read.
     pub fn string_of(env: &Env, s: &JString) -> jni::errors::Result<String> {
         Ok(s.mutf8_chars(env)?.to_string())
     }

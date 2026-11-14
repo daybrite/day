@@ -7,6 +7,7 @@
 //! and `cover` (modal), including nested-stack merging.
 
 use std::cell::{Cell, RefCell};
+use std::fmt::Write as _;
 use std::rc::Rc;
 
 use day_core::*;
@@ -30,6 +31,7 @@ use crate::*;
 /// * A trailing `?name=value&…` carries [`route_params`] to the destination builders.
 ///
 /// False = no surface recognized the (first) segment.
+#[must_use]
 pub fn navigate(path: &str) -> bool {
     day_core::navigate(path)
 }
@@ -42,17 +44,20 @@ pub fn nav_back() -> bool {
 /// The full current route: every mounted surface's contribution, outermost to innermost,
 /// `/`-joined. Round-trips through [`navigate`]: persist it on exit, `navigate(&saved)` on
 /// launch (docs/navigation.md).
+#[must_use]
 pub fn current_route() -> Option<String> {
     day_core::current_route()
 }
 
 /// The query params of the most recent [`navigate`] (`?name=value&…`), read inside a
 /// destination builder. See docs/navigation.md for when params apply.
+#[must_use]
 pub fn route_params() -> std::rc::Rc<Vec<(String, String)>> {
     day_core::route_params()
 }
 
 /// One query param of the most recent [`navigate`] (`None` = not present).
+#[must_use]
 pub fn route_param(name: &str) -> Option<String> {
     day_core::route_param(name)
 }
@@ -188,6 +193,7 @@ pub fn route_title_text<M>(title: impl crate::IntoText<M>) -> String {
 /// `route(&Section::Stack).then(&Drill::Item { id: 42 }).param("hint", "linked")` encodes to
 /// `"stack/item-42?hint=linked"`; [`RoutePath::navigate`] it, or hand it to [`nav_link_to`].
 #[derive(Clone, Debug, Default)]
+#[must_use]
 pub struct RoutePath {
     segments: Vec<String>,
     params: Vec<(String, String)>,
@@ -213,10 +219,12 @@ impl RoutePath {
         self
     }
     /// The encoded route string (percent-escaped where needed), the form [`navigate`] accepts.
+    #[must_use]
     pub fn to_route(&self) -> String {
         day_core::encode_route(&self.segments, &self.params)
     }
     /// Navigate to this path. False = no surface recognized the first segment.
+    #[must_use]
     pub fn navigate(&self) -> bool {
         day_core::navigate(&self.to_route())
     }
@@ -235,6 +243,10 @@ pub fn navigate_to(r: &impl Route) -> bool {
 }
 
 /// A tappable link that navigates to a typed [`RoutePath`] when pressed.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature; callers build the path at the call site"
+)]
 pub fn nav_link_to<M>(label: impl IntoText<M>, path: RoutePath) -> Button {
     let path = path.to_route();
     button(label).action(move || {
@@ -286,7 +298,7 @@ impl NavHostCx {
                     host,
                     Box::new(day_spec::props::NavPatch::GuardTop(now > 0)),
                     false,
-                )
+                );
             });
         }
     }
@@ -362,7 +374,7 @@ fn current_nav_host() -> Option<NavHostCx> {
     NAV_HOST_CX.with(|s| s.borrow().last().cloned().flatten())
 }
 
-/// Create a NAV_PAGE under `host` and wire its FrameChanged size reports into `sizes`
+/// Create a `NAV_PAGE` under `host` and wire its `FrameChanged` size reports into `sizes`
 /// (the native container owns each page's frame; Day lays content out at the reported size).
 fn nav_page(
     host: RNode,
@@ -410,7 +422,10 @@ fn list_layer_gate(
     // teardown, so a disposed signal answers "not showing" rather than panicking.
     Rc::new(move || {
         let shown = visible.is_none_or(|v| v.try_get().unwrap_or(false));
-        let side_by_side = pres.is_some_and(|p| p.try_get().is_some_and(|p| p.is_split()));
+        let side_by_side = pres.is_some_and(|p| {
+            p.try_get()
+                .is_some_and(day_spec::props::NavPresentation::is_split)
+        });
         shown && (side_by_side || detail_open.is_none_or(|d| !d.try_get().unwrap_or(false)))
     })
 }
@@ -626,7 +641,7 @@ pub enum NavStyle {
     /// Pinned: a tab bar at every size, however wide the window gets. Reach for it when the
     /// content is peer sections that should never become a sidebar.
     Tabs,
-    /// Pinned: a NavigationSplitView, a sidebar list + a detail. Wide windows show both panes
+    /// Pinned: a `NavigationSplitView`, a sidebar list + a detail. Wide windows show both panes
     /// (on GTK an `AdwNavigationSplitView`); narrow ones collapse to a list that pushes the
     /// detail, which is the one shape [`Self::Automatic`] never produces on its own.
     Sidebar,
@@ -696,7 +711,7 @@ struct ShownRows {
 impl<K: Route> NavRows<K> {
     fn shown(&self) -> ShownRows {
         ShownRows {
-            keys: self.keys.iter().map(|k| k.key()).collect(),
+            keys: self.keys.iter().map(Route::key).collect(),
             titles: self.titles.clone(),
             icons: self.icons.clone(),
             badges: self.badges.clone(),
@@ -750,6 +765,7 @@ type PageFn = Rc<dyn Fn() -> AnyPiece>;
 /// One nav item (docs/navigation.md): a key, a title, and its decorations, built by [`item`].
 /// The same value describes a static destination (`item("home", title).page(home_page)`) and
 /// a row of a data-driven block (`nav_items(move || feeds(), |f| item(f.id, f.name))`).
+#[must_use]
 pub struct NavItem<K = String> {
     key: K,
     title: TextSource,
@@ -796,7 +812,7 @@ impl<K> NavItem<K> {
     /// A bundled-image name for the item's native icon (typed [`ImageName`](day_spec::ImageName),
     /// resolved like [`image()`], e.g. `res::images::nav_home`), or an absolute local image path
     /// supplied as an owned string. Shown beside the label where the backend's nav supports it
-    /// (the Windows NavigationView, the iOS/macOS source list); backends that can't decorate
+    /// (the Windows `NavigationView`, the iOS/macOS source list); backends that can't decorate
     /// rows ignore it. AppKit/UIKit preserve the colors of local files; bundled glyphs remain
     /// templates.
     pub fn icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
@@ -1316,7 +1332,7 @@ fn sidebar_image_view<K: Route>(
                     node,
                     Box::new(day_spec::props::ImagePatch::Tint(*tint)),
                     false,
-                )
+                );
             });
         });
         node
@@ -1348,7 +1364,7 @@ fn sidebar_progress<K: Route>(
                         let fraction = drawn().flatten().unwrap_or(0.0).clamp(0.0, 1.0);
                         let color = slot
                             .field(|r| r.tint)
-                            .unwrap_or(day_spec::Color::hex(0x0A84FF));
+                            .unwrap_or(day_spec::Color::hex(0x000A_84FF));
                         let rect = day_spec::Rect::new(
                             1.0,
                             1.0,
@@ -1452,7 +1468,7 @@ fn section_sidebar<K: Route, S: Binding<K>>(
                 .grow(Dimension::Both)
                 .build(cx);
                 with_tree(|t| {
-                    t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())))
+                    t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())));
                 });
                 node
             })
@@ -1618,7 +1634,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                 })
                 .build(cx);
                 with_tree(|t| {
-                    t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())))
+                    t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())));
                 });
                 node
             })
@@ -1635,7 +1651,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
         }
     })
     .selected_rows(move || {
-        selection_revision.get();
+        let _ = selection_revision.get();
         selected()
             .iter()
             .position(|r| {
@@ -1777,7 +1793,7 @@ impl<K: Route> SelItems<K> {
             r.badges.push(
                 m.badge
                     .as_ref()
-                    .map(|b| b.resolve())
+                    .map(super::sources::TextSource::resolve)
                     .filter(|b| !b.is_empty()),
             );
             r.badge_icons.push(m.badge_icon.clone());
@@ -1871,6 +1887,7 @@ type IconProgressSource<K> = Rc<dyn Fn() -> Vec<(K, Option<f64>)>>;
 type DocumentEvent = Rc<dyn Fn(&Event)>;
 type RefreshSource = (Reactive<bool>, Rc<dyn Fn()>);
 
+#[must_use]
 pub struct Nav<S: Binding<K>, K: Route = String> {
     selection: S,
     documents: Option<day_spec::props::DocumentTabsConfig>,
@@ -1933,6 +1950,7 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
 /// branching on either. The query and the scope are app-owned bindings, which is what lets the
 /// field move between placements without the state moving with it. A `Search` holds those
 /// bindings, so build it where the nav is built; it is not a value to share across windows.
+#[must_use]
 pub struct Search {
     query: AnyBinding<String>,
     prompt: Option<TextSource>,
@@ -2071,7 +2089,7 @@ pub(crate) fn install_page_search(search: Search) {
         let submit = search.submit.clone();
         day_core::register_toolbar_value(Rc::new(move |v: &day_spec::ToolbarValue| match v {
             day_spec::ToolbarValue::Text(t) => {
-                *shown.borrow_mut() = t.clone();
+                (*shown.borrow_mut()).clone_from(t);
                 query.set(t.clone());
             }
             day_spec::ToolbarValue::Submit(t) => {
@@ -2101,7 +2119,9 @@ pub(crate) fn install_page_search(search: Search) {
         column,
     };
     let available = search.available.clone();
-    let offered = available.as_ref().is_none_or(|v| v.get_untracked());
+    let offered = available
+        .as_ref()
+        .is_none_or(super::canvas::Reactive::get_untracked);
     let offered_now = Rc::new(Cell::new(offered));
     let item = Rc::new(item);
     let token = day_core::register_contribution_gated(
@@ -2144,7 +2164,7 @@ pub(crate) fn install_page_search(search: Search) {
             seed,
             move || read(),
             move |p: &String| {
-                *prompt.borrow_mut() = p.clone();
+                (*prompt.borrow_mut()).clone_from(p);
                 if offered_now.get() {
                     let text = shown.borrow().clone();
                     let list = suggest
@@ -2171,7 +2191,7 @@ pub(crate) fn install_page_search(search: Search) {
             if *shown.borrow() == *t {
                 return;
             }
-            *shown.borrow_mut() = t.clone();
+            (*shown.borrow_mut()).clone_from(t);
             day_core::patch_chrome(
                 chrome,
                 day_spec::ToolbarPatch::Text {
@@ -2192,7 +2212,7 @@ pub(crate) fn install_page_search(search: Search) {
                         item: SEARCH_ITEM_ID.to_string(),
                         list: list.clone(),
                     },
-                )
+                );
             },
         );
     }
@@ -2209,6 +2229,7 @@ pub(crate) fn install_page_search(search: Search) {
 /// [`detail_visible`](ContentList::detail_visible) so compact widths get the list-then-detail
 /// push flow, and [`only_for`](ContentList::only_for) to give full-width destinations (a
 /// settings page) the whole detail area.
+#[must_use]
 pub struct ContentList<K = String> {
     build: Rc<dyn Fn() -> AnyPiece>,
     width: f64,
@@ -2300,6 +2321,7 @@ impl<T: Clone + 'static> Binding<bool> for Presence<T> {
 /// headings use their first route as a fallback identity. Takes precedence over
 /// [`Nav::reorder_items`] and [`Nav::regroup_items`]; combined collapse/reordering is not
 /// supported.
+#[must_use]
 pub struct Sections {
     collapsed: AnyBinding<std::collections::HashSet<String>>,
     on_change: Option<Rc<dyn Fn(String, bool)>>,
@@ -2336,10 +2358,10 @@ impl Sections {
             move |ids| {
                 let mut ids: Vec<_> = ids.iter().collect();
                 ids.sort();
-                let saved = ids
-                    .iter()
-                    .map(|id| format!("{}:{id}", id.len()))
-                    .collect::<String>();
+                let saved = ids.iter().fold(String::new(), |mut out, id| {
+                    let _ = write!(out, "{}:{id}", id.len());
+                    out
+                });
                 day_core::nav_store_save(&key, &saved);
             },
         );
@@ -2386,10 +2408,9 @@ impl SearchSpec {
         use day_spec::{Cap, Support};
         let can = |cap| with_tree(|t| t.capability(cap)) != Support::Unsupported;
         match requested {
-            P::Inline => P::Inline,
             P::Toolbar if can(Cap::ToolbarSearch) => P::Toolbar,
             P::Automatic if can(Cap::Toolbar) && can(Cap::ToolbarSearch) => P::Toolbar,
-            P::Toolbar | P::Automatic => P::Inline,
+            P::Inline | P::Toolbar | P::Automatic => P::Inline,
         }
     }
 
@@ -2414,7 +2435,9 @@ impl SearchSpec {
             hides_on_scroll: self.hides_on_scroll,
             initially_hidden: self.initially_hidden,
             scopes: self.scopes.iter().map(TextSource::initial).collect(),
-            scope: self.scope.map(|s| s.get_untracked()).unwrap_or(0),
+            scope: self
+                .scope
+                .map_or(0, day_reactive::AnyBinding::get_untracked),
         }
     }
 
@@ -2457,7 +2480,7 @@ impl SearchSpec {
             let action = day_core::register_toolbar_value(Rc::new(
                 move |v: &day_spec::ToolbarValue| match v {
                     day_spec::ToolbarValue::Text(t) => {
-                        *g.borrow_mut() = t.clone();
+                        (*g.borrow_mut()).clone_from(t);
                         query.set(t.clone());
                     }
                     day_spec::ToolbarValue::Submit(t) => {
@@ -2525,22 +2548,21 @@ impl SearchSpec {
                 if *shown.borrow() == *t {
                     return; // the field already shows this; patching it back fights the caret
                 }
-                *shown.borrow_mut() = t.clone();
-                match placement {
+                (*shown.borrow_mut()).clone_from(t);
+                if placement == P::Toolbar {
                     // The patch mirrors into the owning contribution as well, so a later
                     // re-lower of this chrome rebuilds the field with the text it is showing
                     // rather than the one it was declared with.
-                    P::Toolbar => day_core::patch_chrome(
+                    day_core::patch_chrome(
                         chrome,
                         day_spec::ToolbarPatch::Text {
                             item: SEARCH_ITEM_ID.to_string(),
                             text: t.clone(),
                         },
-                    ),
-                    _ => {
-                        let p = SearchPatch::Text(t.clone());
-                        with_tree(|tr| tr.patch(host, Box::new(p), false));
-                    }
+                    );
+                } else {
+                    let p = SearchPatch::Text(t.clone());
+                    with_tree(|tr| tr.patch(host, Box::new(p), false));
                 }
             },
         );
@@ -2561,15 +2583,16 @@ impl SearchSpec {
             bind_seeded(
                 seed.suggestions.clone(),
                 move || f(&query.get()),
-                move |list| match placement {
-                    P::Toolbar => day_core::patch_chrome(
-                        chrome,
-                        day_spec::ToolbarPatch::Suggestions {
-                            item: SEARCH_ITEM_ID.to_string(),
-                            list: list.clone(),
-                        },
-                    ),
-                    _ => {
+                move |list| {
+                    if placement == P::Toolbar {
+                        day_core::patch_chrome(
+                            chrome,
+                            day_spec::ToolbarPatch::Suggestions {
+                                item: SEARCH_ITEM_ID.to_string(),
+                                list: list.clone(),
+                            },
+                        );
+                    } else {
                         let p = SearchPatch::Suggestions(list.clone());
                         with_tree(|t| t.patch(host, Box::new(p), false));
                     }
@@ -2613,7 +2636,7 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
 #[day_macros::builder(NavBuilder<K>)]
 impl<K: Route, S: Binding<K>> Nav<S, K> {
     /// Add the platform's pull-to-refresh control to the sidebar rows (docs/navigation.md).
-    /// UIKit uses UIRefreshControl, Android SwipeRefreshLayout. Other toolkits can ignore
+    /// UIKit uses `UIRefreshControl`, Android `SwipeRefreshLayout`. Other toolkits can ignore
     /// this affordance, so retain a Refresh command for keyboard/accessibility users.
     /// `refreshing` is app-owned: set it synchronously when accepting a request and clear it
     /// on completion, failure or cancellation. Repeated pulls while busy are ignored. A
@@ -2960,12 +2983,8 @@ impl<K: Route, S: Binding<K>> Piece for Nav<S, K> {
 /// (skip). Only a saved key that parses and is a current item is honored (plus the empty
 /// "deselected" key, for a sidebar's collapsed state), so a stale key left by an older build is
 /// ignored. A no-op when `restore` is unset or no [`NavStore`](day_core::NavStore) is installed.
-fn restore_selection<K: Route, S: Binding<K>>(
-    restore: &Option<String>,
-    selection: &S,
-    items: &[K],
-) {
-    if let Some(key) = restore.as_deref()
+fn restore_selection<K: Route, S: Binding<K>>(restore: Option<&str>, selection: &S, items: &[K]) {
+    if let Some(key) = restore
         && !day_core::has_launch_deeplink()
         && let Some(saved) = day_core::nav_store_load(key)
         && let Some(k) = K::from_key(&saved)
@@ -3056,7 +3075,8 @@ fn gated_detail_piece<K: Route>(
         when(
             move || {
                 pres.get().rows_are_chrome()
-                    && !day_core::window_size_class(window).is_some_and(|c| c.prefers_split())
+                    && !day_core::window_size_class(window)
+                        .is_some_and(day_spec::SizeClass::prefers_split)
             },
             move || gated_detail_nested(c1.clone()),
         )
@@ -3151,7 +3171,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
                 _ => {}
             });
         }
-        wire_gated_detail(&cfg, target);
+        wire_gated_detail(&cfg, &target);
         host
     })
 }
@@ -3180,7 +3200,7 @@ fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
                 (cfg.list)().grow(Dimension::Both).build(cx)
             })
         });
-        wire_gated_detail(&cfg, target);
+        wire_gated_detail(&cfg, &target);
         node
     })
 }
@@ -3189,7 +3209,7 @@ fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
 /// destination's page onto `target`, `false` (and the native back, which writes it) pops.
 /// Registered in the current scope, so a section switch or a presentation morph tears the
 /// layer down with the shape that built it.
-fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
+fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: &NavHostCx) {
     use day_spec::props::{NavPageProps, NavPatch, Pane};
     /// The pushed layer: its page, and the scope its content lives in.
     struct Layer {
@@ -3227,8 +3247,7 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
             }
             let title = detail_src
                 .as_ref()
-                .map(TextSource::initial)
-                .unwrap_or_else(|| root_title.clone());
+                .map_or_else(|| root_title.clone(), TextSource::initial);
             let page = nav_page(
                 target.host,
                 &NavPageProps {
@@ -3358,8 +3377,9 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
     // The layer's page can ride a host this scope does not own (the merged shape), so that
     // host's teardown will not reach it; pop it, top-down, when this shape is left: a
     // section switch, a presentation morph. Guarded for app teardown, like a merged stack.
+    let host = target.host;
     owner_scope.on_cleanup(move || {
-        let alive = with_tree(|t| t.node_kind(target.host).is_some());
+        let alive = with_tree(|t| t.node_kind(host).is_some());
         if alive {
             pop();
         } else if let Some(l) = layer.borrow_mut().take() {
@@ -3583,7 +3603,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     let shown0 = rows0.shown();
     let (typed0, titles0, icons0) = (rows0.keys, rows0.titles, rows0.icons);
     // Restore the last-selected section (before the detail's initial `show` runs).
-    restore_selection(&restore, &selection, &typed0);
+    restore_selection(restore.as_deref(), &selection, &typed0);
     let typed: Rc<RefCell<Vec<K>>> = Rc::new(RefCell::new(typed0));
     let titles: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(titles0));
 
@@ -3740,7 +3760,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         // on Android, where the sidebar came up marking nothing at all. Seeding the props means
         // the first realization is already right and the patch is only ever a change.
         let selected_init = {
-            let key = selection.peek().key().to_string();
+            let key = selection.peek().key().clone();
             typed
                 .borrow()
                 .iter()
@@ -3864,7 +3884,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                                     node,
                                     Box::new(day_spec::props::RefreshPatch { refreshing: *busy }),
                                     false,
-                                )
+                                );
                             });
                         },
                     );
@@ -3881,7 +3901,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                                     node,
                                     Box::new(day_spec::props::RefreshPatch { refreshing: busy }),
                                     false,
-                                )
+                                );
                             });
                         }
                     });
@@ -3947,7 +3967,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                             && list_pred_click.as_ref().is_none_or(|p| p(k))
                         {
                             with_tree(|t| {
-                                t.patch(host, Box::new(NavPatch::ListInStack(true)), false)
+                                t.patch(host, Box::new(NavPatch::ListInStack(true)), false);
                             });
                         }
                     }
@@ -4046,7 +4066,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         // disposed signal answers "not showing" rather than panicking (docs/toolbars.md).
         let gate: Rc<dyn Fn() -> bool> = Rc::new(move || {
             visible.try_get().unwrap_or(false)
-                && (pres_sig.try_get().is_some_and(|p| p.is_split())
+                && (pres_sig
+                    .try_get()
+                    .is_some_and(day_spec::props::NavPresentation::is_split)
                     || dv.is_none_or(|d| !d.try_get().unwrap_or(false)))
         });
         with_nav_host(None, || {
@@ -4103,7 +4125,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     // still earns the pair, so the width is asked rather than the style.
                     p.is_split()
                         || (p.rows_are_chrome()
-                            && day_core::window_size_class(win).is_some_and(|c| c.prefers_split()))
+                            && day_core::window_size_class(win)
+                                .is_some_and(day_spec::SizeClass::prefers_split))
                 },
                 {
                     let page = page.clone();
@@ -4469,7 +4492,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     let build_all = {
         let (show, typed_a, sel_a) = (show.clone(), typed.clone(), selection.clone());
         Rc::new(move || {
-            let keys: Vec<String> = typed_a.borrow().iter().map(|k| k.key()).collect();
+            let keys: Vec<String> = typed_a.borrow().iter().map(Route::key).collect();
             for k in keys {
                 show(&k);
             }
@@ -4671,7 +4694,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         if !list_in_stack_r.get() {
                             list_in_stack_r.set(true);
                             with_tree(|t| {
-                                t.patch(host, Box::new(NavPatch::ListInStack(true)), false)
+                                t.patch(host, Box::new(NavPatch::ListInStack(true)), false);
                             });
                         }
                         owners_r.borrow_mut().clear();
@@ -4796,7 +4819,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     menus: mn,
                 } = items_e.derive();
                 (
-                    k.iter().map(|x| x.key()).collect::<Vec<_>>(),
+                    k.iter().map(Route::key).collect::<Vec<_>>(),
                     k,
                     t,
                     i,
@@ -4839,8 +4862,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     });
                     changed
                 };
-                *typed_e.borrow_mut() = keys.clone();
-                *titles_e.borrow_mut() = ts.clone();
+                (*typed_e.borrow_mut()).clone_from(keys);
+                (*titles_e.borrow_mut()).clone_from(ts);
                 let selected_key = sel_e.peek();
                 let cur = selected_key.key();
                 let retain = !cur.is_empty()
@@ -5014,7 +5037,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                             menu,
                             Box::new(NavMenuPatch::IconProgress(values.clone())),
                             false,
-                        )
+                        );
                     });
                 }
             },
@@ -5197,6 +5220,7 @@ impl BackRequest {
 /// nav_stack(path.clone(), home_view).destination(|d: &Drill| detail_view(d))
 /// // push:  path.update(|p| p.push(Drill::Item { id: 42 }));
 /// ```
+#[must_use]
 pub struct NavStack<S: Binding<Vec<K>>, K: Route = String> {
     path: S,
     title: TextSource,
@@ -5545,7 +5569,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                                 immersive: false,
                             }),
                             false,
-                        )
+                        );
                     });
                     owners.borrow_mut().push(stack_owner.clone());
                     entries.borrow_mut().push(StackEntry {
@@ -5593,7 +5617,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                             .is_some_and(|owner| Rc::ptr_eq(owner, &stack_owner))
                     {
                         with_tree(|t| {
-                            t.patch(host, Box::new(NavPatch::Title(title.clone())), false)
+                            t.patch(host, Box::new(NavPatch::Title(title.clone())), false);
                         });
                     }
                 },
@@ -5625,7 +5649,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
             let p = path.clone();
             bind(
                 move || {
-                    let keys: Vec<String> = p.read().iter().map(|k| k.key()).collect();
+                    let keys: Vec<String> = p.read().iter().map(Route::key).collect();
                     day_core::encode_route(&keys, &[])
                 },
                 move |s: &String| day_core::nav_store_save(&key, s),
@@ -5728,7 +5752,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                     true
                 }
             },
-            move || p_cur.peek().last().map(|k| k.key()).unwrap_or_default(),
+            move || p_cur.peek().last().map(Route::key).unwrap_or_default(),
             move |k| {
                 let Some(parsed) = K::from_key(k) else {
                     return false; // not one of this stack's routes; leave it queued
@@ -5738,7 +5762,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                 p_enter.write(v);
                 true
             },
-            move || p_seg.peek().iter().map(|k| k.key()).collect(),
+            move || p_seg.peek().iter().map(Route::key).collect(),
         );
         ret_node
     }
@@ -5760,6 +5784,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
 /// A cover's per-route surface color (see [`Cover::background`]).
 type CoverBackground<R> = Rc<dyn Fn(&R) -> day_spec::Color>;
 
+#[must_use]
 pub struct Cover<S, R: Route> {
     sheet: bool,
     half: bool,
@@ -5857,6 +5882,13 @@ impl<S: Binding<Option<R>>, R: Route> Cover<S, R> {
 
 impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
     fn build(self, cx: &mut BuildCx) -> RNode {
+        // The presented content's scope, and whether a dismiss transition is in flight
+        // (content stays mounted until the backend reports `CoverHidden`, so the surface
+        // isn't blank while it slides out).
+        struct Presented<R> {
+            key: R,
+            scope: Scope,
+        }
         use day_spec::props::{CoverPatch, CoverProps};
         let Cover {
             sheet,
@@ -5885,13 +5917,6 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
             Boundary::Yes,
         );
 
-        // The presented content's scope, and whether a dismiss transition is in flight
-        // (content stays mounted until the backend reports `CoverHidden`, so the surface
-        // isn't blank while it slides out).
-        struct Presented<R> {
-            key: R,
-            scope: Scope,
-        }
         let current: Rc<RefCell<Option<Presented<R>>>> = Rc::default();
         let closing: Rc<Cell<bool>> = Rc::default();
         let owner_scope = Scope::current();
@@ -5924,8 +5949,8 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
             let (current, closing, dispose_content) =
                 (current.clone(), closing.clone(), dispose_content.clone());
             let layer = layer.clone();
-            move |want: &Option<R>| match want {
-                Some(r) => {
+            move |want: &Option<R>| {
+                if let Some(r) = want {
                     let already =
                         !closing.get() && current.borrow().as_ref().is_some_and(|p| p.key == *r);
                     if already {
@@ -5949,8 +5974,8 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     // A compact window keeps the full-window cover: a card there would leave a
                     // sliver of dimmed page around it.
                     let card = composed_sheet
-                        && !day_core::window_size_class_untracked(window)
-                            .is_some_and(|c| c.width == day_spec::WidthClass::Compact);
+                        && day_core::window_size_class_untracked(window)
+                            .is_none_or(|c| c.width != day_spec::WidthClass::Compact);
                     // The cover is its content's window for toolbar purposes: a navigation stack
                     // inside it (a sheet's title, Done, bottom bar) belongs on the cover's bar,
                     // not on the window it covers.
@@ -5963,7 +5988,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                             } else {
                                 let _ = content.build(&mut c);
                             }
-                        })
+                        });
                     });
                     *current.borrow_mut() = Some(Presented {
                         key: r.clone(),
@@ -5991,8 +6016,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                         t.mark_layout_dirty();
                         t.layout_if_needed();
                     });
-                }
-                None => {
+                } else {
                     layer.order.set(0);
                     if current.borrow().is_some() && !closing.get() {
                         closing.set(true);
@@ -6020,7 +6044,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                                 node,
                                 Box::new(CoverPatch::DismissDisabled(*disabled)),
                                 false,
-                            )
+                            );
                         });
                     }
                 },
@@ -6392,7 +6416,7 @@ pub(crate) mod conformance {
                 d.tap("show").await?;
                 d.assert_text("cover_text", "Cover panel").await?;
                 d.wait_idle().await?;
-                let heights = HALF_HEIGHTS.with(|h| h.clone());
+                let heights = HALF_HEIGHTS.with(std::clone::Clone::clone);
                 check_half(&d, "half sheet content", &heights).await?;
                 d.assert_text("state", "open panel").await?;
                 d.tap("close").await?;
@@ -6474,7 +6498,7 @@ pub(crate) mod conformance {
                 d.wait_idle().await?;
                 d.tap("show").await?;
                 d.assert_text("cover_text", "Cover panel").await?;
-                let heights = SHEET_HEIGHTS.with(|h| h.clone());
+                let heights = SHEET_HEIGHTS.with(std::clone::Clone::clone);
                 let mut got = (0.0, 0.0);
                 for _ in 0..40 {
                     got = (heights.0.get(), heights.1.get());

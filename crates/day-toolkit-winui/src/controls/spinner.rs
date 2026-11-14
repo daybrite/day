@@ -21,14 +21,14 @@ unsafe extern "C" {
 }
 
 pub(crate) fn make(_backend: &mut Xaml, p: &ActivityProps, _id: NodeId) -> WinHandle {
-    WinHandle(unsafe { day_activity_xaml_new(p.large as c_int, p.animating as c_int) })
+    WinHandle(unsafe { day_activity_xaml_new(c_int::from(p.large), c_int::from(p.animating)) })
 }
 
 pub(crate) fn update(_backend: &mut Xaml, h: &WinHandle, patch: &ActivityPatch) {
     match patch {
         ActivityPatch::Value(_) => {}
         ActivityPatch::Animating(on) => unsafe {
-            day_activity_xaml_set_animating(h.0, *on as c_int)
+            day_activity_xaml_set_animating(h.0, c_int::from(*on));
         },
     }
 }

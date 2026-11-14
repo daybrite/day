@@ -9,6 +9,7 @@
 //! mmapped, uncompressed blob) and images via `QPixmap(":/day/images/<stem>")`. Data lives at
 //! `/day/assets/<name>`, images at `/day/images/<stem>`.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -21,7 +22,7 @@ pub fn qresource_path(project: &Project) -> PathBuf {
 }
 
 /// Locate `rcc`, which lives in Qt's libexec (Qt 6) or host-bins, or on PATH.
-fn find_rcc() -> Option<PathBuf> {
+fn find_rcc() -> PathBuf {
     // On Windows the executable carries `.exe`, so the qmake-queried libexec/host-bins dir holds
     // `rcc.exe`; joining a bare "rcc" there fails `exists()` and Qt's icon would silently drop.
     let names: &[&str] = if cfg!(windows) {
@@ -38,14 +39,14 @@ fn find_rcc() -> Option<PathBuf> {
                 for name in names {
                     let p = Path::new(&dir).join(name);
                     if p.exists() {
-                        return Some(p);
+                        return p;
                     }
                 }
             }
         }
     }
     // PATH fallback (Command resolves `rcc`/`rcc.exe` on PATH if present; else stage() degrades).
-    Some(PathBuf::from("rcc"))
+    PathBuf::from("rcc")
 }
 
 pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
@@ -66,16 +67,18 @@ pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
 
     let mut files = String::new();
     for d in &set.data {
-        files += &format!(
-            "    <file alias=\"assets/{}\">{}</file>\n",
+        let _ = writeln!(
+            files,
+            "    <file alias=\"assets/{}\">{}</file>",
             d.name,
             d.path.display()
         );
     }
     for img in &set.images {
         // Alias images to images/<stem> (drop the extension) so the backend loads by name.
-        files += &format!(
-            "    <file alias=\"images/{}\">{}</file>\n",
+        let _ = writeln!(
+            files,
+            "    <file alias=\"images/{}\">{}</file>",
             img.name,
             img.path.display()
         );
@@ -86,7 +89,7 @@ pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
     let manifest = out.join("app.qrc");
     std::fs::write(&manifest, qrc).map_err(|e| format!("write {}: {e}", manifest.display()))?;
 
-    let rcc = find_rcc().ok_or("could not locate Qt's rcc")?;
+    let rcc = find_rcc();
     let blob = qresource_path(project);
     // `-no-compress` stores entries uncompressed so QResource::data() is a zero-copy pointer.
     let status = Command::new(&rcc)

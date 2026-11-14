@@ -8,6 +8,7 @@
 //! code). `day-toolkit-arkui` sets an image node's src to `resource://RAWFILE/day/<name>.png` and its rawfile
 //! opener mmaps `day/<name>` for random-access data.
 
+use std::fmt::Write as _;
 use std::fs;
 
 use super::{FontFile, ResourceSet, sanitize_ident};
@@ -96,7 +97,7 @@ fn sized_svg(source: &str) -> Result<String, String> {
         if let Some(attr) = root.attribute_node(name) {
             edits.push((attr.range_value(), value.to_string()));
         } else {
-            missing.push_str(&format!(" {name}=\"{value}\""));
+            let _ = write!(missing, " {name}=\"{value}\"");
         }
     }
     // Insert immediately after the root element's qualified name, preserving its namespace.

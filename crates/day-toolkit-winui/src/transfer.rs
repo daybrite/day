@@ -87,6 +87,10 @@ pub fn source(h: &WinHandle, source: Source) {
 }
 /// Carry a rebuilt widget's drag source and drop target to its replacement, which needs the
 /// native handlers installed afresh.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the handle is passed by reference everywhere else in this backend"
+)]
 pub fn migrate(old: usize, new: &WinHandle) {
     if let Some(s) = SOURCES.with(|t| t.remove(old)) {
         source(new, s);

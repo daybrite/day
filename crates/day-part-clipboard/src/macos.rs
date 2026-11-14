@@ -19,7 +19,9 @@ use objc2_foundation::NSString;
 static PASTEBOARD_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn set_text(text: &str) -> bool {
-    let _guard = PASTEBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = PASTEBOARD_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pb = NSPasteboard::generalPasteboard();
     // clearContents() takes ownership of the pasteboard (bumps the change count); without it,
     // setString:forType: fails on a pasteboard another app owns.
@@ -28,7 +30,9 @@ pub fn set_text(text: &str) -> bool {
 }
 
 pub fn get_text() -> Option<String> {
-    let _guard = PASTEBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = PASTEBOARD_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pb = NSPasteboard::generalPasteboard();
     pb.stringForType(unsafe { NSPasteboardTypeString })
         .map(|s| s.to_string())
@@ -36,7 +40,9 @@ pub fn get_text() -> Option<String> {
 
 pub fn has_text() -> bool {
     // stringForType: is nil-or-string; presence is the check (AppKit has no cheaper boolean).
-    let _guard = PASTEBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = PASTEBOARD_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pb = NSPasteboard::generalPasteboard();
     pb.stringForType(unsafe { NSPasteboardTypeString })
         .is_some()
@@ -59,7 +65,9 @@ fn native_type(mime: &str) -> objc2::rc::Retained<NSString> {
 }
 
 pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
-    let _guard = PASTEBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = PASTEBOARD_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pb = NSPasteboard::generalPasteboard();
     pb.clearContents();
     let written: Vec<_> = content
@@ -75,7 +83,9 @@ pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
     }
 }
 pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error> {
-    let _guard = PASTEBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = PASTEBOARD_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pb = NSPasteboard::generalPasteboard();
     for mime in preferred {
         if let Some(data) = pb.dataForType(&native_type(mime)) {

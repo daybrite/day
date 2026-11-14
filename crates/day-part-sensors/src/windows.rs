@@ -67,12 +67,9 @@ pub fn start(kind: Sensor, generation: u32) -> Option<Subscription> {
                 }
                 Ok(())
             });
-            let token = match sensor.ReadingChanged(&handler) {
-                Ok(token) => token,
-                Err(_) => {
-                    let _ = sensor.SetReportInterval(0);
-                    return None;
-                }
+            let Ok(token) = sensor.ReadingChanged(&handler) else {
+                let _ = sensor.SetReportInterval(0);
+                return None;
             };
             Some(Subscription {
                 stop: Some(Box::new(move || {

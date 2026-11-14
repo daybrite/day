@@ -51,6 +51,7 @@ pub struct DownloadId(u64);
 
 impl DownloadId {
     /// The number the journal records.
+    #[must_use]
     pub fn get(self) -> u64 {
         self.0
     }
@@ -66,6 +67,7 @@ impl std::fmt::Display for DownloadId {
 #[derive(Clone, Debug)]
 // The web's manager opens nothing, so it reads no download.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#[must_use]
 pub struct Download {
     request: Request,
     dest: PathBuf,
@@ -148,6 +150,7 @@ pub enum State {
 
 impl State {
     /// No further progress comes without a call from the app.
+    #[must_use]
     pub fn is_settled(self) -> bool {
         matches!(
             self,
@@ -157,6 +160,7 @@ impl State {
 
     /// A short lowercase name: `queued`, `running`, `paused`, `retrying`, `verifying`, `done`,
     /// `failed`, `cancelled`.
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             State::Queued => "queued",
@@ -224,6 +228,7 @@ pub struct Progress {
 
 impl Progress {
     /// `received / total`, from 0.0 to 1.0, once the total is known.
+    #[must_use]
     pub fn fraction(&self) -> Option<f64> {
         self.total
             .filter(|t| *t > 0)
@@ -407,9 +412,13 @@ mod manager {
     const MAX_BACKOFF: Duration = Duration::from_secs(60);
 
     fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-        m.lock().unwrap_or_else(|p| p.into_inner())
+        m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "passed to `map_err`, which hands the error over by value"
+    )]
     fn io(e: std::io::Error) -> DownloadError {
         DownloadError::Io(e.to_string())
     }
@@ -438,7 +447,9 @@ mod manager {
 
     impl std::fmt::Debug for Watch {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("Watch").field("id", &self.id).finish()
+            f.debug_struct("Watch")
+                .field("id", &self.id)
+                .finish_non_exhaustive()
         }
     }
 
@@ -604,12 +615,20 @@ mod manager {
         /// Open the manager whose journal and partial files live in `dir`, with a default
         /// [`Client`]. Downloads that were running when the app last stopped are queued again;
         /// paused ones stay paused.
+        ///
+        /// # Errors
+        ///
+        /// [`DownloadError::Io`] when `dir` cannot be created.
         pub fn open(dir: impl Into<PathBuf>) -> Result<Downloads, DownloadError> {
             Downloads::with_client(dir, Client::new())
         }
 
         /// Open the manager with this client, whose policy (cookies, challenges, trust) every
         /// download uses.
+        ///
+        /// # Errors
+        ///
+        /// [`DownloadError::Io`] when `dir` cannot be created.
         pub fn with_client(
             dir: impl Into<PathBuf>,
             client: Client,
@@ -636,6 +655,7 @@ mod manager {
         }
 
         /// Whether this platform can hand a download to the OS ([`Download::in_background`]).
+        #[must_use]
         pub fn system_tier() -> bool {
             crate::system::available()
         }
@@ -652,6 +672,11 @@ mod manager {
         }
 
         /// Add a download to the queue.
+        ///
+        /// # Errors
+        ///
+        /// None today: the download is journaled and queued, and a failure to start it arrives
+        /// as its [`Progress`].
         pub fn enqueue(&self, download: Download) -> Result<DownloadId, DownloadError> {
             let (id, progress) = {
                 let mut st = lock(&self.inner.state);
@@ -674,6 +699,11 @@ mod manager {
 
         /// Stop a download, keeping its partial file for [`Downloads::resume`]. A system-tier
         /// transfer the OS cannot pause reports [`DownloadError::Unsupported`] and keeps running.
+        ///
+        /// # Errors
+        ///
+        /// [`DownloadError::Unknown`] when no download has this id, and
+        /// [`DownloadError::Unsupported`] for a system-tier transfer the OS cannot pause.
         pub fn pause(&self, id: DownloadId) -> Result<(), DownloadError> {
             let system = {
                 let st = lock(&self.inner.state);
@@ -688,6 +718,10 @@ mod manager {
         }
 
         /// Queue a paused or failed download again. It continues from its partial file.
+        ///
+        /// # Errors
+        ///
+        /// [`DownloadError::Unknown`] when no download has this id.
         pub fn resume(&self, id: DownloadId) -> Result<(), DownloadError> {
             let progress = {
                 let mut st = lock(&self.inner.state);
@@ -711,11 +745,19 @@ mod manager {
         }
 
         /// Stop a download for good and delete its partial file.
+        ///
+        /// # Errors
+        ///
+        /// [`DownloadError::Unknown`] when no download has this id.
         pub fn cancel(&self, id: DownloadId) -> Result<(), DownloadError> {
             self.inner.settle(id, State::Cancelled)
         }
 
         /// Forget a download, cancelling it first if it is still active.
+        ///
+        /// # Errors
+        ///
+        /// [`DownloadError::Unknown`] when no download has this id.
         pub fn remove(&self, id: DownloadId) -> Result<(), DownloadError> {
             let (stopped, system) = {
                 let mut st = lock(&self.inner.state);
@@ -735,6 +777,7 @@ mod manager {
         }
 
         /// One download's progress.
+        #[must_use]
         pub fn progress(&self, id: DownloadId) -> Option<Progress> {
             lock(&self.inner.state)
                 .entries
@@ -743,6 +786,7 @@ mod manager {
         }
 
         /// Every download's progress, oldest first.
+        #[must_use]
         pub fn list(&self) -> Vec<Progress> {
             lock(&self.inner.state)
                 .entries
@@ -853,7 +897,7 @@ mod manager {
                     }
                 }
                 let (limit_total, limit_per_host) = (st.limit_total, st.limit_per_host);
-                for (id, entry) in st.entries.iter_mut() {
+                for (id, entry) in &mut st.entries {
                     if entry.state != State::Queued {
                         continue;
                     }
@@ -934,7 +978,7 @@ mod manager {
                 reference: reference.as_deref(),
             };
             if let Err(error) = crate::system::start(job, events) {
-                self.fail(id, generation, error);
+                self.fail(id, generation, &error);
             }
         }
 
@@ -952,7 +996,7 @@ mod manager {
                     if transient {
                         self.retry(id, generation, error.to_string(), None);
                     } else {
-                        self.fail(id, generation, error);
+                        self.fail(id, generation, &error);
                     }
                 }
                 event => {
@@ -1006,7 +1050,7 @@ mod manager {
                 if entry.generation != generation || entry.state != State::Running {
                     return;
                 }
-                let mut len = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+                let mut len = std::fs::metadata(&part).map_or(0, |m| m.len());
                 if len > 0 && entry.validator.is_none() {
                     // Nothing proves the server still has the same file: start over.
                     len = 0;
@@ -1021,7 +1065,7 @@ mod manager {
                     Ok(file) => entry.file = Some(file),
                     Err(e) => {
                         drop(st);
-                        return self.fail(id, generation, io(e));
+                        return self.fail(id, generation, &io(e));
                     }
                 }
                 if let Some(total) = entry.total.or(entry.download.expected_len)
@@ -1033,7 +1077,7 @@ mod manager {
                         return self.fail(
                             id,
                             generation,
-                            DownloadError::NoSpace { needed, available },
+                            &DownloadError::NoSpace { needed, available },
                         );
                     }
                 }
@@ -1074,18 +1118,18 @@ mod manager {
                                 let mut st = lock(&manager.state);
                                 match st.entries.get_mut(&id) {
                                     Some(entry) if entry.generation == generation => {
-                                        entry.hasher = Some(hasher)
+                                        entry.hasher = Some(hasher);
                                     }
                                     _ => return,
                                 }
                             }
                             manager.send(id, generation, request);
                         }
-                        Err(e) => manager.fail(id, generation, e),
+                        Err(e) => manager.fail(id, generation, &e),
                     }
                 });
             if let Err(e) = spawned {
-                self.fail(id, generation, io(e));
+                self.fail(id, generation, &io(e));
             }
         }
 
@@ -1145,7 +1189,7 @@ mod manager {
                                 Err(e) => {
                                     let error = io(e);
                                     drop(st);
-                                    return self.fail(id, generation, error);
+                                    return self.fail(id, generation, &error);
                                 }
                             }
                             entry.received = 0;
@@ -1208,7 +1252,7 @@ mod manager {
                 }
                 Next::Fail(error) => {
                     drop(streaming);
-                    self.fail(id, generation, error);
+                    self.fail(id, generation, &error);
                 }
             }
         }
@@ -1257,7 +1301,7 @@ mod manager {
                 }
             };
             if let Some(error) = failure {
-                self.fail(id, generation, error);
+                self.fail(id, generation, &error);
                 return false;
             }
             if let Some(progress) = notice {
@@ -1348,7 +1392,7 @@ mod manager {
                 | HttpError::Dns
                 | HttpError::Io(_)
                 | HttpError::Cancelled => self.retry(id, generation, error.to_string(), None),
-                other => self.fail(id, generation, DownloadError::Http(other)),
+                other => self.fail(id, generation, &DownloadError::Http(other)),
             }
         }
 
@@ -1391,7 +1435,7 @@ mod manager {
                     Some(entry)
                         if entry.generation == generation && entry.state == State::Retrying =>
                     {
-                        entry.timer = Some(timer)
+                        entry.timer = Some(timer);
                     }
                     _ => day_async::unschedule(timer),
                 }
@@ -1416,7 +1460,7 @@ mod manager {
             self.pump();
         }
 
-        fn fail(&self, id: u64, generation: u64, error: DownloadError) {
+        fn fail(&self, id: u64, generation: u64, error: &DownloadError) {
             let progress = {
                 let mut st = lock(&self.state);
                 let Some(entry) = st.entries.get_mut(&id) else {
@@ -1555,9 +1599,7 @@ mod manager {
         entry.received = match entry.state {
             State::Done => entry.total.unwrap_or(0),
             State::Cancelled => 0,
-            _ => std::fs::metadata(dir.join(format!("{id}.part")))
-                .map(|m| m.len())
-                .unwrap_or(0),
+            _ => std::fs::metadata(dir.join(format!("{id}.part"))).map_or(0, |m| m.len()),
         };
         Some((id, entry))
     }
@@ -1599,14 +1641,17 @@ mod manager {
         let capped = doubled.min(MAX_BACKOFF);
         let nanos = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.subsec_nanos());
         let jitter = 0.8 + f64::from(nanos % 400) / 1000.0;
         capped.mul_f64(jitter)
     }
 
     fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
+        use std::fmt::Write as _;
+        bytes.iter().fold(String::new(), |mut out, b| {
+            let _ = write!(out, "{b:02x}");
+            out
+        })
     }
 
     fn hash_prefix(path: &Path, len: u64) -> Result<Sha256, DownloadError> {
@@ -1663,9 +1708,13 @@ mod manager {
         // SAFETY: an all-zero statvfs is a valid out-parameter for the call to fill.
         let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
         // SAFETY: a NUL-terminated path and a writable statvfs.
-        let rc = unsafe { libc::statvfs(path.as_ptr(), &mut stat) };
+        let rc = unsafe { libc::statvfs(path.as_ptr(), &raw mut stat) };
         // The field widths differ per platform (u32 on Apple, u64 on Linux).
-        #[allow(clippy::unnecessary_cast)]
+        #[allow(
+            clippy::unnecessary_cast,
+            clippy::cast_lossless,
+            reason = "u32 on Apple and u64 on Linux, so one spelling has to serve both"
+        )]
         let available = stat.f_bavail as u64 * stat.f_frsize as u64;
         (rc == 0).then_some(available)
     }
@@ -1688,7 +1737,7 @@ mod manager {
         let ok = unsafe {
             GetDiskFreeSpaceExW(
                 wide.as_ptr(),
-                &mut available,
+                &raw mut available,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
             )

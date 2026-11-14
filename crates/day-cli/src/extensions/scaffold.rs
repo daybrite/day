@@ -91,9 +91,7 @@ pub fn add_extension(
              `kind = \"custom\"` and `point = \"…\"` to Day.toml (docs/app-extensions.md)",
         ));
     }
-    let name = name
-        .map(str::to_string)
-        .unwrap_or_else(|| default_name(kind));
+    let name = name.map_or_else(|| default_name(kind), str::to_string);
     if !valid_name(&name) {
         return Err(CliError::usage(format!(
             "{name:?} cannot name an extension: start with a letter, use ASCII letters, digits \
@@ -198,7 +196,7 @@ pub fn add_extension(
     }
     eprintln!(
         "\n  build it:\n    day build -t {}\n",
-        oses.first().map(|o| o.target()).unwrap_or("ios-uikit")
+        oses.first().map_or("ios-uikit", |o| o.target())
     );
     Ok(())
 }

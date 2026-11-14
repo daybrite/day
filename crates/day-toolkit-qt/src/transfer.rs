@@ -1,7 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
-use day_spec::{Point, transfer::*};
+use day_spec::{
+    Point,
+    transfer::{Location, MAX_BYTES, Offer, Operation, Source, Target},
+};
 day_core::tls_group! {
     static SOURCES: SideTable<Source> = SideTable::new();
     static TARGETS: SideTable<Target> = SideTable::new();

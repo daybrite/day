@@ -22,6 +22,7 @@ use std::rc::Rc;
 pub static LAUNCHER_SHORTCUTS: [&'static [(&'static str, &'static str)]];
 
 /// The app's launcher shortcuts as `(route, label key)` pairs, in declaration order.
+#[must_use]
 pub fn launcher_shortcuts() -> Vec<(&'static str, &'static str)> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -67,14 +68,19 @@ fn action_for(route: &str) -> u64 {
 /// Day.toml `[[shortcuts]]` on the iOS Home Screen, the Android launcher and the macOS Dock menu
 /// (`Cap::DynamicShortcuts`), and each opens its route like a deep link. Labels are shown as
 /// given, so pass localized text.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature; apps pass the list they just built"
+)]
 pub fn set_launcher_shortcuts(shortcuts: Vec<day_spec::LauncherShortcut>) {
-    DYNAMIC.with(|d| *d.borrow_mut() = shortcuts.clone());
+    DYNAMIC.with(|d| (*d.borrow_mut()).clone_from(&shortcuts));
     crate::with_tree(|t| t.set_launcher_shortcuts(&shortcuts));
     crate::menu::install_dock_menu();
 }
 
 /// The shortcuts as menu items in the current locale, for a menu built while the app runs: the
 /// app's run-time ones first (they are the most recent), then the declared ones.
+#[must_use]
 pub fn shortcut_menu_items() -> Vec<day_spec::MenuItem> {
     let dynamic = DYNAMIC.with(|d| d.borrow().clone());
     let declared = launcher_shortcuts()

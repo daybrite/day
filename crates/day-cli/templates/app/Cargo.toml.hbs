@@ -31,6 +31,30 @@ serde = { version = "1", features = ["derive"] }
 [build-dependencies]
 {{day_build_dep}}
 
+# Lint policy: Clippy's `pedantic` group. The project's CI treats every warning as an error
+# (`cargo clippy --all-targets -- -D warnings`), so a finding blocks the change that
+# introduced it. Fix findings in the code; for a site where the lint is wrong, use
+# `#[expect(clippy::<lint>, reason = "…")]`.
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# UI code converts between float layout units and integer indices and pixel counts, and `as`
+# is the only operator for float-to-integer.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# Function length and short or similar names are style limits a UI tree does not fit.
+many_single_char_names = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+# Option structs mirror native toolkit flags, which are booleans.
+fn_params_excessive_bools = "allow"
+struct_excessive_bools = "allow"
+# `use day::prelude::*` is how Day code imports the piece vocabulary.
+wildcard_imports = "allow"
+# Asks for `#[must_use]` on nearly every function that returns a value.
+must_use_candidate = "allow"
+
 
 [workspace]
 

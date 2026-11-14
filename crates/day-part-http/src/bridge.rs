@@ -1385,7 +1385,7 @@ pub(crate) fn client(
     target_arch = "wasm32"
 ))]
 pub(crate) fn client_release(client: i64) {
-    client_release_native(client)
+    client_release_native(client);
 }
 
 #[cfg(any(
@@ -1394,7 +1394,7 @@ pub(crate) fn client_release(client: i64) {
     target_arch = "wasm32"
 ))]
 pub(crate) fn cache_clear(client: i64) {
-    cache_clear_native(client)
+    cache_clear_native(client);
 }
 
 #[cfg(any(
@@ -1403,7 +1403,7 @@ pub(crate) fn cache_clear(client: i64) {
     target_arch = "wasm32"
 ))]
 pub(crate) fn demand(token: i64, chunks: i32) {
-    demand_native(token, chunks)
+    demand_native(token, chunks);
 }
 
 #[cfg(any(
@@ -1412,7 +1412,7 @@ pub(crate) fn demand(token: i64, chunks: i32) {
     target_arch = "wasm32"
 ))]
 pub(crate) fn answer(token: i64, question: i32, answer: i32) {
-    answer_native(token, question, answer)
+    answer_native(token, question, answer);
 }
 
 #[cfg(any(
@@ -1421,7 +1421,7 @@ pub(crate) fn answer(token: i64, question: i32, answer: i32) {
     target_arch = "wasm32"
 ))]
 pub(crate) fn body(token: i64, chunk: &[u8]) {
-    body_native(token, chunk)
+    body_native(token, chunk);
 }
 
 #[cfg(any(
@@ -1430,7 +1430,7 @@ pub(crate) fn body(token: i64, chunk: &[u8]) {
     target_arch = "wasm32"
 ))]
 pub(crate) fn exchange_cancel(token: i64) {
-    exchange_cancel_native(token)
+    exchange_cancel_native(token);
 }
 
 #[cfg(any(
@@ -1448,7 +1448,7 @@ pub(crate) fn ws_send(token: i64, binary: bool, data: &[u8]) -> Result<bool, day
     target_arch = "wasm32"
 ))]
 pub(crate) fn ws_close(token: i64, code: i32, reason: &str) {
-    ws_close_native(token, code, reason)
+    ws_close_native(token, code, reason);
 }
 
 /// The header block the frames carry: `k\nv\n…`, the layout every arm reads and writes.

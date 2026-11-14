@@ -99,16 +99,17 @@ pub fn sidecar(artifact: &std::path::Path, suffix: &str) -> std::path::PathBuf {
 mod tests {
     use super::*;
     use crate::meta::slug;
+    use std::fmt::Write as _;
 
     /// A project that exists only in memory: naming is pure string work, so nothing here needs
     /// a directory on disk.
     fn fixture(title: Option<&str>, artifact: Option<&str>) -> Project {
         let mut day = String::from("schema = 1\n[app]\nid = \"dev.example.showcase\"\n");
         if let Some(t) = title {
-            day.push_str(&format!("title = {t:?}\n"));
+            let _ = writeln!(day, "title = {t:?}");
         }
         if let Some(a) = artifact {
-            day.push_str(&format!("artifact = {a:?}\n"));
+            let _ = writeln!(day, "artifact = {a:?}");
         }
         let manifest = crate::meta::parse_manifest(
             &day,

@@ -11,3 +11,6 @@ license.workspace = true
 day-pieces = { workspace = true }
 day-core = { workspace = true }
 day-localization = { workspace = true }
+
+[lints]
+workspace = true

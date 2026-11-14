@@ -51,6 +51,10 @@ fn root_dir() -> Result<PathBuf, FsError> {
     data_dir().map(|dir| dir.join("day-fs"))
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "passed to `map_err`, which hands the error over by value"
+)]
 fn io(e: std::io::Error) -> FsError {
     if e.kind() == std::io::ErrorKind::NotFound {
         FsError::NotFound
@@ -94,7 +98,7 @@ pub fn list(dir: &str) -> ListResult {
         Err(e) => return Err(io(e)),
     };
     let mut names: Vec<String> = entries
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter_map(|e| {
             let mut name = e.file_name().to_string_lossy().into_owned();
             if e.file_type().ok()?.is_dir() {

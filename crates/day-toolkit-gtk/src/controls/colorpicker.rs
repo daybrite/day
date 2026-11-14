@@ -37,10 +37,10 @@ fn key(w: &gtk4::Widget) -> usize {
 
 fn to_day_color(c: gtk4::gdk::RGBA) -> Color {
     Color::rgba(
-        c.red() as f64,
-        c.green() as f64,
-        c.blue() as f64,
-        c.alpha() as f64,
+        f64::from(c.red()),
+        f64::from(c.green()),
+        f64::from(c.blue()),
+        f64::from(c.alpha()),
     )
 }
 
@@ -92,7 +92,7 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &ColorPatch) {
 fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
     let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-    Size::new((nat_w as f64).max(44.0), (nat_h as f64).max(24.0))
+    Size::new(f64::from(nat_w).max(44.0), f64::from(nat_h).max(24.0))
 }
 
 /// Drop the echo guard when the button goes away.

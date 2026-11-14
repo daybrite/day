@@ -127,7 +127,7 @@ mod general {
                 });
             }
             settle(&t, "not every sleep resolved", move || {
-                order.with(|o| o.len()) == 4 && done.get() == 64
+                order.with(std::vec::Vec::len) == 4 && done.get() == 64
             })
             .await?;
             if synchronous_backend() {
@@ -207,7 +207,7 @@ mod general {
                 // Inline jobs run at the first poll; a future never polled never runs.
                 let marker = ran.clone();
                 drop(day_core::spawn_blocking(move || {
-                    marker.store(true, Ordering::SeqCst)
+                    marker.store(true, Ordering::SeqCst);
                 }));
                 let _ = day_core::spawn_blocking(|| ()).await;
                 return t.check(!ran.load(Ordering::SeqCst), "a cancelled inline job ran");
@@ -232,7 +232,7 @@ mod general {
             .await?;
             let marker = ran.clone();
             drop(day_core::spawn_blocking(move || {
-                marker.store(true, Ordering::SeqCst)
+                marker.store(true, Ordering::SeqCst);
             }));
             for _ in 0..limit {
                 let _ = release.send(());
@@ -281,6 +281,7 @@ mod general {
 /// (what a phone picks for a flat nav) keep every page resident and build them all at launch.
 /// Since cases hold navigation, covers and pieces of their own, that kept a CI phone's launch
 /// transitioning past the run's first `wait_idle`.
+#[must_use]
 pub fn test_pages() -> impl Piece {
     let selection = Signal::new(String::new());
     nav(selection)

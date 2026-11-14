@@ -32,9 +32,10 @@ day_reactive::tls_slots! {
 }
 
 fn changed_signal() -> Signal<u64> {
-    CHANGED.with(|c| match c.get() {
-        Some(s) => s,
-        None => {
+    CHANGED.with(|c| {
+        if let Some(s) = c.get() {
+            s
+        } else {
             let s = Signal::global(0);
             c.set(Some(s));
             s
@@ -64,6 +65,7 @@ fn apply_deferral() {
 
 /// Register an edge-deferral request (a `defers_system_gestures` subtree mounted). The backend
 /// receives the new union immediately. Pair with [`pop_gesture_deferral`] on unmount.
+#[must_use]
 pub fn push_gesture_deferral(edges: Edges) -> u64 {
     let token = next_token();
     DEFERRALS.with(|d| d.borrow_mut().push((token, edges)));
@@ -95,6 +97,7 @@ fn apply_status_bar() {
 /// Register a status-bar request (a `status_bar_hidden` subtree mounted) with its current
 /// answer. The backend receives the new union immediately. Update it with
 /// [`set_status_bar_request`] and pair it with [`pop_status_bar_request`] on unmount.
+#[must_use]
 pub fn push_status_bar_request(hidden: bool) -> u64 {
     let token = next_token();
     STATUS_BAR.with(|s| s.borrow_mut().push((token, hidden)));
@@ -125,12 +128,14 @@ pub fn pop_status_bar_request(token: u64) {
 }
 
 /// Whether any live subtree asks for the status bar hidden. Untracked.
+#[must_use]
 pub fn status_bar_hidden() -> bool {
     STATUS_BAR.with(|s| s.borrow().iter().any(|(_, hidden)| *hidden))
 }
 
 /// Register an interactive-dismiss-disabled request (an `interactive_dismiss_disabled` subtree
 /// mounted). Pair with [`pop_dismiss_disabled`] on unmount.
+#[must_use]
 pub fn push_dismiss_disabled() -> u64 {
     let token = next_token();
     DISMISS_DISABLED.with(|d| d.borrow_mut().push(token));
@@ -145,6 +150,7 @@ pub fn pop_dismiss_disabled(token: u64) {
 
 /// Whether any live subtree asked to disable interactive dismissal. Reads track the change
 /// counter, so a binding re-runs as modifiers mount and unmount.
+#[must_use]
 pub fn dismiss_disabled() -> bool {
     changed_signal().track();
     DISMISS_DISABLED.with(|d| !d.borrow().is_empty())

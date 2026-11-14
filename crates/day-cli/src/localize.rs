@@ -201,7 +201,7 @@ fn site_with_locale(text: &str, tag: &str, default: &str) -> Result<Option<Strin
                     return Ok(None);
                 }
                 entries.push(tag.to_string());
-                out.push_str(&line[..open + 1]);
+                out.push_str(&line[..=open]);
                 out.push_str(&quote_join(&entries));
                 out.push_str(&line[close..]);
                 done = true;
@@ -249,7 +249,7 @@ fn site_without_locale(text: &str, tag: &str) -> Result<Option<String>, String> 
                 return Ok(None);
             }
             let kept: Vec<String> = entries.into_iter().filter(|e| e != tag).collect();
-            out.push_str(&line[..open + 1]);
+            out.push_str(&line[..=open]);
             out.push_str(&quote_join(&kept));
             out.push_str(&line[close..]);
             done = true;
@@ -607,7 +607,7 @@ mod tests {
     use super::*;
 
     fn v(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
+        items.iter().map(std::string::ToString::to_string).collect()
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -770,7 +770,10 @@ mod tests {
             xcode: None,
             website: None,
         };
-        assert!(sync_findings(&s).is_empty());
+        assert_eq!(
+            sync_findings(&s),
+            [] as [(std::string::String, std::string::String); 0]
+        );
     }
 
     #[test]
@@ -795,7 +798,10 @@ mod tests {
         assert!(site.contains("locales = [\"en\", \"fr\"]"), "{site}");
 
         // Idempotent: a second add changes nothing.
-        assert!(add(&root, "fr").expect("re-add").is_empty());
+        assert_eq!(
+            add(&root, "fr").expect("re-add"),
+            [] as [std::string::String; 0]
+        );
 
         // Chinese uses the Xcode script subtag and maps back in the survey.
         add(&root, "zh-CN").expect("add zh-CN");

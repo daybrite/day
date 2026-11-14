@@ -43,11 +43,13 @@ use crate::frame::{FrameClock, FrameHandle};
 /// the target and back. Implementations that cannot extrapolate (a color's alpha, a count) clamp
 /// the parts that must stay in range.
 pub trait Lerp: Clone {
+    #[must_use]
     fn lerp(&self, to: &Self, t: f64) -> Self;
 }
 
 /// `a + (b - a) * t`, the scalar every other implementation is built from.
 #[inline]
+#[must_use]
 pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
@@ -60,7 +62,7 @@ impl Lerp for f64 {
 
 impl Lerp for f32 {
     fn lerp(&self, to: &Self, t: f64) -> Self {
-        lerp(*self as f64, *to as f64, t) as f32
+        lerp(f64::from(*self), f64::from(*to), t) as f32
     }
 }
 
@@ -190,6 +192,10 @@ fn from_oklab([l, a, b]: [f64; 3], alpha: f64) -> Color {
 
 /// Blend two colors in OKLab by `t`, alpha linearly. `t` outside `0..=1` extrapolates the
 /// lightness and hue axes and clamps the result into gamut.
+#[expect(
+    clippy::float_cmp,
+    reason = "exactly 0.0 and 1.0 select the endpoints unchanged"
+)]
 pub fn mix_oklab(a: Color, b: Color, t: f64) -> Color {
     // The endpoints are the endpoints, not a round trip through two color spaces.
     if t == 0.0 {
@@ -232,26 +238,32 @@ pub struct Timing {
 }
 
 impl Timing {
+    #[must_use]
     pub fn new(spec: AnimSpec) -> Self {
         Timing { spec }
     }
 
     /// One cycle, in seconds.
     fn cycle(&self) -> f64 {
-        (self.spec.duration_ms as f64 / 1000.0).max(0.0)
+        (f64::from(self.spec.duration_ms) / 1000.0).max(0.0)
     }
 
     /// The whole run including the delay, or `None` for a spec that repeats forever.
+    #[must_use]
     pub fn total(&self) -> Option<f64> {
         if self.spec.repeat == u32::MAX {
             return None;
         }
-        Some(self.spec.delay_ms as f64 / 1000.0 + self.cycle() * (self.spec.repeat as f64 + 1.0))
+        Some(
+            f64::from(self.spec.delay_ms) / 1000.0
+                + self.cycle() * (f64::from(self.spec.repeat) + 1.0),
+        )
     }
 
     /// Where the transition is `elapsed` seconds after it was started.
+    #[must_use]
     pub fn sample(&self, elapsed: f64) -> Sample {
-        let t = elapsed - self.spec.delay_ms as f64 / 1000.0;
+        let t = elapsed - f64::from(self.spec.delay_ms) / 1000.0;
         if t < 0.0 || !t.is_finite() {
             return Sample {
                 progress: 0.0,
@@ -269,7 +281,7 @@ impl Timing {
             };
         }
         let index = (t / one).floor();
-        if !forever && index >= cycles as f64 {
+        if !forever && index >= f64::from(cycles) {
             // Arrived. An autoreversed run of an even number of cycles ends back at the start.
             let back = reverses && cycles.is_multiple_of(2);
             return Sample {
@@ -295,7 +307,7 @@ impl Timing {
 /// in along a line: a sequence is one spec per item, and this is the arithmetic.
 pub fn stagger(spec: AnimSpec, index: usize, count: usize, spread_ms: u32) -> AnimSpec {
     let step = if count > 1 {
-        spread_ms as f64 / (count - 1) as f64
+        f64::from(spread_ms) / (count - 1) as f64
     } else {
         0.0
     };
@@ -406,21 +418,25 @@ impl<T: Lerp + 'static> Tweened<T> {
     }
 
     /// The value on screen now; tracked.
+    #[must_use]
     pub fn get(&self) -> T {
         self.shown.get()
     }
 
     /// The value on screen now, without subscribing.
+    #[must_use]
     pub fn get_untracked(&self) -> T {
         self.shown.get_untracked()
     }
 
     /// Where the value is headed (the value itself once it has arrived).
+    #[must_use]
     pub fn target(&self) -> T {
         self.flight.borrow().to.clone()
     }
 
     /// Whether a transition is in flight.
+    #[must_use]
     pub fn is_animating(&self) -> bool {
         self.moving.get()
     }
@@ -630,6 +646,7 @@ impl<T> Pairs<T> {
     }
 
     /// How many items of each kind of [`Change`] there are: `(kept, entering, leaving)`.
+    #[must_use]
     pub fn counts(&self) -> (usize, usize, usize) {
         self.items
             .iter()
@@ -644,10 +661,12 @@ impl<T> Pairs<T> {
         self.items.iter()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -656,6 +675,7 @@ impl<T> Pairs<T> {
 impl<T: Lerp> Pairs<T> {
     /// Every item `t` of the way along, in order. Leaving items are included until the caller
     /// stops sampling: at `t = 1` they sit at their stand-ins.
+    #[must_use]
     pub fn at(&self, t: f64) -> Vec<T> {
         self.items.iter().map(|p| p.at(t)).collect()
     }
@@ -701,6 +721,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "a finished tween reports a progress of exactly 1.0"
+    )]
     fn linear_timing_runs_its_duration_then_stops() {
         let t = Timing::new(AnimSpec::linear(200));
         assert_eq!(t.sample(0.0).progress, 0.0);
@@ -734,10 +758,14 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "a finished tween reports a progress of exactly 1.0"
+    )]
     fn a_bouncy_spring_overshoots_and_ends_exactly_on_target() {
         let t = Timing::new(AnimSpec::spring(0.5, 0.4));
         let peak = (1..50)
-            .map(|i| t.sample(i as f64 * 0.01).progress)
+            .map(|i| t.sample(f64::from(i) * 0.01).progress)
             .fold(0.0, f64::max);
         assert!(peak > 1.0, "an under-damped spring overshoots: peak {peak}");
         let end = t.sample(0.5);

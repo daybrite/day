@@ -40,15 +40,18 @@ static HELD: Mutex<u32> = Mutex::new(0);
 
 fn held() -> MutexGuard<'static, u32> {
     // A counter cannot be left half-written, so a poisoned lock is still usable.
-    HELD.lock().unwrap_or_else(|e| e.into_inner())
+    HELD.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Whether this platform can keep the screen on.
+#[must_use]
 pub fn is_supported() -> bool {
     imp::supported()
 }
 
 /// Whether a [`ScreenLock`] is alive anywhere in the app.
+#[must_use]
 pub fn is_held() -> bool {
     *held() > 0
 }
@@ -140,7 +143,9 @@ mod imp {
     }
 
     pub fn hold(on: bool) {
-        let mut held = ASSERTION.lock().unwrap_or_else(|e| e.into_inner());
+        let mut held = ASSERTION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if on && held.is_none() {
             // SAFETY: both strings are NUL-terminated literals; each CFString made here is released
             // here, and IOKit copies what it keeps. `id` is written only on success.
@@ -158,7 +163,7 @@ mod imp {
                 let mut id = 0u32;
                 if !kind.is_null()
                     && !name.is_null()
-                    && IOPMAssertionCreateWithName(kind, LEVEL_ON, name, &mut id) == 0
+                    && IOPMAssertionCreateWithName(kind, LEVEL_ON, name, &raw mut id) == 0
                 {
                     *held = Some(id);
                 }

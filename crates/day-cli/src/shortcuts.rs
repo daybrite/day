@@ -24,6 +24,7 @@
 //! `request_route`.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::meta::Project;
@@ -155,12 +156,9 @@ pub fn web_manifest(mut manifest: serde_json::Value, shortcuts: &[Resolved]) -> 
 /// The `.desktop` launcher actions for `[[shortcuts]]` (docs/deep-links.md "Launcher
 /// shortcuts"): an `Actions=` key for the entry group, and one `[Desktop Action …]` group per
 /// shortcut, each running the app with `--day-open-url <scheme>://<route>`. A running app gets
-/// the link through single-instance forwarding (GApplication on GTK, the D-Bus instance claim on
+/// the link through single-instance forwarding (`GApplication` on GTK, the D-Bus instance claim on
 /// Qt); a cold one opens at the route. Names carry every locale.
 pub fn linux_actions(entry: String, shortcuts: &[Resolved], exec: &str, scheme: &str) -> String {
-    if shortcuts.is_empty() {
-        return entry;
-    }
     // Desktop Entry `Exec` quoting: the argument goes in double quotes, with `"`, `` ` ``, `$` and
     // `\` escaped by a backslash.
     fn quote(s: &str) -> String {
@@ -174,18 +172,21 @@ pub fn linux_actions(entry: String, shortcuts: &[Resolved], exec: &str, scheme: 
         out.push('"');
         out
     }
+    if shortcuts.is_empty() {
+        return entry;
+    }
     let ids: Vec<String> = shortcuts.iter().map(|sc| sc.id.replace('_', "-")).collect();
     let mut s = entry.trim_end().to_string();
-    s.push_str(&format!("\nActions={};\n", ids.join(";")));
+    let _ = writeln!(s, "\nActions={};", ids.join(";"));
     for (sc, id) in shortcuts.iter().zip(&ids) {
-        s.push_str(&format!("\n[Desktop Action {id}]\nName={}\n", sc.base));
+        let _ = writeln!(s, "\n[Desktop Action {id}]\nName={}", sc.base);
         for (locale, label) in &sc.labels {
             if locale != DEFAULT_LOCALE {
-                s.push_str(&format!("Name[{}]={label}\n", locale.replace('-', "_")));
+                let _ = writeln!(s, "Name[{}]={label}", locale.replace('-', "_"));
             }
         }
         let link = format!("{scheme}://{}", sc.route);
-        s.push_str(&format!("Exec={exec} --day-open-url {}\n", quote(&link)));
+        let _ = writeln!(s, "Exec={exec} --day-open-url {}", quote(&link));
     }
     s
 }
@@ -263,17 +264,18 @@ pub fn sync_android(project: &Project) -> Result<(), String> {
          <shortcuts xmlns:android=\"http://schemas.android.com/apk/res/android\">\n",
     );
     for sc in &shortcuts {
-        s.push_str(&format!(
+        let _ = writeln!(
+            s,
             "    <shortcut\n        android:shortcutId=\"{id}\"\n        \
              android:enabled=\"true\"\n        \
              android:shortcutShortLabel=\"@string/{id}\">\n        \
              <intent\n            android:action=\"android.intent.action.VIEW\"\n            \
              android:data=\"{data}\"\n            \
              android:targetPackage=\"{app_id}\"\n            \
-             android:targetClass=\"{activity}\" />\n    </shortcut>\n",
+             android:targetClass=\"{activity}\" />\n    </shortcut>",
             id = sc.id,
             data = xml_escape(&format!("{scheme}://{}", sc.route)),
-        ));
+        );
     }
     s.push_str("</shortcuts>\n");
     std::fs::write(xml_dir.join("day_shortcuts.xml"), s).map_err(|e| e.to_string())?;
@@ -286,11 +288,12 @@ pub fn sync_android(project: &Project) -> Result<(), String> {
         let mut s = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n");
         for sc in &shortcuts {
             let label = sc.labels.get(loc).unwrap_or(&sc.base);
-            s.push_str(&format!(
-                "    <string name=\"{}\">{}</string>\n",
+            let _ = writeln!(
+                s,
+                "    <string name=\"{}\">{}</string>",
                 sc.id,
                 xml_escape(label)
-            ));
+            );
         }
         s.push_str("</resources>\n");
         std::fs::write(dir.join("day_shortcuts.xml"), s).map_err(|e| e.to_string())?;
@@ -431,11 +434,12 @@ pub fn stage_ios_strings(project: &Project, bundle: &Path) -> Result<(), String>
         );
         for sc in &shortcuts {
             let label = sc.labels.get(loc).unwrap_or(&sc.base);
-            s.push_str(&format!(
-                "\"{}\" = \"{}\";\n",
+            let _ = writeln!(
+                s,
+                "\"{}\" = \"{}\";",
                 strings_escape(&sc.base),
                 strings_escape(label)
-            ));
+            );
         }
         std::fs::write(dir.join("InfoPlist.strings"), s).map_err(|e| e.to_string())?;
     }

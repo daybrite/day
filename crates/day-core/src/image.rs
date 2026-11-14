@@ -161,11 +161,13 @@ pub(crate) fn flush_deferred_releases() {
 
 impl Bitmap {
     /// The id the toolkit knows this image by, which [`day_spec::ImageSource::Decoded`] carries.
+    #[must_use]
     pub fn id(&self) -> BitmapId {
         self.0.id
     }
 
     /// Pixel size, scale, format and alpha, read once at decode (docs/images.md).
+    #[must_use]
     pub fn info(&self) -> BitmapInfo {
         self.0.info
     }
@@ -173,12 +175,14 @@ impl Bitmap {
     /// The metadata beyond the pixels: EXIF orientation, DPI, capture time. `None` where this
     /// backend ships no metadata reader; probe [`Cap::ImageProperties`] before offering an
     /// affordance that needs it.
+    #[must_use]
     pub fn properties(&self) -> Option<ImageProperties> {
         let id = self.0.id;
         with_tree(|t| t.image_properties(id))
     }
 
     /// Encode back to bytes, in `spec`'s format. Await it inside `day::task`.
+    #[must_use]
     pub fn encode(&self, spec: EncodeSpec) -> EncodeFuture {
         EncodeFuture {
             source: self.clone(),
@@ -207,7 +211,7 @@ impl Bitmap {
             None,
             Some(Box::new(move |r| {
                 drop(keep);
-                on_done(r)
+                on_done(r);
             })),
         );
     }
@@ -247,6 +251,7 @@ impl PartialEq for Bitmap {
 /// `Err(ImageError::Unsupported)` where the backend has no byte decoder at all
 /// ([`Cap::ImageDecode`]); `Err(ImageError::Decode)` where it has one and the bytes are not an
 /// image it reads.
+#[must_use]
 pub fn decode(bytes: Arc<Vec<u8>>) -> DecodeFuture {
     DecodeFuture {
         bytes: Some(bytes),
@@ -256,6 +261,10 @@ pub fn decode(bytes: Arc<Vec<u8>>) -> DecodeFuture {
 }
 
 /// [`decode`]'s callback half (docs/async.md rule 3), for a call site that is not already async.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature, the callback twin of the future-returning function it mirrors"
+)]
 pub fn decode_async(
     bytes: Arc<Vec<u8>>,
     on_done: impl FnOnce(Result<Bitmap, ImageError>) + 'static,
@@ -272,17 +281,20 @@ pub fn decode_async(
 }
 
 /// Whether this toolkit can decode image bytes at all ([`Cap::ImageDecode`]).
+#[must_use]
 pub fn image_decode_support() -> day_spec::Support {
     support(Cap::ImageDecode)
 }
 
 /// Whether this toolkit can encode a decoded image back to bytes ([`Cap::ImageEncode`]).
+#[must_use]
 pub fn image_encode_support() -> day_spec::Support {
     support(Cap::ImageEncode)
 }
 
 /// Which formats [`Bitmap::encode`] can write here: the [`Cap::ImageEncode`]
 /// counterpart of `font_families()`. Empty where encoding is unsupported.
+#[must_use]
 pub fn image_encode_formats() -> Vec<ImageFormat> {
     with_tree(|t| t.image_encode_formats())
 }
@@ -507,6 +519,7 @@ pub struct CanvasExports {
 
 impl CanvasExports {
     /// Whether a drawing can become PNG bytes here: a rendered bitmap plus a PNG encoder.
+    #[must_use]
     pub fn png(&self) -> bool {
         self.png
     }
@@ -518,8 +531,9 @@ impl CanvasExports {
 /// summoning it: the answer is read once per installed tree and kept. Before a tree is
 /// installed, and in the rare case its first read lands inside a borrow, everything answers
 /// `false`.
+#[must_use]
 pub fn canvas_exports() -> CanvasExports {
-    if let Some(known) = EXPORTS.with(|c| c.get()) {
+    if let Some(known) = EXPORTS.with(std::cell::Cell::get) {
         return known;
     }
     let Some(read) = crate::with_tree_if_free(|t| {
@@ -585,6 +599,7 @@ fn admit_pdf(pages: &[PdfPage]) -> Result<(), ExportError> {
 /// the toolkit's own canvas painter. Resolves with a [`Bitmap`] like a decode does, so
 /// `image(&bitmap)`, `Draw::image` and [`Bitmap::encode`] all take it. Apps reach this through
 /// `Drawing::to_bitmap`.
+#[must_use]
 pub fn render_bitmap(ops: Vec<DrawOp>, size: Size, scale: f64) -> RenderBitmap {
     RenderBitmap {
         job: Some((ops, size, scale)),
@@ -594,6 +609,10 @@ pub fn render_bitmap(ops: Vec<DrawOp>, size: Size, scale: f64) -> RenderBitmap {
 }
 
 /// [`render_bitmap`]'s callback half (docs/async.md rule 3).
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature, the callback twin of the future-returning function it mirrors"
+)]
 pub fn render_bitmap_async(
     ops: Vec<DrawOp>,
     size: Size,
@@ -615,6 +634,7 @@ pub fn render_bitmap_async(
 
 /// Replay each page into one PDF document through the platform's own PDF writer. Resolves with
 /// the document's bytes. Apps reach this through `Drawing::to_pdf` and `PdfDocument::render`.
+#[must_use]
 pub fn render_pdf(pages: Vec<PdfPage>, info: PdfInfo) -> RenderPdf {
     RenderPdf {
         job: Some((pages, info)),
@@ -624,6 +644,10 @@ pub fn render_pdf(pages: Vec<PdfPage>, info: PdfInfo) -> RenderPdf {
 }
 
 /// [`render_pdf`]'s callback half (docs/async.md rule 3).
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature, the callback twin of the future-returning function it mirrors"
+)]
 pub fn render_pdf_async(
     pages: Vec<PdfPage>,
     info: PdfInfo,

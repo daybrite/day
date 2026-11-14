@@ -62,7 +62,7 @@ use crate::{HttpError, Identity, Tier};
 
 pub const TIER: Tier = Tier::NativeStack;
 
-/// Everything URLSession offers the client.
+/// Everything `URLSession` offers the client.
 pub(crate) const CAPABILITIES: Capabilities = Capabilities {
     streaming: true,
     upload_streaming: true,
@@ -81,7 +81,7 @@ pub(crate) const CAPABILITIES: Capabilities = Capabilities {
     wait_for_connectivity: true,
 };
 
-/// What URLSession offers, for [`crate::capabilities`].
+/// What `URLSession` offers, for [`crate::capabilities`].
 pub(crate) fn capabilities() -> Capabilities {
     CAPABILITIES
 }
@@ -90,7 +90,7 @@ const UPLOAD_BUFFER: usize = 64 << 10;
 const MAX_MESSAGE: isize = 16 << 20;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// A Foundation or Security object carried across threads.
@@ -148,22 +148,19 @@ impl AppleTransport {
             conf.setHTTPShouldSetCookies(false);
             None
         };
-        let cache = match config.platform_cache {
-            Some((memory, disk)) => {
-                // One cache for the process, as URLSession's own default is: separate caches in
-                // the default location would contend for the same database.
-                let cache = NSURLCache::sharedURLCache();
-                cache.setMemoryCapacity(cache.memoryCapacity().max(memory as usize));
-                cache.setDiskCapacity(cache.diskCapacity().max(disk as usize));
-                conf.setURLCache(Some(&cache));
-                conf.setRequestCachePolicy(NSURLRequestCachePolicy::UseProtocolCachePolicy);
-                Some(Shared(cache))
-            }
-            None => {
-                conf.setURLCache(None);
-                conf.setRequestCachePolicy(NSURLRequestCachePolicy::ReloadIgnoringLocalCacheData);
-                None
-            }
+        let cache = if let Some((memory, disk)) = config.platform_cache {
+            // One cache for the process, as URLSession's own default is: separate caches in
+            // the default location would contend for the same database.
+            let cache = NSURLCache::sharedURLCache();
+            cache.setMemoryCapacity(cache.memoryCapacity().max(memory as usize));
+            cache.setDiskCapacity(cache.diskCapacity().max(disk as usize));
+            conf.setURLCache(Some(&cache));
+            conf.setRequestCachePolicy(NSURLRequestCachePolicy::UseProtocolCachePolicy);
+            Some(Shared(cache))
+        } else {
+            conf.setURLCache(None);
+            conf.setRequestCachePolicy(NSURLRequestCachePolicy::ReloadIgnoringLocalCacheData);
+            None
         };
         let routes = Arc::new(Routes {
             config: config.clone(),
@@ -359,7 +356,7 @@ impl Transport for AppleTransport {
         if let Some(storage) = &self.cookies
             && let Some(all) = storage.0.cookies()
         {
-            for cookie in all.iter() {
+            for cookie in &all {
                 storage.0.deleteCookie(&cookie);
             }
         }
@@ -373,7 +370,7 @@ impl Transport for AppleTransport {
 }
 
 /// Feed a bound stream pair's output from `reader`, on a thread of its own: the output side
-/// blocks, or reports no space, until URLSession reads.
+/// blocks, or reports no space, until `URLSession` reads.
 fn spawn_writer(output: Shared<Retained<NSOutputStream>>, mut reader: Box<dyn Read + Send>) {
     let _ = std::thread::Builder::new()
         .name("day-http-upload".into())
@@ -417,7 +414,7 @@ fn spawn_writer(output: Shared<Retained<NSOutputStream>>, mut reader: Box<dyn Re
 type ChallengeCompletion =
     RcBlock<dyn Fn(NSURLSessionAuthChallengeDisposition, *mut NSURLCredential)>;
 
-/// A question URLSession waits on, with the completion handler that answers it.
+/// A question `URLSession` waits on, with the completion handler that answers it.
 enum Pending {
     Trust {
         completion: Shared<ChallengeCompletion>,
@@ -443,10 +440,10 @@ impl Pending {
                     };
                     completion
                         .0
-                        .call((D::UseCredential, Retained::as_ptr(&credential) as *mut _));
+                        .call((D::UseCredential, Retained::as_ptr(&credential).cast_mut()));
                 }
                 Answer::Reject | Answer::Cancel => {
-                    completion.0.call((D::CancelAuthenticationChallenge, none))
+                    completion.0.call((D::CancelAuthenticationChallenge, none));
                 }
                 _ => completion.0.call((D::PerformDefaultHandling, none)),
             },
@@ -459,7 +456,7 @@ impl Pending {
                     );
                     completion
                         .0
-                        .call((D::UseCredential, Retained::as_ptr(&credential) as *mut _));
+                        .call((D::UseCredential, Retained::as_ptr(&credential).cast_mut()));
                 }
                 Answer::Cancel => completion.0.call((D::CancelAuthenticationChallenge, none)),
                 _ => completion.0.call((D::PerformDefaultHandling, none)),
@@ -799,13 +796,14 @@ impl Routes {
             let trust = unsafe { CFRetained::retain(trust) };
             let mut error: *mut CFError = std::ptr::null_mut();
             // SAFETY: `trust` is valid; `error` receives a +1 CFError or stays null.
-            let trusted = unsafe { trust.evaluate_with_error(&mut error) };
+            let trusted = unsafe { trust.evaluate_with_error(&raw mut error) };
             let system_error = NonNull::new(error).map(|e| {
                 // SAFETY: SecTrustEvaluateWithError returns the error retained (Create rule).
                 let e = unsafe { CFRetained::from_raw(e) };
-                e.description()
-                    .map(|d| d.to_string())
-                    .unwrap_or_else(|| "the certificate is not trusted".into())
+                e.description().map_or_else(
+                    || "the certificate is not trusted".into(),
+                    |d| d.to_string(),
+                )
             });
             let chain = certificate_chain(&trust);
             let question = Question::ServerTrust(ServerTrust {
@@ -825,10 +823,9 @@ impl Routes {
 
         if is(unsafe { NSURLAuthenticationMethodClientCertificate }) {
             return match self.identity_credential() {
-                Some(credential) => completion.call((
-                    D::UseCredential,
-                    Retained::as_ptr(&credential.0) as *mut NSURLCredential,
-                )),
+                Some(credential) => {
+                    completion.call((D::UseCredential, Retained::as_ptr(&credential.0).cast_mut()));
+                }
                 None => default(),
             };
         }
@@ -913,7 +910,7 @@ fn import_identity(identity: &Identity) -> Option<Retained<NSURLCredential>> {
     let mut items: *const objc2_core_foundation::CFArray = std::ptr::null();
     // SAFETY: valid data and options; `items` receives a +1 array on success.
     let status = unsafe { SecPKCS12Import(&data, options.as_opaque(), NonNull::from(&mut items)) };
-    let items = NonNull::new(items as *mut objc2_core_foundation::CFArray)?;
+    let items = NonNull::new(items.cast_mut())?;
     // SAFETY: SecPKCS12Import returns the array retained (Create rule).
     let items = unsafe { CFRetained::from_raw(items) };
     if status != 0 {
@@ -942,7 +939,7 @@ fn import_identity(identity: &Identity) -> Option<Retained<NSURLCredential>> {
     Some(credential)
 }
 
-/// The response head URLSession delivered.
+/// The response head `URLSession` delivered.
 fn head_of(response: &NSURLResponse) -> Head {
     let url = response
         .URL()
@@ -982,10 +979,10 @@ fn head_of(response: &NSURLResponse) -> Head {
     if cookies && let Some(url) = response.URL() {
         // URLSession joins repeated Set-Cookie headers with commas, which cookie dates also
         // contain; Foundation's own parser splits them back into cookies.
-        let fields_ptr: *const NSDictionary = &*fields;
+        let fields_ptr: *const NSDictionary = &raw const *fields;
         // SAFETY: allHeaderFields documents string keys and string values.
-        let typed = unsafe { &*(fields_ptr as *const NSDictionary<NSString, NSString>) };
-        for cookie in NSHTTPCookie::cookiesWithResponseHeaderFields_forURL(typed, &url).iter() {
+        let typed = unsafe { &*fields_ptr.cast::<NSDictionary<NSString, NSString>>() };
+        for cookie in &NSHTTPCookie::cookiesWithResponseHeaderFields_forURL(typed, &url) {
             headers.push(("Set-Cookie".to_string(), set_cookie_line(&cookie)));
         }
     }
@@ -1000,7 +997,7 @@ fn head_of(response: &NSURLResponse) -> Head {
 fn object_string(object: &AnyObject) -> String {
     object
         .downcast_ref::<NSString>()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .unwrap_or_default()
 }
 
@@ -1014,14 +1011,15 @@ fn system_time(date: &NSDate) -> Option<SystemTime> {
 }
 
 fn set_cookie_line(cookie: &NSHTTPCookie) -> String {
+    use std::fmt::Write as _;
     let mut line = format!("{}={}", cookie.name(), cookie.value());
     let domain = cookie.domain().to_string();
     if let Some(domain) = domain.strip_prefix('.') {
-        line.push_str(&format!("; Domain={domain}"));
+        let _ = write!(line, "; Domain={domain}");
     }
-    line.push_str(&format!("; Path={}", cookie.path()));
+    let _ = write!(line, "; Path={}", cookie.path());
     if let Some(expires) = cookie.expiresDate().as_deref().and_then(system_time) {
-        line.push_str(&format!("; Expires={}", httpdate::fmt_http_date(expires)));
+        let _ = write!(line, "; Expires={}", httpdate::fmt_http_date(expires));
     }
     if cookie.isSecure() {
         line.push_str("; Secure");
@@ -1101,7 +1099,7 @@ fn metrics_of(metrics: &NSURLSessionTaskMetrics) -> Metrics {
 
 const CANCELLED: isize = -999;
 
-/// Map an NSURLErrorDomain error onto the portable taxonomy (docs/http.md).
+/// Map an `NSURLErrorDomain` error onto the portable taxonomy (docs/http.md).
 fn map_error(err: &NSError) -> HttpError {
     const TIMED_OUT: isize = -1001;
     const CANNOT_FIND_HOST: isize = -1003;
@@ -1252,7 +1250,11 @@ define_class!(
             protocol: Option<&NSString>,
         ) {
             if let Some(socket) = self.ivars().routes.socket(task) {
-                socket.opened(protocol.map(|p| p.to_string()).filter(|p| !p.is_empty()));
+                socket.opened(
+                    protocol
+                        .map(std::string::ToString::to_string)
+                        .filter(|p| !p.is_empty()),
+                );
             }
         }
 

@@ -37,6 +37,7 @@ pub fn set(key: &str, value: &str) -> bool {
 
 /// Read the string stored under `key`, or `None` if it is absent (or no store is available on the
 /// platform). A stored empty string is `Some("")`, distinct from an absent key.
+#[must_use]
 pub fn get(key: &str) -> Option<String> {
     imp::get(key)
 }
@@ -48,6 +49,7 @@ pub fn remove(key: &str) -> bool {
 }
 
 /// Whether a value is currently stored under `key`.
+#[must_use]
 pub fn contains(key: &str) -> bool {
     imp::contains(key)
 }
@@ -192,7 +194,7 @@ mod tests {
     fn round_trip() {
         let key = "day-part-preferences::test::round_trip";
         // Start from a clean slate regardless of a prior aborted run.
-        super::remove(key);
+        let _ = super::remove(key);
         assert!(!super::contains(key));
         assert_eq!(super::get(key), None);
 

@@ -152,6 +152,7 @@ pub use windows::{
 /// `DAY_LOCALE` launch environment (so toolkits can read it before any UI exists);
 /// `set_layout_direction` (called by `install_locales` for the resolved locale) overrides.
 /// Fixed for the life of the process; switching locale at runtime does not re-mirror.
+#[must_use]
 pub fn layout_direction() -> day_geometry::LayoutDirection {
     DIRECTION.with(|d| {
         if let Some(dir) = d.get() {
@@ -176,11 +177,13 @@ pub fn set_layout_direction(dir: day_geometry::LayoutDirection) {
 /// but a `canvas` draws in its own coordinate space, so a custom drawing that has a reading
 /// direction (a battery that drains one way, an arrow, a progress sweep) can call this to mirror
 /// itself. Fixed for the life of the process, like [`layout_direction`].
+#[must_use]
 pub fn is_rtl() -> bool {
     layout_direction() == day_geometry::LayoutDirection::Rtl
 }
 
 /// The writing direction a locale implies (language subtag match).
+#[must_use]
 pub fn direction_of_locale(locale: &str) -> day_geometry::LayoutDirection {
     let lang = locale
         .split(['-', '_'])
@@ -285,6 +288,7 @@ static TOOLKIT_KEY: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new
 /// [`launch_with`] has named the backend. The version and the script name come from
 /// `DAY_APP_VERSION` and `DAY_SCRIPT`, which the `day` CLI sets on every launch; run the binary
 /// some other way and the tag carries the parts it knows.
+#[must_use]
 pub fn debug_title_tag() -> Option<String> {
     if !cfg!(debug_assertions) {
         return None;
@@ -551,9 +555,10 @@ pub fn install_undo_bridge(
 /// The standing dispatch id behind a `MenuRole::Cut`/`Copy`/`Paste` item on a toolkit whose
 /// role items come back as plain menu actions (docs/menus.md): the closure invokes the
 /// installed edit bridge. Durable across menu installs, like the undo pair.
+#[must_use]
 pub fn edit_action_id(op: day_spec::EditOp) -> u64 {
     use day_spec::EditOp as E;
-    let (c, y, p, a) = EDIT_ACTION_IDS.with(|s| s.get());
+    let (c, y, p, a) = EDIT_ACTION_IDS.with(std::cell::Cell::get);
     let have = match op {
         E::Cut => c,
         E::Copy => y,
@@ -584,6 +589,7 @@ fn dispatch_undo_invoke(redo: bool) {
 /// menu, a three-finger swipe), returning whether one is installed. The dayscript
 /// `undo:`/`redo:` steps drive history through this, so a walkthrough needs no app-provided
 /// undo button on any target.
+#[must_use]
 pub fn invoke_undo(redo: bool) -> bool {
     let f = UNDO_INVOKE.with(|u| u.borrow().clone());
     match f {
@@ -600,8 +606,9 @@ type EditInvoke = std::rc::Rc<dyn Fn(day_spec::EditOp)>;
 /// The keyboard modifiers held right now, for interactions whose meaning they change
 /// (shift-click adds to a selection). Touch backends answer all-false; a dayscript step's
 /// declared modifiers take precedence while it dispatches.
+#[must_use]
 pub fn modifiers() -> day_spec::Modifiers {
-    if let Some(m) = MODIFIER_OVERRIDE.with(|o| o.get()) {
+    if let Some(m) = MODIFIER_OVERRIDE.with(std::cell::Cell::get) {
         return m;
     }
     with_tree(|t| t.modifiers())
@@ -640,6 +647,7 @@ fn dispatch_edit_invoke(op: day_spec::EditOp) {
 /// route reaches, clipboard transport included), returning whether one is installed. An
 /// app's own affordances (a context menu's Cut/Copy) call this rather than duplicating the
 /// clipboard plumbing (docs/menus.md).
+#[must_use]
 pub fn invoke_edit(op: day_spec::EditOp) -> bool {
     let f = EDIT_INVOKE.with(|u| u.borrow().clone());
     match f {
@@ -657,8 +665,9 @@ pub fn invoke_edit(op: day_spec::EditOp) -> bool {
 /// menu installs, like the preferences id. Toolkits with a native undo system (appkit) keep
 /// their responder-chain selector instead, so a focused text field's own undo stays ahead of
 /// the app stack there.
+#[must_use]
 pub fn undo_action_id(redo: bool) -> u64 {
-    let (u, r) = UNDO_ACTION_IDS.with(|c| c.get());
+    let (u, r) = UNDO_ACTION_IDS.with(std::cell::Cell::get);
     let have = if redo { r } else { u };
     if have != 0 {
         return have;
@@ -737,7 +746,7 @@ pub fn launch_with<P: Platform>(
     day_reactive::install_scheduler(|| {
         P::post(Box::new(|| {
             tree::run_posted_or_defer(Box::new(day_reactive::flush_sync));
-        }))
+        }));
     });
     // The async-spawn door (docs/async.md): day-reactive's `Resource` runs its fetch futures on
     // this executor; the returned closure aborts (a no-op once the task completed, the contract
@@ -1024,6 +1033,7 @@ fn autodrive(spec: &str) {
 /// Whether the platform is rendering in dark appearance (see `Toolkit::dark_mode`): the
 /// branch apps take when painting custom opaque surfaces so fills track the theme that the
 /// default text colors already follow.
+#[must_use]
 pub fn dark_mode() -> bool {
     dark_signal().get()
 }
@@ -1056,6 +1066,7 @@ fn read_system_palette() -> [day_spec::Color; 5] {
 /// database did not report, which is how a `res/font/` (Android), `ms-appx` (XAML) or
 /// `registerFont` (HarmonyOS) family reaches a font menu without each shim parsing sfnt.
 /// Empty where the toolkit answers `Cap::FontList` = `Unsupported`.
+#[must_use]
 pub fn font_families() -> std::rc::Rc<[day_spec::FontFamilyInfo]> {
     // Headless (no tree on this thread, i.e. a model unit test): nothing to enumerate, and
     // nothing to cache, so the first call with a tree still fills the cache.
@@ -1189,6 +1200,7 @@ pub struct TextMetricsCacheStats {
 }
 
 /// Read the [`measure_text`] cache's counters (docs/fonts.md).
+#[must_use]
 pub fn text_metrics_cache_stats() -> TextMetricsCacheStats {
     TEXT_METRICS.with(|c| {
         let c = c.borrow();
@@ -1221,6 +1233,7 @@ pub fn clear_text_metrics_cache() {
 /// there (around 29 µs a call on AppKit, which builds an `NSString` and an attribute dictionary
 /// every time), and a drawing measures the same handful of strings on every frame it records. A
 /// repeat costs a hash of the key and nothing else.
+#[must_use]
 pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_spec::TextMetrics {
     if let Some(m) = TEXT_METRICS.with(|c| {
         let mut c = c.borrow_mut();
@@ -1253,13 +1266,15 @@ pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_s
 /// finite animation at its destination under it and keeps only indeterminate motion; this read
 /// is for the motion an app drives itself, such as a `day::frame` simulation or a decorative
 /// loop, which the app opts down. Reactive: a closure reading it re-runs when the setting flips.
+#[must_use]
 pub fn reduce_motion() -> bool {
     reduce_motion_signal().get()
 }
 
 /// [`reduce_motion`] untracked and borrow-free, for the animation gates inside the tree.
+#[must_use]
 pub fn reduce_motion_now() -> bool {
-    testing::forced_reduce_motion() || REDUCE_MOTION.with(|c| c.get())
+    testing::forced_reduce_motion() || REDUCE_MOTION.with(std::cell::Cell::get)
 }
 
 /// The reactive backing for [`reduce_motion`], seeded from the current answer.
@@ -1352,6 +1367,7 @@ pub fn unregister_search_host(host: RNode) {
 
 /// The inline search host the reserved `day::search` id names when no bar item carries it: the
 /// most recently shown one in the focused window.
+#[must_use]
 pub fn inline_search_host() -> Option<RNode> {
     let window = windows::focused_root();
     SEARCH_HOSTS.with(|h| {

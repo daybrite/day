@@ -48,7 +48,7 @@ fn own_copy_then_paste_round_trips_when_the_platform_read_answers_nothing() {
     day_reactive::flush_sync();
 
     assert!(day::invoke_edit(EditOp::Copy));
-    day_part_clipboard::set_text("");
+    let _ = day_part_clipboard::set_text("");
     assert!(
         day_part_clipboard::get_text().is_none_or(|t| t.is_empty()),
         "the emptied clipboard still reads back — this test is not exercising the refusal"
@@ -62,12 +62,12 @@ fn own_copy_then_paste_round_trips_when_the_platform_read_answers_nothing() {
 
     // Cut replaces what the fallback holds, so it is never a stale payload.
     assert!(day::invoke_edit(EditOp::Cut));
-    day_part_clipboard::set_text("");
+    let _ = day_part_clipboard::set_text("");
     assert!(day::invoke_edit(EditOp::Paste));
     assert_eq!(pasted.borrow().len(), 2);
     assert_eq!(pasted.borrow()[1], "<svg>cut</svg>");
 
     if let Some(prev) = previous {
-        day_part_clipboard::set_text(&prev);
+        let _ = day_part_clipboard::set_text(&prev);
     }
 }

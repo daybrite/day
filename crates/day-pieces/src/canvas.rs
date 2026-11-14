@@ -30,10 +30,12 @@ pub struct Draw {
 impl Draw {
     /// An empty recorder, for a test that calls a draw function directly and asserts on what
     /// it records: the same list the canvas replays.
+    #[must_use]
     pub fn new() -> Self {
         Draw::default()
     }
     /// What has been recorded so far, in order.
+    #[must_use]
     pub fn ops(&self) -> &[DrawOp] {
         &self.ops
     }
@@ -50,6 +52,7 @@ impl Draw {
 /// d.fill(ring, Color::BLUE);
 /// ```
 #[derive(Clone, Debug, Default)]
+#[must_use]
 pub struct PathBuilder {
     segs: Vec<PathSeg>,
     rule: FillRule,
@@ -241,8 +244,7 @@ impl Draw {
     }
     /// Stroke with a full [`StrokeStyle`] (dash, cap, join) and any paint, gradients included.
     pub fn stroke_styled(&mut self, shape: Shape, paint: impl Into<Paint>, style: StrokeStyle) {
-        self.ops
-            .push(DrawOp::Stroke(shape, paint.into(), style.clone()));
+        self.ops.push(DrawOp::Stroke(shape, paint.into(), style));
     }
     /// Draw `shape` once at every position in `at`: one op for the whole batch.
     ///
@@ -417,9 +419,7 @@ pub(crate) fn canvas_leaf(
     bind(
         move || {
             trig.track();
-            let size = with_tree(|t| t.node_frame(node))
-                .map(|f| f.size)
-                .unwrap_or(Size::new(0.0, 0.0));
+            let size = with_tree(|t| t.node_frame(node)).map_or(Size::new(0.0, 0.0), |f| f.size);
             let mut d = Draw { ops: Vec::new() };
             (d2)(&mut d, size);
             d.ops
@@ -432,7 +432,7 @@ pub(crate) fn canvas_leaf(
 }
 
 /// The drawing closure is a binding: signal reads re-record; layout size changes re-record
-/// (via FrameChanged); replay is equality-gated by DrawOp's PartialEq (§4.2).
+/// (via `FrameChanged`); replay is equality-gated by `DrawOp`'s `PartialEq` (§4.2).
 pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> impl Piece {
     piece_fn(move |cx| canvas_leaf(cx, Flex::default(), draw))
 }
@@ -476,6 +476,7 @@ impl Drawing {
     }
 
     /// A drawing of ops recorded elsewhere, at `size` points.
+    #[must_use]
     pub fn from_ops(size: Size, ops: Vec<DrawOp>) -> Drawing {
         Drawing { size, ops }
     }
@@ -486,6 +487,7 @@ impl Drawing {
     }
 
     /// The recorded display list.
+    #[must_use]
     pub fn ops(&self) -> &[DrawOp] {
         &self.ops
     }
@@ -496,6 +498,7 @@ impl Drawing {
     /// `Err(ExportError::Unsupported)` where the toolkit has no offscreen painter
     /// ([`Cap::CanvasBitmap`](day_spec::Cap::CanvasBitmap)); `Err(ExportError::TooLarge)` above
     /// 16,384 pixels a side or 64 megapixels.
+    #[must_use]
     pub fn to_bitmap(&self, scale: f64) -> day_core::RenderBitmap {
         day_core::render_bitmap(self.ops.clone(), self.size, scale)
     }
@@ -503,6 +506,11 @@ impl Drawing {
     /// Render to a bitmap and encode it as PNG: [`Drawing::to_bitmap`] then
     /// [`Bitmap::encode`]. `Err(ExportError::Unsupported)` where either half is missing
     /// ([`CanvasExports::png`] answers that up front).
+    ///
+    /// # Errors
+    ///
+    /// Resolves to the errors of [`Drawing::to_bitmap`], `ExportError::Unsupported` where the
+    /// toolkit cannot encode, or `ExportError::Failed` with the encoder's message.
     pub fn to_png(
         &self,
         scale: f64,
@@ -524,6 +532,7 @@ impl Drawing {
 
     /// A one-page PDF the size of the drawing. `Err(ExportError::Unsupported)` where the
     /// platform has no PDF writer ([`Cap::CanvasPdf`](day_spec::Cap::CanvasPdf)).
+    #[must_use]
     pub fn to_pdf(&self) -> day_core::RenderPdf {
         PdfDocument::new().page(self.clone()).render()
     }
@@ -540,6 +549,7 @@ impl Drawing {
 /// let pdf = doc.render().await?;
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
+#[must_use]
 pub struct PdfDocument {
     pages: Vec<Drawing>,
     info: day_spec::PdfInfo,
@@ -570,16 +580,19 @@ impl PdfDocument {
     }
 
     /// How many pages have been added.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.pages.len()
     }
 
     /// Whether no page has been added yet.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.pages.is_empty()
     }
 
     /// Render the document through the platform's PDF writer. Await it inside `day::task`.
+    #[must_use]
     pub fn render(self) -> day_core::RenderPdf {
         let pages = self
             .pages
@@ -739,7 +752,7 @@ pub(crate) mod conformance {
                     canvas(|d, size| {
                         d.fill(
                             Shape::Rect(day_spec::Rect::from_size(size)),
-                            Color::hex(0xff0000),
+                            Color::hex(0x00ff_0000),
                         );
                     })
                     .frame(80.0, 60.0)
@@ -826,11 +839,11 @@ pub(crate) mod conformance {
         let (w, h) = (size.width, size.height);
         d.fill(
             Shape::Rect(day_spec::Rect::new(0.0, 0.0, w / 2.0, h)),
-            Color::hex(0xff0000),
+            Color::hex(0x00ff_0000),
         );
         d.fill(
             Shape::Rect(day_spec::Rect::new(w / 2.0, 0.0, w / 2.0, h)),
-            Color::hex(0x0000ff),
+            Color::hex(0x0000_00ff),
         );
         d.fill(
             Shape::Ellipse(day_spec::Rect::new(
@@ -839,11 +852,11 @@ pub(crate) mod conformance {
                 30.0,
                 30.0,
             )),
-            Color::hex(0xffffff),
+            Color::hex(0x00ff_ffff),
         );
         d.fill(
             Shape::Rect(day_spec::Rect::new(0.0, h * 0.8, w, h * 0.2)),
-            Color::hex(0x202020),
+            Color::hex(0x0020_2020),
         );
     }
 
@@ -926,7 +939,7 @@ pub(crate) mod conformance {
                 d.clipped(Shape::Ellipse(Rect::new(0.0, 0.0, 80.0, 80.0)), |d| {
                     d.fill(
                         Shape::Rect(Rect::new(-20.0, -10.0, 160.0, 120.0)),
-                        Color::hex(0xff0000),
+                        Color::hex(0x00ff_0000),
                     );
                     let triangle = PathBuilder::new()
                         .move_to(Point::new(40.0, 0.0))
@@ -938,7 +951,7 @@ pub(crate) mod conformance {
                         d.transformed(day_geometry::Affine::translate(-20.0, -10.0), |d| {
                             d.fill(
                                 Shape::Rect(Rect::new(0.0, 0.0, 120.0, 100.0)),
-                                Color::hex(0x0000ff),
+                                Color::hex(0x0000_00ff),
                             );
                         });
                     });
@@ -947,7 +960,7 @@ pub(crate) mod conformance {
             // Restoring must remove both clips and transforms.
             d.fill(
                 Shape::Rect(day_spec::Rect::new(0.0, 90.0, 120.0, 10.0)),
-                Color::hex(0x00ff00),
+                Color::hex(0x0000_ff00),
             );
         }
         Case::new()

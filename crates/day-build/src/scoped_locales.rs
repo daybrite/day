@@ -3,6 +3,7 @@
 
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 /// Generate private crate/file catalogs into `day_locales.rs`.
 ///
@@ -11,6 +12,11 @@ use std::collections::{BTreeMap, BTreeSet};
 /// `settings.ftl` exposes `res::settings::str::<key>()`, importing app.ftl's messages and terms.
 /// This is independent of the legacy app-global `generate_resources()` API.
 /// A library always reads its own resources, never the application's flavor overlay.
+///
+/// # Errors
+///
+/// Returns an error when `CARGO_MANIFEST_DIR`, `CARGO_PKG_NAME` or `OUT_DIR` is unset, when
+/// [`render_crate_locales`] rejects the catalogs, or when the generated file cannot be written.
 pub fn generate_locales() -> Result<(), String> {
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let dir = root.join("resource/locales");
@@ -28,6 +34,16 @@ pub fn generate_locales() -> Result<(), String> {
 }
 
 /// Pure code-generation entry point for crate catalogs. `name` is their diagnostic/script namespace.
+///
+/// # Errors
+///
+/// Returns an error when `name` or a catalog file name is not a usable Rust identifier, a catalog
+/// is not at `<locale>/<scope>.ftl`, or a catalog fails to parse or validate.
+///
+/// # Panics
+///
+/// Panics if the directory walk yields a path outside `dir` or one without a file stem, which would
+/// be a bug in this crate.
 pub fn render_crate_locales(dir: &Path, name: &str) -> Result<String, String> {
     if !is_rust_ident(name) {
         return Err(format!("day-build: invalid catalog namespace {name:?}"));
@@ -67,7 +83,7 @@ pub fn render_crate_locales(dir: &Path, name: &str) -> Result<String, String> {
         if scope == "app" {
             continue;
         }
-        out.push_str(&format!("pub mod {} {{\n", ident_token(scope)));
+        let _ = writeln!(out, "pub mod {} {{", ident_token(scope));
         render_scope(&mut out, &format!("{name}::{scope}"), sources, app)?;
         out.push_str("}\n");
     }

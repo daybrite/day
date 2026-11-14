@@ -78,12 +78,12 @@ fn main() {
                         for host in hosts.iter() {
                             toolkit.close_window(host);
                         }
-                    })
+                    });
                 });
                 if result.is_ok() {
                     println!("native document client origins clear title and tab chrome");
                 }
-                std::process::exit(if result.is_ok() { 0 } else { 1 });
+                std::process::exit(i32::from(result.is_err()));
             }));
         }),
     );

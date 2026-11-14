@@ -301,7 +301,7 @@ fn with_rt<R>(f: impl FnOnce(&mut Runtime) -> R) -> R {
 
 #[track_caller]
 fn create_node(rt: &mut Runtime, kind: NodeKind, scope: ScopeKey) -> NodeKey {
-    let depth = rt.scopes.get(scope).map(|s| s.depth).unwrap_or(0);
+    let depth = rt.scopes.get(scope).map_or(0, |s| s.depth);
     let seq = rt.next_seq;
     rt.next_seq += 1;
     let key = rt.nodes.insert(Node {
@@ -384,7 +384,7 @@ fn mark_observers(rt: &mut Runtime, source: NodeKey, level: NodeState) {
                 }
             }
             NodeKind::Memo => {
-                for &o in rt.nodes[key].observers.iter() {
+                for &o in &rt.nodes[key].observers {
                     stack.push((o, NodeState::Check));
                 }
             }
@@ -416,9 +416,8 @@ fn compute_in_owner<T>(key: NodeKey, f: impl FnOnce() -> T) -> Option<T> {
 
 /// Pull-refresh a memo: recompute if (transitively) dirty; bump `last_changed` only on real change.
 fn refresh_memo(key: NodeKey) {
-    let (state, kind) = match with_rt(|rt| rt.nodes.get(key).map(|n| (n.state, n.kind))) {
-        Some(v) => v,
-        None => return,
+    let Some((state, kind)) = with_rt(|rt| rt.nodes.get(key).map(|n| (n.state, n.kind))) else {
+        return;
     };
     if kind != NodeKind::Memo || state == NodeState::Clean {
         return;
@@ -430,12 +429,7 @@ fn refresh_memo(key: NodeKey) {
         let mut any_changed = false;
         for s in sources {
             refresh_memo(s);
-            if with_rt(|rt| {
-                rt.nodes
-                    .get(s)
-                    .map(|n| n.last_changed > last_run)
-                    .unwrap_or(false)
-            }) {
+            if with_rt(|rt| rt.nodes.get(s).is_some_and(|n| n.last_changed > last_run)) {
                 any_changed = true;
             }
         }
@@ -503,12 +497,7 @@ fn run_reaction(key: NodeKey) {
         let mut any_changed = false;
         for s in &sources {
             refresh_memo(*s);
-            if with_rt(|rt| {
-                rt.nodes
-                    .get(*s)
-                    .map(|n| n.last_changed > last_run)
-                    .unwrap_or(false)
-            }) {
+            if with_rt(|rt| rt.nodes.get(*s).is_some_and(|n| n.last_changed > last_run)) {
                 any_changed = true;
                 break;
             }
@@ -554,6 +543,12 @@ fn run_reaction(key: NodeKey) {
 /// would render one turn stale. Round two drains the deltas and re-runs the hooks, and
 /// autosave then finds nothing dirty, so a settled app exits after two rounds;
 /// The turn-round cap stops turn-end hooks that feed each other forever.
+///
+/// # Panics
+///
+/// In debug builds, panics when one effect re-runs past the per-drain cap (a reactive cycle)
+/// or when turn-end callbacks keep scheduling work past the round cap. Release builds log a
+/// warning and recover.
 pub fn flush_sync() {
     let already = with_rt(|rt| {
         if rt.draining {
@@ -566,7 +561,7 @@ pub fn flush_sync() {
         return; // re-entrant flush folds into the current drain
     }
     let mut round = 0u32;
-    'turn: loop {
+    loop {
         round += 1;
         // Fresh per round: the re-run cap is per drain (§4.2), and each round is one drain.
         let mut run_counts: HashMap<NodeKey, u32> = HashMap::new();
@@ -578,11 +573,10 @@ pub fn flush_sync() {
             // (priority, scope-depth, creation-seq): owners before descendants.
             with_rt(|rt| {
                 batch.sort_by_key(|&k| {
-                    rt.nodes
-                        .get(k)
-                        .map(|n| (n.priority, n.depth, n.seq))
-                        .unwrap_or((u8::MAX, u32::MAX, u64::MAX))
-                })
+                    rt.nodes.get(k).map_or((u8::MAX, u32::MAX, u64::MAX), |n| {
+                        (n.priority, n.depth, n.seq)
+                    })
+                });
             });
             for key in batch {
                 let count = run_counts.entry(key).or_insert(0);
@@ -591,15 +585,13 @@ pub fn flush_sync() {
                     if *count == RERUN_CAP + 1 {
                         let loc = with_rt(|rt| rt.nodes.get(key).map(|n| n.created_at));
                         if let Some(loc) = loc {
-                            if cfg!(debug_assertions) {
-                                panic!(
-                                    "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
-                                );
-                            } else {
-                                log::warn!(
-                                    "day-reactive: effect created at {loc} exceeded the re-run cap; skipping it for the rest of this drain (the next source write re-arms it)"
-                                );
-                            }
+                            debug_assert!(
+                                false,
+                                "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
+                            );
+                            log::warn!(
+                                "day-reactive: effect created at {loc} exceeded the re-run cap; skipping it for the rest of this drain (the next source write re-arms it)"
+                            );
                         }
                     }
                     // Break the cycle but leave the node runnable. This key was drained out of
@@ -647,18 +639,15 @@ pub fn flush_sync() {
             // then), so the deferred work still runs next turn, the same recovery shape as
             // the re-run cap.
             with_rt(|rt| rt.draining = false);
-            if cfg!(debug_assertions) {
-                panic!(
-                    "day-reactive: turn-end callbacks scheduled new reactive work for {TURN_ROUND_CAP} straight rounds in one turn (hooks feeding each other?)"
-                );
-            } else {
-                log::warn!(
-                    "day-reactive: turn-end callbacks still scheduling work after {TURN_ROUND_CAP} rounds; deferring the rest to the next turn"
-                );
-            }
+            debug_assert!(
+                false,
+                "day-reactive: turn-end callbacks scheduled new reactive work for {TURN_ROUND_CAP} straight rounds in one turn (hooks feeding each other?)"
+            );
+            log::warn!(
+                "day-reactive: turn-end callbacks still scheduling work after {TURN_ROUND_CAP} rounds; deferring the rest to the next turn"
+            );
             return;
         }
-        continue 'turn;
     }
 }
 
@@ -700,16 +689,15 @@ fn signal_write_boxed(key: NodeKey, apply: impl FnOnce(&mut Box<dyn Any>) -> boo
     let poster = with_rt(|rt| {
         let node = rt.nodes.get_mut(key)?;
         let cell = node.value.as_ref()?.clone();
-        let mut value = match cell.try_borrow_mut() {
-            Ok(v) => v,
-            // A write to a signal from inside its own `with`/`try_with` closure. Before the value
-            // was shared this silently did nothing (the read's restore clobbered the write), so
-            // say it plainly instead of losing the update.
-            Err(_) => panic!(
+        // A write to a signal from inside its own `with`/`try_with` closure. Before the value
+        // was shared this silently did nothing (the read's restore clobbered the write), so
+        // say it plainly instead of losing the update.
+        let Ok(mut value) = cell.try_borrow_mut() else {
+            panic!(
                 "day-reactive: wrote to a Signal while a with()/try_with() read of it is still \
                  in flight — the write would be lost. Finish the read closure first (copy the \
                  value out with get()) and write after it returns."
-            ),
+            )
         };
         let changed = apply(&mut value);
         drop(value);
@@ -897,6 +885,10 @@ pub fn has_main_poster() -> bool {
 }
 
 /// Schedule `f` on the UI thread (usable from any thread once a backend installed the poster).
+///
+/// # Panics
+///
+/// Panics when no backend has installed the main poster yet (see [`has_main_poster`]).
 pub fn on_main(f: impl FnOnce() + Send + 'static) {
     match MAIN_POSTER.get() {
         Some(post) => post(Box::new(f)),
@@ -916,6 +908,10 @@ pub fn install_delayed_poster(
 
 /// Schedule `f` on the UI thread after (at least) `ms` milliseconds, the rail behind
 /// `day::sleep` (docs/async.md).
+///
+/// # Panics
+///
+/// Panics when no backend has installed the delayed poster yet.
 pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
     match DELAYED_POSTER.get() {
         Some(post) => post(ms, Box::new(f)),
@@ -929,6 +925,7 @@ pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
 
 /// Ownership scope for signals/effects (§4.3). `Copy` handle; not `Send`.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[must_use]
 pub struct Scope {
     key: ScopeKey,
     _not_send: PhantomData<*const ()>,
@@ -956,7 +953,7 @@ impl Scope {
 
     pub fn create_child(self) -> Scope {
         let key = with_rt(|rt| {
-            let depth = rt.scopes.get(self.key).map(|s| s.depth + 1).unwrap_or(1);
+            let depth = rt.scopes.get(self.key).map_or(1, |s| s.depth + 1);
             let child = rt.scopes.insert(ScopeData {
                 parent: self.key,
                 children: Vec::new(),
@@ -1012,15 +1009,16 @@ impl Scope {
         });
     }
 
+    #[must_use]
     pub fn is_alive(self) -> bool {
         with_rt(|rt| rt.scopes.contains_key(self.key))
     }
 
     /// Dispose this scope: children first, then own nodes (unsubscribed + dropped) and cleanups.
     pub fn dispose(self) {
-        let children = match with_rt(|rt| rt.scopes.get(self.key).map(|s| s.children.clone())) {
-            Some(c) => c,
-            None => return,
+        let Some(children) = with_rt(|rt| rt.scopes.get(self.key).map(|s| s.children.clone()))
+        else {
+            return;
         };
         for c in children {
             (Scope {
@@ -1029,13 +1027,12 @@ impl Scope {
             })
             .dispose();
         }
-        let (nodes, cleanups, parent) = match with_rt(|rt| {
+        let Some((nodes, cleanups, parent)) = with_rt(|rt| {
             rt.scopes
                 .remove(self.key)
                 .map(|s| (s.nodes, s.cleanups, s.parent))
-        }) {
-            Some(v) => v,
-            None => return,
+        }) else {
+            return;
         };
         let mut run_cleanups: Vec<Box<dyn FnOnce()>> = Vec::new();
         with_rt(|rt| {
@@ -1081,6 +1078,7 @@ impl Scope {
     }
 
     /// Look up a context value here or in any ancestor (requires `T: Clone`).
+    #[must_use]
     pub fn use_context<T: Clone + 'static>(self) -> Option<T> {
         with_rt(|rt| {
             let mut cur = self.key;
@@ -1153,6 +1151,11 @@ impl<T: 'static> Signal<T> {
     }
 
     /// Tracked read by reference.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the signal's scope was disposed. Use [`Signal::try_with`] in closures that
+    /// can outlive their scope.
     #[track_caller]
     pub fn with<R>(self, f: impl FnOnce(&T) -> R) -> R {
         match self.try_with(f) {
@@ -1182,20 +1185,23 @@ impl<T: 'static> Signal<T> {
     }
 
     #[track_caller]
+    #[must_use]
     pub fn get(self) -> T
     where
         T: Clone,
     {
-        self.with(|v| v.clone())
+        self.with(std::clone::Clone::clone)
     }
 
+    #[must_use]
     pub fn try_get(self) -> Option<T>
     where
         T: Clone,
     {
-        self.try_with(|v| v.clone())
+        self.try_with(std::clone::Clone::clone)
     }
 
+    #[must_use]
     pub fn get_untracked(self) -> T
     where
         T: Clone,
@@ -1245,7 +1251,7 @@ impl<T: 'static> Signal<T> {
         if !alive {
             // Writes to disposed handles are defined no-ops (§4.3), warned once per callsite.
             let loc = Location::caller();
-            let first = with_rt(|rt| rt.warned_writes.insert(loc as *const _));
+            let first = with_rt(|rt| rt.warned_writes.insert(std::ptr::from_ref(loc)));
             if first && cfg!(debug_assertions) {
                 log::warn!(
                     "day-reactive: write at {loc} to a disposed signal (created at {}) ignored",
@@ -1261,6 +1267,7 @@ impl<T: 'static> Signal<T> {
     }
 
     /// A `Send` write-only handle (§3.3).
+    #[must_use]
     pub fn setter(self) -> Setter<T>
     where
         T: Send,
@@ -1362,6 +1369,11 @@ impl<T: 'static> Memo<T> {
         }
     }
 
+    /// Tracked read by reference, recomputing first when a source changed.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the memo's scope was disposed.
     #[track_caller]
     pub fn with<R>(self, f: impl FnOnce(&T) -> R) -> R {
         refresh_memo(self.key);
@@ -1373,10 +1385,10 @@ impl<T: 'static> Memo<T> {
             // Shared, like `Signal::try_with`: the memo stays readable while `f` runs.
             Some(cell) => {
                 let boxed = cell.borrow();
-                boxed
-                    .downcast_ref::<EqBox<T>>()
-                    .map(|e| f(&e.value))
-                    .unwrap_or_else(|| panic!("day-reactive: memo type mismatch"))
+                boxed.downcast_ref::<EqBox<T>>().map_or_else(
+                    || panic!("day-reactive: memo type mismatch"),
+                    |e| f(&e.value),
+                )
             }
             None => panic!(
                 "day-reactive: read of disposed Memo created at {}",
@@ -1386,11 +1398,12 @@ impl<T: 'static> Memo<T> {
     }
 
     #[track_caller]
+    #[must_use]
     pub fn get(self) -> T
     where
         T: Clone,
     {
-        self.with(|v| v.clone())
+        self.with(std::clone::Clone::clone)
     }
 }
 
@@ -1535,6 +1548,7 @@ pub struct Trigger {
 
 impl Trigger {
     #[track_caller]
+    #[must_use]
     pub fn new() -> Self {
         Trigger {
             signal: Signal::new(0),
@@ -1627,19 +1641,19 @@ impl<T: 'static, B: Binding<T>> ErasedBinding<T> for B {
         Binding::peek(self)
     }
     fn erased_write(&self, v: T) {
-        Binding::write(self, v)
+        Binding::write(self, v);
     }
     fn erased_write_preview(&self, v: T) {
-        Binding::write_preview(self, v)
+        Binding::write_preview(self, v);
     }
     fn erased_write_commit(&self, v: T) {
-        Binding::write_commit(self, v)
+        Binding::write_commit(self, v);
     }
     fn erased_write_teardown(&self, v: T) {
-        Binding::write_teardown(self, v)
+        Binding::write_teardown(self, v);
     }
     fn erased_end_preview(&self) {
-        Binding::end_preview(self)
+        Binding::end_preview(self);
     }
 }
 
@@ -1673,14 +1687,17 @@ impl<T: 'static> AnyBinding<T> {
         self.slot.get_untracked()
     }
     /// Tracked read.
+    #[must_use]
     pub fn get(self) -> T {
         self.inner().erased_read()
     }
     /// Tracked read, or `None` once the scope that created the binding is disposed.
+    #[must_use]
     pub fn try_get(self) -> Option<T> {
         self.slot.try_get().map(|b| b.erased_read())
     }
     /// Untracked read.
+    #[must_use]
     pub fn get_untracked(self) -> T {
         self.inner().erased_peek()
     }
@@ -1691,7 +1708,7 @@ impl<T: 'static> AnyBinding<T> {
     }
     /// Write, waking whatever tracks the binding.
     pub fn set(self, v: T) {
-        self.inner().erased_write(v)
+        self.inner().erased_write(v);
     }
     /// Write only when the value differs from the current one.
     pub fn set_if_changed(self, v: T)
@@ -1720,19 +1737,19 @@ impl<T: 'static> Binding<T> for AnyBinding<T> {
         self.inner().erased_peek()
     }
     fn write(&self, v: T) {
-        self.inner().erased_write(v)
+        self.inner().erased_write(v);
     }
     fn write_preview(&self, v: T) {
-        self.inner().erased_write_preview(v)
+        self.inner().erased_write_preview(v);
     }
     fn write_commit(&self, v: T) {
-        self.inner().erased_write_commit(v)
+        self.inner().erased_write_commit(v);
     }
     fn write_teardown(&self, v: T) {
-        self.inner().erased_write_teardown(v)
+        self.inner().erased_write_teardown(v);
     }
     fn end_preview(&self) {
-        self.inner().erased_end_preview()
+        self.inner().erased_end_preview();
     }
 }
 
@@ -1911,11 +1928,13 @@ impl<T: 'static> Resource<T> {
     }
 
     /// The underlying state signal (tracked reads, `when(move || …)` guards, `each` sources).
+    #[must_use]
     pub fn signal(self) -> Signal<Load<T>> {
         self.state
     }
 
     /// The current load state (tracked).
+    #[must_use]
     pub fn get(self) -> Load<T>
     where
         T: Clone,
@@ -2102,8 +2121,8 @@ mod tests {
 
     #[test]
     fn watch_skips_initial_and_passes_old() {
-        let s = Signal::new(10);
         type Log = Rc<RefCell<Vec<(i32, Option<i32>)>>>;
+        let s = Signal::new(10);
         let log: Log = Rc::new(RefCell::new(Vec::new()));
         let l2 = log.clone();
         watch(
@@ -2401,7 +2420,7 @@ mod resource_tests {
     #[test]
     fn resource_sync_fetcher_is_ready_immediately() {
         install_test_spawner();
-        let r = Resource::new(|| (), |_| async { Ok::<_, std::convert::Infallible>(42) });
+        let r = Resource::new(|| (), |()| async { Ok::<_, std::convert::Infallible>(42) });
         assert!(r.ready());
         assert_eq!(r.with(|l| l.ready().copied()), Some(42));
     }
@@ -2411,7 +2430,7 @@ mod resource_tests {
         install_test_spawner();
         let slot: Slot<i32> = Rc::new(RefCell::new(None));
         let s2 = slot.clone();
-        let r = Resource::new(move || (), move |_| manual_future(s2.clone()));
+        let r = Resource::new(move || (), move |()| manual_future(s2.clone()));
         assert!(r.loading());
         *slot.borrow_mut() = Some(Ok(7));
         pump();
@@ -2421,10 +2440,10 @@ mod resource_tests {
     #[test]
     fn resource_failed_preserves_error() {
         install_test_spawner();
-        let r = Resource::new(|| (), |_| async { Err::<i32, _>(TestErr("boom")) });
+        let r = Resource::new(|| (), |()| async { Err::<i32, _>(TestErr("boom")) });
         assert!(!r.ready());
         assert_eq!(
-            r.with(|l| l.error().map(|e| e.to_string())),
+            r.with(|l| l.error().map(std::string::ToString::to_string)),
             Some("boom".into())
         );
     }
@@ -2481,7 +2500,7 @@ mod resource_tests {
         let f = fetches.clone();
         let r = Resource::new(
             || (),
-            move |_| {
+            move |()| {
                 f.set(f.get() + 1);
                 async { Ok::<_, TestErr>(0) }
             },
@@ -2524,7 +2543,7 @@ mod resource_tests {
         let scope = Scope::child();
         let slot: Slot<i32> = Rc::new(RefCell::new(None));
         let s2 = slot.clone();
-        let r = scope.enter(|| Resource::new(move || (), move |_| manual_future(s2.clone())));
+        let r = scope.enter(|| Resource::new(move || (), move |()| manual_future(s2.clone())));
         assert!(r.loading());
         let before = aborted_count();
         scope.dispose();
@@ -2539,7 +2558,7 @@ mod resource_tests {
         install_test_spawner();
         let slot: Slot<i32> = Rc::new(RefCell::new(None));
         let s2 = slot.clone();
-        let r = Resource::new(move || (), move |_| manual_future(s2.clone()));
+        let r = Resource::new(move || (), move |()| manual_future(s2.clone()));
         let runs = Rc::new(Cell::new(0));
         let rn = runs.clone();
         Effect::new(move || {
@@ -2556,7 +2575,7 @@ mod resource_tests {
     #[should_panic(expected = "no spawner installed")]
     fn spawner_missing_panics() {
         // No test spawner installed: this test thread's Runtime has none.
-        let _r = Resource::new(|| (), |_| async { Ok::<_, std::convert::Infallible>(1) });
+        let _r = Resource::new(|| (), |()| async { Ok::<_, std::convert::Infallible>(1) });
     }
 }
 
@@ -2598,9 +2617,7 @@ mod unwind_safety_tests {
         let depth = with_rt(|rt| rt.observers.len());
         let boom = Signal::new(false);
         Effect::new(move || {
-            if boom.get() {
-                panic!("effect boom");
-            }
+            assert!(!boom.get(), "effect boom");
         });
         assert_eq!(with_rt(|rt| rt.observers.len()), depth);
         contained(|| batch(|| boom.set(true)));
@@ -2623,7 +2640,7 @@ mod unwind_safety_tests {
         let runs = Rc::new(RefCell::new(0));
         let r2 = runs.clone();
         Effect::new(move || {
-            src.get();
+            let _ = src.get();
             *r2.borrow_mut() += 1;
         });
         flush_sync();
@@ -2652,7 +2669,7 @@ mod unwind_safety_tests {
     fn panic_in_with_leaves_the_value_intact() {
         let s = Signal::new(String::from("intact"));
         contained(|| s.with(|_| panic!("boom in with")));
-        assert_eq!(s.with(|v| v.clone()), "intact");
+        assert_eq!(s.with(std::clone::Clone::clone), "intact");
     }
 
     /// Reading a signal from inside its own `with` closure now works. It used to find the hole
@@ -2692,7 +2709,7 @@ mod unwind_safety_tests {
         // A `panic!` with no format arguments carries a `&'static str`, not a `String`.
         let msg = payload
             .downcast_ref::<&str>()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .or_else(|| payload.downcast_ref::<String>().cloned())
             .expect("panic payload should be a string");
         assert!(
@@ -2769,7 +2786,7 @@ mod owner_scope_tests {
                     seen.borrow_mut()
                         .push((source.get(), Scope::current().use_context::<&str>()));
                     assert_eq!(Scope::current().use_context::<&str>(), Some(name));
-                })
+                });
             });
         }
         second.enter(|| {

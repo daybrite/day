@@ -23,3 +23,6 @@ day-mock = { path = "../day-mock" }
 # reads them with its own few hundred lines, since it is linked into every app.
 png = { workspace = true }
 day-pieces = { path = "../day-pieces", features = ["conformance"] }
+
+[lints]
+workspace = true

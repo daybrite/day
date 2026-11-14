@@ -7,6 +7,7 @@
 
 /// Pack `(pixel_size, png_bytes)` entries into a multi-size `.ico`. Sizes above 256 are
 /// skipped (the format caps at 256; 256 is encoded as width byte 0 per the spec).
+#[must_use]
 pub fn pack_ico(entries: &[(u32, Vec<u8>)]) -> Vec<u8> {
     let entries: Vec<&(u32, Vec<u8>)> = entries.iter().filter(|(s, _)| *s <= 256).collect();
     let count = entries.len() as u16;

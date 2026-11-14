@@ -26,9 +26,7 @@ impl Stats {
     }
     fn summary(&self) -> String {
         fn mb(bytes: Option<f64>) -> String {
-            bytes
-                .map(|b| format!("{:.2}", b / 1e6))
-                .unwrap_or_else(|| "unknown".into())
+            bytes.map_or_else(|| "unknown".into(), |b| format!("{:.2}", b / 1e6))
         }
         format!(
             "Memory profile: min {} MB, max {} MB, avg {} MB, end {} MB ({} samples; 1s interval)",

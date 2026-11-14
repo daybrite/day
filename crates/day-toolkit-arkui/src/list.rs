@@ -4,7 +4,7 @@
 //! The recycling list (docs/list.md): an `ARKUI_NODE_LIST` driven by a `NodeAdapter`
 //! (`ohos_sys::arkui` `native_node`).
 //!
-//! A cell is a LIST_ITEM wrapping an inner Stack that Day mounts the row subtree into. Cells
+//! A cell is a `LIST_ITEM` wrapping an inner Stack that Day mounts the row subtree into. Cells
 //! scrolled out of view are pushed to a REUSE POOL rather than disposed, so the inner Stack
 //! pointer stays stable and day-core's cell cache rebinds it. Recycling parks the subtree's
 //! element ids until its next bind. Row counts, binds and the reorder/delete seams come from
@@ -60,12 +60,12 @@ struct List {
     /// px; 0 = content-sized (`RowHeight::Automatic`): each cell then takes the height Day
     /// laid its row at, set after every bind and on `ListPatch::RowSizeInvalidated`.
     row_h: f32,
-    /// A content-sized list's live heights, px, by LIST_ITEM: what the drop slot hit-tests
+    /// A content-sized list's live heights, px, by `LIST_ITEM`: what the drop slot hit-tests
     /// against, since the rows have no common pitch.
     heights: HashMap<usize, f32>,
     /// Rows report taps as selection and paint the programmatic set (docs/list.md).
     selectable: bool,
-    /// Bumped per reload so every row gets a FRESH adapter item id (see GET_NODE_ID): the
+    /// Bumped per reload so every row gets a FRESH adapter item id (see `GET_NODE_ID)`: the
     /// adapter diffs by id, and ids that stay put keep their old bindings; a reload after a
     /// reparent/insert above the tail left every untouched cell showing the wrong row.
     generation: u32,
@@ -144,7 +144,7 @@ fn list_ptr(n: Handle) -> *mut List {
 }
 
 /// One cell's selection fill (docs/list.md `ListPatch::Selected`): the HarmonyOS accent at
-/// 20% alpha as the LIST_ITEM's background; Day's row content paints above it.
+/// 20% alpha as the `LIST_ITEM`'s background; Day's row content paints above it.
 fn paint_cell(dl: &List, cell: Handle, row: i32) {
     // A header never shows selection (docs/list.md "Sections"); its ground is the header band.
     if !dl.selectable || dl.header_cells.contains(&(cell as usize)) {
@@ -295,7 +295,7 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
     });
 }
 
-/// A fresh item cell: a LIST_ITEM around the Stack Day mounts the row in.
+/// A fresh item cell: a `LIST_ITEM` around the Stack Day mounts the row in.
 fn new_cell(dl: &mut List) -> Handle {
     let cell = node::create(node::LIST_ITEM);
     let inner = node::create(node::STACK);
@@ -341,7 +341,7 @@ fn new_header_cell(dl: &mut List) -> Handle {
     cell
 }
 
-/// Give a content-sized list's cell (the LIST_ITEM and the Stack the row mounts in) the row's
+/// Give a content-sized list's cell (the `LIST_ITEM` and the Stack the row mounts in) the row's
 /// height in vp. A zero height (a bind that skipped under a day-core borrow) leaves it as is.
 fn size_row(dl: &mut List, cell: Handle, inner: Handle, height_vp: f64) {
     if height_vp <= 0.0 || cell.is_null() || inner.is_null() {
@@ -483,7 +483,7 @@ pub fn forget(n: Handle) {
     };
     DRAG.with(|d| {
         let mut d = d.borrow_mut();
-        if d.is_some_and(|(list, _)| ptr::eq(list, &*dl)) {
+        if d.is_some_and(|(list, _)| ptr::eq(list, &raw const *dl)) {
             *d = None; // an in-flight drag cannot outlive its list
         }
     });
@@ -550,6 +550,7 @@ pub fn paint_selection(n: Handle) {
 /// A tap landed on a selectable list cell: report the BOUND row as a selection. Cells carry no
 /// Day node id, so the shared click receiver resolves them through the row maps here.
 pub fn cell_click(n: Handle) -> bool {
+    use day_spec::bridge::BridgeKind as K;
     let hit = LISTS.with(|l| {
         l.borrow().values().find_map(|dl| {
             if !dl.selectable {
@@ -569,13 +570,12 @@ pub fn cell_click(n: Handle) -> bool {
     if header {
         return true;
     }
-    use day_spec::bridge::BridgeKind as K;
     crate::on_event(host_id, K::SelectionChanged as i32, f64::from(row), "");
     crate::on_event(host_id, K::ListActivated as i32, f64::from(row), "");
     true
 }
 
-/// A row lifted (docs/list.md): the node is a pooled LIST_ITEM; find its list and
+/// A row lifted (docs/list.md): the node is a pooled `LIST_ITEM`; find its list and
 /// currently-bound row (the maps are small: one entry per live cell).
 pub fn on_drag_start(ev: *mut ArkUI_NodeEvent) {
     // SAFETY: a live event.
@@ -600,7 +600,7 @@ fn drag_slot(dl: &List, de: *mut ohos_sys::arkui::drag_and_drop::ArkUI_DragEvent
     let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
     // SAFETY: a live list node and drag event.
     let (y, n) = unsafe {
-        OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(dl.node, &mut pos);
+        OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(dl.node, &raw mut pos);
         let mut y = OH_ArkUI_DragEvent_GetTouchPointYToWindow(de) - pos.y as f32;
         // Add the list's scroll offset (vp → px) so the slot is content-absolute.
         if let Some(oy) = node::get_f32(dl.node, Attr::NODE_SCROLL_OFFSET, 1) {
@@ -636,7 +636,7 @@ fn measured_slot(dl: &List, de: *mut ohos_sys::arkui::drag_and_drop::ArkUI_DragE
             let height = *dl.heights.get(cell)?;
             let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
             // SAFETY: a live cell node.
-            unsafe { OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(*cell as Handle, &mut pos) };
+            unsafe { OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(*cell as Handle, &raw mut pos) };
             Some((*row, pos.y as f32, pos.y as f32 + height))
         })
         .collect();
@@ -693,8 +693,8 @@ pub fn on_drop(ev: *mut ArkUI_NodeEvent) {
     }
 }
 
-/// Re-query the row count and re-bind the visible cells. ReloadAllItems, not just the count:
-/// SetTotalNodeCount alone diffs by item id (= the index), so a list that shrank and grew back
+/// Re-query the row count and re-bind the visible cells. `ReloadAllItems`, not just the count:
+/// `SetTotalNodeCount` alone diffs by item id (= the index), so a list that shrank and grew back
 /// keeps stale bindings, and after shrinking to EMPTY the adapter stopped firing ADD for the
 /// regrown rows at all. The pool + day-core's cell cache make the re-adds cheap rebinds.
 pub fn reload(n: Handle) {
@@ -869,7 +869,7 @@ fn live_top(dl: &List, row: i32) -> Option<f32> {
 fn window_y(n: Handle) -> f32 {
     let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
     // SAFETY: a live node.
-    unsafe { OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(n, &mut pos) };
+    unsafe { OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(n, &raw mut pos) };
     pos.y as f32
 }
 

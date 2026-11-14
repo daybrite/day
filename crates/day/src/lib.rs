@@ -97,6 +97,10 @@ pub use day_spec::{
 };
 pub use day_spec::{EXPORT_MAX_PIXELS, EXPORT_MAX_SIDE, ExportError, PdfInfo, PdfPage};
 pub use day_spec::{KeyEvent, Modifiers};
+/// The wall clock on every target: milliseconds or seconds since the Unix epoch, for timestamps
+/// ("fetched at", "last synced"). `std::time::SystemTime::now()` aborts a web build, so app code
+/// reads the time here. For elapsed time use the monotonic `day::frame::now_secs()`.
+pub use day_spec::{now_epoch_millis, now_epoch_secs};
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.
 pub use day_core::{
@@ -196,7 +200,7 @@ pub fn install_edit_commands(
     // platform read is still what a Paste asks first, so a clip from another app always
     // wins; this is only what an app's own Cut/Copy ▸ Paste falls back to when the platform
     // hands back nothing.
-    let ours: std::rc::Rc<std::cell::RefCell<Option<String>>> = Default::default();
+    let ours: std::rc::Rc<std::cell::RefCell<Option<String>>> = std::rc::Rc::default();
     let (copied, pasted) = (ours.clone(), ours);
     let place = move |payload: String| {
         let _ = day_part_clipboard::set_text(&payload);
@@ -251,6 +255,7 @@ pub fn install_edit_commands(
 /// The keyboard modifiers held right now, for interactions whose meaning they change
 /// (shift-click adds to a selection instead of replacing it). Touch platforms answer
 /// all-false; a dayscript step's declared modifiers take precedence while it dispatches.
+#[must_use]
 pub fn modifiers() -> day_spec::Modifiers {
     day_core::modifiers()
 }
@@ -418,6 +423,7 @@ pub fn window_image() -> WindowImage {
 }
 
 /// Whether this toolkit can hand the app a picture of its own window (`Cap::Snapshot`).
+#[must_use]
 pub fn window_image_support() -> day_spec::Support {
     day_core::with_tree(|t| t.window_image_support())
 }
@@ -432,6 +438,7 @@ pub use day_core::{TextMetricsCacheStats, clear_text_metrics_cache, text_metrics
 
 /// The request built by [`window_image`].
 #[derive(Clone, Copy, Debug)]
+#[must_use]
 pub struct WindowImage {
     chrome: bool,
 }
@@ -446,6 +453,10 @@ impl WindowImage {
     }
 
     /// Take the picture.
+    ///
+    /// # Errors
+    ///
+    /// Returns the toolkit's message when it cannot capture the window.
     pub fn capture(self) -> Result<Vec<u8>, String> {
         day_core::with_tree(|t| {
             if self.chrome {
@@ -461,6 +472,7 @@ impl WindowImage {
 /// URL's query string on web-dom (where a browser sandbox has no process environment;
 /// `day launch --env K=V` forwards each pair as a query parameter, docs/web.md). Prefer this
 /// over `std::env::var` for anything a `--env` flag should be able to set on every target.
+#[must_use]
 pub fn env(key: &str) -> Option<String> {
     #[cfg(all(target_arch = "wasm32", feature = "dom"))]
     {
@@ -548,6 +560,11 @@ pub mod record {
 /// same executor `day launch --script` drives. Returns an error while a recording is live (a replay
 /// must not record itself) and on web (no background thread; drive the page over the WebSocket
 /// transport there). See [`record`].
+///
+/// # Errors
+///
+/// Returns a message when a recording is live, a script is already playing, the script does
+/// not parse or has no steps, or the target is web.
 pub fn play_script(yaml: &str) -> Result<(), String> {
     day_script::play(yaml)
 }
@@ -555,6 +572,7 @@ pub fn play_script(yaml: &str) -> Result<(), String> {
 /// The display name of the toolkit compiled into this binary: `"AppKit"`, `"GTK"`, `"Qt"`,
 /// `"UIKit"`, `"Material Components"`, `"XAML"`, `"WinUI"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
 /// title that names its backend.
+#[must_use]
 pub const fn toolkit_name() -> &'static str {
     #[cfg(feature = "appkit")]
     {
@@ -667,6 +685,7 @@ pub mod lifecycle {
     /// Does the backend compiled into this binary deliver `phase`? A `const fn`, so it drives both a
     /// runtime guard and the compile-time [`crate::require_lifecycle!`] assertion. Agrees with the
     /// runtime [`day_core::lifecycle_supported`] once the app is running.
+    #[must_use]
     pub const fn supported(phase: Lifecycle) -> bool {
         #[cfg(feature = "appkit")]
         {

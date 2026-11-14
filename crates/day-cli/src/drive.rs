@@ -76,7 +76,10 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
             .to_string();
         // `pause` sleeps runner-side (the engine must not block the UI thread).
         if op == "pause" {
-            let secs = step.get("secs").and_then(|v| v.as_f64()).unwrap_or(0.5);
+            let secs = step
+                .get("secs")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.5);
             std::thread::sleep(std::time::Duration::from_secs_f64(secs));
             results.push(serde_json::json!({"op": "pause", "ok": true}));
             continue;
@@ -99,7 +102,7 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
         let reply: Reply = match stream
             .write_all(line.as_bytes())
             .map_err(|e| e.to_string())
-            .and_then(|_| {
+            .and_then(|()| {
                 let mut reply = String::new();
                 let n = reader.read_line(&mut reply).map_err(|e| e.to_string())?;
                 if n == 0 {

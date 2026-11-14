@@ -278,18 +278,12 @@ pub(crate) fn place_node<B: Toolkit>(
     // page. Its content is still placed below, at the size the backend reported.
     let native_frame = tree
         .node(node)
-        .map(|n| n.kind == day_spec::kinds::COVER)
-        .unwrap_or(false);
+        .is_some_and(|n| n.kind == day_spec::kinds::COVER);
     let child_offset = if has_handle {
         if !is_root && !native_frame {
             let changed = tree
                 .node(node)
-                .map(|n| {
-                    n.last_native_frame
-                        .map(|f| !f.approx_eq(&abs, 0.25))
-                        .unwrap_or(true)
-                })
-                .unwrap_or(false);
+                .is_some_and(|n| n.last_native_frame.is_none_or(|f| !f.approx_eq(&abs, 0.25)));
             if changed {
                 let h = tree.node(node).and_then(|n| n.handle.clone());
                 if let Some(h) = h {
@@ -298,8 +292,7 @@ pub(crate) fn place_node<B: Toolkit>(
                 }
                 if tree
                     .node(node)
-                    .map(|n| n.kind == day_spec::kinds::CANVAS)
-                    .unwrap_or(false)
+                    .is_some_and(|n| n.kind == day_spec::kinds::CANVAS)
                 {
                     // Queue-only (§8.3): canvases re-record against the new size after layout.
                     crate::tree::enqueue_event(
@@ -319,15 +312,11 @@ pub(crate) fn place_node<B: Toolkit>(
     // narrowing). It runs synchronously because interactive live-resize runs inside a
     // native tracking loop where deferred main-thread work may not drain until the drag
     // ends.
-    let relayout_cells = tree
-        .node(node)
-        .map(|n| {
-            n.kind == day_spec::kinds::LIST
-                && n.last_native_frame
-                    .map(|f| (f.size.width - abs.size.width).abs() > 0.25)
-                    .unwrap_or(false)
-        })
-        .unwrap_or(false);
+    let relayout_cells = tree.node(node).is_some_and(|n| {
+        n.kind == day_spec::kinds::LIST
+            && n.last_native_frame
+                .is_some_and(|f| (f.size.width - abs.size.width).abs() > 0.25)
+    });
     if let Some(n) = tree.node_mut(node) {
         n.last_native_frame = Some(abs);
         n.needs_layout = false;
@@ -737,6 +726,10 @@ impl StackLayout {
     /// The row's own cross-axis extent once its children are baseline-shifted: the deepest
     /// baseline plus the deepest descent below one. A row measured at the tallest child's
     /// height would clip whichever child got shifted furthest down.
+    #[expect(
+        clippy::float_cmp,
+        reason = "`f64::MIN` is the fold's seed, compared as a no-baseline sentinel"
+    )]
     fn baseline_cross_extent(&self, baselines: &[Option<f64>], sizes: &[Size]) -> Option<f64> {
         let deepest = baselines.iter().flatten().copied().fold(f64::MIN, f64::max);
         if deepest == f64::MIN {
@@ -788,6 +781,10 @@ impl Layout for StackLayout {
     /// A stack's own baseline is its first baseline-bearing child's, moved by where that child
     /// sits: down a column that is the child's offset along the axis, across a row every
     /// aligned child already shares the deepest baseline (docs/baseline.md).
+    #[expect(
+        clippy::float_cmp,
+        reason = "`f64::MIN` is the fold's seed, compared as a no-baseline sentinel"
+    )]
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
         let mut kids = Vec::new();
         Self::flatten(cx, children, &mut kids);
@@ -1086,7 +1083,7 @@ pub struct GridLayout {
 
 impl GridLayout {
     /// Expand group anchors and classify children into rows / full-width cells.
-    fn collect(&self, cx: &mut dyn LayoutOps, children: &[RNode]) -> (Vec<GridRowRef>, usize) {
+    fn collect(cx: &mut dyn LayoutOps, children: &[RNode]) -> (Vec<GridRowRef>, usize) {
         let mut tops = Vec::new();
         StackLayout::flatten(cx, children, &mut tops);
         let mut rows = Vec::new();
@@ -1145,7 +1142,7 @@ impl GridLayout {
     /// iterative negotiation) and only `p.width` affects cell proposals, so a `measure` at
     /// `(Some(w), None)` and a `place` at `exact(w × h)` generate identical per-cell proposals.
     fn geometry(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> GridGeom {
-        let (mut rows, ncols) = self.collect(cx, children);
+        let (mut rows, ncols) = Self::collect(cx, children);
         if rows.is_empty() {
             return GridGeom {
                 rows,
@@ -1467,7 +1464,7 @@ pub enum Dimension {
 /// order (first child = bottom of the z-order), each positioned by a single [`Alignment`].
 /// `size_to_first` reports only the first child's natural size, the badge/annotation sizing of
 /// [`overlay`](crate) (the annotation does not grow the frame); otherwise the layout reports the
-/// union (max) of all children's natural sizes, the ZStack sizing of `zstack`. No native work:
+/// union (max) of all children's natural sizes, the `ZStack` sizing of `zstack`. No native work:
 /// the container is the same panel as `column`/`row`, so backends stack children by attach order.
 pub struct OverlayLayout {
     pub align: Alignment,
@@ -1666,7 +1663,7 @@ pub struct MaxWidthLayout {
 impl Layout for MaxWidthLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let capped = Proposal::new(
-            Some(p.width.map(|w| w.min(self.max)).unwrap_or(self.max)),
+            Some(p.width.map_or(self.max, |w| w.min(self.max))),
             p.height,
         );
         match children.first() {
@@ -1702,7 +1699,7 @@ impl Layout for MaxHeightLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let capped = Proposal::new(
             p.width,
-            Some(p.height.map(|h| h.min(self.max)).unwrap_or(self.max)),
+            Some(p.height.map_or(self.max, |h| h.min(self.max))),
         );
         match children.first() {
             Some(&c) => {
@@ -1809,8 +1806,7 @@ impl Layout for ReserveLayout {
         let c = cx.measure_child(content, p);
         let s = children
             .get(1)
-            .map(|&sample| cx.measure_child(sample, p))
-            .unwrap_or(Size::ZERO);
+            .map_or(Size::ZERO, |&sample| cx.measure_child(sample, p));
         Size::new(s.width.max(c.width), s.height.max(c.height))
     }
 
@@ -1927,7 +1923,7 @@ pub struct NavLayout {
     pub list_width: f64,
     /// Whether the pane is showing (`NavPatch::ListVisible`), shared with the piece so a
     /// collapsed pane stops narrowing the detail's fallback immediately, rather than one
-    /// FrameChanged report later.
+    /// `FrameChanged` report later.
     pub list_visible: std::rc::Rc<std::cell::Cell<bool>>,
 }
 

@@ -1,22 +1,23 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! GTK resource staging (§18.3): native GResource packing.
+//! GTK resource staging (§18.3): native `GResource` packing.
 //!
 //! Generates a `.gresource.xml` and compiles it with `glib-compile-resources` into a binary
 //! `app.gresource` blob under `build/day/gtk/`. `day launch` points `DAY_GRESOURCE` at it; day-toolkit-gtk
 //! registers it at startup (`gio::resources_register`) and then loads data via
 //! `g_resources_lookup_data` (zero-copy from the mmapped blob) and images via
 //! `gtk_picture_new_for_resource`. Data lives at `/day/assets/<name>`, images at `/day/images/<stem>`
-//! (aliased without an extension; GdkTexture sniffs the content).
+//! (aliased without an extension; `GdkTexture` sniffs the content).
 
+use std::fmt::Write as _;
 use std::fs;
 use std::process::Command;
 
 use super::ResourceSet;
 use crate::meta::Project;
 
-/// Path of the compiled GResource blob for a project (also read by `day launch`).
+/// Path of the compiled `GResource` blob for a project (also read by `day launch`).
 pub fn gresource_path(project: &Project) -> std::path::PathBuf {
     project.root.join("build/day/gtk/app.gresource")
 }
@@ -43,8 +44,9 @@ pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
         // (day-toolkit-gtk `open_resource`); `name` is the `/`-relative tree path (§18.5), which the
         // alias carries verbatim.
         let rel = d.path.strip_prefix(&project.root).unwrap_or(&d.path);
-        files += &format!(
-            "    <file alias=\"assets/{}\">{}</file>\n",
+        let _ = writeln!(
+            files,
+            "    <file alias=\"assets/{}\">{}</file>",
             d.name,
             rel.display()
         );
@@ -52,8 +54,9 @@ pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
     for img in &set.images {
         // Alias images to /day/images/<stem> (drop the extension) so the backend loads by name.
         let rel = img.path.strip_prefix(&project.root).unwrap_or(&img.path);
-        files += &format!(
-            "    <file alias=\"images/{}\">{}</file>\n",
+        let _ = writeln!(
+            files,
+            "    <file alias=\"images/{}\">{}</file>",
             img.name,
             rel.display()
         );

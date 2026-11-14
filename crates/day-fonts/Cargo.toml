@@ -14,3 +14,6 @@ categories = ["parser-implementations", "text-processing"]
 # (staging-time font discovery) and the runtimes (startup registration). Pure std with no day deps,
 # so depending on it costs nothing, unlike pulling the whole toolkit spec (day-spec → day-geometry).
 [dependencies]
+
+[lints]
+workspace = true

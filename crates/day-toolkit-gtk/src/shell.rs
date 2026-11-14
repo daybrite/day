@@ -61,7 +61,7 @@ pub(crate) fn bar_height(window: &gtk4::Window) -> f64 {
         }
         let h = s.header.height();
         if h > 0 {
-            h as f64
+            f64::from(h)
         } else {
             f64::from(s.header.measure(gtk4::Orientation::Vertical, -1).1.max(0))
         }
@@ -275,7 +275,7 @@ fn edge_resize(window: &gtk4::Window) {
                 g.current_event_time(),
             );
             g.set_state(gtk4::EventSequenceState::Claimed);
-        })
+        });
     });
     window.add_controller(click);
     let motion = gtk4::EventControllerMotion::new();
@@ -297,7 +297,7 @@ fn edge_resize(window: &gtk4::Window) {
                 None if shaped.replace(false) => w.set_cursor_from_name(None),
                 None => {}
             }
-        })
+        });
     });
     window.add_controller(motion);
 }
@@ -312,7 +312,7 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
 }
 
-/// Mark or unmark `widget` as a drag region (the `set_drag_region` duty), with GtkWindowHandle's
+/// Mark or unmark `widget` as a drag region (the `set_drag_region` duty), with `GtkWindowHandle`'s
 /// behavior: a drag past the threshold on the region's own background asks the window manager
 /// for an interactive move (snapping and edge tiling are its own), a double click does what
 /// `gtk-titlebar-double-click` says, and a secondary click opens the window menu. A control
@@ -348,7 +348,7 @@ pub(crate) fn set_drag_region(widget: &gtk4::Widget, drag: bool) {
                 };
                 begin_move(&w, g.upcast_ref(), g.current_button(), x, y);
                 g.reset();
-            })
+            });
         });
         let click = gtk4::GestureClick::new();
         click.set_button(0);
@@ -369,7 +369,7 @@ pub(crate) fn set_drag_region(widget: &gtk4::Widget, drag: bool) {
                     title_bar_double_click(&window, g.upcast_ref());
                     g.set_state(gtk4::EventSequenceState::Claimed);
                 }
-            })
+            });
         });
         widget.add_controller(drag.clone());
         widget.add_controller(click.clone());
@@ -425,9 +425,9 @@ fn title_bar_double_click(window: &gtk4::Window, g: &gtk4::Gesture) {
     match action.as_deref().unwrap_or("toggle-maximize") {
         "toggle-maximize" => {
             if window.is_maximized() {
-                window.unmaximize()
+                window.unmaximize();
             } else {
-                window.maximize()
+                window.maximize();
             }
         }
         "minimize" => window.minimize(),
@@ -486,8 +486,10 @@ pub(crate) fn apply_property(window: &gtk4::Window, change: &day_spec::WindowCha
 fn relayout_buttons(window: &gtk4::Window) {
     let layout = gtk4::Settings::default()
         .and_then(|s| s.gtk_decoration_layout())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "menu:minimize,maximize,close".to_owned());
+        .map_or_else(
+            || "menu:minimize,maximize,close".to_owned(),
+            |s| s.to_string(),
+        );
     with_shell(window, |s| {
         let keep = |b: &str| match b {
             "minimize" => s.minimizable.get(),
@@ -539,8 +541,7 @@ pub(crate) fn monitors() -> Vec<day_spec::Monitor> {
             day_spec::Monitor {
                 id: m
                     .connector()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| i.to_string()),
+                    .map_or_else(|| i.to_string(), |s| s.to_string()),
                 name,
                 frame,
                 work_area: frame,
@@ -555,7 +556,7 @@ pub(crate) fn monitors() -> Vec<day_spec::Monitor> {
 // Keeping the app running (docs/windows.md "Keeping the app running")
 // ---------------------------------------------------------------------------
 
-/// Hold the application while day-core wants it alive with no window open: GtkApplication
+/// Hold the application while day-core wants it alive with no window open: `GtkApplication`
 /// otherwise ends `run` as its last window goes.
 pub(crate) fn set_keep_running(app: Option<&adw::Application>, keep: bool) {
     KEEP_RUNNING.with(|k| {
@@ -615,14 +616,14 @@ pub(crate) use tray::{set_status_items, status_item_support};
 #[cfg(target_os = "linux")]
 pub(crate) use unity::{set_badge, set_progress};
 
-/// The Unity LauncherEntry needs a Linux session bus and a dock that listens.
+/// The Unity `LauncherEntry` needs a Linux session bus and a dock that listens.
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn set_progress(_progress: day_spec::AppProgress) {}
 
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn set_badge(_badge: &day_spec::AppBadge) {}
 
-/// Badge count and progress on the app's dock icon through the Unity LauncherEntry signal
+/// Badge count and progress on the app's dock icon through the Unity `LauncherEntry` signal
 /// (docs/status-item.md, docs/badge.md), which Ubuntu Dock, Dash to Dock, Plasma's task manager,
 /// Latte and Plank read. A signal, not a call: nothing answers, so whether a dock shows it is
 /// the desktop's business, which is why the Caps say Emulated. The dock matches it to the app by
@@ -653,7 +654,9 @@ mod unity {
         };
         CONN.with(|c| {
             let mut c = c.borrow_mut();
-            if c.as_ref().is_none_or(|conn| conn.is_closed()) {
+            if c.as_ref()
+                .is_none_or(day_platform_linux::dbus::Connection::is_closed)
+            {
                 *c = Connection::session().ok();
             }
             if let Some(conn) = c.as_ref() {
@@ -669,7 +672,7 @@ mod unity {
     /// has no indeterminate or paused bar, so indeterminate shows none and paused shows its value.
     pub(crate) fn set_progress(progress: day_spec::AppProgress) {
         use day_spec::AppProgress as P;
-        let mut props = PROPS.with(|p| p.get());
+        let mut props = PROPS.with(std::cell::Cell::get);
         (props.progress, props.urgent) = match progress {
             P::None | P::Indeterminate => (None, None),
             P::Value(v) | P::Paused(v) => (Some(v), None),
@@ -681,7 +684,7 @@ mod unity {
     /// `AppBadge`: only a count exists in the protocol. Text and a dot are not substituted
     /// (`Cap::AppBadgeText`/`AppBadgeDot` stay Unsupported), so they clear nothing either.
     pub(crate) fn set_badge(badge: &day_spec::AppBadge) {
-        let mut props = PROPS.with(|p| p.get());
+        let mut props = PROPS.with(std::cell::Cell::get);
         props.count = match badge {
             day_spec::AppBadge::None | day_spec::AppBadge::Count(0) => None,
             day_spec::AppBadge::Count(n) => Some(i64::from(*n)),
@@ -691,7 +694,7 @@ mod unity {
     }
 }
 
-/// Status items need a StatusNotifierItem host, which only Linux desktops run.
+/// Status items need a `StatusNotifierItem` host, which only Linux desktops run.
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn set_status_items(_items: &[day_spec::StatusItemSpec]) {}
 
@@ -727,7 +730,7 @@ mod tray {
         static SHOWN: RefCell<Vec<Shown>> = const { RefCell::new(Vec::new()) };
     }
 
-    /// `Cap::StatusItem`, decided by the desktop: Native while a StatusNotifierWatcher is on
+    /// `Cap::StatusItem`, decided by the desktop: Native while a `StatusNotifierWatcher` is on
     /// the session bus (KDE Plasma, most panels, GNOME with the AppIndicator extension),
     /// Unsupported without one (stock GNOME) or without a session bus. Asked afresh each time,
     /// since a panel can start after the app.
@@ -802,7 +805,7 @@ mod tray {
                 crate::toolbar::icon_name_for(*sym)
                     .unwrap_or_default()
                     .to_owned(),
-                sym.outline_svg().map(|s| Source::Svg(s.to_string())),
+                sym.outline_svg().map(|s| Source::Svg(s.clone())),
             ),
             Some(day_spec::Icon::Image(name)) => (
                 String::new(),
@@ -897,10 +900,10 @@ mod tray {
     }
 
     /// A click or menu choice, on the GTK main loop.
-    fn deliver(id: &str, event: sni::Event) {
+    fn deliver(id: &str, event: &sni::Event) {
         let found = SHOWN.with(|s| {
             s.borrow().iter().find(|x| x.spec.id == id).map(|x| {
-                let pick = match &event {
+                let pick = match event {
                     sni::Event::MenuItem { id } => {
                         x.picks.iter().find(|(e, _)| e == id).map(|(_, p)| *p)
                     }
@@ -967,7 +970,7 @@ mod tray {
                 let item = StatusItem::new(&conn, item_of(spec), menu, move |event| {
                     let id = id.clone();
                     // The connection's reader thread: hop to the GTK main loop.
-                    crate::Gtk::post(Box::new(move || deliver(&id, event)));
+                    crate::Gtk::post(Box::new(move || deliver(&id, &event)));
                 });
                 match item {
                     Ok(item) => {

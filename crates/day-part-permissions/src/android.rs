@@ -40,7 +40,7 @@ day_platform_android::java_class! {
         static fn nativeResult(token: jlong, granted_mask: jlong),
     },
 }
-/// The separator DayPermissions.java splits on (day_spec's C-ABI convention).
+/// The separator DayPermissions.java splits on (`day_spec`'s C-ABI convention).
 const SEP: char = '\u{1f}';
 
 type Pending = HashMap<
@@ -156,6 +156,10 @@ fn id_status(id: &str) -> Status {
 // The part's per-OS contract
 // ---------------------------------------------------------------------------
 
+#[expect(
+    clippy::match_same_arms,
+    reason = "the notifications arm documents why it is `Prompts` on every API level"
+)]
 pub fn gate(perm: Permission) -> Gate {
     match perm {
         // The user can still switch notifications off in Settings below API 33 (the OS keeps a

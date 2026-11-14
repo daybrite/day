@@ -68,9 +68,13 @@ CAPABILITY = re.compile(r"\bfn capability\s*\(")
 # A kind named in the placeholder fallback arm's pattern (`Some(Builtin::ListCell) |
 # Some(Builtin::Inspector) | … | None => { …placeholder… }`) is not handled: it falls
 # through by name because the match is exhaustive. Strip that pattern before
-# searching, so only a real arm counts as support.
+# searching, so only a real arm counts as support. Both spellings are accepted: one `Some(…)`
+# per kind, and the nested `Some(Builtin::ListCell | Builtin::Inspector | …)` that Clippy's
+# `unnested_or_patterns` asks for.
 FALLBACK_PATTERN = re.compile(
-    r"Some\(Builtin::ListCell\)(?:\s*\|\s*Some\(Builtin::\w+\))*\s*(?:\|\s*None\s*)?=>"
+    r"Some\(\s*Builtin::ListCell(?:\s*\|\s*Builtin::\w+)*\s*,?\s*\)"
+    r"(?:\s*\|\s*Some\(\s*Builtin::\w+(?:\s*\|\s*Builtin::\w+)*\s*,?\s*\))*"
+    r"\s*(?:\|\s*None\s*)?=>"
 )
 realize_bodies = {
     n: FALLBACK_PATTERN.sub("=>", body_of(sources[n], REALIZE)) for n, _, _ in BACKENDS

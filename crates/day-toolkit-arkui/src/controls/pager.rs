@@ -23,7 +23,7 @@ day_reactive::tls_slots! {
     pager;
     static STATES: RefCell<HashMap<usize, State>> = RefCell::new(HashMap::new());
 }
-fn apply(handle: node::Handle, config: PagerState) {
+fn apply(handle: node::Handle, config: &PagerState) {
     let pages = STATES.with(|states| {
         let mut states = states.borrow_mut();
         let state = states.get_mut(&(handle as usize))?;
@@ -91,7 +91,7 @@ fn settle(key: usize, index: usize) {
     if let Some((id, epoch, slot, pending)) = result {
         crate::emit(id, Event::custom("pager", format!("settle {epoch} {slot}")));
         if let Some(config) = pending {
-            apply(key as node::Handle, config);
+            apply(key as node::Handle, &config);
         }
     }
 }
@@ -200,7 +200,7 @@ fn make(_: &mut ArkUi, _: &PagerProps, id: NodeId) -> AHandle {
     AHandle(handle)
 }
 fn update(_: &mut ArkUi, h: &AHandle, p: &PagerPatch) {
-    apply(h.0, p.0.clone());
+    apply(h.0, &p.0);
 }
 fn release(_: &mut ArkUi, h: &AHandle) {
     STATES.with(|states| {

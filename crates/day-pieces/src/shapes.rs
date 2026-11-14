@@ -208,6 +208,7 @@ struct ShapeSpec {
 }
 
 /// A shape piece: one data-oriented piece parameterized by `ShapeKind`, rendered atop the canvas.
+#[must_use]
 pub struct ShapePiece {
     spec: ShapeSpec,
     on_tap: Option<Rc<dyn Fn()>>,
@@ -382,10 +383,7 @@ fn record_shape(spec: &ShapeSpec, d: &mut Draw, bounds: Rect) {
     let stroke_half = if open {
         0.0
     } else {
-        spec.stroke
-            .as_ref()
-            .map(|(_, w)| w.get() / 2.0)
-            .unwrap_or(0.0)
+        spec.stroke.as_ref().map_or(0.0, |(_, w)| w.get() / 2.0)
     };
     let rect = bounds.inset(spec.inset.get() + stroke_half);
     if !open && (rect.size.width <= 0.0 || rect.size.height <= 0.0) {

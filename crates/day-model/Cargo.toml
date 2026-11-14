@@ -26,3 +26,6 @@ day-core = { path = "../day-core" }
 day-pieces = { path = "../day-pieces" }
 day-spec = { path = "../day-spec" }
 day-mock = { path = "../day-mock" }
+
+[lints]
+workspace = true

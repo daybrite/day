@@ -29,6 +29,7 @@
 //! every build takes: it regenerates only when the lock says the master or the generator moved.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
@@ -65,21 +66,18 @@ pub struct IconOptions {
 /// and `None` draws fresh entropy. Always tell the user the number (via the return), so a
 /// liked random icon can be reproduced.
 pub fn resolve_seed(spec: Option<&str>) -> u64 {
-    match spec {
-        Some(s) => s
-            .parse::<u64>()
-            .unwrap_or_else(|_| day_vector::icongen::seed_from_str(s)),
-        None => {
-            use std::hash::{BuildHasher as _, Hasher as _};
-            let clock = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
-                .unwrap_or(0);
-            let keyed = std::collections::hash_map::RandomState::new()
-                .build_hasher()
-                .finish();
-            clock ^ keyed
-        }
+    if let Some(s) = spec {
+        s.parse::<u64>()
+            .unwrap_or_else(|_| day_vector::icongen::seed_from_str(s))
+    } else {
+        use std::hash::{BuildHasher as _, Hasher as _};
+        let clock = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::from(d.subsec_nanos()) ^ d.as_secs());
+        let keyed = std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish();
+        clock ^ keyed
     }
 }
 
@@ -371,7 +369,10 @@ pub fn ensure(project: &Project, platforms: &[&str]) -> Result<(), String> {
     let opts = IconOptions {
         master: None,
         check: false,
-        platforms: platforms.iter().map(|p| p.to_string()).collect(),
+        platforms: platforms
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
     };
     match run(project, &opts) {
         Ok(_) => Ok(()),
@@ -465,7 +466,13 @@ fn harmony_links(project: &Project, families: &[Family]) -> Vec<(String, String)
         format!("{hrel}/AppScope/resources/base/media"),
     ]
     .into_iter()
-    .filter(|link| project.root.join(link).parent().is_some_and(|p| p.is_dir()))
+    .filter(|link| {
+        project
+            .root
+            .join(link)
+            .parent()
+            .is_some_and(std::path::Path::is_dir)
+    })
     .map(|link| (link.clone(), media.clone()))
     .collect()
 }
@@ -632,8 +639,7 @@ fn generate(
         overrides
             .iter()
             .find(|(of, _)| *of == f)
-            .map(|(_, a)| a)
-            .unwrap_or(&master_art)
+            .map_or(&master_art, |(_, a)| a)
     };
 
     let mut out: Vec<(String, Vec<u8>)> = Vec::new();
@@ -754,7 +760,7 @@ fn generate(
                     ));
                 }
             }
-        } else if let Some(files) = art.icon_composer_package()? {
+        } else if let Some(files) = art.icon_composer_package() {
             for (name, bytes) in files {
                 out.push((host(Family::Ios, &format!("AppIcon.icon/{name}")), bytes));
             }
@@ -830,11 +836,11 @@ fn generate(
         ));
     }
     if has(Family::Ohos) {
+        const LAYERED: &str = "{\n  \"layered-image\": {\n    \"background\": \"$media:background\",\n    \"foreground\": \"$media:foreground\"\n  }\n}\n";
         let art = art_of(Family::Ohos);
         // Layered icon (docs/icons.md): fg/bg media + the layered_image.json descriptor, wired
         // into app.json5/module.json5's icon slots (startWindowIcon keeps the flat startIcon).
         // One media set; hvigor's two resource roots are links to it (`harmony_links`).
-        const LAYERED: &str = "{\n  \"layered-image\": {\n    \"background\": \"$media:background\",\n    \"foreground\": \"$media:foreground\"\n  }\n}\n";
         out.push((
             host(Family::Ohos, "media/startIcon.png"),
             art.flat_composite(512)?,
@@ -930,7 +936,7 @@ const MACOS_APPICONSET_JSON: &str = "{\n  \"images\" : [\n    {\n      \"filenam
 /// `.icon` package members: (bundle-relative name, bytes).
 type PackageFiles = Vec<(String, Vec<u8>)>;
 
-/// A monochrome themed-icon drawable: VectorDrawable XML, or a bitmap alpha mask.
+/// A monochrome themed-icon drawable: `VectorDrawable` XML, or a bitmap alpha mask.
 enum MonoDrawable {
     Vector(String),
     Bitmap(Vec<u8>),
@@ -1077,38 +1083,35 @@ impl Art {
     /// transparent.
     fn adaptive_foreground(&self) -> Result<Vec<u8>, String> {
         let inset = (ADAPTIVE_PX as f32 - SAFE_PX) / 2.0;
-        match self {
-            Art::Svg {
-                foreground: Some(fg),
-                ..
-            } => {
-                let tree = day_vector::parse(fg.as_bytes())?;
-                let (tx, ty, s) =
-                    safe_fit(fg, &tree)?.ok_or("the day:foreground layers render no content")?;
-                let inner = inner_markup(fg)?;
-                let doc = format!(
-                    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ADAPTIVE_PX} {ADAPTIVE_PX}\">\
-                     <g transform=\"translate({tx} {ty}) scale({s})\">{inner}</g></svg>",
-                );
-                let tree = day_vector::parse(doc.as_bytes())?;
-                day_vector::render_png(&tree, ADAPTIVE_PX)
-            }
+        if let Art::Svg {
+            foreground: Some(fg),
+            ..
+        } = self
+        {
+            let tree = day_vector::parse(fg.as_bytes())?;
+            let (tx, ty, s) =
+                safe_fit(fg, &tree)?.ok_or("the day:foreground layers render no content")?;
+            let inner = inner_markup(fg)?;
+            let doc = format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ADAPTIVE_PX} {ADAPTIVE_PX}\">\
+                 <g transform=\"translate({tx} {ty}) scale({s})\">{inner}</g></svg>",
+            );
+            let tree = day_vector::parse(doc.as_bytes())?;
+            day_vector::render_png(&tree, ADAPTIVE_PX)
+        } else {
             // Unlayered/raster: the whole art in the safe zone (over the derived background).
-            _ => {
-                let art = tiny_skia::Pixmap::decode_png(&self.composite(SAFE_PX as u32)?)
-                    .map_err(|e| e.to_string())?;
-                let mut canvas =
-                    tiny_skia::Pixmap::new(ADAPTIVE_PX, ADAPTIVE_PX).ok_or("pixmap")?;
-                canvas.draw_pixmap(
-                    inset as i32,
-                    inset as i32,
-                    art.as_ref(),
-                    &tiny_skia::PixmapPaint::default(),
-                    tiny_skia::Transform::identity(),
-                    None,
-                );
-                canvas.encode_png().map_err(|e| e.to_string())
-            }
+            let art = tiny_skia::Pixmap::decode_png(&self.composite(SAFE_PX as u32)?)
+                .map_err(|e| e.to_string())?;
+            let mut canvas = tiny_skia::Pixmap::new(ADAPTIVE_PX, ADAPTIVE_PX).ok_or("pixmap")?;
+            canvas.draw_pixmap(
+                inset as i32,
+                inset as i32,
+                art.as_ref(),
+                &tiny_skia::PixmapPaint::default(),
+                tiny_skia::Transform::identity(),
+                None,
+            );
+            canvas.encode_png().map_err(|e| e.to_string())
         }
     }
 
@@ -1135,7 +1138,7 @@ impl Art {
     }
 
     /// The Android themed-icon monochrome drawable: the `day:monochrome` layer as a
-    /// VectorDrawable when it fits the subset, else (and without the layer) the adaptive
+    /// `VectorDrawable` when it fits the subset, else (and without the layer) the adaptive
     /// foreground's alpha as a bitmap mask; the system tints either.
     fn monochrome_drawable(&self) -> Result<MonoDrawable, String> {
         if let Art::Svg {
@@ -1190,7 +1193,7 @@ impl Art {
     /// The Icon Composer `.icon` package files (Xcode 26): SVG layer assets + `icon.json`.
     /// Only for layered SVG masters, since the package's value is the layer split; a flat master
     /// has nothing to feed the Liquid Glass modes.
-    fn icon_composer_package(&self) -> Result<Option<PackageFiles>, String> {
+    fn icon_composer_package(&self) -> Option<PackageFiles> {
         let Art::Svg {
             foreground: Some(fg),
             background,
@@ -1198,7 +1201,7 @@ impl Art {
             ..
         } = self
         else {
-            return Ok(None);
+            return None;
         };
         let mut files: Vec<(String, Vec<u8>)> = Vec::new();
         // Layer assets, top-first in the group below.
@@ -1228,7 +1231,7 @@ impl Art {
             "icon.json".into(),
             (serde_json::to_string_pretty(&json).unwrap_or_default() + "\n").into_bytes(),
         ));
-        Ok(Some(files))
+        Some(files)
     }
 
     /// The flattening/back-plate color: the composite's corner pixel (a full-bleed master's own
@@ -1484,9 +1487,8 @@ fn flatten(png: &[u8], color: tiny_skia::Color) -> Result<Vec<u8>, String> {
 
 /// Intersect the canvas alpha with a rounded rect (the raster-master squircle mask).
 fn apply_round_mask(canvas: &mut tiny_skia::Pixmap, inset: f32, edge: f32, radius: f32) {
-    let mut mask = match tiny_skia::Pixmap::new(canvas.width(), canvas.height()) {
-        Some(m) => m,
-        None => return,
+    let Some(mut mask) = tiny_skia::Pixmap::new(canvas.width(), canvas.height()) else {
+        return;
     };
     let mut pb = tiny_skia::PathBuilder::new();
     // Rounded rect from four lines + four cubic corners (kappa circle approximation).
@@ -1516,16 +1518,16 @@ fn apply_round_mask(canvas: &mut tiny_skia::Pixmap, inset: f32, edge: f32, radiu
     // canvas.alpha *= mask.alpha, per pixel.
     let mask_px: Vec<u8> = mask.pixels().iter().map(|p| p.alpha()).collect();
     for (px, m) in canvas.pixels_mut().iter_mut().zip(mask_px) {
-        let a = (px.alpha() as u16 * m as u16 / 255) as u8;
+        let a = (u16::from(px.alpha()) * u16::from(m) / 255) as u8;
         let scale = if px.alpha() == 0 {
             0.0
         } else {
-            a as f32 / px.alpha() as f32
+            f32::from(a) / f32::from(px.alpha())
         };
         *px = tiny_skia::PremultipliedColorU8::from_rgba(
-            (px.red() as f32 * scale) as u8,
-            (px.green() as f32 * scale) as u8,
-            (px.blue() as f32 * scale) as u8,
+            (f32::from(px.red()) * scale) as u8,
+            (f32::from(px.green()) * scale) as u8,
+            (f32::from(px.blue()) * scale) as u8,
             a,
         )
         .unwrap_or(*px);
@@ -1536,7 +1538,10 @@ fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest;
     let mut h = sha2::Sha256::new();
     h.update(bytes);
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    h.finalize().iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 #[cfg(test)]

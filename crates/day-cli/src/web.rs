@@ -7,6 +7,7 @@
 //! images, and fonts with a `fonts.json` manifest the shim pre-loads. Launch serves `dist/`
 //! over loopback (browsers won't instantiate wasm from `file:`) and opens the default browser.
 
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -32,7 +33,7 @@ const HOST_CSS: &str = include_str!("../resources/web/day.css");
 // playwright, asks `day web driver` for this script's path, and sets DAY_WEB_DRIVER to it.
 const WEB_DRIVER: &str = include_str!("../resources/web/webdom-driver.mjs");
 
-/// Write the bundled DAY_WEB_DRIVER script to a version-stamped temp location and return its
+/// Write the bundled `DAY_WEB_DRIVER` script to a version-stamped temp location and return its
 /// path (`day web driver`). Idempotent: same version, same path, rewritten only on drift.
 pub fn materialize_driver() -> Result<std::path::PathBuf, String> {
     let dir = std::env::temp_dir().join(format!("day-webdriver-{}", env!("CARGO_PKG_VERSION")));
@@ -266,10 +267,11 @@ pub fn build_web(
             if i > 0 {
                 manifest.push(',');
             }
-            manifest.push_str(&format!(
+            let _ = write!(
+                manifest,
                 "{{\"family\":\"{}\",\"url\":\"assets/fonts/{staged}\"}}",
                 f.family.replace('"', "\\\"")
-            ));
+            );
         }
         manifest.push(']');
         std::fs::write(dir.join("fonts.json"), manifest).map_err(|e| format!("fonts.json: {e}"))?;
@@ -331,7 +333,7 @@ pub fn home_screen(project: &Project) -> HomeScreen {
                 "Warning",
                 &format!("store listing not read ({e}); the web manifest takes [app] title"),
             );
-            Default::default()
+            crate::store::Listing::default()
         }
     };
     // The web target's own text in the default locale, resolved the way a store's is.
@@ -691,7 +693,10 @@ pub fn service_worker(files: &[(String, Vec<u8>)]) -> String {
         hasher.update([0u8]);
     }
     let digest = hasher.finalize();
-    let version: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let version: String = digest.iter().take(8).fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    });
     let list = files
         .iter()
         .map(|(rel, _)| serde_json::Value::String(rel.clone()))
@@ -759,7 +764,9 @@ fn query_escape(s: &str) -> String {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 out.push(b as char);
             }
-            _ => out.push_str(&format!("%{b:02X}")),
+            _ => {
+                let _ = write!(out, "%{b:02X}");
+            }
         }
     }
     out
@@ -1090,7 +1097,7 @@ fn mime_of(p: &Path) -> &'static str {
 
 /// The page half of the bridge: the accepted `/dayscript` WebSocket (write side).
 static PAGE_WS: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None);
-/// The runner half: the accepted DAYSCRIPT_PORT connection (write side, for replies).
+/// The runner half: the accepted `DAYSCRIPT_PORT` connection (write side, for replies).
 static RUNNER: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None);
 /// The `DAY_WEB_DRIVER` control port + child of the current launch. A `Mutex<Option<…>>`, not a
 /// `OnceLock`: a capture-matrix launch (`--themes`/`--locales`) opens the page once per variant
@@ -1207,7 +1214,7 @@ fn ws_read_loop(mut stream: TcpStream, mut pending: Vec<u8>) {
         let fin = hdr[0] & 0x80 != 0;
         let opcode = hdr[0] & 0x0f;
         let masked = hdr[1] & 0x80 != 0;
-        let mut len = (hdr[1] & 0x7f) as u64;
+        let mut len = u64::from(hdr[1] & 0x7f);
         if len == 126 {
             let mut ext = [0u8; 2];
             if ws_read_exact(&mut stream, &mut ext, &mut pending).is_err() {

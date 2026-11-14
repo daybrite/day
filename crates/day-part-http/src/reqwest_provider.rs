@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Optional async reqwest HTTP + tungstenite WebSocket provider, on a shared Tokio runtime.
-use crate::{Capabilities, Head, HttpError, Message, session::lock, transport::*};
+use crate::{
+    Capabilities, Head, HttpError, Message,
+    session::lock,
+    transport::{
+        Answer, Completion, Event, Events, Prepared, PreparedBody, QuestionId, Socket, Transfer,
+        Transport, TransportConfig, WsEvent, WsEvents,
+    },
+};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::{
     Arc, Mutex, OnceLock,
@@ -32,7 +39,7 @@ fn tls_config() -> Arc<rustls::ClientConfig> {
         .with_no_client_auth(),
     )
 }
-fn error(e: reqwest::Error) -> HttpError {
+fn error(e: &reqwest::Error) -> HttpError {
     if e.is_timeout() {
         HttpError::Timeout
     } else {
@@ -75,7 +82,7 @@ impl HttpTransfer {
 }
 impl Transfer for HttpTransfer {
     fn demand(&self, n: u32) {
-        self.demand.add_permits(n as usize)
+        self.demand.add_permits(n as usize);
     }
     fn answer(&self, _: QuestionId, _: Answer) {}
     fn cancel(&self) {
@@ -184,7 +191,7 @@ impl Transport for Reqwest {
                 let response = tokio::time::timeout(req.timeout_idle, builder.send())
                     .await
                     .map_err(|_| HttpError::Timeout)?
-                    .map_err(error)?;
+                    .map_err(|e| error(&e))?;
                 let head = Head {
                     status: response.status().as_u16(),
                     headers: response
@@ -214,7 +221,7 @@ impl Transport for Reqwest {
                         .map_err(|_| HttpError::Timeout)?
                     {
                         Some(Ok(b)) => transfer.emit(Event::Chunk(b.to_vec())),
-                        Some(Err(e)) => return Err(error(e)),
+                        Some(Err(e)) => return Err(error(&e)),
                         None => break,
                     }
                 }
@@ -262,7 +269,7 @@ impl Transport for Reqwest {
                     m=ws.next(),if demand>0=>match m{
                         Some(Ok(T::Text(t)))=>{demand-=1;s.emit(WsEvent::Message(Message::Text(t.to_string())));},
                         Some(Ok(T::Binary(b)))=>{demand-=1;s.emit(WsEvent::Message(Message::Binary(b.to_vec())));},
-                        Some(Ok(T::Close(frame)))=>{let(code,reason)=frame.map(|f|(f.code.into(),f.reason.to_string())).unwrap_or((1000,String::new()));s.emit(WsEvent::Closed{code,reason});return Ok(());},
+                        Some(Ok(T::Close(frame)))=>{let(code,reason)=frame.map_or((1000,String::new()), |f|(f.code.into(),f.reason.to_string()));s.emit(WsEvent::Closed{code,reason});return Ok(());},
                         Some(Err(e))=>return Err(HttpError::Io(e.to_string())),None=>return Ok(()),_=>{},
                     }
                 }}
@@ -313,10 +320,10 @@ impl WsSocket {
 }
 impl Socket for WsSocket {
     fn send(&self, m: Message, done: Completion) {
-        self.command(Command::Send(m, done))
+        self.command(Command::Send(m, done));
     }
     fn ping(&self, done: Completion) {
-        self.command(Command::Ping(done))
+        self.command(Command::Ping(done));
     }
     fn close(&self, code: u16, reason: &str) {
         self.emit(WsEvent::Closed {
@@ -331,6 +338,6 @@ impl Socket for WsSocket {
         }
     }
     fn demand(&self, n: u32) {
-        self.demand.add_permits(n as usize)
+        self.demand.add_permits(n as usize);
     }
 }

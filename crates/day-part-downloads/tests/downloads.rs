@@ -58,11 +58,14 @@ fn wait_for(
 
 fn sha_of(path: &Path) -> String {
     use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
     let bytes = std::fs::read(path).expect("read");
     Sha256::digest(&bytes)
         .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+        .fold(String::new(), |mut out, b| {
+            let _ = write!(out, "{b:02x}");
+            out
+        })
 }
 
 #[test]

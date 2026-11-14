@@ -12,6 +12,7 @@
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::rc::Rc;
 
 use day_spec::props::*;
@@ -140,7 +141,7 @@ fn viewport_touch(host: u64, f: impl FnOnce(&mut Viewport)) {
 
 /// Bind every dirty viewport's rows, outside any borrow of the registry.
 fn viewport_flush() {
-    let rows = VIEWPORT_ROWS.with(|r| r.get());
+    let rows = VIEWPORT_ROWS.with(std::cell::Cell::get);
     if rows == 0 {
         return;
     }
@@ -459,6 +460,7 @@ pub struct MockProbe {
 }
 
 impl MockToolkit {
+    #[must_use]
     pub fn new() -> (Self, MockProbe) {
         // A fresh mock starts with the viewport off and no lists from an earlier one.
         VIEWPORT_ROWS.with(|r| r.set(0));
@@ -478,6 +480,7 @@ impl MockToolkit {
 }
 
 impl MockProbe {
+    #[must_use]
     pub fn log(&self) -> Vec<String> {
         self.state.borrow().log.clone()
     }
@@ -486,6 +489,7 @@ impl MockProbe {
         s.log.clear();
         s.measure_calls = 0;
     }
+    #[must_use]
     pub fn measure_calls(&self) -> usize {
         self.state.borrow().measure_calls
     }
@@ -508,6 +512,7 @@ impl MockProbe {
             .push(Box::new(move |any| any.downcast_ref::<T>().map(&f)));
     }
     /// Ops excluding measures (mutation ops only).
+    #[must_use]
     pub fn mutations(&self) -> Vec<String> {
         self.state
             .borrow()
@@ -517,6 +522,7 @@ impl MockProbe {
             .cloned()
             .collect()
     }
+    #[must_use]
     pub fn widget(&self, h: MockHandle) -> MockWidget {
         self.state
             .borrow()
@@ -525,6 +531,7 @@ impl MockProbe {
             .cloned()
             .unwrap_or_default()
     }
+    #[must_use]
     pub fn find_by_kind(&self, kind: &str) -> Vec<(MockHandle, MockWidget)> {
         let mut v: Vec<_> = self
             .state
@@ -551,6 +558,7 @@ impl MockProbe {
     }
 
     /// Row count a `LIST` host would query from its data-source.
+    #[must_use]
     pub fn list_len(&self, host: MockHandle) -> usize {
         let f = self
             .state
@@ -558,13 +566,13 @@ impl MockProbe {
             .list_sources
             .get(&host.0)
             .map(|s| s.len.clone());
-        f.map(|f| f()).unwrap_or(0)
+        f.map_or(0, |f| f())
     }
 
     /// Simulate the native list binding row `index` into a physical `cell`: Day builds the row
     /// the first time a cell is used and rebinds (slot-write) when it is recycled. Drives the real
     /// day-core driver, so tests exercise the whole recycling path. (The source Rc is cloned out
-    /// before the call so the re-entrant `with_tree`/toolkit work holds no MockState borrow.)
+    /// before the call so the re-entrant `with_tree`/toolkit work holds no `MockState` borrow.)
     pub fn list_bind(&self, host: MockHandle, index: usize, cell: MockHandle) {
         let f = self
             .state
@@ -635,6 +643,7 @@ impl MockProbe {
     /// Consult the list's reorder guard the way a native validate hook would: the accepted
     /// target index, or -1 when the guard denies. `i64::MIN` when the list is not reorderable
     /// (no `.reorderable()`).
+    #[must_use]
     pub fn list_can_move(&self, host: MockHandle, from: usize, to: usize) -> i64 {
         let f = self
             .state
@@ -642,12 +651,13 @@ impl MockProbe {
             .list_sources
             .get(&host.0)
             .and_then(|s| s.reorder.as_ref().map(|r| r.can_move.clone()));
-        f.map(|f| f(from, to)).unwrap_or(i64::MIN)
+        f.map_or(i64::MIN, |f| f(from, to))
     }
 
     /// Consult the list's delete guard the way a native swipe would before offering its action:
     /// `Some(true)` to offer, `Some(false)` when the guard protects the row, `None` when the
     /// list is not deletable (no `.deletable()`).
+    #[must_use]
     pub fn list_can_delete(&self, host: MockHandle, index: usize) -> Option<bool> {
         let f = self
             .state
@@ -661,6 +671,7 @@ impl MockProbe {
     /// Simulate a native swipe-to-delete: consult the guard, commit on accept (shortening Day's
     /// snapshot and deferring the app's `on_delete`, exactly as a native backend would). Returns
     /// whether the delete committed.
+    #[must_use]
     pub fn list_delete(&self, host: MockHandle, index: usize) -> bool {
         let d = self
             .state
@@ -687,6 +698,7 @@ impl MockProbe {
     /// Pull a row's swipe-action offer the way a native gesture would as the row starts to
     /// slide (docs/list.md): `Some(actions)`, possibly empty, when the list is swipeable,
     /// `None` when it is not (no `.swipe_leading()`/`.swipe_trailing()`).
+    #[must_use]
     pub fn list_swipe_actions(
         &self,
         host: MockHandle,
@@ -706,6 +718,7 @@ impl MockProbe {
     /// into it), committing through the source's `perform`, which defers the app's handler to
     /// the event drain, exactly as a native backend would. Returns whether an action was
     /// activated.
+    #[must_use]
     pub fn list_swipe(
         &self,
         host: MockHandle,
@@ -738,6 +751,7 @@ impl MockProbe {
     /// Simulate a native drop: consult the guard, commit on accept (rotating Day's snapshot and
     /// deferring the app's `on_reorder`, exactly as a native backend would). Returns whether the
     /// move committed. (Reorder Rcs are cloned out before the call, like [`Self::list_bind`].)
+    #[must_use]
     pub fn list_move(&self, host: MockHandle, from: usize, to: usize) -> bool {
         let r = self
             .state
@@ -767,6 +781,7 @@ impl MockProbe {
 
     /// The tree's direct children of `parent` (`None` = the root level), as tokens, read
     /// straight from the injected `TreeSource` (docs/tree.md).
+    #[must_use]
     pub fn tree_children(&self, host: MockHandle, parent: Option<u64>) -> Vec<u64> {
         let fns = self
             .state
@@ -781,6 +796,7 @@ impl MockProbe {
     }
 
     /// Whether this token can hold children (draws a disclosure), per the injected source.
+    #[must_use]
     pub fn tree_expandable(&self, host: MockHandle, token: u64) -> bool {
         let f = self
             .state
@@ -788,10 +804,11 @@ impl MockProbe {
             .tree_sources
             .get(&host.0)
             .map(|s| s.expandable.clone());
-        f.map(|f| f(token)).unwrap_or(false)
+        f.is_some_and(|f| f(token))
     }
 
     /// The row's type-ahead string, per the injected source.
+    #[must_use]
     pub fn tree_type_text(&self, host: MockHandle, token: u64) -> String {
         let f = self
             .state
@@ -804,7 +821,7 @@ impl MockProbe {
 
     /// Simulate the native tree binding `token`'s row into a physical `cell`: build on first
     /// use, rebind (slot-write) on recycle, exactly like [`Self::list_bind`]. (The source Rc
-    /// is cloned out before the call so the re-entrant work holds no MockState borrow.)
+    /// is cloned out before the call so the re-entrant work holds no `MockState` borrow.)
     pub fn tree_bind(&self, host: MockHandle, token: u64, cell: MockHandle) {
         let f = self
             .state
@@ -819,6 +836,7 @@ impl MockProbe {
 
     /// Consult the tree's move guard the way a native drag-validate hook would. `None` when
     /// the tree is not movable (no `.movable()`).
+    #[must_use]
     pub fn tree_can_move(
         &self,
         host: MockHandle,
@@ -837,6 +855,7 @@ impl MockProbe {
 
     /// Simulate a native tree drop: consult the guard, commit on accept (deferring the app's
     /// `on_move`, exactly as a native backend would). Returns whether the move committed.
+    #[must_use]
     pub fn tree_move(
         &self,
         host: MockHandle,
@@ -870,6 +889,10 @@ impl MockProbe {
     }
 
     /// Inject a native event through the real sink (as the toolkit trampoline would).
+    ///
+    /// # Panics
+    ///
+    /// Panics when no event sink is installed, which means no tree was mounted on this mock.
     pub fn emit(&self, node: NodeId, event: Event) {
         let sink = self.state.borrow().sink.clone();
         match sink {
@@ -882,6 +905,7 @@ impl MockProbe {
     /// buttons"): ask its provider, then answer the items the toolkit would show, or `None`
     /// when the menu is empty or the provider removed the button
     /// ([`day_spec::resolve_button_menu`]). The state borrow is released while app code runs.
+    #[must_use]
     pub fn press_menu_button(&self, button: u64) -> Option<Vec<day_spec::MenuItem>> {
         let provider = self.state.borrow().button_menus.get(&button).cloned()?;
         day_spec::resolve_button_menu(&provider, || {
@@ -890,18 +914,21 @@ impl MockProbe {
     }
 
     /// The share choosers presented so far, oldest first, with the anchor's handle.
+    #[must_use]
     pub fn shares(&self) -> Vec<(day_spec::share::ShareSpec, Option<u64>)> {
         self.state.borrow().shares.clone()
     }
 
     /// Whether day-core has the system back armed for the app's handlers (docs/navigation.md
     /// "Handling the system Back").
+    #[must_use]
     pub fn system_back_armed(&self) -> bool {
         self.state.borrow().system_back
     }
 
     /// Choose app action `index` in the last share chooser, as a person tapping it would: the
     /// choice arrives as the action's `Event::MenuAction`. False if there is no such action.
+    #[must_use]
     pub fn choose_share_action(&self, index: usize) -> bool {
         let id = self
             .state
@@ -937,46 +964,55 @@ impl MockProbe {
     }
 
     /// Every window-toolbar edit applied so far, oldest first.
+    #[must_use]
     pub fn toolbar_edits(&self) -> Vec<Vec<day_spec::ToolbarOp>> {
         self.state.borrow().toolbar_edits.clone()
     }
 
     /// The window toolbar as the backend holds it now: every edit and patch applied.
+    #[must_use]
     pub fn toolbar_items(&self) -> Vec<day_spec::ToolbarItem> {
         self.state.borrow().toolbar.items().to_vec()
     }
 
     /// Every targeted toolbar patch applied so far, oldest first.
+    #[must_use]
     pub fn toolbar_patches(&self) -> Vec<day_spec::ToolbarPatch> {
         self.state.borrow().toolbar_patches.clone()
     }
 
     /// The secondary windows opened so far (closed ones stay listed with `open: false`).
+    #[must_use]
     pub fn windows(&self) -> Vec<MockWindow> {
         self.state.borrow().windows.clone()
     }
 
     /// The Dock menu's item titles as last installed (docs/menus.md "Dock menu").
+    #[must_use]
     pub fn dock_menu(&self) -> Vec<String> {
         self.state.borrow().dock_menu.clone()
     }
 
     /// Every `apply_window` change so far, oldest first, keyed by content-container handle.
+    #[must_use]
     pub fn window_changes(&self) -> Vec<(u64, day_spec::WindowChange)> {
         self.state.borrow().window_changes.clone()
     }
 
     /// The status items as last applied.
+    #[must_use]
     pub fn status_items(&self) -> Vec<day_spec::StatusItemSpec> {
         self.state.borrow().status_items.clone()
     }
 
     /// Whether day-core last asked the platform to keep running with no window.
+    #[must_use]
     pub fn keep_running(&self) -> bool {
         self.state.borrow().keep_running
     }
 
     /// Whether the widget at `handle` is a window drag region.
+    #[must_use]
     pub fn is_drag_region(&self, handle: u64) -> bool {
         self.state.borrow().drag_regions.contains(&handle)
     }
@@ -1050,6 +1086,7 @@ impl MockProbe {
     /// widget + window record (as the native side finishing creation would) and returns
     /// the raw handle to pass to `day_core::finish_window_open`. `None` = no such pending
     /// open.
+    #[must_use]
     pub fn complete_window(&self, node: NodeId, size: Size) -> Option<day_spec::RawHandle> {
         let mut s = self.state.borrow_mut();
         let i = s.pending_opens.iter().position(|(n, _, _)| *n == node)?;
@@ -1111,11 +1148,13 @@ impl MockProbe {
     }
 
     /// The current op-log length; pair with [`Self::log_since`] to scope assertions.
+    #[must_use]
     pub fn log_len(&self) -> usize {
         self.state.borrow().log.len()
     }
 
     /// The op-log entries recorded after `mark` (from [`Self::log_len`]).
+    #[must_use]
     pub fn log_since(&self, mark: usize) -> Vec<String> {
         self.state.borrow().log[mark..].to_vec()
     }
@@ -1170,6 +1209,7 @@ pub fn text_size(text: &str, proposal: Proposal, wraps: bool, scale: f64) -> Siz
 /// A semantic style's size against `Body`, the mock's 8 × 16 cell: Apple's default point sizes
 /// (Body 17), so a large-title row measures taller than a caption row the way it does natively.
 /// `Body` and `Headline` stay exactly 1.0, the size every older mock expectation assumes.
+#[must_use]
 pub fn font_scale(style: Font) -> f64 {
     let points = match style {
         Font::LargeTitle => 34.0,
@@ -1209,13 +1249,18 @@ impl MockToolkit {
 impl Toolkit for MockToolkit {
     fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
         let colors = self.state.borrow().system_colors;
-        colors
-            .map(|colors| colors[role as usize])
-            .unwrap_or_else(|| role.fallback(self.dark_mode()))
+        colors.map_or_else(
+            || role.fallback(self.dark_mode()),
+            |colors| colors[role as usize],
+        )
     }
 
     type Handle = MockHandle;
 
+    #[expect(
+        clippy::match_same_arms,
+        reason = "each capability keeps its own arm, with a comment saying why the mock answers it"
+    )]
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
@@ -1223,9 +1268,11 @@ impl Toolkit for MockToolkit {
             // toolkit with a toolbar and dialogs: it records the toolbar edits and the
             // presentations, and answers `dismiss`. Off, unit tests keep the toolbar-less
             // placement they assert (an `Automatic` search stays inline).
-            Cap::Toolbar | Cap::Dialogs if VIEWPORT_ROWS.with(|r| r.get()) > 0 => Support::Native,
+            Cap::Toolbar | Cap::Dialogs if VIEWPORT_ROWS.with(std::cell::Cell::get) > 0 => {
+                Support::Native
+            }
             // Native-behavior mode binds its bounded viewport pool to new rows on scroll.
-            Cap::ListRecycling if VIEWPORT_ROWS.with(|r| r.get()) > 0 => Support::Native,
+            Cap::ListRecycling if VIEWPORT_ROWS.with(std::cell::Cell::get) > 0 => Support::Native,
             // Records every toolbar edit and patch, search item included (probe-visible). The
             // mock still has no `Cap::Toolbar`, so an `Automatic` search stays inline.
             Cap::ToolbarSearch => {
@@ -1378,20 +1425,20 @@ impl Toolkit for MockToolkit {
             w.half = p.half;
             detail = format!(" sheet={} half={}", p.sheet, p.half);
         } else if let Some(p) = props.downcast_ref::<ListItemProps>() {
-            w.text = p.title.clone();
+            w.text.clone_from(&p.title);
             w.flag = p.checked;
             detail = format!(
                 " title={:?} subtitle={:?} detail={:?} icon={:?} checked={}",
                 p.title, p.subtitle, p.detail, p.icon, p.checked
             );
         } else if let Some(p) = props.downcast_ref::<LabelProps>() {
-            w.text = p.text.clone();
+            w.text.clone_from(&p.text);
             w.flag = p.wraps;
             w.font = Some(p.font);
-            w.runs = p.runs.clone();
+            w.runs.clone_from(&p.runs);
             detail = format!(" text={:?}", p.text);
         } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
-            w.text = p.title.clone();
+            w.text.clone_from(&p.title);
             w.enabled = p.enabled;
             w.selected = p.selected;
             detail = format!(" title={:?}", p.title);
@@ -1402,11 +1449,11 @@ impl Toolkit for MockToolkit {
             w.value = p.value;
             w.enabled = p.enabled;
         } else if let Some(p) = props.downcast_ref::<TextFieldProps>() {
-            w.text = p.text.clone();
-            w.placeholder = p.placeholder.clone();
+            w.text.clone_from(&p.text);
+            w.placeholder.clone_from(&p.placeholder);
             w.enabled = p.enabled;
         } else if let Some(p) = props.downcast_ref::<CanvasProps>() {
-            w.ops = p.ops.clone();
+            w.ops.clone_from(&p.ops);
         } else if let Some(p) = props.downcast_ref::<ContainerProps>() {
             w.background = p.background;
             w.corner_radius = p.corner_radius;
@@ -1431,7 +1478,7 @@ impl Toolkit for MockToolkit {
             w.value = p.value.unwrap_or(0.0);
             detail = format!(" value={:?}", p.value);
         } else if let Some(p) = props.downcast_ref::<NavProps>() {
-            w.text = p.title.clone();
+            w.text.clone_from(&p.title);
             w.flag = p.presentation.is_split();
             w.presentation = Some(p.presentation);
             // The content-list pane's realize-time state, so a test can see the shape the host
@@ -1444,21 +1491,21 @@ impl Toolkit for MockToolkit {
                 None => format!(" title={:?} presentation={:?}", p.title, p.presentation),
             };
         } else if let Some(p) = props.downcast_ref::<NavPageProps>() {
-            w.text = p.title.clone();
+            w.text.clone_from(&p.title);
             // The page's pane, not the presentation drawing it: a nav host's list page reads
             // `sidebar` whether the host is split or stacked (docs/size-classes.md).
             w.flag = p.pane == day_spec::props::Pane::Sidebar;
             detail = format!(" title={:?} pane={:?}", p.title, p.pane);
         } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
             w.text = p.items.join("|");
-            w.value = p.selected.map(|i| i as f64).unwrap_or(-1.0);
+            w.value = p.selected.map_or(-1.0, |i| i as f64);
             detail = format!(
                 " items={:?} selected={:?} movable={:?}",
                 p.items, p.selected, p.movable
             );
             // Only a regrouping sidebar carries these, so other logs read as they always have.
             if p.regroup {
-                detail.push_str(&format!(" regroup sorted={:?}", p.sorted));
+                let _ = write!(detail, " regroup sorted={:?}", p.sorted);
             }
         } else if let Some(p) = props.downcast_ref::<PickerProps>() {
             w.text = p.options.join("|");
@@ -1466,8 +1513,8 @@ impl Toolkit for MockToolkit {
             w.enabled = p.enabled;
             detail = format!(" options={:?} selected={}", p.options, p.selected);
         } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
-            w.text = p.text.clone();
-            w.placeholder = p.placeholder.clone();
+            w.text.clone_from(&p.text);
+            w.placeholder.clone_from(&p.placeholder);
             w.editable = p.editable;
             w.selectable = p.selectable;
             w.spellcheck = p.spellcheck;
@@ -1514,7 +1561,7 @@ impl Toolkit for MockToolkit {
             } else if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                 match p {
                     LabelPatch::Text(t) => {
-                        w.text = t.clone();
+                        w.text.clone_from(t);
                         format!("text={t:?}")
                     }
                     LabelPatch::Color(_) => "color".into(),
@@ -1523,19 +1570,19 @@ impl Toolkit for MockToolkit {
                         "font".into()
                     }
                     LabelPatch::Runs(text, runs) => {
-                        w.text = text.clone();
-                        w.runs = runs.clone();
+                        w.text.clone_from(text);
+                        w.runs.clone_from(runs);
                         format!("runs={}", runs.len())
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                 match p {
                     ButtonPatch::Content(c) => {
-                        w.text = c.title.clone();
+                        w.text.clone_from(&c.title);
                         format!("content={c:?}")
                     }
                     ButtonPatch::Title(t) => {
-                        w.text = t.clone();
+                        w.text.clone_from(t);
                         format!("title={t:?}")
                     }
                     ButtonPatch::Enabled(e) => {
@@ -1576,12 +1623,12 @@ impl Toolkit for MockToolkit {
                 match p {
                     TextFieldPatch::Text { text, from_native } => {
                         if !*from_native {
-                            w.text = text.clone();
+                            w.text.clone_from(text);
                         }
                         format!("text={text:?} from_native={from_native}")
                     }
                     TextFieldPatch::Placeholder(t) => {
-                        w.placeholder = t.clone();
+                        w.placeholder.clone_from(t);
                         format!("placeholder={t:?}")
                     }
                     TextFieldPatch::Enabled(e) => {
@@ -1595,7 +1642,7 @@ impl Toolkit for MockToolkit {
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<CanvasProps>() {
-                w.ops = p.ops.clone();
+                w.ops.clone_from(&p.ops);
                 format!("canvas ops={}", w.ops.len())
             } else if let Some(ProgressPatch::Value(v)) = patch.downcast_ref::<ProgressPatch>() {
                 w.flag = v.is_none();
@@ -1622,7 +1669,7 @@ impl Toolkit for MockToolkit {
             } else if let Some(tp) = patch.downcast_ref::<TextAreaPatch>() {
                 if let Some(w) = s.widgets.get_mut(&h.0) {
                     match tp {
-                        TextAreaPatch::SetText(t) => w.text = t.clone(),
+                        TextAreaPatch::SetText(t) => w.text.clone_from(t),
                         TextAreaPatch::SetEditable(v) => w.editable = *v,
                         TextAreaPatch::SetSelectable(v) => w.selectable = *v,
                         TextAreaPatch::SetSpellCheck(v) => w.spellcheck = *v,
@@ -1631,7 +1678,7 @@ impl Toolkit for MockToolkit {
                 format!("textarea.patch {tp:?}")
             } else if let Some(p) = patch.downcast_ref::<ListItemPatch>() {
                 match p {
-                    ListItemPatch::Title(t) => w.text = t.clone(),
+                    ListItemPatch::Title(t) => w.text.clone_from(t),
                     ListItemPatch::Checked(on) => w.flag = *on,
                     _ => {}
                 }
@@ -1640,7 +1687,7 @@ impl Toolkit for MockToolkit {
                 match p {
                     NavMenuPatch::IconProgress(values) => format!("menu icon_progress={values:?}"),
                     NavMenuPatch::Selected(sel) => {
-                        w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
+                        w.value = sel.map_or(-1.0, |i| i as f64);
                         format!("menu selected={sel:?}")
                     }
                     // Data-driven rows: `text` mirrors the joined labels for tests to assert.
@@ -1654,13 +1701,13 @@ impl Toolkit for MockToolkit {
                         ..
                     } => {
                         w.text = items.join("|");
-                        w.value = selected.map(|i| i as f64).unwrap_or(-1.0);
+                        w.value = selected.map_or(-1.0, |i| i as f64);
                         let mut line = format!(
                             "menu items={items:?} selected={selected:?} badges={badges:?} \
                              rows_changed={rows_changed:?} movable={movable:?}"
                         );
                         if !sorted.is_empty() {
-                            line.push_str(&format!(" sorted={sorted:?}"));
+                            let _ = write!(line, " sorted={sorted:?}");
                         }
                         line
                     }
@@ -1668,7 +1715,7 @@ impl Toolkit for MockToolkit {
             } else if let Some(p) = patch.downcast_ref::<NavPatch>() {
                 match p {
                     NavPatch::Pushed { title, .. } => {
-                        w.text = title.clone();
+                        w.text.clone_from(title);
                         w.nav_depth += 1;
                         format!("nav pushed title={title:?}")
                     }
@@ -1677,7 +1724,7 @@ impl Toolkit for MockToolkit {
                         "nav popped".into()
                     }
                     NavPatch::Title(t) => {
-                        w.text = t.clone();
+                        w.text.clone_from(t);
                         format!("nav title={t:?}")
                     }
                     // Probe-visible: tests assert the armed flag round-trips.
@@ -1758,7 +1805,7 @@ impl Toolkit for MockToolkit {
                         "list scroll-to-end".into()
                     }
                     ListPatch::ScrollToRow(row) => {
-                        let rows = VIEWPORT_ROWS.with(|r| r.get());
+                        let rows = VIEWPORT_ROWS.with(std::cell::Cell::get);
                         viewport_touch(h.0, |p| p.start = row.saturating_sub(rows / 2));
                         format!("list scroll-to-row {row}")
                     }
@@ -1793,11 +1840,11 @@ impl Toolkit for MockToolkit {
         // What a native cover reports by itself: the size it gave the content, and that the
         // hide transition finished.
         if let (Some((node, shown, half)), Some(sink)) = (cover_shown, s.sink.clone())
-            && VIEWPORT_ROWS.with(|r| r.get()) > 0
+            && VIEWPORT_ROWS.with(std::cell::Cell::get) > 0
         {
             let event = if shown {
                 // A half sheet is the bottom half of the window (docs/cover.md).
-                let mut size = MOCK_WINDOW.with(|w| w.get());
+                let mut size = MOCK_WINDOW.with(std::cell::Cell::get);
                 if half {
                     size.height = (size.height * 0.5).floor();
                 }
@@ -1875,11 +1922,11 @@ impl Toolkit for MockToolkit {
                 Size::new(t.width + 16.0, 24.0)
             }
             kinds::TOGGLE => Size::new(51.0, 31.0),
-            kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 24.0),
-            kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 24.0),
+            kinds::SLIDER | kinds::TEXT_FIELD | kinds::LIST_ITEM => {
+                Size::new(p.width.unwrap_or(200.0), 24.0)
+            }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
             kinds::IMAGE => Size::new(32.0, 32.0),
-            kinds::LIST_ITEM => Size::new(p.width.unwrap_or(200.0), 24.0),
             // Indeterminate spinner is a fixed square; determinate bar fills width.
             kinds::PROGRESS if w.flag => Size::new(20.0, 20.0),
             kinds::PROGRESS => Size::new(p.width.unwrap_or(200.0), 4.0),
@@ -2070,8 +2117,7 @@ impl Toolkit for MockToolkit {
             .borrow()
             .widgets
             .get(&h.0)
-            .map(|w| w.scroll_offset)
-            .unwrap_or(Point::ZERO)
+            .map_or(Point::ZERO, |w| w.scroll_offset)
     }
 
     fn enable_gesture(&mut self, h: &MockHandle, _node: NodeId, kind: GestureKind) {
@@ -2101,12 +2147,11 @@ impl Toolkit for MockToolkit {
     }
 
     fn attach_tree(&mut self, host: &MockHandle, source: day_spec::TreeSource) {
-        if VIEWPORT_ROWS.with(|r| r.get()) > 0 {
+        if VIEWPORT_ROWS.with(std::cell::Cell::get) > 0 {
             let (children_len, child_token) =
                 (source.children_len.clone(), source.child_token.clone());
             // Depth first, into the disclosed rows only: the order a native tree shows.
             let visible = move |open: &std::collections::HashSet<u64>| {
-                let mut out = Vec::new();
                 fn walk(
                     parent: Option<u64>,
                     open: &std::collections::HashSet<u64>,
@@ -2122,6 +2167,7 @@ impl Toolkit for MockToolkit {
                         }
                     }
                 }
+                let mut out = Vec::new();
                 walk(None, open, &*children_len, &*child_token, &mut out);
                 out
             };
@@ -2133,7 +2179,7 @@ impl Toolkit for MockToolkit {
                         bind_row: source.bind_row.clone(),
                         recycle: source.recycle.clone(),
                         cell_height: None,
-                        expanded: Default::default(),
+                        expanded: std::collections::HashSet::default(),
                         start: 0,
                         to_end: false,
                         bound: 0,
@@ -2148,7 +2194,7 @@ impl Toolkit for MockToolkit {
     }
 
     fn attach_list(&mut self, host: &MockHandle, source: ListSource) {
-        if VIEWPORT_ROWS.with(|r| r.get()) > 0 {
+        if VIEWPORT_ROWS.with(std::cell::Cell::get) > 0 {
             VIEWPORTS.with(|v| {
                 v.borrow_mut().insert(
                     host.0,
@@ -2163,7 +2209,7 @@ impl Toolkit for MockToolkit {
                         },
                         recycle: source.recycle.clone(),
                         cell_height: Some(source.cell_height.clone()),
-                        expanded: Default::default(),
+                        expanded: std::collections::HashSet::default(),
                         start: 0,
                         to_end: false,
                         bound: 0,
@@ -2329,13 +2375,13 @@ impl Toolkit for MockToolkit {
 
     /// A deterministic list a test can assert on: "Day Sans" in four faces and "Day Mono" in one.
     fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        use day_spec::FontWeight::{Bold, Regular};
         self.state.borrow_mut().log("font_families".to_string());
         let face = |name: &str, weight: day_spec::FontWeight, italic: bool| day_spec::FontFace {
             name: name.to_string(),
             weight,
             italic,
         };
-        use day_spec::FontWeight::{Bold, Regular};
         vec![
             day_spec::FontFamilyInfo {
                 family: "Day Sans".to_string(),
@@ -2513,7 +2559,7 @@ impl Toolkit for MockToolkit {
             return;
         };
         let prev = s.windows.iter().find(|w| w.focused).map(|w| w.node);
-        for w in s.windows.iter_mut() {
+        for w in &mut s.windows {
             w.focused = w.handle == host.0;
         }
         s.log(format!("focus_window #{}", host.0));
@@ -2706,8 +2752,7 @@ impl Toolkit for MockToolkit {
             .windows
             .iter()
             .find(|w| w.handle == host.0)
-            .map(|w| w.node)
-            .unwrap_or(day_spec::WINDOW_NODE);
+            .map_or(day_spec::WINDOW_NODE, |w| w.node);
         let sink = s.sink.clone();
         drop(s);
         if let Some(sink) = sink {
@@ -2875,8 +2920,9 @@ impl Toolkit for MockToolkit {
 /// A menu item's display title (submenus render as their title; separators as "—").
 fn menu_title(item: &day_spec::MenuItem) -> String {
     match item {
-        day_spec::MenuItem::Action { label, .. } => label.clone(),
-        day_spec::MenuItem::Submenu { label, .. } => label.clone(),
+        day_spec::MenuItem::Action { label, .. } | day_spec::MenuItem::Submenu { label, .. } => {
+            label.clone()
+        }
         day_spec::MenuItem::Separator => "—".into(),
     }
 }

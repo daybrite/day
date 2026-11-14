@@ -43,6 +43,7 @@ pub use day_spec::present::app_temp_dir;
 /// Resolve after (at least) `ms` milliseconds, on the UI thread: the portable delay for
 /// `day::task` flows (docs/async.md). Rides `Platform::post_delayed`, so it works on
 /// single-threaded hosts (web) where `std::thread::sleep` + `Setter` cannot.
+#[must_use]
 pub fn sleep(ms: u32) -> Sleep {
     Sleep {
         ms,
@@ -132,6 +133,7 @@ impl TaskHandle {
     }
 
     /// Whether the task no longer runs (completed or aborted).
+    #[must_use]
     pub fn is_finished(self) -> bool {
         !TASKS
             .try_with(|t| t.borrow().contains_key(&self.id))
@@ -189,7 +191,11 @@ fn poll_task(id: u64) {
     if SHUTTING_DOWN.try_with(Cell::get).unwrap_or(true) {
         return;
     }
-    let fut = TASKS.with(|t| t.borrow_mut().get_mut(&id).and_then(|s| s.take()));
+    let fut = TASKS.with(|t| {
+        t.borrow_mut()
+            .get_mut(&id)
+            .and_then(std::option::Option::take)
+    });
     let Some(mut fut) = fut else {
         // Finished, or woken while its own poll runs: a synchronous poster (the mock) runs a
         // timer's wake inside the sleep's poll. Remember it, and the poll in progress goes
@@ -266,6 +272,7 @@ pub enum PresentationMode {
 }
 
 /// The current UI-thread presentation policy. Ordinary app launches default to native.
+#[must_use]
 pub fn presentation_mode() -> PresentationMode {
     PRESENTATION_MODE.with(|slot| {
         if let Some(mode) = slot.get() {
@@ -293,6 +300,10 @@ pub fn init_presentation_mode(mode: PresentationMode) {
 
 /// Change policy for subsequent presentations. Answer existing requests first: switching
 /// cannot make an already-open system picker disappear.
+///
+/// # Errors
+///
+/// Returns a message when the mode would change while a dialog is still waiting for an answer.
 pub fn set_presentation_mode(mode: PresentationMode) -> Result<(), &'static str> {
     if mode != presentation_mode() && PENDING.with(|p| !p.borrow().is_empty()) {
         return Err("answer pending dialogs with respond before changing dialog_mode");
@@ -304,6 +315,7 @@ pub fn set_presentation_mode(mode: PresentationMode) -> Result<(), &'static str>
 /// Present a modal request under the current policy and await its answer (docs/dialogs.md).
 /// The pieces layer wraps
 /// this in `Alert`/`confirm`/`prompt`; call it directly for a custom `PresentSpec`.
+#[must_use]
 pub fn present(spec: PresentSpec) -> PresentFuture {
     let req = NEXT_REQ.with(|c| {
         let v = c.get();
@@ -376,6 +388,7 @@ pub fn resolve_presentation(req: u64, result: PresentResult) {
 /// natively. Scripted requests never enter the toolkit. The native
 /// dismissal's own completion event finds nothing pending and is a no-op. False = no such
 /// pending request.
+#[must_use]
 pub fn respond_presentation(req: u64, result: PresentResult) -> bool {
     let native = PENDING.with(|p| p.borrow().get(&req).map(|entry| entry.native));
     let Some(native) = native else {
@@ -389,6 +402,7 @@ pub fn respond_presentation(req: u64, result: PresentResult) -> bool {
 }
 
 /// The most recently opened still-pending presentation, for dayscript inspection/response.
+#[must_use]
 pub fn pending_presentation() -> Option<(u64, PresentSpec)> {
     PENDING.with(|p| {
         p.borrow()
@@ -612,13 +626,13 @@ mod task_tests {
     /// `abort` releases the `TASKS` borrow before the future is destroyed.
     #[test]
     fn abort_reentrancy_from_drop() {
-        init();
         struct SpawnOnDrop;
         impl Drop for SpawnOnDrop {
             fn drop(&mut self) {
                 task(async {});
             }
         }
+        init();
         let guard = SpawnOnDrop;
         let h = task(std::future::poll_fn(move |_| {
             let _ = &guard;
@@ -634,14 +648,14 @@ mod task_tests {
         const CHILD: &str = "DAY_TASK_SHUTDOWN_CHILD";
         if std::env::var_os(CHILD).is_some() {
             std::thread::spawn(|| {
-                init();
-                assert!(!crate::has_tree()); // Core TLS initializes before reactive TLS.
                 struct Updating(day_reactive::Signal<bool>);
                 impl Drop for Updating {
                     fn drop(&mut self) {
                         self.0.set(false);
                     }
                 }
+                init();
+                assert!(!crate::has_tree()); // Core TLS initializes before reactive TLS.
                 let active = day_reactive::Signal::new(true);
                 let guard = Updating(active);
                 let handle = task(std::future::poll_fn(move |_| {
@@ -679,7 +693,6 @@ mod task_tests {
 
     #[test]
     fn shutdown_rejects_reentrant_tasks_and_late_wakes() {
-        init();
         struct SpawnOnDrop(Rc<Cell<bool>>);
         impl Drop for SpawnOnDrop {
             fn drop(&mut self) {
@@ -689,6 +702,7 @@ mod task_tests {
                 h.abort();
             }
         }
+        init();
         let polled = Rc::new(Cell::new(false));
         let guard = SpawnOnDrop(polled.clone());
         let wake = Rc::new(RefCell::new(None));
@@ -712,13 +726,13 @@ mod task_tests {
 
     #[test]
     fn shutdown_continues_after_a_task_destructor_panics() {
-        init();
         struct Panics;
         impl Drop for Panics {
             fn drop(&mut self) {
                 panic!("synthetic task destructor failure");
             }
         }
+        init();
         let guard = Panics;
         task(std::future::poll_fn(move |_| {
             let _ = &guard;

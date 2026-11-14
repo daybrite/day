@@ -4,7 +4,7 @@
 //! The toolkit duties HarmonyOS exposes only in ArkTS, reached through daybridge arms
 //! (docs/bridge.md) rather than the C node shim: the app's color mode (docs/settings.md), the
 //! app-icon badge (docs/badge.md), screen-reader announcements (docs/accessibility.md; the C
-//! API's announce event needs an XComponent's accessibility provider, which a node tree has
+//! API's announce event needs an `XComponent`'s accessibility provider, which a node tree has
 //! none of) and the user's animation scale, which is the reduce-motion setting here. `day build`
 //! stages the ArkTS half beside every other bridged crate's, so a duty added here needs no shim
 //! or host-page change.
@@ -73,7 +73,7 @@ pub(crate) fn reduce_motion_support() -> Support {
 /// Same threading as [`watch_appearance`]: the settings observer fires on the JS thread.
 pub(crate) fn watch_reduce_motion(on_change: fn()) {
     let _ = watch_reduce_motion_native_stream(move |item| {
-        if let day_bridge::Item::Value(_) = item {
+        if let day_bridge::Item::Value(()) = item {
             day_reactive::on_main(on_change);
         }
     });

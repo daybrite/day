@@ -108,6 +108,7 @@ pub enum Accuracy {
 
 /// Whether this target has a location API Day can reach at all. `false` is a platform statement,
 /// not a permission one; a denied permission still answers `true` here.
+#[must_use]
 pub fn is_available() -> bool {
     imp::is_available()
 }
@@ -147,6 +148,7 @@ pub fn current(acc: Accuracy, on_done: impl FnOnce(Result<Fix, LocationError>) +
 
 /// [`current`] as a `Future`. Plain oneshot plumbing over the same completion, so any executor can
 /// await it, including a test's `block_on`.
+#[must_use]
 pub fn current_future(acc: Accuracy) -> FixFuture {
     let shared = Arc::new(Mutex::new(FutureState::default()));
     let sink = shared.clone();
@@ -239,6 +241,10 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// `allow(dead_code)`: the targets with no location API compile the catch-all arm, which never
 /// delivers, so this looks unused there while being the whole delivery path everywhere else.
 #[allow(dead_code)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every per-OS arm passes an owned update, including arms not built on this host"
+)]
 pub(crate) fn deliver(update: Result<Fix, LocationError>) {
     let mut w = lock(watchers());
     for (_, cb) in w.iter_mut() {

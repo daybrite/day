@@ -9,7 +9,7 @@
 //! Re-entrancy (the crux): building a row uses `BuildCx`, and reactive bindings patch native
 //! widgets; both acquire `with_tree` per operation. So `bind_row` phases the tree borrow:
 //! `with_tree` (adopt cell) → build/rebind + `flush_sync` **outside** any borrow → `with_tree`
-//! (lay the row out in its cell). Holding the borrow across the build would deadlock the RefCell.
+//! (lay the row out in its cell). Holding the borrow across the build would deadlock the `RefCell`.
 
 use crate::tree::{RNode, try_with_tree, with_tree};
 use day_reactive::Scope;
@@ -425,6 +425,11 @@ pub fn list_set_editing(node: RNode, on: bool) {
 /// app's `on_reorder`, and tell the native host to re-query. This is how the dayscript `reorder`
 /// step and the mock probe drive reordering without a native gesture. Returns the index the row
 /// actually landed at. Call with no borrow held.
+///
+/// # Errors
+///
+/// Returns the reason when `node` has no list, the list is not reorderable, an index is out of
+/// bounds, the guard denies the move, or the move would leave the row's section.
 pub fn list_try_reorder(node: RNode, from: usize, to: usize) -> Result<usize, &'static str> {
     let hook = SCRIPTED_REORDERS.with(|m| m.borrow().get(&crate::tree::rnode_to_id(node)).cloned());
     if let Some(hook) = hook {
@@ -487,6 +492,11 @@ pub fn set_scripted_reorder(
 /// (docs/list.md): consult the piece's guard, drop the row from the snapshot, defer the app's
 /// `on_delete`, and tell the native host to re-query. This is how the dayscript `delete_row` step
 /// and the mock probe drive deletion without a native gesture. Call with no borrow held.
+///
+/// # Errors
+///
+/// Returns the reason when `node` has no list, the list is not deletable, `index` is out of
+/// bounds, or the guard denies the delete.
 pub fn list_try_delete(node: RNode, index: usize) -> Result<(), &'static str> {
     let driver = with_tree(|t| t.list_driver(node)).ok_or("no list at this node")?;
     let Some(del) = driver.delete.as_ref() else {
@@ -513,6 +523,11 @@ pub fn list_try_delete(node: RNode, index: usize) -> Result<(), &'static str> {
 /// than press it and complain (pressing anyway flips state the script did not mean to flip,
 /// which is how one aborted run poisons every later one). Answers the activated label.
 /// Call with no borrow held.
+///
+/// # Errors
+///
+/// Returns the reason when `node` has no list, the list has no swipe actions, `index` is out of
+/// bounds, the row's offer has no such action, or the action's label differs from `expect`.
 pub fn list_try_swipe(
     node: RNode,
     index: usize,
@@ -581,12 +596,12 @@ fn driver_viewport(
 /// With `sections`, every closure speaks display rows and translates to the driver's items.
 pub(crate) fn make_source(
     node: RNode,
-    driver: Rc<ListDriver>,
-    sections: Option<Rc<SectionMap>>,
+    driver: &Rc<ListDriver>,
+    sections: Option<&Rc<SectionMap>>,
 ) -> ListSource {
     // The row the host means, in the driver's terms: a plain list's rows are its items.
     let row_of = {
-        let sections = sections.clone();
+        let sections = sections.cloned();
         move |display: usize| match &sections {
             Some(map) => map.row(display),
             None => Some(DisplayRow::Item(display)),
@@ -599,19 +614,19 @@ pub(crate) fn make_source(
             _ => None,
         }
     };
-    let first_visible = driver_viewport(node, &driver, sections.clone());
+    let first_visible = driver_viewport(node, driver, sections.cloned());
     let sectioned = sections.is_some();
     ListSource {
         first_visible,
         len: {
-            let (d, sections) = (driver.clone(), sections.clone());
+            let (d, sections) = (driver.clone(), sections.cloned());
             Rc::new(move || match &sections {
                 Some(map) => map.len(),
                 None => (d.len)(),
             })
         },
         token_at: {
-            let (d, row_of, sections) = (driver.clone(), row_of.clone(), sections.clone());
+            let (d, row_of, sections) = (driver.clone(), row_of.clone(), sections.cloned());
             Rc::new(move |i| match row_of(i) {
                 Some(DisplayRow::Item(i)) => (d.token_at)(i),
                 Some(DisplayRow::Header(first)) => sections
@@ -622,7 +637,7 @@ pub(crate) fn make_source(
                 None => (d.token_at)(i),
             })
         },
-        is_header: sections.as_ref().map(|map| {
+        is_header: sections.map(|map| {
             let map = map.clone();
             Rc::new(move |i| matches!(map.row(i), Some(DisplayRow::Header(_))))
                 as Rc<dyn Fn(usize) -> bool>
@@ -674,7 +689,7 @@ pub(crate) fn make_source(
         // that end, and the guard sees item indices (docs/list.md "Sections").
         reorder: driver.reorder.as_ref().map(|_| day_spec::ListReorder {
             can_move: {
-                let (d, sections) = (driver.clone(), sections.clone());
+                let (d, sections) = (driver.clone(), sections.cloned());
                 Rc::new(move |from, to| {
                     let re = d.reorder.as_ref().expect("mapped from Some");
                     let Some(map) = &sections else {
@@ -691,7 +706,7 @@ pub(crate) fn make_source(
                 })
             },
             move_row: {
-                let (d, sections) = (driver.clone(), sections.clone());
+                let (d, sections) = (driver.clone(), sections.cloned());
                 Rc::new(move |from, to| {
                     let re = d.reorder.as_ref().expect("mapped from Some");
                     let Some(map) = &sections else {
@@ -718,7 +733,7 @@ pub(crate) fn make_source(
                 let (d, item_of) = (driver.clone(), item_of.clone());
                 Rc::new(move |i, e, a| {
                     if let Some(i) = item_of(i) {
-                        (d.swipe.as_ref().expect("mapped from Some").performed)(i, e, a)
+                        (d.swipe.as_ref().expect("mapped from Some").performed)(i, e, a);
                     }
                 })
             },

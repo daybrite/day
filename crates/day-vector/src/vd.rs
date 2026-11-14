@@ -1,16 +1,16 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! SVG → Android VectorDrawable (docs/vectors.md §per-backend emission).
+//! SVG → Android `VectorDrawable` (docs/vectors.md §per-backend emission).
 //!
 //! The usvg tree after normalization (paths with absolute transforms, resolved paints) maps
-//! almost 1:1 onto VectorDrawable's model, which is why this is a small emitter and not a
+//! almost 1:1 onto `VectorDrawable`'s model, which is why this is a small emitter and not a
 //! project. The supported subset: solid fills and strokes, both fill rules, nested plain groups,
 //! and linear/radial gradients on fill and stroke. Anything VD cannot express faithfully (clips,
 //! masks, filters, embedded rasters, partial group opacity) returns [`Unsupported`] and the
 //! caller stages a rasterized PNG ladder instead: a loud fallback, never wrong art.
 //!
-//! Gradients ride `aapt:attr`, which VectorDrawable has understood since **API 24**, exactly the
+//! Gradients ride `aapt:attr`, which `VectorDrawable` has understood since **API 24**, exactly the
 //! `minSdk` the Android scaffold sets, so they cost no compatibility. usvg does the work that
 //! makes this tractable: by the time the tree exists, `gradientUnits` is resolved (coordinates are
 //! in user space) and `href` stop inheritance is flattened, which is the fiddly half of Android's
@@ -24,10 +24,12 @@
 //! scale, translation); skew and non-uniform scale fall back to the raster. Android Studio's own
 //! `SvgGradientNode` carries a standing TODO for the same case and emits wrong art instead.
 
+use std::fmt::Write as _;
+
 use resvg::tiny_skia;
 use resvg::usvg;
 
-/// Why an SVG cannot become a VectorDrawable (the caller's fallback reason, shown in `day
+/// Why an SVG cannot become a `VectorDrawable` (the caller's fallback reason, shown in `day
 /// build`'s status line).
 #[derive(Debug)]
 pub struct Unsupported(pub String);
@@ -71,7 +73,13 @@ struct VdGradient {
     stops: Vec<(f32, String)>,
 }
 
-/// Emit the tree as VectorDrawable XML, or say why it can't be one.
+/// Emit the tree as `VectorDrawable` XML, or say why it can't be one.
+///
+/// # Errors
+///
+/// Returns [`Unsupported`] naming the first feature a `VectorDrawable` cannot express (a clip
+/// path, mask, filter, group opacity, raster image, text, pattern, skewed transform, or an
+/// unsupported gradient), or saying that the tree has no drawable paths.
 pub fn to_vector_drawable(tree: &usvg::Tree) -> Result<String, Unsupported> {
     let mut paths = Vec::new();
     collect(tree.root(), &mut paths)?;
@@ -96,22 +104,24 @@ pub fn to_vector_drawable(tree: &usvg::Tree) -> Result<String, Unsupported> {
     // intrinsic dimensions for fit/crop, independently of the viewport. Normalizing
     // a wide glyph to 24x3 dp also loses its ratio when Android rounds the dimensions
     // to pixels (63x8 at 420 dpi), shifting fine detail even in a correctly sized view.
-    xml.push_str(&format!(
+    let _ = write!(
+        xml,
         "    android:width=\"{}dp\"\n    android:height=\"{}dp\"\n",
         fnum(vw),
         fnum(vh),
-    ));
-    xml.push_str(&format!(
+    );
+    let _ = write!(
+        xml,
         "    android:viewportWidth=\"{}\"\n    android:viewportHeight=\"{}\">\n",
         fnum(vw),
         fnum(vh)
-    ));
+    );
     for p in &paths {
         xml.push_str("  <path\n");
-        xml.push_str(&format!("      android:pathData=\"{}\"", p.data));
+        let _ = write!(xml, "      android:pathData=\"{}\"", p.data);
         if let Some((paint, even_odd)) = &p.fill {
             if let VdPaint::Solid(color) = paint {
-                xml.push_str(&format!("\n      android:fillColor=\"{color}\""));
+                let _ = write!(xml, "\n      android:fillColor=\"{color}\"");
             }
             if *even_odd {
                 xml.push_str("\n      android:fillType=\"evenOdd\"");
@@ -119,16 +129,17 @@ pub fn to_vector_drawable(tree: &usvg::Tree) -> Result<String, Unsupported> {
         }
         if let Some(s) = &p.stroke {
             if let VdPaint::Solid(color) = &s.paint {
-                xml.push_str(&format!("\n      android:strokeColor=\"{color}\""));
+                let _ = write!(xml, "\n      android:strokeColor=\"{color}\"");
             }
-            xml.push_str(&format!(
+            let _ = write!(
+                xml,
                 "\n      android:strokeWidth=\"{}\"\n      android:strokeLineCap=\"{}\"\n      android:strokeLineJoin=\"{}\"",
                 fnum(s.width),
                 s.cap,
                 s.join
-            ));
+            );
             if let Some(m) = s.miterlimit {
-                xml.push_str(&format!("\n      android:strokeMiterLimit=\"{}\"", fnum(m)));
+                let _ = write!(xml, "\n      android:strokeMiterLimit=\"{}\"", fnum(m));
             }
         }
         // Gradients are children, so a path carrying one cannot self-close.
@@ -162,20 +173,22 @@ pub fn to_vector_drawable(tree: &usvg::Tree) -> Result<String, Unsupported> {
 
 /// One `aapt:attr` gradient child, targeting `attr` (`android:fillColor` or `android:strokeColor`).
 fn write_gradient(xml: &mut String, attr: &str, g: &VdGradient) {
-    xml.push_str(&format!("    <aapt:attr name=\"{attr}\">\n"));
-    xml.push_str(&format!(
+    let _ = writeln!(xml, "    <aapt:attr name=\"{attr}\">");
+    let _ = write!(
+        xml,
         "      <gradient\n          android:type=\"{}\"",
         g.kind
-    ));
+    );
     for (name, v) in &g.coords {
-        xml.push_str(&format!("\n          android:{name}=\"{}\"", fnum(*v)));
+        let _ = write!(xml, "\n          android:{name}=\"{}\"", fnum(*v));
     }
-    xml.push_str(&format!("\n          android:tileMode=\"{}\">\n", g.tile));
+    let _ = write!(xml, "\n          android:tileMode=\"{}\">\n", g.tile);
     for (offset, color) in &g.stops {
-        xml.push_str(&format!(
-            "        <item android:offset=\"{}\" android:color=\"{color}\"/>\n",
+        let _ = writeln!(
+            xml,
+            "        <item android:offset=\"{}\" android:color=\"{color}\"/>",
             fnum(*offset)
-        ));
+        );
     }
     xml.push_str("      </gradient>\n");
     xml.push_str("    </aapt:attr>\n");
@@ -405,24 +418,34 @@ fn path_data(path: &tiny_skia::Path) -> String {
     let mut d = String::new();
     for seg in path.segments() {
         match seg {
-            PathSegment::MoveTo(p) => d.push_str(&format!("M{},{}", fnum(p.x), fnum(p.y))),
-            PathSegment::LineTo(p) => d.push_str(&format!("L{},{}", fnum(p.x), fnum(p.y))),
-            PathSegment::QuadTo(c, p) => d.push_str(&format!(
-                "Q{},{} {},{}",
-                fnum(c.x),
-                fnum(c.y),
-                fnum(p.x),
-                fnum(p.y)
-            )),
-            PathSegment::CubicTo(c1, c2, p) => d.push_str(&format!(
-                "C{},{} {},{} {},{}",
-                fnum(c1.x),
-                fnum(c1.y),
-                fnum(c2.x),
-                fnum(c2.y),
-                fnum(p.x),
-                fnum(p.y)
-            )),
+            PathSegment::MoveTo(p) => {
+                let _ = write!(d, "M{},{}", fnum(p.x), fnum(p.y));
+            }
+            PathSegment::LineTo(p) => {
+                let _ = write!(d, "L{},{}", fnum(p.x), fnum(p.y));
+            }
+            PathSegment::QuadTo(c, p) => {
+                let _ = write!(
+                    d,
+                    "Q{},{} {},{}",
+                    fnum(c.x),
+                    fnum(c.y),
+                    fnum(p.x),
+                    fnum(p.y)
+                );
+            }
+            PathSegment::CubicTo(c1, c2, p) => {
+                let _ = write!(
+                    d,
+                    "C{},{} {},{} {},{}",
+                    fnum(c1.x),
+                    fnum(c1.y),
+                    fnum(c2.x),
+                    fnum(c2.y),
+                    fnum(p.x),
+                    fnum(p.y)
+                );
+            }
             PathSegment::Close => d.push('Z'),
         }
     }

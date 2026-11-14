@@ -27,7 +27,7 @@ fn store() -> Store<Keyed<Item>> {
 #[test]
 fn a_write_records_prior_and_new_values_when_asked() {
     let store = store();
-    let (_, changes) = day_model::record_values(|| {
+    let ((), changes) = day_model::record_values(|| {
         store.elem(1).name().write("after".into());
         store.elem(1).count().update(|c| *c += 5);
     });
@@ -50,7 +50,7 @@ fn a_write_records_prior_and_new_values_when_asked() {
 #[test]
 fn values_are_not_captured_when_nobody_asks() {
     let store = store();
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         store.elem(1).name().write("after".into());
     });
     assert_eq!(changes.len(), 1);
@@ -64,7 +64,7 @@ fn values_are_not_captured_when_nobody_asks() {
 #[test]
 fn the_components_name_the_full_path() {
     let store = store();
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         store.elem(1).count().update(|c| *c = 7);
     });
     // store root, element key, field id, outermost first.
@@ -76,7 +76,7 @@ fn the_components_name_the_full_path() {
 fn a_mapped_write_captures_the_stored_type() {
     let store = store();
     let idx = store.elem(1).count().map(|c| *c as usize, |i| *i as i64);
-    let (_, changes) = day_model::record_values(|| {
+    let ((), changes) = day_model::record_values(|| {
         idx.write(2usize);
     });
     assert_eq!(changes.len(), 1);
@@ -91,7 +91,7 @@ fn a_mapped_write_captures_the_stored_type() {
 #[test]
 fn merge_row_announces_the_named_fields_with_the_current_author() {
     let store = store();
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         day_model::with_author("database", || {
             let merged = store.merge_row(
                 1,
@@ -122,7 +122,7 @@ fn merge_row_announces_the_named_fields_with_the_current_author() {
 #[test]
 fn merge_row_of_an_absent_row_announces_nothing() {
     let store = store();
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         assert!(!store.merge_row(404, Item::default(), &["name"]));
     });
     assert!(changes.is_empty());
@@ -157,7 +157,7 @@ fn a_sink_and_the_recorder_see_the_same_changes() {
     let s = sink_count.clone();
     let sink = day_model::install_change_sink(move |_| s.set(s.get() + 1));
 
-    let (_, log) = day_model::record_changes(|| {
+    let ((), log) = day_model::record_changes(|| {
         store.elem(1).name().write("both".into());
     });
     assert_eq!(log.len(), 1);
@@ -168,7 +168,7 @@ fn a_sink_and_the_recorder_see_the_same_changes() {
 #[test]
 fn author_scopes_restore_after_nested_unwinding() {
     let store = store();
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         day_model::with_author("outer", || {
             let failed = std::panic::catch_unwind(|| {
                 day_model::with_author("inner", || panic!("synthetic importer panic"));

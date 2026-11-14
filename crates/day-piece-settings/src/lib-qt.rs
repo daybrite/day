@@ -931,7 +931,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
                         .icon_only()
                         .plain()
                         .action(move || {
-                            day_part_clipboard::set_text(&text.initial());
+                            let _ = day_part_clipboard::set_text(&text.initial());
                         }),
                 ))
                 .spacing(4.0)

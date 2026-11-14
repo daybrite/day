@@ -10,7 +10,7 @@ use std::os::raw::{c_int, c_void};
 
 type Handle = *mut c_void;
 
-/// CF_UNICODETEXT is UTF-16 text. Windows synthesizes it from CF_TEXT and vice versa, so this one
+/// `CF_UNICODETEXT` is UTF-16 text. Windows synthesizes it from `CF_TEXT` and vice versa, so this one
 /// format covers any text on the clipboard.
 const CF_UNICODETEXT: u32 = 13;
 const GMEM_MOVEABLE: u32 = 0x0002;
@@ -53,7 +53,7 @@ pub fn set_text(text: &str) -> bool {
                 GlobalFree(mem);
                 return false;
             }
-            std::ptr::copy_nonoverlapping(wide.as_ptr(), dst as *mut u16, wide.len());
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), dst.cast::<u16>(), wide.len());
             GlobalUnlock(mem);
             if SetClipboardData(CF_UNICODETEXT, mem).is_null() {
                 GlobalFree(mem); // ownership only transfers on success
@@ -181,7 +181,9 @@ pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
                 let mem = GlobalAlloc(GMEM_MOVEABLE, exact.len());
                 if !mem.is_null() {
                     let dst = GlobalLock(mem);
-                    if !dst.is_null() {
+                    if dst.is_null() {
+                        GlobalFree(mem);
+                    } else {
                         std::ptr::copy_nonoverlapping(exact.as_ptr(), dst.cast(), exact.len());
                         GlobalUnlock(mem);
                         if SetClipboardData(format_id("application/x-day-clipboard-v1"), mem)
@@ -189,8 +191,6 @@ pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
                         {
                             GlobalFree(mem);
                         }
-                    } else {
-                        GlobalFree(mem);
                     }
                 }
                 Ok(written)
@@ -209,7 +209,7 @@ pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error>
             let exact = GetClipboardData(format_id("application/x-day-clipboard-v1"));
             if !exact.is_null() {
                 let size = GlobalSize(exact);
-                if size >= 4 && size <= MAX_BYTES + 16384 {
+                if (4..=MAX_BYTES + 16384).contains(&size) {
                     let p = GlobalLock(exact);
                     if !p.is_null() {
                         let all = std::slice::from_raw_parts(p.cast::<u8>(), size);
@@ -248,7 +248,9 @@ pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error>
                 }
                 if *mime == "text/plain" {
                     let wide: Vec<_> = bytes
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|s| u16::from_le_bytes([s[0], s[1]]))
                         .take_while(|c| *c != 0)
                         .collect();

@@ -134,6 +134,11 @@ pub fn pack(
     payload: &Path,
     dist: &Path,
 ) -> Result<Artifact, PackError> {
+    const LOGO_SLOTS: [&str; 3] = [
+        "StoreLogo.png",
+        "Square150x150Logo.png",
+        "Square44x44Logo.png",
+    ];
     let name = &project.manifest.app.name;
     let title = project
         .manifest
@@ -171,30 +176,21 @@ pub fn pack(
         .is_file()
         .then_some(generated_logo)
         .or_else(|| crate::resources::app_icon(project, "gtk"));
-    const LOGO_SLOTS: [&str; 3] = [
-        "StoreLogo.png",
-        "Square150x150Logo.png",
-        "Square44x44Logo.png",
-    ];
-    match logo {
-        Some(png) => {
-            for slot in LOGO_SLOTS {
-                std::fs::copy(&png, assets_dir.join(slot))
-                    .map_err(|e| PackError::Other(format!("staging {slot}: {e}")))?;
-            }
+    if let Some(png) = logo {
+        for slot in LOGO_SLOTS {
+            std::fs::copy(&png, assets_dir.join(slot))
+                .map_err(|e| PackError::Other(format!("staging {slot}: {e}")))?;
         }
-        None => {
-            status(
-                "Packing",
-                "no app icon rendered — using the default Day icon for the MSIX logo slots (add resource/icons/icon.svg and run `day prepare`)",
-            );
-            // The largest built-in default (sideload doesn't lint slot sizes; the Store does).
-            let (_, bytes) =
-                crate::resources::DEFAULT_ICONS[crate::resources::DEFAULT_ICONS.len() - 1];
-            for slot in LOGO_SLOTS {
-                std::fs::write(assets_dir.join(slot), bytes)
-                    .map_err(|e| PackError::Other(format!("staging {slot}: {e}")))?;
-            }
+    } else {
+        status(
+            "Packing",
+            "no app icon rendered — using the default Day icon for the MSIX logo slots (add resource/icons/icon.svg and run `day prepare`)",
+        );
+        // The largest built-in default (sideload doesn't lint slot sizes; the Store does).
+        let (_, bytes) = crate::resources::DEFAULT_ICONS[crate::resources::DEFAULT_ICONS.len() - 1];
+        for slot in LOGO_SLOTS {
+            std::fs::write(assets_dir.join(slot), bytes)
+                .map_err(|e| PackError::Other(format!("staging {slot}: {e}")))?;
         }
     }
     // A normalized identity is not the app id any more, and the difference matters when the
@@ -278,7 +274,7 @@ pub(crate) fn identity_name(id: &str) -> String {
         .collect()
 }
 
-/// AppxManifest for a full-trust Win32 app. Identity Name is normalized by [`identity_name`];
+/// `AppxManifest` for a full-trust Win32 app. Identity Name is normalized by [`identity_name`];
 /// MSIX versions are four-part, so pad the semver.
 pub(crate) fn appx_manifest(
     id: &str,
@@ -368,15 +364,16 @@ pub(crate) fn resolve_signing(project: &Project) -> Result<WindowsSignSettings, 
     let provider = match win.provider.as_str() {
         "self-signed-dev" => Provider::SelfSignedDev,
         "signtool-cert-store" => {
-            match resolve_field(win.thumbprint.as_ref(), "signing.windows.thumbprint")? {
-                Some(thumbprint) => Provider::CertStore { thumbprint },
-                None => {
-                    status(
-                        "Warning",
-                        "signtool-cert-store unresolved — self-signed dev cert",
-                    );
-                    Provider::SelfSignedDev
-                }
+            if let Some(thumbprint) =
+                resolve_field(win.thumbprint.as_ref(), "signing.windows.thumbprint")?
+            {
+                Provider::CertStore { thumbprint }
+            } else {
+                status(
+                    "Warning",
+                    "signtool-cert-store unresolved — self-signed dev cert",
+                );
+                Provider::SelfSignedDev
             }
         }
         "azure-artifact-signing" => {
@@ -386,22 +383,19 @@ pub(crate) fn resolve_signing(project: &Project) -> Result<WindowsSignSettings, 
                 resolve_field(win.profile.as_ref(), "signing.windows.profile")?,
                 resolve_field(win.dlib.as_ref(), "signing.windows.dlib")?,
             );
-            match fields {
-                (Some(endpoint), Some(account), Some(profile), Some(dlib)) => {
-                    Provider::AzureArtifactSigning {
-                        endpoint,
-                        account,
-                        profile,
-                        dlib,
-                    }
+            if let (Some(endpoint), Some(account), Some(profile), Some(dlib)) = fields {
+                Provider::AzureArtifactSigning {
+                    endpoint,
+                    account,
+                    profile,
+                    dlib,
                 }
-                _ => {
-                    status(
-                        "Warning",
-                        "azure-artifact-signing needs endpoint/account/profile/dlib — self-signed dev cert",
-                    );
-                    Provider::SelfSignedDev
-                }
+            } else {
+                status(
+                    "Warning",
+                    "azure-artifact-signing needs endpoint/account/profile/dlib — self-signed dev cert",
+                );
+                Provider::SelfSignedDev
             }
         }
         other => {

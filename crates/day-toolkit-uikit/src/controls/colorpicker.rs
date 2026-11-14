@@ -74,7 +74,7 @@ day_core::tls_group! {
 fn to_day_color(c: &UIColor) -> Option<Color> {
     let (mut r, mut g, mut b, mut a) = (0.0 as CGFloat, 0.0, 0.0, 0.0);
     // SAFETY: four valid pointers to live stack slots, which is the whole contract of the method.
-    let ok = unsafe { c.getRed_green_blue_alpha(&mut r, &mut g, &mut b, &mut a) };
+    let ok = unsafe { c.getRed_green_blue_alpha(&raw mut r, &raw mut g, &raw mut b, &raw mut a) };
     ok.then(|| Color::rgba(r, g, b, a))
 }
 
@@ -101,7 +101,7 @@ fn make(_backend: &mut Uikit, p: &ColorProps, id: NodeId) -> Retained<UIView> {
     let view: Retained<UIView> = Retained::from(<UIColorWell as AsRef<UIView>>::as_ref(&well));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((view.as_ref() as *const UIView) as usize, target)
+            .insert(std::ptr::from_ref::<UIView>(view.as_ref()) as usize, target)
     });
     view
 }
@@ -129,7 +129,7 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, _p: Proposal) -> Size {
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     TARGETS.with(|m| {
         m.borrow_mut()
-            .remove(&((h.as_ref() as *const UIView) as usize));
+            .remove(&(std::ptr::from_ref::<UIView>(h.as_ref()) as usize));
     });
 }
 

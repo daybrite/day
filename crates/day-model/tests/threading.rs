@@ -142,14 +142,14 @@ fn a_reader_never_sees_half_a_transaction() {
 fn the_change_log_is_assertable_without_any_ui() {
     // Headless observation: what did this operation announce?
     let store = Store::new(seed());
-    let (_, log) = day_model::record(|| {
+    let ((), log) = day_model::record(|| {
         store.elem(1).name().write("x".into());
         store.elem(1).count().update(|c| *c = 9);
     });
     assert_eq!(log, vec!["name", "count"]);
 
     // …and that a no-op write announces nothing.
-    let (_, quiet) = day_model::record(|| {
+    let ((), quiet) = day_model::record(|| {
         store.elem(99).name().write("nobody".into());
     });
     assert!(quiet.is_empty(), "no such element, nothing announced");

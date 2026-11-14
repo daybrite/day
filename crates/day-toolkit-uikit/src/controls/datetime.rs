@@ -74,7 +74,7 @@ fn date_at_epoch_seconds(secs: i64) -> Retained<NSDate> {
     NSDate::dateWithTimeIntervalSince1970(secs as f64)
 }
 
-/// A shared UIDatePicker skeleton pinned to Gregorian GMT (user locale kept for display).
+/// A shared `UIDatePicker` skeleton pinned to Gregorian GMT (user locale kept for display).
 fn make_picker(
     mode: UIDatePickerMode,
     style: UIDatePickerStyle,
@@ -103,7 +103,7 @@ fn make_picker(
     let view: Retained<UIView> = Retained::from(<UIDatePicker as AsRef<UIView>>::as_ref(&p));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((view.as_ref() as *const UIView) as usize, target)
+            .insert(std::ptr::from_ref::<UIView>(view.as_ref()) as usize, target)
     });
     (p, view)
 }
@@ -138,7 +138,7 @@ fn measure_picker(h: &Retained<UIView>, p: Proposal) -> Size {
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     TARGETS.with(|m| {
         m.borrow_mut()
-            .remove(&((h.as_ref() as *const UIView) as usize));
+            .remove(&(std::ptr::from_ref::<UIView>(h.as_ref()) as usize));
     });
 }
 
@@ -165,6 +165,10 @@ mod date_renderer {
         view
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
         if let Some(p) = (**h).downcast_ref::<UIDatePicker>() {
@@ -184,6 +188,10 @@ mod date_renderer {
 mod time_renderer {
     use super::*;
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+    )]
     fn make(_backend: &mut Uikit, p: &TimeProps, id: NodeId) -> Retained<UIView> {
         // `seconds` is a documented no-op: UIDatePicker has no seconds field (docs/datepicker.md).
         let (picker, view) = make_picker(
@@ -200,6 +208,10 @@ mod time_renderer {
         view
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
         if let Some(p) = (**h).downcast_ref::<UIDatePicker>() {

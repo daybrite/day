@@ -54,7 +54,7 @@ fn make(_backend: &mut Xaml, p: &ColorProps, id: NodeId) -> WinHandle {
             p.color.g,
             p.color.b,
             p.color.a,
-            p.alpha as c_int,
+            c_int::from(p.alpha),
             title.as_ptr(),
             id.0,
             on_pick,
@@ -70,7 +70,7 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &ColorPatch) {
 fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(88.0), hh.max(32.0))
 }
 

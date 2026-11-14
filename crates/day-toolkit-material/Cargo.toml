@@ -39,3 +39,6 @@ gradle-dependencies = ["androidx.slidingpanelayout:slidingpanelayout:1.2.0", "co
 res = ["res", "controls/datetime/platform/android/res"]
 
 java = ["controls/spinner/DayActivity.java", "controls/searchfield/src/DaySearch.java", "controls/combobox/src/DayCombo.java", "controls/datetime/src/DayDateTime.java", "controls/pullrefresh/src/DayPullRefresh.java", "controls/pager/src/DayPager.java"]
+
+[lints]
+workspace = true

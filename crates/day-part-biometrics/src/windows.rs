@@ -92,7 +92,7 @@ fn owner_window() -> Option<Window> {
             return None;
         }
         let mut pid = 0u32;
-        GetWindowThreadProcessId(foreground, Some(&mut pid));
+        GetWindowThreadProcessId(foreground, Some(&raw mut pid));
         (pid == GetCurrentProcessId()).then_some(Window(foreground.0 as isize))
     }
 }
@@ -149,6 +149,10 @@ fn outcome_from(r: UserConsentVerificationResult) -> Result<Verified, BiometricE
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "used as a `map_err` adapter, which hands the error over by value"
+)]
 fn platform_error(e: windows::core::Error) -> BiometricError {
     BiometricError::Platform {
         code: e.code().0,
@@ -176,6 +180,10 @@ pub fn biometry() -> Biometry {
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the signature mirrors this part's other platform implementations"
+)]
 pub fn authenticate(prompt: Prompt, on_done: OnDone) {
     let Some(window) = owner_window() else {
         on_done(Err(BiometricError::NotInteractive));

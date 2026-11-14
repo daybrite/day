@@ -14,6 +14,7 @@
 //! nothing is indistinguishable from one that was never run, which is the state this replaces.
 //! Nothing here can fail the run; the script's verdict already did that.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -124,7 +125,7 @@ fn day_break_findings(
         .into_iter()
         .filter(|p| modified_since(p, since))
         // Signal files are pre-created empty; the handler writes them only on a fault.
-        .filter(|p| std::fs::metadata(p).map(|m| m.len() > 0).unwrap_or(false))
+        .filter(|p| std::fs::metadata(p).is_ok_and(|m| m.len() > 0))
         .collect();
     if fresh.is_empty() {
         return;
@@ -164,14 +165,17 @@ fn day_break_findings(
 /// Match the producer's distinction between a session sentinel, a contained panic and a fault.
 /// A lone sentinel also survives an OS kill or a hung process; treating it as a crash stopped
 /// the remaining CI variants and hid the fact that no exception had actually been recorded.
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "the crash reporter writes these artifact names in lowercase"
+)]
 fn break_artifact_is_crash(name: &str, text: &str) -> bool {
     if text.trim().is_empty() {
         return false;
     }
     if name.starts_with("report-") && name.ends_with(".json") {
         return serde_json::from_str::<serde_json::Value>(text)
-            .ok()
-            .is_some_and(|v| v.get("fatal").and_then(|v| v.as_bool()) == Some(true));
+            .is_ok_and(|v| v.get("fatal").and_then(serde_json::Value::as_bool) == Some(true));
     }
     (name.starts_with("sig-") && name.ends_with(".sig"))
         || (name.starts_with("pending-") && name.ends_with(".kv"))
@@ -190,7 +194,8 @@ fn describes_this_run(text: &str, target: &'static Target, since: SystemTime) ->
             v.pointer("/day/backend")
                 .and_then(|b| b.as_str())
                 .map(str::to_string),
-            v.pointer("/session/started_at_ms").and_then(|s| s.as_u64()),
+            v.pointer("/session/started_at_ms")
+                .and_then(serde_json::Value::as_u64),
         ),
         _ => {
             let field = |key: &str| {
@@ -214,8 +219,7 @@ fn describes_this_run(text: &str, target: &'static Target, since: SystemTime) ->
     };
     let since_ms = since
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_millis() as u64);
     // A second of slack: the session starts inside the app, either side of the parent's stamp.
     started + 1000 >= since_ms
 }
@@ -305,8 +309,7 @@ fn os_crash_findings(
                     .to_string();
                 let fresh = std::fs::metadata(&path)
                     .and_then(|m| m.modified())
-                    .map(|m| m >= since)
-                    .unwrap_or(false);
+                    .is_ok_and(|m| m >= since);
                 if !fresh || !name.to_lowercase().starts_with(&stem.to_lowercase()) {
                     continue;
                 }
@@ -425,8 +428,7 @@ fn os_crash_findings(
             looked.push("Windows Application event log (Application Error)".into());
             let secs = SystemTime::now()
                 .duration_since(since)
-                .map(|d| d.as_secs() + 5)
-                .unwrap_or(120);
+                .map_or(120, |d| d.as_secs() + 5);
             let ps = format!(
                 "$s=(Get-Date).AddSeconds(-{secs}); \
                  Get-WinEvent -FilterHashtable @{{LogName='Application'; \
@@ -474,8 +476,7 @@ fn os_crash_findings(
             // Guest wall time can differ from the host's (including its timezone). Compare
             // report age on the guest with this launch's elapsed time, not host epoch time.
             let key = crate::ops::selected_ohos_key()
-                .map(str::to_owned)
-                .unwrap_or_else(crate::ohos::ohos_target);
+                .map_or_else(crate::ohos::ohos_target, str::to_owned);
             let dir = "/data/log/faultlog/faultlogger";
             looked.push(format!("Harmony faultlogger on {key} ({dir})"));
             let Some(listing) = crate::ops::output_within(
@@ -637,13 +638,12 @@ fn ips_pid(text: &str) -> Option<u32> {
 fn modified_since(path: &Path, since: SystemTime) -> bool {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|m| m >= since)
-        .unwrap_or(false)
+        .is_ok_and(|m| m >= since)
 }
 
 /// Block until this run's crash report appears, or the budget runs out; `true` when one landed.
 ///
-/// ReportCrash writes the `.ips` well after the process dies (measured at 20–40 s on this
+/// `ReportCrash` writes the `.ips` well after the process dies (measured at 20–40 s on this
 /// machine), which is always after the engine loss that brought us here. Looking once finds the
 /// previous run's report or nothing at all. Waiting costs only a run that has already failed, and
 /// a run that fails without saying why costs someone an afternoon.
@@ -725,7 +725,9 @@ fn summarize_ips(text: &str) -> Option<String> {
     let mut out = vec![format!(
         "process {} (pid {}) — {}",
         s("procName"),
-        v.get("pid").and_then(|p| p.as_i64()).unwrap_or(0),
+        v.get("pid")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0),
         s("captureTime"),
     )];
     if let Some(e) = v.get("exception") {
@@ -744,7 +746,7 @@ fn summarize_ips(text: &str) -> Option<String> {
     // The faulting thread's frames, symbolicated as far as the report itself goes.
     let faulting = v
         .get("faultingThread")
-        .and_then(|f| f.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .unwrap_or(0) as usize;
     let images: Vec<&str> = v
         .get("usedImages")
@@ -766,15 +768,18 @@ fn summarize_ips(text: &str) -> Option<String> {
         for f in frames.iter().take(MAX_FRAMES) {
             let image = f
                 .get("imageIndex")
-                .and_then(|i| i.as_u64())
+                .and_then(serde_json::Value::as_u64)
                 .and_then(|i| images.get(i as usize).copied())
                 .unwrap_or("?");
-            let offset = f.get("imageOffset").and_then(|o| o.as_u64()).unwrap_or(0);
+            let offset = f
+                .get("imageOffset")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
             match f.get("symbol").and_then(|s| s.as_str()) {
                 Some(sym) => {
                     let at = f
                         .get("symbolLocation")
-                        .and_then(|l| l.as_u64())
+                        .and_then(serde_json::Value::as_u64)
                         .unwrap_or(0);
                     out.push(format!("  {image}  {sym} + {at}"));
                 }
@@ -795,7 +800,7 @@ fn summarize_ips(text: &str) -> Option<String> {
 fn summarize_break(text: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
     let kind = v.get("kind")?.as_str().unwrap_or("?");
-    let contained = if v.get("fatal").and_then(|f| f.as_bool()) == Some(false) {
+    let contained = if v.get("fatal").and_then(serde_json::Value::as_bool) == Some(false) {
         " (contained)"
     } else {
         ""
@@ -821,11 +826,14 @@ fn summarize_break(text: &str) -> Option<String> {
         out.push(format!(
             "signal: {name} (code {})",
             v.pointer("/signal/code")
-                .and_then(|c| c.as_i64())
+                .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0)
         ));
     }
-    if let Some(uptime) = v.pointer("/session/uptime_ms").and_then(|u| u.as_u64()) {
+    if let Some(uptime) = v
+        .pointer("/session/uptime_ms")
+        .and_then(serde_json::Value::as_u64)
+    {
         out.push(format!("died {uptime} ms after launch"));
     }
     match v.get("backtrace_text").and_then(|b| b.as_str()) {
@@ -879,7 +887,7 @@ fn head(text: &str, max: usize) -> String {
     let total = text.lines().count();
     let mut s: String = text.lines().take(max).collect::<Vec<_>>().join("\n");
     if total > max {
-        s.push_str(&format!("\n… {} more line(s)", total - max));
+        let _ = write!(s, "\n… {} more line(s)", total - max);
     }
     s
 }
@@ -914,9 +922,8 @@ fn signal_name(signo: i32) -> String {
     match signo {
         4 => "SIGILL".into(),
         6 => "SIGABRT".into(),
-        7 => "SIGBUS".into(),
+        7 | 10 => "SIGBUS".into(),
         8 => "SIGFPE".into(),
-        10 => "SIGBUS".into(),
         11 => "SIGSEGV".into(),
         _ => format!("signal {signo}"),
     }

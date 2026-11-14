@@ -70,6 +70,7 @@ impl<C: PieceSeq + 'static> Piece for Form<C> {
 /// (`SurfaceRole::SectionCard`: quaternary fill on AppKit, libadwaita `.card`, Qt
 /// `palette(alternate-base)`, tertiary system fill on iOS, Material surface-container, the
 /// XAML card brush), so it follows light/dark mode with no app code.
+#[must_use]
 pub struct FormSection<C: PieceSeq> {
     title: Option<TextSource>,
     footer: Option<TextSource>,
@@ -145,7 +146,7 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
             align: day_spec::props::TextAlign::Leading,
             on_link: None,
             color: None,
-            role: Default::default(),
+            role: TextRole::default(),
         };
         let footer_insets = day_spec::Insets {
             top: 0.0,
@@ -179,10 +180,9 @@ struct SectionCardLayout;
 
 impl day_core::Layout for SectionCardLayout {
     fn measure(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], p: Proposal) -> Size {
-        let cs = children
-            .first()
-            .map(|&c| cx.measure_child(c, Proposal::new(p.width, None)))
-            .unwrap_or(Size::ZERO);
+        let cs = children.first().map_or(Size::ZERO, |&c| {
+            cx.measure_child(c, Proposal::new(p.width, None))
+        });
         Size::new(p.width.unwrap_or(cs.width).max(cs.width), cs.height)
     }
     fn place(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], bounds: Rect) {
@@ -242,7 +242,7 @@ impl<P: Piece> Piece for Labeled<P> {
                 align: day_spec::props::TextAlign::Leading,
                 on_link: None,
                 color: None,
-                role: Default::default(),
+                role: TextRole::default(),
             };
             let _ = row_label.build(cx);
             let ctl = control.build(cx);
@@ -308,7 +308,6 @@ impl LabeledLayout {
     /// or a control with no text at all (a toggle, a slider, an image). The row then keeps the
     /// centering it has always done, which is what makes this safe to have on by default.
     fn baseline_shift(
-        &self,
         cx: &mut dyn day_core::LayoutOps,
         lbl: RNode,
         ls: Size,
@@ -334,13 +333,7 @@ impl LabeledLayout {
     /// measured, so a decision taken against it would flip between measure and place and
     /// the rows would overlap. A `.grow(Dimension::Both)` control measures to what it is offered, so it
     /// stacks only when its content cannot fit that width.
-    fn stacks(
-        &self,
-        cx: &mut dyn day_core::LayoutOps,
-        ctl: RNode,
-        label_w: f64,
-        width: f64,
-    ) -> bool {
+    fn stacks(cx: &mut dyn day_core::LayoutOps, ctl: RNode, label_w: f64, width: f64) -> bool {
         let avail = (width - label_w - LABELED_GAP).max(0.0);
         let measured = cx
             .measure_child(ctl, Proposal::new(Some(avail), None))
@@ -356,7 +349,7 @@ impl day_core::Layout for LabeledLayout {
         };
         let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
         if let Some(w) = p.width
-            && self.stacks(cx, ctl, ls.width, w)
+            && Self::stacks(cx, ctl, ls.width, w)
         {
             let cs = cx.measure_child(ctl, Proposal::new(Some(w), None));
             return Size::new(w, ls.height + STACKED_GAP + cs.height);
@@ -369,7 +362,7 @@ impl day_core::Layout for LabeledLayout {
         // hugs its content vertically: the taller child, or, once the two are sitting on one
         // baseline, whatever the shifted pair needs.
         let boxes = ls.height.max(cs.height);
-        let height = match self.baseline_shift(cx, lbl, ls, ctl, cs) {
+        let height = match Self::baseline_shift(cx, lbl, ls, ctl, cs) {
             Some((_, _, h)) => h.max(boxes),
             None => boxes,
         };
@@ -388,7 +381,7 @@ impl day_core::Layout for LabeledLayout {
             return None;
         };
         let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
-        if self.stacks(cx, ctl, ls.width, size.width) {
+        if Self::stacks(cx, ctl, ls.width, size.width) {
             // Stacked: the label's own line is the row's.
             return cx.baseline_of(lbl, ls);
         }
@@ -396,7 +389,7 @@ impl day_core::Layout for LabeledLayout {
         let avail = (size.width - colw - LABELED_GAP).max(0.0);
         let cs = cx.measure_child(ctl, Proposal::new(Some(avail), None));
         let lb = cx.baseline_of(lbl, ls)?;
-        let (shift, _, _) = self.baseline_shift(cx, lbl, ls, ctl, cs)?;
+        let (shift, _, _) = Self::baseline_shift(cx, lbl, ls, ctl, cs)?;
         Some(shift + lb)
     }
     fn place(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], bounds: Rect) {
@@ -404,7 +397,7 @@ impl day_core::Layout for LabeledLayout {
             return;
         };
         let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
-        if self.stacks(cx, ctl, ls.width, bounds.size.width) {
+        if Self::stacks(cx, ctl, ls.width, bounds.size.width) {
             // Label at the leading edge, control under it across the whole row (a hugging
             // control keeps its own width; a `.grow(Dimension::Both)` one takes the row).
             let w = bounds.size.width;
@@ -426,7 +419,7 @@ impl day_core::Layout for LabeledLayout {
         // bordered field or a stepper has its text a few points off from the field's, because
         // the two put their text at different heights inside boxes of different heights.
         // Centering the boxes preserves that offset; this removes it.
-        let (lbl_y, ctl_y) = match self.baseline_shift(cx, lbl, ls, ctl, cs) {
+        let (lbl_y, ctl_y) = match Self::baseline_shift(cx, lbl, ls, ctl, cs) {
             Some((dl, dc, used)) => {
                 // Center the aligned pair in whatever height the row was actually given, so a
                 // row stretched by a taller sibling keeps its text group centered rather than

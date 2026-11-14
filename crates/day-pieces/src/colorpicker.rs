@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day_pieces::colorpicker is a color chooser bound two-way to a `Signal<Color>`, in two idioms
+//! `day_pieces::colorpicker` is a color chooser bound two-way to a `Signal<Color>`, in two idioms
 //! (docs/colorpicker.md; DESIGN.md §15).
 //!
 //! ```ignore
@@ -27,7 +27,7 @@
 //!
 //! [`PickerIdiom::Automatic`], the default, is `Native` where the toolkit has a chooser and
 //! `Composed` where it does not. Two toolkits have none at any layer: Android ships no color
-//! picker in the framework, in Material, or in AndroidX, and HarmonyOS has none in ArkTS or in the
+//! picker in the framework, in Material, or in `AndroidX`, and HarmonyOS has none in ArkTS or in the
 //! ArkUI NDK. Rather than each of those growing a hand-written dialog in its own language, they
 //! get the composed panel, which is also why an app that wants one picker everywhere can just ask
 //! for it.
@@ -77,6 +77,7 @@ pub enum PickerIdiom {
 /// app showing a "not supported here" banner from this answer would be wrong. Use it to say
 /// *which* picker the user gets, or ignore it, unless the app pins [`PickerIdiom::Native`]:
 /// that realizes the leaf unconditionally and so does need this checked first.
+#[must_use]
 pub fn support() -> day_spec::Support {
     let support = day_core::capability(day_spec::Cap::ColorPicker);
     if support == day_spec::Support::Unsupported {
@@ -90,7 +91,7 @@ pub fn support() -> day_spec::Support {
 /// saturation, plus the grayscale ends. Ordered by hue so the row reads as a spectrum.
 fn default_presets() -> Vec<Color> {
     let mut v: Vec<Color> = (0..12)
-        .map(|i| Color::hsv(i as f64 * 30.0, 0.78, 0.92))
+        .map(|i| Color::hsv(f64::from(i) * 30.0, 0.78, 0.92))
         .collect();
     v.push(Color::WHITE);
     v.push(Color::rgb(0.6, 0.6, 0.62));
@@ -99,6 +100,7 @@ fn default_presets() -> Vec<Color> {
 }
 
 /// A color well bound two-way to a [`Color`] signal. Build with [`color_picker`].
+#[must_use]
 pub struct ColorPicker<C: Binding<Color>> {
     color: C,
     alpha: bool,
@@ -193,14 +195,14 @@ impl<C: Binding<Color>> Piece for ColorPicker<C> {
             PickerIdiom::Automatic => support() == Support::Native,
         };
         if native {
-            build_native(cx, color, alpha, title, key)
+            build_native(cx, color, alpha, title, &key)
         } else {
             composed_well(
                 color,
                 alpha,
                 title,
                 presets.unwrap_or_else(default_presets),
-                key,
+                &key,
             )
             .build(cx)
         }
@@ -213,7 +215,7 @@ fn build_native<C: Binding<Color>>(
     color: C,
     alpha: bool,
     title: String,
-    key: day_core::ElementId,
+    key: &day_core::ElementId,
 ) -> RNode {
     let initial = color.peek();
     let node = cx.leaf(
@@ -314,7 +316,7 @@ fn composed_well<C: Binding<Color>>(
     alpha: bool,
     title: String,
     presets: Vec<Color>,
-    key: day_core::ElementId,
+    key: &day_core::ElementId,
 ) -> AnyPiece {
     let open: Signal<Option<String>> = Signal::new(None);
     let open_key = key.as_str().to_owned();
@@ -522,7 +524,12 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
     canvas(move |d, size| {
         let r = Rect::new(0.0, 0.0, size.width, size.height);
         let stops: Vec<(f64, Color)> = (0..=6)
-            .map(|i| (i as f64 / 6.0, Color::hsv(i as f64 * 60.0, 1.0, 1.0)))
+            .map(|i| {
+                (
+                    f64::from(i) / 6.0,
+                    Color::hsv(f64::from(i) * 60.0, 1.0, 1.0),
+                )
+            })
             .collect();
         d.fill(
             Shape::RoundedRect(r, size.height / 2.0),
@@ -549,7 +556,7 @@ fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) ->
         // squares and the pill's caps have to cut it. Everything over it is a rounded fill of
         // that same pill, which needs no clip of its own.
         d.clipped(Shape::RoundedRect(r, size.height / 2.0), |d| {
-            checkerboard(d, size)
+            checkerboard(d, size);
         });
         let opaque = current().with_alpha(1.0);
         d.fill(

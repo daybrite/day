@@ -54,3 +54,6 @@ frameworks = ["CoreLocation"]
 
 [build-dependencies]
 day-build = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! SVG geometry retained in a GdkPaintable, rendered at each requested snapshot size.
+//! SVG geometry retained in a `GdkPaintable`, rendered at each requested snapshot size.
 //! The small C binding uses the installed librsvg and the same GLib/Cairo ABI as gtk-rs.
 
 use std::cell::{Cell, RefCell};
@@ -140,8 +140,8 @@ mod imp {
                 if rsvg_handle_render_document(
                     doc.as_ptr(),
                     cr.to_raw_none(),
-                    &viewport,
-                    &mut error,
+                    &raw const viewport,
+                    &raw mut error,
                 ) == 0
                     && !error.is_null()
                 {
@@ -171,7 +171,7 @@ impl SvgPaintable {
         let mut error = std::ptr::null_mut();
         // SAFETY: filename is NUL terminated. A successful handle is a full GObject reference.
         let document: glib::Object = unsafe {
-            let handle = rsvg_handle_new_from_file(filename.as_ptr(), &mut error);
+            let handle = rsvg_handle_new_from_file(filename.as_ptr(), &raw mut error);
             if handle.is_null() {
                 if !error.is_null() {
                     let error: glib::Error = from_glib_full(error);
@@ -184,8 +184,11 @@ impl SvgPaintable {
         let (mut width, mut height) = (0.0, 0.0);
         // SAFETY: all outputs are live; unneeded optional outputs may be NULL per librsvg's API.
         unsafe {
-            if rsvg_handle_get_intrinsic_size_in_pixels(document.as_ptr(), &mut width, &mut height)
-                == 0
+            if rsvg_handle_get_intrinsic_size_in_pixels(
+                document.as_ptr(),
+                &raw mut width,
+                &raw mut height,
+            ) == 0
             {
                 let mut has_viewbox = 0;
                 let mut viewbox = Rectangle::default();
@@ -195,8 +198,8 @@ impl SvgPaintable {
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
-                    &mut has_viewbox,
-                    &mut viewbox,
+                    &raw mut has_viewbox,
+                    &raw mut viewbox,
                 );
                 if has_viewbox == 0 {
                     return None;

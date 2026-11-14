@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The canvas (§11): an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's encoded
-//! display list with OH_Drawing (`ohos_sys::drawing`), inside a host node that holds focus for
+//! display list with `OH_Drawing` (`ohos_sys::drawing`), inside a host node that holds focus for
 //! it ([`create`]).
 //!
 //! Day records a display list in day points (vp); the custom node's draw canvas is in px, so a
@@ -154,8 +154,7 @@ fn surface_of(host: Handle) -> Handle {
     SURFACES.with(|s| {
         s.borrow()
             .get(&(host as usize))
-            .map(|nodes| nodes.surface)
-            .unwrap_or(ptr::null_mut())
+            .map_or(ptr::null_mut(), |nodes| nodes.surface)
     })
 }
 
@@ -222,7 +221,8 @@ pub fn render_bitmap(
     // destroyed before the buffer is read. The options object is released on every path, and
     // the pixelmap copies `px` rather than keeping it.
     unsafe {
-        let bmp = OH_Drawing_BitmapCreateFromPixels(&mut info, px.as_mut_ptr().cast(), row as u32);
+        let bmp =
+            OH_Drawing_BitmapCreateFromPixels(&raw mut info, px.as_mut_ptr().cast(), row as u32);
         if bmp.is_null() {
             return Err(format!(
                 "OH_Drawing_BitmapCreateFromPixels refused {pw}x{ph}"
@@ -239,7 +239,7 @@ pub fn render_bitmap(
         OH_Drawing_BitmapDestroy(bmp);
 
         let mut opts = ptr::null_mut();
-        if OH_PixelmapInitializationOptions_Create(&mut opts) != ImageResult::SUCCESS
+        if OH_PixelmapInitializationOptions_Create(&raw mut opts) != ImageResult::SUCCESS
             || opts.is_null()
         {
             return Err("OH_PixelmapInitializationOptions_Create failed".to_string());
@@ -254,7 +254,7 @@ pub fn render_bitmap(
             PIXELMAP_ALPHA_TYPE::PIXELMAP_ALPHA_TYPE_PREMULTIPLIED.0 as i32,
         );
         let mut pm = ptr::null_mut();
-        let rc = OH_PixelmapNative_CreatePixelmap(px.as_mut_ptr(), px.len(), opts, &mut pm);
+        let rc = OH_PixelmapNative_CreatePixelmap(px.as_mut_ptr(), px.len(), opts, &raw mut pm);
         OH_PixelmapInitializationOptions_Release(opts);
         if rc != ImageResult::SUCCESS || pm.is_null() {
             return Err(format!(
@@ -330,6 +330,9 @@ struct Gradient {
 /// Parse "M x y L x y Q .. C .. Z" (`day_spec::encode_path`) into a path. Tolerant: a
 /// malformed token stops the walk rather than aborting the frame.
 unsafe fn parse_path(spec: &str, rule: i32) -> *mut OH_Drawing_Path {
+    fn num<'a>(tok: &mut impl Iterator<Item = &'a str>) -> f32 {
+        tok.next().and_then(|s| s.parse().ok()).unwrap_or(0.0)
+    }
     // SAFETY: a fresh path the caller owns.
     unsafe {
         let path = OH_Drawing_PathCreate();
@@ -342,9 +345,6 @@ unsafe fn parse_path(spec: &str, rule: i32) -> *mut OH_Drawing_Path {
             },
         );
         let mut tok = spec.split_whitespace();
-        fn num<'a>(tok: &mut impl Iterator<Item = &'a str>) -> f32 {
-            tok.next().and_then(|s| s.parse().ok()).unwrap_or(0.0)
-        }
         while let Some(op) = tok.next() {
             match op {
                 "M" => {
@@ -494,7 +494,7 @@ unsafe fn apply_gradient(
             let m = OH_Drawing_MatrixCreate();
             OH_Drawing_MatrixSetMatrix(m, w, 0.0, x, 0.0, h, y, 0.0, 0.0, 1.0);
             let fx = OH_Drawing_ShaderEffectCreateRadialGradientWithLocalMatrix(
-                &center,
+                &raw const center,
                 g.ex.max(1e-4),
                 g.colors.as_ptr(),
                 g.offsets.as_ptr(),
@@ -735,7 +735,7 @@ unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas, px_per_vp: f32) {
                             x = a + if ah == 1 { -w / 2.0 } else { -w };
                         }
                         if av == 1 {
-                            y = b - (m.ascent + m.descent) / 2.0;
+                            y = b - f32::midpoint(m.ascent, m.descent);
                         } else if av == 2 {
                             y = b; // `at` IS the baseline
                         } else if av == 3 {

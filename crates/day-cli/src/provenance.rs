@@ -19,6 +19,7 @@
 //!
 //! `day rebuild` reads the SBOM for *what to build* and the buildinfo for *what to build it with*.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -60,7 +61,7 @@ pub struct BuildInfo {
     pub inputs: Vec<(String, String)>,
     /// sha256 of each staged payload file (the compiled code, before it goes into a container),
     /// keyed by a path relative to the payload root. This is what makes the payload tier decidable
-    /// for containers nothing on the verifying host can open (a `.flatpak` is an OSTree bundle; a
+    /// for containers nothing on the verifying host can open (a `.flatpak` is an `OSTree` bundle; a
     /// `.msix` needs a working unzip). Debian's `.buildinfo` records built-file checksums for the
     /// same reason.
     pub payload: Vec<(String, String)>,
@@ -764,7 +765,7 @@ pub fn debian_buildinfo(
     let arch = debian_arch().unwrap_or("unknown");
     let mut out = String::new();
     let field = |out: &mut String, k: &str, v: &str| {
-        out.push_str(&format!("{k}: {v}\n"));
+        let _ = writeln!(out, "{k}: {v}");
     };
     field(&mut out, "Format", "1.0");
     field(&mut out, "Source", &sbom.app_name);
@@ -787,9 +788,8 @@ pub fn debian_buildinfo(
             .join("build/day/dist")
             .join(name)
             .metadata()
-            .map(|m| m.len())
-            .unwrap_or(0);
-        out.push_str(&format!(" {digest} {size} {name}\n"));
+            .map_or(0, |m| m.len());
+        let _ = writeln!(out, " {digest} {size} {name}");
     }
 
     out.push_str("Installed-Build-Depends:\n");
@@ -797,7 +797,7 @@ pub fn debian_buildinfo(
         Some(pkgs) => {
             for (i, p) in pkgs.iter().enumerate() {
                 let sep = if i + 1 == pkgs.len() { "" } else { "," };
-                out.push_str(&format!(" {p}{sep}\n"));
+                let _ = writeln!(out, " {p}{sep}");
             }
         }
         // Named rather than left blank, so a reader knows the host was not dpkg-based instead of

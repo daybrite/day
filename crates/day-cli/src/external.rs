@@ -77,7 +77,7 @@ fn cache() -> &'static Mutex<HashMap<PathBuf, &'static [ExternalToolkit]>> {
 }
 
 /// Every external toolkit the project's dependency graph declares. Runs `cargo metadata` on the
-/// first call per project (the same cost pieces::feature_union already pays during a build);
+/// first call per project (the same cost `pieces::feature_union` already pays during a build);
 /// scans the full package set rather than a feature closure, because the toolkit crate sits
 /// behind the very optional feature its declaration names; a closure would need the answer to
 /// compute the question.

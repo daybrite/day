@@ -20,7 +20,7 @@ const COST_UNRESTRICTED: i32 = 1;
 const COST_FIXED: i32 = 2;
 const COST_VARIABLE: i32 = 3;
 
-/// NL_NETWORK_CONNECTIVITY_HINT (netioapi.h). The three BOOLEANs are u8-sized.
+/// `NL_NETWORK_CONNECTIVITY_HINT` (netioapi.h). The three BOOLEANs are u8-sized.
 #[repr(C)]
 struct NlNetworkConnectivityHint {
     connectivity_level: i32,
@@ -39,7 +39,7 @@ unsafe extern "system" {
     fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
 }
 
-/// Resolve GetNetworkConnectivityHint at runtime (absent before Windows 10 2004 / build 19041).
+/// Resolve `GetNetworkConnectivityHint` at runtime (absent before Windows 10 2004 / build 19041).
 fn lookup() -> Option<GetNetworkConnectivityHintFn> {
     let dll: Vec<u16> = "iphlpapi.dll\0".encode_utf16().collect();
     let module = unsafe { LoadLibraryW(dll.as_ptr()) };
@@ -62,7 +62,7 @@ pub fn status() -> Option<NetworkStatus> {
         over_data_limit: 0,
         roaming: 0,
     };
-    if unsafe { get_hint(&mut hint) } != 0 {
+    if unsafe { get_hint(&raw mut hint) } != 0 {
         return None; // NETIO error status
     }
     let online = matches!(

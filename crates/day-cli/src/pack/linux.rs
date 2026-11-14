@@ -149,7 +149,7 @@ pub(crate) fn launcher(
     )
 }
 
-/// Write the app-id-named desktop exports: hicolor icons, `.desktop`, and an AppStream metainfo.
+/// Write the app-id-named desktop exports: hicolor icons, `.desktop`, and an `AppStream` metainfo.
 pub(crate) fn stage_exports(
     project: &Project,
     prefix: &Path,
@@ -215,6 +215,10 @@ pub(crate) fn desktop_entry(title: &str, exec: &str, icon: &str) -> String {
     )
 }
 
+#[cfg_attr(
+    not(unix),
+    expect(clippy::unnecessary_wraps, reason = "only the Unix arm can fail")
+)]
 pub(crate) fn set_executable(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {

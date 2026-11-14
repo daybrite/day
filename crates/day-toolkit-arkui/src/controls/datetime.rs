@@ -112,6 +112,10 @@ fn set_time(n: Handle, t: DayTime) {
 }
 
 /// A wheels picker: its native width, and room for its wheels.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn measure_wheels(backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
     let natural = measure(backend, h, p);
     Size::new(natural.width, natural.height.max(WHEELS_H))

@@ -7,7 +7,7 @@ fn native<T>(mut future: ClipboardFuture<T>) -> T {
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     match future.as_mut().poll(&mut cx) {
         std::task::Poll::Ready(r) => r.expect("clipboard access"),
-        _ => panic!("use a browser event loop on web"),
+        std::task::Poll::Pending => panic!("use a browser event loop on web"),
     }
 }
 fn main() {

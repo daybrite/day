@@ -63,7 +63,10 @@ fn derived_toolbar_bindings_leave_with_their_view() {
 
     visible.set(false);
     flush_sync();
-    assert!(day_core::toolbar::toolbar_model().is_empty());
+    assert_eq!(
+        day_core::toolbar::toolbar_model(),
+        [] as [day_spec::ToolbarItem; 0]
+    );
     let patches = probe.toolbar_patches().len();
 
     // Day-Sketch replaces its editor on document changes. Old bindings must neither

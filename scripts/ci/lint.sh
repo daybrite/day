@@ -89,7 +89,9 @@ fi
 app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features mock --all-targets
 
 # 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-toolkit-material, day-toolkit-arkui,
-#    day-toolkit-appkit, …), the crates a host clippy never compiles.
+#    day-toolkit-appkit, …), the crates a host clippy never compiles. The showcase leg lints the app
+#    against the backend; the "backend crates" leg after it lints the backend itself, which Clippy
+#    skips while it is another workspace's path dependency (scripts/ci/toolkit-clippy.sh).
 # The Android and OpenHarmony legs compile C too (bundled SQLite in day-persistence, ring under
 # day-part-http's fallback TLS, napi-ohos), and cc-rs never finds an NDK's cross clang on its own.
 # The same cargo subcommands `day build` drives supply the cross environment here: `cargo ndk-env`
@@ -108,6 +110,7 @@ if have_target aarch64-linux-android; then
     HAVE_ANDROID_ENV=1
     app_leg "clippy android (material)" cargo clippy --target aarch64-linux-android --lib \
       --no-default-features --features material -- "${XCROSS[@]}"
+    leg "clippy material backend crates" scripts/ci/toolkit-clippy.sh material
   else skip "clippy android (material)" "no Android NDK found (set ANDROID_NDK_HOME)"; fi
 else skip "clippy android (material)" "rustup target add aarch64-linux-android"; fi
 
@@ -123,6 +126,7 @@ if have_target aarch64-unknown-linux-ohos; then
     export OHOS_NDK_HOME="$OHOS_SDK_NATIVE"
     app_leg "clippy harmonyos (arkui)" cargo ohos clippy --target aarch64-unknown-linux-ohos --lib \
       --no-default-features --features arkui -- "${XCROSS[@]}"
+    leg "clippy arkui backend crates" scripts/ci/toolkit-clippy.sh arkui
   else
     skip "clippy harmonyos (arkui)" "no OpenHarmony SDK: cargo ohos init sdk --api 18 --components native,toolchains (or set OHOS_SDK_NATIVE)"
   fi
@@ -137,13 +141,16 @@ if have_target wasm32-unknown-unknown; then
   app_leg "clippy web-dom (dom)" env "RUSTFLAGS=$RUSTFLAGS --cfg getrandom_backend=\"custom\"" \
     cargo clippy --target wasm32-unknown-unknown --lib \
     --no-default-features --features dom
+  leg "clippy dom backend crates" scripts/ci/toolkit-clippy.sh dom
 else skip "clippy web-dom (dom)" "rustup target add wasm32-unknown-unknown"; fi
 
 if [ "$OS" = Darwin ]; then
   app_leg "clippy appkit" cargo clippy --no-default-features --features appkit --all-targets
+  leg "clippy appkit backend crates" scripts/ci/toolkit-clippy.sh appkit
   if have_target aarch64-apple-ios-sim; then
     app_leg "clippy uikit (ios-sim)" cargo clippy --target aarch64-apple-ios-sim --lib \
       --no-default-features --features uikit
+    leg "clippy uikit backend crates" scripts/ci/toolkit-clippy.sh uikit
   else skip "clippy uikit (ios-sim)" "rustup target add aarch64-apple-ios-sim"; fi
 else
   skip "clippy appkit"       "macOS only"
@@ -153,14 +160,17 @@ fi
 # gtk/qt are portable but need their native libs (pkg-config finds them).
 if pkg-config --exists gtk4 2>/dev/null; then
   app_leg "clippy gtk" cargo clippy --no-default-features --features gtk --all-targets
+  leg "clippy gtk backend crates" scripts/ci/toolkit-clippy.sh gtk
 else skip "clippy gtk" "no gtk4 (brew install gtk4 libadwaita)"; fi
 if pkg-config --exists Qt6Core 2>/dev/null; then
   app_leg "clippy qt" cargo clippy --no-default-features --features qt --all-targets
+  leg "clippy qt backend crates" scripts/ci/toolkit-clippy.sh qt
 else skip "clippy qt" "no Qt6 (brew install qt)"; fi
 
 case "$OS" in
   MINGW*|MSYS*|CYGWIN*)
     app_leg "clippy winui" cargo clippy --no-default-features --features winui --all-targets
+    leg "clippy winui backend crates" scripts/ci/toolkit-clippy.sh winui
     app_leg "clippy xaml" cargo clippy --no-default-features --features xaml --all-targets ;;
   *) skip "clippy winui/xaml" "Windows only" ;;
 esac

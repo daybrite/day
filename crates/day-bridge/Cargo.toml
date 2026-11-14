@@ -19,3 +19,6 @@ day-spec = { workspace = true }
 day-async = { workspace = true }
 # `bridge!` emits the generated code through day-macros' `bridge_generated` (see its docs).
 day-macros = { workspace = true }
+
+[lints]
+workspace = true

@@ -56,3 +56,6 @@ required-features = ["model"]
 [[test]]
 name = "text_field_model"
 required-features = ["model"]
+
+[lints]
+workspace = true

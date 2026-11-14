@@ -107,8 +107,7 @@ pub fn reachable(session: &Session, direct: bool) -> Option<bool> {
 pub fn now_millis() -> u64 {
     std::time::UNIX_EPOCH
         .elapsed()
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 #[cfg(test)]

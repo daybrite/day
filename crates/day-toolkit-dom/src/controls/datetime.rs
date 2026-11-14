@@ -50,6 +50,10 @@ fn make_date(backend: &mut Dom, p: &DateProps, _id: NodeId) -> DomHandle {
     h
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+)]
 fn update_date(backend: &mut Dom, h: &DomHandle, patch: &DatePatch) {
     let DatePatch::SetDate(d) = patch;
     // Assigning `value` does not fire `input`, so there is no echo to guard against here.
@@ -70,6 +74,10 @@ fn make_time(backend: &mut Dom, p: &TimeProps, _id: NodeId) -> DomHandle {
     h
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+)]
 fn update_time(backend: &mut Dom, h: &DomHandle, patch: &TimePatch) {
     let TimePatch::SetTime(t) = patch;
     backend.set_attr(h, "value", &iso_time(*t));
@@ -77,6 +85,10 @@ fn update_time(backend: &mut Dom, h: &DomHandle, patch: &TimePatch) {
 
 /// A fixed-size control the browser draws; take what the layout proposes, with the same modest
 /// default the other arms report as their intrinsic size.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+)]
 fn measure(_backend: &mut Dom, _h: &DomHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(160.0), p.height.unwrap_or(28.0))
 }

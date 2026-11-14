@@ -226,7 +226,7 @@ pub fn check_manifest(path: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
-    fn report(script: &str, evidence: Value) -> Value {
+    fn report(script: &str, evidence: &Value) -> Value {
         // Synthetic protocol fixture; these are not app-owned UI declarations.
         json!({"run_id":script,"script":script,"target":"fixture-mock","id_suite":"same-build-session",
             "status":"passed","steps":{"planned":1,"failed":0,"aborted":0},
@@ -239,11 +239,11 @@ mod tests {
     fn union_and_threshold_count_families_not_actions_or_keys() {
         let a = report(
             "a",
-            json!([{"family":"save","class":"interaction"},{"family":"save","class":"assertion"}]),
+            &json!([{"family":"save","class":"interaction"},{"family":"save","class":"assertion"}]),
         );
         let b = report(
             "b",
-            json!([{"family":"row","class":"observed"},{"family":"row","class":"negative"}]),
+            &json!([{"family":"row","class":"observed"},{"family":"row","class":"negative"}]),
         );
         let mut policy = CoveragePolicy {
             enabled: true,
@@ -259,7 +259,7 @@ mod tests {
     }
     #[test]
     fn refuses_missing_mixed_failed_and_retried_evidence() {
-        let good = report("a", json!([]));
+        let good = report("a", &json!([]));
         assert!(summarize(&[], &CoveragePolicy::default()).is_err());
         assert!(summarize(&[good.clone(), good.clone()], &CoveragePolicy::default()).is_err());
         for (field, value) in [
@@ -268,7 +268,7 @@ mod tests {
             ("target", json!("other-target")),
             ("step_results", json!([])),
         ] {
-            let mut bad = report("b", json!([]));
+            let mut bad = report("b", &json!([]));
             bad[field] = value;
             assert!(
                 summarize(&[good.clone(), bad], &CoveragePolicy::default()).is_err(),
@@ -278,7 +278,7 @@ mod tests {
     }
     #[test]
     fn empty_denominator_and_exclusion_validation() {
-        let mut empty = report("a", json!([]));
+        let mut empty = report("a", &json!([]));
         empty["id_catalog"]["declarations"] = json!([]);
         let mut policy = CoveragePolicy {
             enabled: true,
@@ -293,6 +293,6 @@ mod tests {
             reason: "fixture".into(),
             targets: vec![],
         });
-        assert!(summarize(&[report("a", json!([]))], &policy).is_err());
+        assert!(summarize(&[report("a", &json!([]))], &policy).is_err());
     }
 }

@@ -10,7 +10,7 @@
 //! the frames Day recorded — because inside a `GtkListView` a `set_size_request` floor would
 //! drag the list wider than its frame (day#35). Measurement of a native leaf is likewise done
 //! with its request cleared, or the last placement becomes a floor on the next measure.
-//! Native signals connect once at realize, capturing the NodeId and emitting into the Day sink.
+//! Native signals connect once at realize, capturing the `NodeId` and emitting into the Day sink.
 
 mod controls;
 
@@ -62,6 +62,10 @@ fn gtk_input_purpose(
         InputPurpose::Decimal => (P::Number, exact),
         // No LOWERCASE here: the hint asks the input method to convert, and an account name
         // can be case-sensitive. Without an UPPERCASE hint nothing capitalizes it either.
+        #[expect(
+            clippy::match_same_arms,
+            reason = "each purpose keeps its own arm and the comment explaining its mapping"
+        )]
         InputPurpose::Username => (P::FreeForm, exact),
         InputPurpose::Password | InputPurpose::NewPassword => (P::Password, exact | H::PRIVATE),
         // A code can carry letters, so it is not `Pin`.
@@ -332,7 +336,7 @@ fn apply_button_content(
     btn.update_property(&[gtk4::accessible::Property::Label(title)]);
 }
 
-/// The title a button shows, read off its GtkLabel: the child itself for a text button, the
+/// The title a button shows, read off its `GtkLabel`: the child itself for a text button, the
 /// label beside the image for an icon-and-title one (`apply_button_content`). `gtk_label_get_text`
 /// already drops mnemonic underscores and markup. `None` for an icon-only button.
 fn button_text(btn: &gtk4::Button) -> Option<String> {
@@ -369,7 +373,7 @@ fn native_visible(h: &Handle) -> Option<bool> {
 }
 
 /// The frame of `h` in points, relative to its window's content area (the `DayCell` wrapper
-/// `build_day_window` sets as the AdwToolbarView's content, below the header bar). `None` while
+/// `build_day_window` sets as the `AdwToolbarView`'s content, below the header bar). `None` while
 /// the widget is unmapped (its allocation may be stale) or outside a Day window.
 fn native_frame(h: &Handle) -> Option<Rect> {
     if !h.is_mapped() {
@@ -392,7 +396,7 @@ fn native_frame(h: &Handle) -> Option<Rect> {
     ))
 }
 
-/// Put a [`day_spec::props::ButtonStyleSpec`] on a `GtkButton`, keeping it a GtkButton.
+/// Put a [`day_spec::props::ButtonStyleSpec`] on a `GtkButton`, keeping it a `GtkButton`.
 ///
 /// Prominent is Adwaita's own `suggested-action`. A tint sets `background-image` (which is what
 /// Adwaita's button styling uses, so a plain `background-color` would be painted over) and the
@@ -476,7 +480,7 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
             if adw::StyleManager::default().is_dark() {
                 day_spec::Color::WHITE
             } else {
-                day_spec::Color::hex(0x1a1a1a)
+                day_spec::Color::hex(0x001a_1a1a)
             }
         }
     };
@@ -491,10 +495,10 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
 fn cairo_set_color(cr: &gtk4::cairo::Context, bits: f64) {
     let v = bits as u32;
     cr.set_source_rgba(
-        ((v >> 16) & 0xff) as f64 / 255.0,
-        ((v >> 8) & 0xff) as f64 / 255.0,
-        (v & 0xff) as f64 / 255.0,
-        ((v >> 24) & 0xff) as f64 / 255.0,
+        f64::from((v >> 16) & 0xff) / 255.0,
+        f64::from((v >> 8) & 0xff) / 255.0,
+        f64::from(v & 0xff) / 255.0,
+        f64::from((v >> 24) & 0xff) / 255.0,
     );
 }
 
@@ -517,10 +521,10 @@ impl PendingGradient {
             for (o, bits) in &self.stops {
                 g.add_color_stop_rgba(
                     *o,
-                    ((bits >> 16) & 0xff) as f64 / 255.0,
-                    ((bits >> 8) & 0xff) as f64 / 255.0,
-                    (bits & 0xff) as f64 / 255.0,
-                    ((bits >> 24) & 0xff) as f64 / 255.0,
+                    f64::from((bits >> 16) & 0xff) / 255.0,
+                    f64::from((bits >> 8) & 0xff) / 255.0,
+                    f64::from(bits & 0xff) / 255.0,
+                    f64::from((bits >> 24) & 0xff) / 255.0,
                 );
             }
         };
@@ -781,8 +785,8 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
                 // Rounded rect (2 fill / 13 stroke): cairo has no primitive, so trace the four corner
                 // arcs (radius clamped to half the short side).
                 2 | 13 => {
-                    let r = e.min(c / 2.0).min(d / 2.0).max(0.0);
                     use std::f64::consts::FRAC_PI_2;
+                    let r = e.min(c / 2.0).min(d / 2.0).max(0.0);
                     cr.new_sub_path();
                     cr.arc(a + c - r, b + r, r, -FRAC_PI_2, 0.0);
                     cr.arc(a + c - r, b + d - r, r, 0.0, FRAC_PI_2);
@@ -1354,8 +1358,7 @@ fn accel_string(s: &day_spec::Shortcut) -> String {
                     let key: gtk4::gdk::Key =
                         unsafe { gtk4::glib::translate::FromGlib::from_glib(keyval) };
                     key.name()
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| k.to_lowercase())
+                        .map_or_else(|| k.to_lowercase(), |n| n.to_string())
                 }
                 _ => k.to_lowercase(),
             }
@@ -1365,7 +1368,7 @@ fn accel_string(s: &day_spec::Shortcut) -> String {
     format!("{acc}{key}")
 }
 
-/// A menu item's glyph, as the GMenuModel "icon" attribute GtkPopoverMenu renders
+/// A menu item's glyph, as the `GMenuModel` "icon" attribute `GtkPopoverMenu` renders
 /// (docs/menus.md). A symbol becomes the theme's own named icon; a bundled image becomes a
 /// file icon on the staged asset. A name the theme lacks is simply left off — a menu item
 /// reads by its label, and a broken-image placeholder would read worse than no icon.
@@ -1476,7 +1479,7 @@ pub(crate) fn build_gio_menu(
     menu
 }
 
-/// Register app-menu accelerators on the GtkApplication so shortcuts fire even without opening the bar.
+/// Register app-menu accelerators on the `GtkApplication` so shortcuts fire even without opening the bar.
 fn set_menu_accels(app: &gtk4::Application, items: &[day_spec::MenuItem]) {
     use day_spec::MenuItem as MI;
     use gtk4::prelude::*;
@@ -1496,7 +1499,7 @@ fn set_menu_accels(app: &gtk4::Application, items: &[day_spec::MenuItem]) {
     }
 }
 
-/// Register the conventional `app.preferences` GAction when the lowered model carries a
+/// Register the conventional `app.preferences` `GAction` when the lowered model carries a
 /// Preferences item. On macOS this is what enables the stock "Preferences…" entry GTK's
 /// quartz backend places in the global app menu; on GNOME it matches the shell convention.
 fn register_app_prefs_action(app: &gtk4::Application, items: &[day_spec::MenuItem]) {
@@ -1650,10 +1653,10 @@ impl NavSplit {
     }
 }
 
-/// nav host(Sidebar) → `NavSplit`; stack → AdwNavigationView (push/pop).
+/// nav host(Sidebar) → `NavSplit`; stack → `AdwNavigationView` (push/pop).
 enum NavPresent {
     Documents(Rc<DocumentHost>),
-    /// Sidebar, content list, and detail in nested GtkPaneds with draggable dividers.
+    /// Sidebar, content list, and detail in nested `GtkPaneds` with draggable dividers.
     Split(Rc<NavSplit>),
     /// `NavPresentation::Tabs`: the Adwaita view-switching idiom — an `AdwViewSwitcher` over
     /// an `AdwViewStack` of resident pages, the switcher a libadwaita app puts in its header
@@ -1670,7 +1673,7 @@ enum NavPresent {
     Suite {
         stack: adw::ViewStack,
         /// The rows the switcher shows — titles and icon names, index-aligned with the
-        /// destination pages (`p1`, `p2`, …). They arrive from the NAV_MENU, which is built
+        /// destination pages (`p1`, `p2`, …). They arrive from the `NAV_MENU`, which is built
         /// After the pages' host and may be rebuilt (`NavMenuPatch::Items`), so a page joining
         /// before or after them takes its title from here.
         rows: Rc<RefCell<SuiteRows>>,
@@ -1724,7 +1727,7 @@ impl DocumentHost {
                         num: 0.0,
                         text: String::new(),
                     },
-                )
+                );
             });
             bar.set_end_action_widget(Some(&button));
         }
@@ -1737,7 +1740,7 @@ impl DocumentHost {
                 {
                     emit(
                         NodeId(m.get()),
-                        Event::SelectionChanged(view.page_position(&page) as i64),
+                        Event::SelectionChanged(i64::from(view.page_position(&page))),
                     );
                 }
             });
@@ -1777,7 +1780,7 @@ impl DocumentHost {
                         id,
                         Event::Custom {
                             tag: "day:tab-move",
-                            num: index as f64,
+                            num: f64::from(index),
                             text: key,
                         },
                     );
@@ -1843,17 +1846,17 @@ struct NavState {
     present: NavPresent,
     /// Sidebar+detail split (nav host Sidebar) vs. a pure push/pop stack (`nav_stack`).
     split: bool,
-    /// (page GtkFixed key, node id, its AdwNavigationPage) in order (index 0 = sidebar/root).
-    /// A split pane's page has no AdwNavigationPage: its cell holds it directly.
+    /// (page `GtkFixed` key, node id, its `AdwNavigationPage`) in order (index 0 = sidebar/root).
+    /// A split pane's page has no `AdwNavigationPage`: its cell holds it directly.
     pages: Vec<(usize, NodeId, Option<adw::NavigationPage>)>,
-    /// A programmatic pop is in flight: the `popped` handler must not re-emit NavBack.
+    /// A programmatic pop is in flight: the `popped` handler must not re-emit `NavBack`.
     suppress: Rc<std::cell::Cell<bool>>,
 }
 
 struct NavMenuState {
     listbox: gtk4::ListBox,
     rows: usize,
-    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    /// Programmatic selection in flight: don't re-emit `SelectionChanged`.
     suppress: Rc<std::cell::Cell<bool>>,
     /// The row index last selected, by Day or by the user: a `row-selected` naming it again is
     /// an echo and is not reported.
@@ -1868,7 +1871,7 @@ thread_local! {
 }
 
 /// Scroll a list host to `row`, or to its end for `None` (`ListPatch::ScrollToRow` /
-/// `ScrollToEnd`). `GtkListView::scroll_to` needs v4_12 and Day targets v4_10 (and on GTK 4.20
+/// `ScrollToEnd`). `GtkListView::scroll_to` needs `v4_12` and Day targets `v4_10` (and on GTK 4.20
 /// it realized the row without moving the view), so this drives the scrolled window's vertical
 /// adjustment instead, at the row's offset by the uniform pitch (the extent over the count;
 /// docs/list.md notes the Automatic-height approximation).
@@ -1894,8 +1897,7 @@ fn scroll_list_when_laid(
         sw.child()
             .and_then(|c| c.downcast::<gtk4::ListView>().ok())
             .and_then(|lv| lv.model())
-            .map(|m| m.n_items() as usize)
-            .unwrap_or(0)
+            .map_or(0, |m| m.n_items() as usize)
     }
     /// The vertical offset of `row` (its end for `None`) by the uniform pitch, or for a sectioned
     /// list by where the row really is.
@@ -1949,9 +1951,8 @@ fn scroll_list_when_laid(
     sw.add_tick_callback(move |sw, _| {
         frames.set(frames.get() + 1);
         let frames = frames.get();
-        let sw = match sw.downcast_ref::<gtk4::ScrolledWindow>() {
-            Some(sw) => sw,
-            None => return gtk4::glib::ControlFlow::Break,
+        let Some(sw) = sw.downcast_ref::<gtk4::ScrolledWindow>() else {
+            return gtk4::glib::ControlFlow::Break;
         };
         // A newer request for this host took over.
         if LIST_SCROLL_SERIAL.with(|m| m.borrow().get(&key) != Some(&serial)) {
@@ -2069,7 +2070,7 @@ fn gtk_animation(
 }
 
 /// A nav row's title: fills the row, ellipsized. Ellipsize, or a long feed title makes the row
-/// wider than the sidebar: the ListBox's natural width then wins over its allocation and GTK
+/// wider than the sidebar: the `ListBox`'s natural width then wins over its allocation and GTK
 /// slides every row leftwards, past the window edge, leaving only the tails of the longest names
 /// visible. An ellipsizing label reports a one-ellipsis minimum instead, so the list fits the
 /// pane it is given.
@@ -2154,8 +2155,8 @@ fn refresh_nav_row(
     }
 }
 
-/// Build a nav-menu ListBox's rows (an optional template icon left of the label). Shared by the
-/// NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
+/// Build a nav-menu `ListBox`'s rows (an optional template icon left of the label). Shared by the
+/// `NAV_MENU` realize and the data-driven `NavMenuPatch::Items` rebuild.
 // The parameters are `NavMenuProps`, minus `selected`: index-aligned per-row decoration arrays.
 // Taking the props struct instead would tie this to one caller — `NavMenuPatch::Items` carries
 // the same arrays without a props value to hand over.
@@ -2176,9 +2177,9 @@ fn fill_nav_menu(
     // running it twice is a no-op.
     unparent_nav_popovers(listbox);
     for (i, item) in items.iter().enumerate() {
-        let decorated = icons.get(i).is_some_and(|o| o.is_some())
-            || badges.get(i).is_some_and(|o| o.is_some())
-            || badge_icons.get(i).is_some_and(|o| o.is_some());
+        let decorated = icons.get(i).is_some_and(std::option::Option::is_some)
+            || badges.get(i).is_some_and(std::option::Option::is_some)
+            || badge_icons.get(i).is_some_and(std::option::Option::is_some);
         let row_widget: gtk4::Widget = if decorated {
             let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
             fill_nav_row(
@@ -2222,7 +2223,7 @@ fn fill_nav_menu(
 }
 
 /// The nav menu's `header-func`: the section title recorded for this row's index, as a dim
-/// heading above it, or nothing. Installed once per ListBox at realize.
+/// heading above it, or nothing. Installed once per `ListBox` at realize.
 ///
 /// GTK calls it from a C trampoline, including while a box is being emptied during teardown,
 /// so like every other callback it runs under [`ffi_guard::contain`]: a panic that crossed the
@@ -2513,9 +2514,9 @@ struct ImageEntry {
 /// "Template"): the same near-white / near-black the sidebar's template icons use.
 fn template_foreground() -> day_spec::Color {
     if adw::StyleManager::default().is_dark() {
-        day_spec::Color::hex(0xFFFFFF)
+        day_spec::Color::hex(0x00FF_FFFF)
     } else {
-        day_spec::Color::hex(0x1A1A1A)
+        day_spec::Color::hex(0x001A_1A1A)
     }
 }
 
@@ -2553,7 +2554,7 @@ fn retint_template_images() {
             {
                 live.push((pic, entry.name.clone()));
             }
-        })
+        });
     });
     for (pic, name) in live {
         repaint_image(&pic, &name, None, true);
@@ -2564,8 +2565,8 @@ fn retint_template_images() {
 ///
 /// A `PopoverMenu` is parented to its row's label, and GTK4 requires a popover to be unparented
 /// while that parent is still alive. Destroying the rows first leaves each popover pointing at
-/// freed memory — GTK says so at the time ("Finalizing GtkLabel, but it still has children left:
-/// GtkPopoverMenu") — and the later `unparent()` then walks a dead parent chain inside
+/// freed memory — GTK says so at the time ("Finalizing `GtkLabel`, but it still has children left:
+/// `GtkPopoverMenu`") — and the later `unparent()` then walks a dead parent chain inside
 /// `gtk_widget_unparent` → `gtk_accessible_update_children`, which is where the
 /// `gtk_widget_is_ancestor`/`gtk_accessible_get_accessible_role` criticals came from.
 ///
@@ -2582,7 +2583,7 @@ fn unparent_nav_popovers(listbox: &gtk4::ListBox) {
     });
 }
 
-/// Attach a context menu to one nav row (docs/menus.md): the same gio-menu + PopoverMenu +
+/// Attach a context menu to one nav row (docs/menus.md): the same gio-menu + `PopoverMenu` +
 /// secondary-click/long-press gestures the piece decorator uses, minus its per-widget
 /// bookkeeping (the caller owns the popover's lifetime via [`NAV_ROW_POPOVERS`]).
 fn attach_row_context_menu(w: &gtk4::Widget, items: &[day_spec::MenuItem]) -> gtk4::PopoverMenu {
@@ -2853,36 +2854,37 @@ fn scroll_transparent_css() {
 /// (a unique `.day-surface-N` class added to just this widget). `overflow: hidden` rounds the
 /// child clip. Idempotent — reuses the provider on a reactive background patch.
 fn apply_surface(w: &Handle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
+    use std::fmt::Write as _;
     let key = widget_key(w);
     let class = format!("day-surface-{key}");
-    let provider = match SURFACE.with(|t| t.get(key)) {
-        Some(p) => p,
-        None => {
-            let p = gtk4::CssProvider::new();
-            if let Some(display) = gtk4::gdk::Display::default() {
-                gtk4::style_context_add_provider_for_display(
-                    &display,
-                    &p,
-                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-                );
-            }
-            w.add_css_class(&class);
-            SURFACE.with(|t| t.insert(key, p.clone()));
-            p
+    let provider = if let Some(p) = SURFACE.with(|t| t.get(key)) {
+        p
+    } else {
+        let p = gtk4::CssProvider::new();
+        if let Some(display) = gtk4::gdk::Display::default() {
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &p,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
         }
+        w.add_css_class(&class);
+        SURFACE.with(|t| t.insert(key, p.clone()));
+        p
     };
     let mut body = String::new();
     if let Some(c) = bg {
-        body.push_str(&format!(
+        let _ = write!(
+            body,
             "background-color: rgba({},{},{},{});",
             (c.r * 255.0).round() as u32,
             (c.g * 255.0).round() as u32,
             (c.b * 255.0).round() as u32,
             c.a
-        ));
+        );
     }
     if corner_radius > 0.0 {
-        body.push_str(&format!("border-radius: {corner_radius}px;"));
+        let _ = write!(body, "border-radius: {corner_radius}px;");
     }
     provider.load_from_data(&format!(".{class} {{ {body} }}"));
     if clips || corner_radius > 0.0 {
@@ -2890,7 +2892,7 @@ fn apply_surface(w: &Handle, bg: Option<day_spec::Color>, corner_radius: f64, cl
     }
 }
 
-/// Emit each page's content size so NavLayout re-lays it (enqueue-only, §8.3). Split: each
+/// Emit each page's content size so `NavLayout` re-lays it (enqueue-only, §8.3). Split: each
 /// pane's page gets its pane's width — the dividers are user-draggable, so this runs on every
 /// drag and every allocation; stack: every page fills the host.
 fn nav_report(host_key: usize) {
@@ -2900,10 +2902,14 @@ fn nav_report(host_key: usize) {
             return Vec::new();
         };
         let (hw, hh) = match &state.present {
-            NavPresent::Split(sp) => (sp.outer.width() as f64, sp.outer.height() as f64),
-            NavPresent::Stack(nv) => (nv.width() as f64, nv.height() as f64),
-            NavPresent::Documents(doc) => (doc.view.width() as f64, doc.view.height() as f64),
-            NavPresent::Suite { stack, .. } => (stack.width() as f64, stack.height() as f64),
+            NavPresent::Split(sp) => (f64::from(sp.outer.width()), f64::from(sp.outer.height())),
+            NavPresent::Stack(nv) => (f64::from(nv.width()), f64::from(nv.height())),
+            NavPresent::Documents(doc) => {
+                (f64::from(doc.view.width()), f64::from(doc.view.height()))
+            }
+            NavPresent::Suite { stack, .. } => {
+                (f64::from(stack.width()), f64::from(stack.height()))
+            }
         };
         if hw <= 0.0 || hh <= 0.0 {
             return Vec::new();
@@ -2914,7 +2920,7 @@ fn nav_report(host_key: usize) {
         // `DayCell`, so what Day lays into it never feeds back as a GTK minimum.
         let pane_w = |cell: &DayCell, remembered: i32| {
             if cell.is_visible() && cell.width() > 0 {
-                cell.width() as f64
+                f64::from(cell.width())
             } else {
                 f64::from(remembered)
             }
@@ -2961,8 +2967,9 @@ fn nav_report(host_key: usize) {
                     None => STACK_PAGE_CELLS
                         .with(|m| m.borrow().get(key).cloned())
                         .filter(|cell| cell.width() > 0 && cell.height() > 0)
-                        .map(|cell| Size::new(cell.width() as f64, cell.height() as f64))
-                        .unwrap_or(Size::new(hw, hh)),
+                        .map_or(Size::new(hw, hh), |cell| {
+                            Size::new(f64::from(cell.width()), f64::from(cell.height()))
+                        }),
                 };
                 (*id, size)
             })
@@ -3096,7 +3103,7 @@ impl SplitState {
     }
     /// [`Self::place`] for a length the paned is about to be allocated: the host's hook runs
     /// before the paned is allocated (`DayCell::size_allocate`), when the paned still measures
-    /// zero, so the first placement takes the host's length instead. GtkPaned keeps a
+    /// zero, so the first placement takes the host's length instead. `GtkPaned` keeps a
     /// position set before its allocation and clamps it to the panes' minimums then.
     fn place_along(&mut self, len: i32) {
         let usable = f64::from(len - NavSplit::HANDLE).max(0.0);
@@ -3118,7 +3125,7 @@ impl SplitState {
     }
 }
 
-/// Emit each inspector pane's content size so `InspectorLayout` re-lays it (the nav_report
+/// Emit each inspector pane's content size so `InspectorLayout` re-lays it (the `nav_report`
 /// counterpart). The panel reports its width even while hidden, so revealing it never re-lays
 /// the panel's content from zero.
 fn inspector_report(host_key: usize) {
@@ -3126,14 +3133,17 @@ fn inspector_report(host_key: usize) {
         .with(|t| t.get(host_key))
         .map(|state| {
             let state = state.borrow();
-            let (hw, hh) = (state.paned.width() as f64, state.paned.height() as f64);
+            let (hw, hh) = (
+                f64::from(state.paned.width()),
+                f64::from(state.paned.height()),
+            );
             if hw <= 0.0 || hh <= 0.0 {
                 return Vec::new();
             }
             // The panel's allocation once it has one (the divider may have moved it), its
             // remembered width until then and while hidden; the content gets the rest.
             let panel_w = if state.shown && state.panel.width() > 0 {
-                state.panel.width() as f64
+                f64::from(state.panel.width())
             } else {
                 state.width
             };
@@ -3181,9 +3191,9 @@ struct ListEntry {
 /// The pinned copy of a sectioned list's current header (docs/list.md "Sections";
 /// `Cap::ListSections` is Emulated here).
 ///
-/// GtkListView's own section headers (GtkSectionModel + header factory, GTK 4.12) scroll away with
+/// `GtkListView`'s own section headers (`GtkSectionModel` + header factory, GTK 4.12) scroll away with
 /// their rows, so a sectioned list's headers are ordinary rows of the flat model, and the list's
-/// host is a GtkOverlay over its scrolled window. One extra `DayCell` above it holds the header of
+/// host is a `GtkOverlay` over its scrolled window. One extra `DayCell` above it holds the header of
 /// the section the topmost visible row belongs to, bound through `bind_pinned` (a row bind that
 /// leaves the copy without element ids), with an opaque strip behind it so the rows do not show
 /// through. The overlay's `get-child-position` places both: GTK runs it right after it allocated
@@ -3538,7 +3548,7 @@ fn mark_list_header(li: &gtk4::ListItem, header: bool) {
     }
 }
 
-/// A list's bound cells: physical cell (DayCell ptr) → the GtkListItem it fills. Written by the
+/// A list's bound cells: physical cell (`DayCell` ptr) → the `GtkListItem` it fills. Written by the
 /// factory's bind, cleared by its unbind; weak, so a disposed list item is simply skipped.
 type BoundCells = Rc<RefCell<HashMap<usize, gtk4::glib::WeakRef<gtk4::ListItem>>>>;
 
@@ -3616,7 +3626,7 @@ mod day_cell {
         /// so they must not queue another.
         allocating: std::cell::Cell<bool>,
         /// Filling: the cell asks for nothing in either direction and every child gets the whole
-        /// allocation. That is what the `External`-policy ScrolledWindows did around a nav pane's
+        /// allocation. That is what the `External`-policy `ScrolledWindows` did around a nav pane's
         /// or the window's content — break minimum-size propagation — minus a scroll window that
         /// must never scroll.
         fill: std::cell::Cell<bool>,
@@ -3659,8 +3669,7 @@ mod day_cell {
                 .height
                 .borrow()
                 .as_ref()
-                .map(|h| h(self.obj().as_ptr() as RawHandle))
-                .unwrap_or(0.0);
+                .map_or(0.0, |h| h(self.obj().as_ptr() as RawHandle));
             let height = if laid > 0.0 {
                 laid.ceil() as i32
             } else {
@@ -3748,7 +3757,7 @@ mod day_cell {
             }
             self.laid.set(width);
             let cell = self.obj().as_ptr() as RawHandle;
-            ffi_guard::contain((), || layout(cell, f64::from(width)));
+            ffi_guard::contain((), move || layout(cell, f64::from(width)));
         }
     }
 
@@ -3817,7 +3826,7 @@ impl DayCell {
     }
 }
 
-/// Day's row height is the row's height. GtkListView's themed `row` node pads each row
+/// Day's row height is the row's height. `GtkListView`'s themed `row` node pads each row
 /// vertically (2px under Adwaita), which was added on top of every `RowHeight` — a 56pt row drew
 /// 60 — and grew an automatic row past what Day measured for it. The horizontal padding stays
 /// (the cell fits inside it; see `DayCell`); vertically, Day's policy is the one that counts.
@@ -3893,7 +3902,7 @@ fn tree_row_token(row: &gtk4::TreeListRow) -> Option<u64> {
         .ok()
 }
 
-/// The children of `parent` as a StringList of tokens, from the source's snapshot.
+/// The children of `parent` as a `StringList` of tokens, from the source's snapshot.
 fn tree_children_model(src: &TreeSource, parent: Option<u64>) -> gtk4::StringList {
     let list = gtk4::StringList::new(&[]);
     let n = (src.children_len)(parent);
@@ -4081,10 +4090,10 @@ fn show_menu_popover(w: &Handle, items: &[day_spec::MenuItem], x: f64, y: f64) {
     popover.popup();
 }
 
-/// Bring the backing model to `n` rows (content is irrelevant — bind_row provides it), then
+/// Bring the backing model to `n` rows (content is irrelevant — `bind_row` provides it), then
 /// re-bind the rows GTK already shows, in place.
 ///
-/// Only the count difference is spliced. Replacing every item would make GtkListView destroy
+/// Only the count difference is spliced. Replacing every item would make `GtkListView` destroy
 /// each row widget and set up a new one (it keeps a widget only for an item that stays in the
 /// model), so a same-size reload would build every bound row a second time while day-core
 /// still holds the first set, with its effects and tasks still running. A row that keeps its
@@ -4101,9 +4110,9 @@ fn list_resize(
     let mut kept: Vec<gtk4::ListItem> = bound
         .borrow()
         .values()
-        .filter_map(|li| li.upgrade())
+        .filter_map(gtk4::glib::WeakRef::upgrade)
         .collect();
-    kept.sort_by_key(|li| li.position());
+    kept.sort_by_key(gtk4::prelude::ListItemExt::position);
     let (cur32, n32) = (cur as u32, n as u32);
     if n > cur {
         let blanks: Vec<&str> = vec![""; n - cur];
@@ -4134,9 +4143,9 @@ fn list_resize(
     }
 }
 
-/// Resize the model on the next main-loop turn. CRUCIAL: `splice` makes GtkListView bind visible
-/// cells SYNCHRONOUSLY (unlike NSTableView's deferred reloadData), and a reload is driven from
-/// inside a `with_tree` borrow — so resizing inline would re-enter `with_tree` (bind_row) and
+/// Resize the model on the next main-loop turn. CRUCIAL: `splice` makes `GtkListView` bind visible
+/// cells SYNCHRONOUSLY (unlike `NSTableView`'s deferred reloadData), and a reload is driven from
+/// inside a `with_tree` borrow — so resizing inline would re-enter `with_tree` (`bind_row`) and
 /// panic. Deferring to an idle runs the bind after the borrow is released.
 fn schedule_list_resize(
     model: gtk4::StringList,
@@ -4147,7 +4156,7 @@ fn schedule_list_resize(
     gtk4::glib::idle_add_local_once(move || {
         // Contained: `len` is app code and the splice re-binds through day-core (bind_row).
         ffi_guard::contain((), || {
-            let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
+            let n = source.borrow().as_ref().map_or(0, |s| (s.len)());
             if let Some(selection) = &selection {
                 selection.suppress.set(true);
             }
@@ -4165,13 +4174,11 @@ fn schedule_list_resize(
 /// directory to write to.
 fn symbolic_icon_dir() -> Option<std::path::PathBuf> {
     thread_local! {
-        static DIR: RefCell<Option<Option<std::path::PathBuf>>> = const { RefCell::new(None) };
+        static DIR: std::cell::OnceCell<Option<std::path::PathBuf>> =
+            const { std::cell::OnceCell::new() };
     }
     DIR.with(|d| {
-        if let Some(known) = d.borrow().as_ref() {
-            return known.clone();
-        }
-        let made = (|| {
+        d.get_or_init(|| {
             // XDG on every platform; one directory per executable, so two apps' vectors of
             // one name never meet.
             let root = std::env::var_os("XDG_CACHE_HOME")
@@ -4194,9 +4201,8 @@ fn symbolic_icon_dir() -> Option<std::path::PathBuf> {
             let display = gtk4::gdk::Display::default()?;
             gtk4::IconTheme::for_display(&display).add_search_path(&dir);
             Some(dir)
-        })();
-        *d.borrow_mut() = Some(made.clone());
-        made
+        })
+        .clone()
     })
 }
 
@@ -4210,6 +4216,7 @@ fn symbolic_icon_dir() -> Option<std::path::PathBuf> {
 /// through the same librsvg path the sidebar rows use, at 4× the display size for HiDPI, and
 /// refreshed when the vector is newer. `None` for a name no vector answers to, so the caller
 /// falls back to the blank glyph rather than the broken-image box.
+#[must_use]
 pub fn vector_icon_name(name: &str) -> Option<String> {
     if name.is_empty() {
         return None;
@@ -4264,6 +4271,7 @@ fn icon_theme_rescan() {
 /// [`vector_icon_name`] stages a bundled vector, so a widget that takes only an icon name (an
 /// `AdwViewStackPage`) draws the same glyph a toolbar button would. `None` where nothing can be
 /// staged (no cache directory, no display).
+#[must_use]
 pub fn symbol_icon_name(sym: day_spec::Symbol) -> Option<String> {
     if let Some(name) = toolbar::icon_name_for(sym) {
         return Some(name.to_string());
@@ -4545,12 +4553,12 @@ impl DialogHost {
                 emit(
                     node,
                     Event::WindowResized(Size::new(f64::from(w), f64::from(h))),
-                )
-            })
+                );
+            });
         });
         toolbar.set_content(Some(&cell));
         dialog.set_child(Some(&toolbar));
-        self.install(dialog);
+        self.install(&dialog);
     }
 
     /// The `AdwPreferencesDialog` the settings shell fills: made on the first claim, answered
@@ -4561,13 +4569,13 @@ impl DialogHost {
         }
         let dialog = adw::PreferencesDialog::new();
         dialog.set_title(&self.title.borrow());
-        self.install(dialog.clone().upcast());
+        self.install(dialog.upcast_ref());
         Some(dialog)
     }
 
     /// Keep `dialog`, wire its close to day-core's confirm path, and present it on the next
     /// main-loop turn.
-    fn install(self: &Rc<Self>, dialog: adw::Dialog) {
+    fn install(self: &Rc<Self>, dialog: &adw::Dialog) {
         *self.dialog.borrow_mut() = Some(dialog.clone());
         let node = self.node;
         let parent = self.parent.clone();
@@ -4579,7 +4587,7 @@ impl DialogHost {
                 }
                 DIALOGS.with(|v| {
                     v.borrow_mut()
-                        .retain(|h| h.dialog.borrow().as_ref() != Some(d))
+                        .retain(|h| h.dialog.borrow().as_ref() != Some(d));
                 });
                 // The window underneath is key again: an in-window dialog never changed the
                 // toplevel's active state, so nothing else reports it.
@@ -4589,7 +4597,7 @@ impl DialogHost {
                 }
                 // day-core tears down on a deferred hop, never inside this signal.
                 emit(node, Event::WindowClosed);
-            })
+            });
         });
         let host = Rc::downgrade(self);
         gtk4::glib::idle_add_local_once(move || {
@@ -4597,7 +4605,7 @@ impl DialogHost {
                 if let Some(h) = host.upgrade() {
                     h.present();
                 }
-            })
+            });
         });
     }
 
@@ -4652,16 +4660,14 @@ impl DialogHost {
         let Some(dialog) = self.dialog.borrow().clone() else {
             return;
         };
-        let bar = find_header_bar(dialog.upcast_ref())
-            .map(|h| {
-                let h = h.measure(gtk4::Orientation::Vertical, -1).1;
-                if h > 0 {
-                    f64::from(h)
-                } else {
-                    HEADER_BAR_FALLBACK_H
-                }
-            })
-            .unwrap_or(0.0);
+        let bar = find_header_bar(dialog.upcast_ref()).map_or(0.0, |h| {
+            let h = h.measure(gtk4::Orientation::Vertical, -1).1;
+            if h > 0 {
+                f64::from(h)
+            } else {
+                HEADER_BAR_FALLBACK_H
+            }
+        });
         let size = self.size.get();
         // Never narrower than libadwaita's own preferences dialog (640px): the header's view
         // switcher is laid out for that width, and narrower it truncates every page title
@@ -4686,7 +4692,7 @@ impl DialogHost {
                 let node = self.node;
                 DIALOGS.with(|v| v.borrow_mut().retain(|h| h.node != node));
                 gtk4::glib::idle_add_local_once(move || {
-                    ffi_guard::contain((), || emit(node, Event::WindowClosed))
+                    ffi_guard::contain((), || emit(node, Event::WindowClosed));
                 });
             }
         }
@@ -4701,6 +4707,7 @@ const ADW_PREFERENCES_WIDTH: f64 = 640.0;
 /// which must come before any content mounts into the window (the shell's realize does); `None`
 /// when `root` is not a dialog-hosted `WindowKind::Preferences` panel, or when its content
 /// already took a plain dialog.
+#[must_use]
 pub fn preferences_dialog_of(root: NodeId) -> Option<adw::PreferencesDialog> {
     dialog_host_of_node(root)
         .filter(|h| h.kind == day_spec::WindowKind::Preferences)
@@ -4712,7 +4719,7 @@ type AnnounceFn =
     unsafe extern "C" fn(*mut gtk4::ffi::GtkAccessible, *const std::ffi::c_char, std::ffi::c_int);
 
 /// `gtk_accessible_announce`, if the GTK this process loaded has it (4.14; the binding is
-/// pinned at v4_10, so the symbol is looked up rather than linked).
+/// pinned at `v4_10`, so the symbol is looked up rather than linked).
 fn announce_symbol() -> Option<AnnounceFn> {
     #[cfg(unix)]
     {
@@ -4757,7 +4764,7 @@ fn announce_through(widget: &gtk4::Widget, text: &str, urgent: bool) {
             widget.as_ptr().cast::<gtk4::ffi::GtkAccessible>(),
             text.as_ptr(),
             priority,
-        )
+        );
     };
 }
 
@@ -4781,6 +4788,7 @@ pub struct Gtk {
 }
 
 impl Gtk {
+    #[must_use]
     pub fn new() -> Self {
         register_resources();
         let mut registry = Registry::default();
@@ -4811,17 +4819,21 @@ impl Gtk {
         let primary = self
             .window_fixed
             .as_ref()
-            .and_then(|f| f.root())
+            .and_then(gtk4::prelude::WidgetExt::root)
             .and_then(|r| r.downcast::<gtk4::Window>().ok());
         self.secondary
             .iter()
             .find(|w| w.window.is_active())
             .map(|w| w.window.clone().upcast())
-            .or_else(|| primary.clone().filter(|w| w.is_active()))
+            .or_else(|| {
+                primary
+                    .clone()
+                    .filter(gtk4::prelude::GtkWindowExt::is_active)
+            })
             .or_else(|| {
                 LAST_ACTIVE_WINDOW
-                    .with(|w| w.borrow().as_ref().and_then(|w| w.upgrade()))
-                    .filter(|w| w.is_visible())
+                    .with(|w| w.borrow().as_ref().and_then(gtk4::glib::WeakRef::upgrade))
+                    .filter(gtk4::prelude::WidgetExt::is_visible)
             })
             .or_else(|| {
                 self.secondary
@@ -4833,7 +4845,7 @@ impl Gtk {
             .or(primary)
     }
 
-    /// The GtkWindow whose content container is `host`: a secondary window's, or the
+    /// The `GtkWindow` whose content container is `host`: a secondary window's, or the
     /// primary's (`window_fixed`, which `ready` handed out).
     fn gtk_window_for(&self, host: &Handle) -> Option<gtk4::Window> {
         if let Some(w) = self
@@ -4846,7 +4858,7 @@ impl Gtk {
         self.window_fixed
             .as_ref()
             .filter(|f| f.upcast_ref::<gtk4::Widget>() == host)
-            .and_then(|f| f.root())
+            .and_then(gtk4::prelude::WidgetExt::root)
             .and_then(|r| r.downcast::<gtk4::Window>().ok())
     }
 }
@@ -4890,7 +4902,7 @@ fn apply_app_icon(window: &adw::ApplicationWindow) {
     }
 }
 
-/// Register the app's native GResource blob (§18.3) — `day build` compiles images + data into it and
+/// Register the app's native `GResource` blob (§18.3) — `day build` compiles images + data into it and
 /// `day launch` points `DAY_GRESOURCE` at it. Once registered, data reads go through
 /// `g_resources_lookup_data` (zero-copy from the mmapped blob) via [`open_resource`], and images load
 /// with `gtk_picture_new_for_resource`.
@@ -4905,7 +4917,7 @@ fn register_resources() {
     day_spec::resource::set_resource_opener(open_resource);
 }
 
-/// `resource("name")` → the `/day/assets/<name>` GResource entry, borrowed zero-copy (the `GBytes`
+/// `resource("name")` → the `/day/assets/<name>` `GResource` entry, borrowed zero-copy (the `GBytes`
 /// points into the mmapped, uncompressed blob and is held as the guard).
 fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
     let path = format!("/day/assets/{name}");
@@ -4928,8 +4940,13 @@ impl Default for Gtk {
 /// so we approximate the platform typographic scale (matching the Apple text-style sizes for cross-
 /// platform consistency). Pango point sizes are rendered through the Xft DPI, which GNOME's
 /// text-scaling-factor (Settings ▸ Accessibility ▸ Large Text) feeds — so these scale for accessibility.
+#[must_use]
+#[expect(
+    clippy::match_same_arms,
+    reason = "one row per text style, in the order of the type scale it approximates"
+)]
 pub fn gtk_style(f: Font) -> (f64, day_spec::FontWeight) {
-    use day_spec::FontWeight::*;
+    use day_spec::FontWeight::{Regular, Semibold};
     match f {
         Font::LargeTitle => (26.0, Regular),
         Font::Title => (22.0, Regular),
@@ -4942,13 +4959,13 @@ pub fn gtk_style(f: Font) -> (f64, day_spec::FontWeight) {
         Font::Footnote => (10.0, Regular),
         Font::Caption => (10.0, Regular),
         Font::Caption2 => (10.0, Regular),
-        Font::System(pt) => (pt, Regular),
-        Font::Custom(_, pt) => (pt, Regular),
+        Font::System(pt) | Font::Custom(_, pt) => (pt, Regular),
     }
 }
 
 /// A Day weight as a Pango one. Public for standalone pieces that build their own Pango
 /// attributes or text tags (docs/extending.md).
+#[must_use]
 pub fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
     use day_spec::FontWeight as W;
     use gtk4::pango::Weight;
@@ -4986,6 +5003,7 @@ struct LabelStyle {
 /// ordering the run tags need.
 fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String {
     use gtk4::pango;
+    use std::fmt::Write as _;
     let (size_pt, inherent) = gtk_style(spec.style);
     let weight = spec.weight.unwrap_or(inherent);
     let mut s = String::from("<span");
@@ -4993,17 +5011,19 @@ fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String
     if spec.monospace {
         s.push_str(" font_family=\"monospace\"");
     } else if let Font::Custom(family, _) = spec.style {
-        s.push_str(&format!(" font_family=\"{family}\""));
+        let _ = write!(s, " font_family=\"{family}\"");
     }
     // Pango markup sizes are in 1024ths of a point, the same unit as `AttrSize`.
-    s.push_str(&format!(
+    let _ = write!(
+        s,
         " size=\"{}\"",
-        (size_pt * pango::SCALE as f64) as i32
-    ));
-    s.push_str(&format!(
+        (size_pt * f64::from(pango::SCALE)) as i32
+    );
+    let _ = write!(
+        s,
         " weight=\"{}\"",
         gtk4::glib::translate::IntoGlib::into_glib(pango_weight(weight))
-    ));
+    );
     if spec.italic {
         s.push_str(" style=\"italic\"");
     }
@@ -5012,17 +5032,15 @@ fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String
     }
     if let Some(c) = color {
         let ch = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
-        s.push_str(&format!(
+        let _ = write!(
+            s,
             " foreground=\"#{:02x}{:02x}{:02x}\"",
             ch(c.r),
             ch(c.g),
             ch(c.b)
-        ));
+        );
         if c.a < 1.0 {
-            s.push_str(&format!(
-                " alpha=\"{}\"",
-                (c.a.clamp(0.0, 1.0) * 65535.0) as u16
-            ));
+            let _ = write!(s, " alpha=\"{}\"", (c.a.clamp(0.0, 1.0) * 65535.0) as u16);
         }
     }
     s.push('>');
@@ -5064,7 +5082,7 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
         fam.set_start_index(0);
         attrs.insert(fam);
     }
-    let mut size = pango::AttrSize::new((size_pt * pango::SCALE as f64) as i32);
+    let mut size = pango::AttrSize::new((size_pt * f64::from(pango::SCALE)) as i32);
     size.set_start_index(0);
     attrs.insert(size);
     let mut w = pango::AttrInt::new_weight(pango_weight(weight));
@@ -5100,6 +5118,10 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
 ///
 /// A label with styled runs re-renders its markup instead of taking an attribute list, since the
 /// list would override the runs (see [`base_span`]).
+#[expect(
+    clippy::option_option,
+    reason = "outer `None` leaves the color as it is; the inner value is the label's optional color"
+)]
 fn update_text_attrs(
     label: &gtk4::Label,
     font: Option<day_spec::FontSpec>,
@@ -5234,7 +5256,7 @@ fn check_bundled_fonts(widget: &impl gtk4::prelude::IsA<gtk4::Widget>) {
 }
 
 /// If `parent` is a scrolled window, children go into its content fixed. NOTE: GTK4 auto-wraps
-/// non-scrollable children in a GtkViewport, so `sw.child()` is the viewport, not our Fixed.
+/// non-scrollable children in a `GtkViewport`, so `sw.child()` is the viewport, not our Fixed.
 fn content_of(parent: &Handle) -> Handle {
     if let Some(sw) = parent.downcast_ref::<gtk4::ScrolledWindow>()
         && let Some(child) = sw.child()
@@ -5297,6 +5319,10 @@ impl Toolkit for Gtk {
         handle.set_visible(visible);
     }
 
+    #[expect(
+        clippy::match_same_arms,
+        reason = "one arm per capability, each documented with the GTK mechanism behind it"
+    )]
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             // A reordering sidebar is Day's own list standing in for the native one: the rows
@@ -5468,8 +5494,9 @@ impl Toolkit for Gtk {
             Some(Builtin::Inspector) => {
                 let (visible, width, edge) = props
                     .downcast_ref::<InspectorProps>()
-                    .map(|p| (p.visible, p.width, p.edge))
-                    .unwrap_or((false, 280.0, PaneEdge::Trailing));
+                    .map_or((false, 280.0, PaneEdge::Trailing), |p| {
+                        (p.visible, p.width, p.edge)
+                    });
                 // A GtkPaned, the nav split's device (`NavSplit` records why not the Adw
                 // split): the panel is a filling `DayCell` whose size request is the honest
                 // minimum, the content another whose request is nothing, and neither may
@@ -5585,8 +5612,9 @@ impl Toolkit for Gtk {
             Some(Builtin::Split) => {
                 let (axis, fraction, min_pane) = props
                     .downcast_ref::<SplitProps>()
-                    .map(|p| (p.axis, p.fraction, p.min_pane))
-                    .unwrap_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0));
+                    .map_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0), |p| {
+                        (p.axis, p.fraction, p.min_pane)
+                    });
                 let stacked = axis == day_spec::props::SplitAxis::Vertical;
                 let first = DayCell::filling();
                 let second = DayCell::filling();
@@ -5702,8 +5730,7 @@ impl Toolkit for Gtk {
                 let w: Handle = gtk4::Fixed::new().upcast();
                 let second = props
                     .downcast_ref::<SplitPaneProps>()
-                    .map(|p| p.second)
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.second);
                 SPLIT_PANES.with(|t| t.insert(widget_key(&w), (id, second)));
                 w
             }
@@ -5711,16 +5738,14 @@ impl Toolkit for Gtk {
                 let w: Handle = gtk4::Fixed::new().upcast();
                 let panel = props
                     .downcast_ref::<InspectorPaneProps>()
-                    .map(|p| p.panel)
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.panel);
                 INSPECTOR_PANES.with(|t| t.insert(widget_key(&w), (id, panel)));
                 w
             }
             Some(Builtin::Nav) => {
                 let presentation = props
                     .downcast_ref::<NavProps>()
-                    .map(|p| p.presentation)
-                    .unwrap_or(day_spec::props::NavPresentation::Split);
+                    .map_or(day_spec::props::NavPresentation::Split, |p| p.presentation);
                 let is_split = presentation.is_split();
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 if let Some(config) = props
@@ -5879,7 +5904,7 @@ impl Toolkit for Gtk {
                         cell.on_allocate(move |width, height| {
                             if last.replace((width, height)) != (width, height) {
                                 ffi_guard::contain((), || {
-                                    nav_pane_report(key, pane, width, height)
+                                    nav_pane_report(key, pane, width, height);
                                 });
                             }
                         });
@@ -6037,7 +6062,7 @@ impl Toolkit for Gtk {
                             if let Some(row) = row
                                 && current.replace(Some(row.index())) != Some(row.index())
                             {
-                                emit(id, Event::SelectionChanged(row.index() as i64));
+                                emit(id, Event::SelectionChanged(i64::from(row.index())));
                             }
                         });
                     });
@@ -6057,7 +6082,7 @@ impl Toolkit for Gtk {
                 let handle: Handle = sw.upcast();
                 DOCUMENT_MENU_KEYS.with(|m| {
                     m.borrow_mut()
-                        .insert(widget_key(&handle), p.document_keys.to_vec());
+                        .insert(widget_key(&handle), p.document_keys.clone());
                 });
                 NAV_MENU_ROWS.with(|m| {
                     m.borrow_mut()
@@ -6079,8 +6104,7 @@ impl Toolkit for Gtk {
             Some(Builtin::Scroll) => {
                 let horizontal = props
                     .downcast_ref::<day_spec::props::ScrollProps>()
-                    .map(|p| p.horizontal)
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.horizontal);
                 let sw = gtk4::ScrolledWindow::new();
                 if horizontal {
                     sw.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Never);
@@ -6153,7 +6177,7 @@ impl Toolkit for Gtk {
                             Some(f) => pop_button_menu(b.upcast_ref(), &f),
                             None => emit(id, Event::Pressed),
                         }
-                    })
+                    });
                 });
                 wire_focus(&btn, id);
                 btn.upcast()
@@ -6166,7 +6190,7 @@ impl Toolkit for Gtk {
                 sw.set_active(p.on);
                 sw.set_sensitive(p.enabled);
                 sw.connect_active_notify(move |s| {
-                    ffi_guard::contain((), || emit(id, Event::ToggleChanged(s.is_active())))
+                    ffi_guard::contain((), || emit(id, Event::ToggleChanged(s.is_active())));
                 });
                 wire_focus(&sw, id);
                 sw.upcast()
@@ -6181,7 +6205,7 @@ impl Toolkit for Gtk {
                 scale.set_value(p.value);
                 scale.set_draw_value(false);
                 scale.connect_value_changed(move |s| {
-                    ffi_guard::contain((), || emit(id, Event::ValueChanged(s.value())))
+                    ffi_guard::contain((), || emit(id, Event::ValueChanged(s.value())));
                 });
                 // GtkScale has no "drag ended" signal — `value-changed` fires on every motion
                 // step — so the settled value comes from the interactions that END one: the
@@ -6193,7 +6217,7 @@ impl Toolkit for Gtk {
                 {
                     let scale = scale.clone();
                     released.connect_released(move |_, _n, _x, _y| {
-                        ffi_guard::contain((), || emit(id, Event::ValueCommitted(scale.value())))
+                        ffi_guard::contain((), || emit(id, Event::ValueCommitted(scale.value())));
                     });
                 }
                 scale.add_controller(released);
@@ -6202,7 +6226,7 @@ impl Toolkit for Gtk {
                 {
                     let scale = scale.clone();
                     keys.connect_key_released(move |_, _k, _c, _m| {
-                        ffi_guard::contain((), || emit(id, Event::ValueCommitted(scale.value())))
+                        ffi_guard::contain((), || emit(id, Event::ValueCommitted(scale.value())));
                     });
                 }
                 scale.add_controller(keys);
@@ -6222,10 +6246,10 @@ impl Toolkit for Gtk {
                     if FIELD_WRITE.with(std::cell::Cell::get) {
                         return;
                     }
-                    ffi_guard::contain((), || emit(id, Event::TextChanged(e.text().to_string())))
+                    ffi_guard::contain((), || emit(id, Event::TextChanged(e.text().to_string())));
                 });
                 entry.connect_activate(move |_| {
-                    ffi_guard::contain((), || emit(id, Event::Submitted))
+                    ffi_guard::contain((), || emit(id, Event::Submitted));
                 });
                 // The keys a field with a key handler claims (docs/textfield.md "Keys"), heard
                 // in the capture phase so the inner GtkText never acts on them: Up and Down
@@ -6269,17 +6293,14 @@ impl Toolkit for Gtk {
                 if p.value.is_none() {
                     return crate::controls::spinner::make(self, p, id);
                 }
-                match p.value {
-                    Some(v) => {
-                        let bar = gtk4::ProgressBar::new();
-                        bar.set_fraction(v);
-                        bar.upcast()
-                    }
-                    None => {
-                        let spin = gtk4::Spinner::new();
-                        spin.start();
-                        spin.upcast()
-                    }
+                if let Some(v) = p.value {
+                    let bar = gtk4::ProgressBar::new();
+                    bar.set_fraction(v);
+                    bar.upcast()
+                } else {
+                    let spin = gtk4::Spinner::new();
+                    spin.start();
+                    spin.upcast()
                 }
             }
             Some(Builtin::Canvas) => {
@@ -6305,7 +6326,7 @@ impl Toolkit for Gtk {
                         if let Some(w) = g.widget() {
                             w.grab_focus();
                         }
-                    })
+                    });
                 });
                 area.add_controller(click);
                 // The input method context for the full route (docs/menus.md "The full
@@ -6320,7 +6341,7 @@ impl Toolkit for Gtk {
                         if !text.is_empty() && day_spec::keys::text(id) {
                             emit(id, Event::Key(day_spec::KeyEvent::typed_text(text, 0)));
                         }
-                    })
+                    });
                 });
                 let im_focus = gtk4::EventControllerFocus::new();
                 let im_in = im.clone();
@@ -6531,7 +6552,7 @@ impl Toolkit for Gtk {
                 let listview = gtk4::ListView::new(None::<gtk4::SelectionModel>, Some(factory));
                 listview.set_single_click_activate(false);
                 listview.connect_activate(move |_, row| {
-                    ffi_guard::contain((), || emit(id, Event::ListActivated(row as usize)))
+                    ffi_guard::contain((), || emit(id, Event::ListActivated(row as usize)));
                 });
                 day_list_rows(&listview);
                 // Summon-time ROW context menus (docs/menus.md, docs/tree.md): right-click
@@ -6753,7 +6774,7 @@ impl Toolkit for Gtk {
                             let key = cell.as_ptr() as usize;
                             bound.borrow_mut().remove(&key);
                             LIST_CELL_ROWS.with(|t| {
-                                t.remove(key);
+                                let _ = t.remove(key);
                             });
                             if li.child().is_some() {
                                 li.set_child(None::<&gtk4::Widget>);
@@ -6806,7 +6827,7 @@ impl Toolkit for Gtk {
                                 Event::SelectionChanged(if i == gtk4::INVALID_LIST_POSITION {
                                     -1
                                 } else {
-                                    i as i64
+                                    i64::from(i)
                                 }),
                             );
                         });
@@ -6823,7 +6844,7 @@ impl Toolkit for Gtk {
                 // Enter on a row — reaches the app as `ListActivated`, as the tree's does.
                 listview.set_single_click_activate(false);
                 listview.connect_activate(move |_, row| {
-                    ffi_guard::contain((), || emit(id, Event::ListActivated(row as usize)))
+                    ffi_guard::contain((), || emit(id, Event::ListActivated(row as usize)));
                 });
                 // Host-drawn row separators (docs/list.md): a border on the ListView's own
                 // `row` CSS nodes, which sit exactly at the row boundary — aligned with the
@@ -6903,7 +6924,7 @@ impl Toolkit for Gtk {
                         let bound = bound.clone();
                         let view = listview.downgrade();
                         move |y: f64| {
-                            let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
+                            let n = source.borrow().as_ref().map_or(0, |s| (s.len)());
                             if n == 0 {
                                 return None;
                             }
@@ -6932,7 +6953,7 @@ impl Toolkit for Gtk {
                         let source = source.clone();
                         let slot_at = slot_at.clone();
                         move |y: f64| -> Option<usize> {
-                            let (from_key, from) = DRAG_FROM.with(|d| d.get())?;
+                            let (from_key, from) = DRAG_FROM.with(std::cell::Cell::get)?;
                             if from_key != key {
                                 return None; // a drag from some other list — never accepted
                             }
@@ -6967,7 +6988,7 @@ impl Toolkit for Gtk {
                         // Contained as a refused drop: move_row is app code.
                         move |_, _value, _x, y| {
                             ffi_guard::contain(false, || {
-                                let Some((_, from)) = DRAG_FROM.with(|d| d.get()) else {
+                                let Some((_, from)) = DRAG_FROM.with(std::cell::Cell::get) else {
                                     return false;
                                 };
                                 let Some(accepted) = verdict(y) else {
@@ -7041,10 +7062,10 @@ impl Toolkit for Gtk {
                 });
                 // A template with no tint (docs/vectors.md "Template") recolors to the theme
                 // foreground, as the sidebar's own icons do, and is re-painted on a switch.
-                if !named.is_empty() {
-                    repaint_image(&pic, &named, p.tint, p.template);
-                } else {
+                if named.is_empty() {
                     set_picture_source(&pic, &p.source);
+                } else {
+                    repaint_image(&pic, &named, p.tint, p.template);
                 }
                 pic.upcast()
             }
@@ -7078,14 +7099,14 @@ impl Toolkit for Gtk {
                     return;
                 };
                 let props = LIST_ITEMS.with(|m| {
+                    use day_spec::props::ListItemPatch as P;
                     let mut m = m.borrow_mut();
                     let props = m.get_mut(&widget_key(h))?;
-                    use day_spec::props::ListItemPatch as P;
                     match p {
-                        P::Title(t) => props.title = t.clone(),
-                        P::Subtitle(t) => props.subtitle = t.clone(),
-                        P::Detail(t) => props.detail = t.clone(),
-                        P::Icon(i) => props.icon = i.clone(),
+                        P::Title(t) => props.title.clone_from(t),
+                        P::Subtitle(t) => props.subtitle.clone_from(t),
+                        P::Detail(t) => props.detail.clone_from(t),
+                        P::Icon(i) => props.icon.clone_from(i),
                         P::IconTint(c) => props.icon_tint = *c,
                         P::Checked(on) => props.checked = *on,
                     }
@@ -7139,7 +7160,7 @@ impl Toolkit for Gtk {
                         }
                     }
                     gtk4::glib::idle_add_local_once(move || {
-                        ffi_guard::contain((), || inspector_report(key))
+                        ffi_guard::contain((), || inspector_report(key));
                     });
                 }
             }
@@ -7161,15 +7182,12 @@ impl Toolkit for Gtk {
                             // The widget outlives one presentation, and a composed sheet's cover
                             // is clear while a full-window one is not, so each present resets
                             // whichever treatment the last one left.
-                            match background {
-                                Some(_) => {
-                                    cover.remove_css_class("background");
-                                    apply_surface(h, *background, 0.0, false);
-                                }
-                                None => {
-                                    apply_surface(h, None, 0.0, false);
-                                    cover.add_css_class("background");
-                                }
+                            if background.is_some() {
+                                cover.remove_css_class("background");
+                                apply_surface(h, *background, 0.0, false);
+                            } else {
+                                apply_surface(h, None, 0.0, false);
+                                cover.add_css_class("background");
                             }
                             if let Some(parent) = cover.parent()
                                 && let Ok(old) = parent.downcast::<gtk4::Fixed>()
@@ -7181,7 +7199,8 @@ impl Toolkit for Gtk {
                                 // The filling wrapper owns the content allocation; GtkFixed's
                                 // own minimum can grow with children outside the viewport.
                                 let area = root.parent().unwrap_or_else(|| root.clone().upcast());
-                                let size = Size::new(area.width() as f64, area.height() as f64);
+                                let size =
+                                    Size::new(f64::from(area.width()), f64::from(area.height()));
                                 let (y, size) = cover_frame(&cover, size);
                                 root.move_(&cover, 0.0, y);
                                 cover.set_size_request(size.width as i32, size.height as i32);
@@ -7238,7 +7257,7 @@ impl Toolkit for Gtk {
                             };
                             let entry = IMAGE_SOURCE.with(|t| {
                                 t.with(widget_key(h), |e| {
-                                    e.name = named.clone();
+                                    e.name.clone_from(&named);
                                     e.clone()
                                 })
                             });
@@ -7246,7 +7265,7 @@ impl Toolkit for Gtk {
                                 Some(e)
                                     if !named.is_empty() && (e.tint.is_some() || e.template) =>
                                 {
-                                    repaint_image(pic, &named, e.tint, e.template)
+                                    repaint_image(pic, &named, e.tint, e.template);
                                 }
                                 _ => set_picture_source(pic, source),
                             }
@@ -7337,8 +7356,8 @@ impl Toolkit for Gtk {
                     let node = NAV_MENU_ROWS.with(|m| {
                         let mut m = m.borrow_mut();
                         let entry = m.get_mut(&widget_key(h))?;
-                        entry.1 = items.clone();
-                        entry.2 = icons.clone();
+                        entry.1.clone_from(items);
+                        entry.2.clone_from(icons);
                         Some(entry.0)
                     });
                     if let Some(node) = node
@@ -7494,7 +7513,7 @@ impl Toolkit for Gtk {
                 ) {
                     match p {
                         ButtonPatch::Content(c) => {
-                            apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only)
+                            apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only);
                         }
                         ButtonPatch::Title(t) => btn.set_label(t),
                         ButtonPatch::Enabled(e) => btn.set_sensitive(*e),
@@ -7577,7 +7596,7 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
+                Some(ListPatch::Reload | ListPatch::Splice(_)) => {
                     LIST_STATE.with(|m| {
                         if let Some(e) = m.borrow().get(&widget_key(h)) {
                             // Deferred: this runs inside a with_tree borrow (see schedule_list_resize).
@@ -7641,7 +7660,10 @@ impl Toolkit for Gtk {
                     if let Some((bound, pinned)) = entry {
                         let cell = *cell;
                         gtk4::glib::idle_add_local_once(move || {
-                            let item = bound.borrow().get(&cell).and_then(|li| li.upgrade());
+                            let item = bound
+                                .borrow()
+                                .get(&cell)
+                                .and_then(gtk4::glib::WeakRef::upgrade);
                             if let Some(cell) = item.and_then(|li| li.child()) {
                                 cell.queue_resize();
                             }
@@ -7680,7 +7702,7 @@ impl Toolkit for Gtk {
                 }
                 Some(TreePatch::Selected(tokens)) => {
                     if let Some(entry) = tree_entry(widget_key(h)) {
-                        *entry.selected.borrow_mut() = tokens.clone();
+                        (*entry.selected.borrow_mut()).clone_from(tokens);
                         gtk4::glib::idle_add_local_once(move || {
                             ffi_guard::contain((), || tree_apply_selection(&entry));
                         });
@@ -7707,7 +7729,7 @@ impl Toolkit for Gtk {
                                         .and_then(|r| tree_row_token(&r))
                                         == Some(token);
                                     if hit {
-                                        let y = (adj.upper() / n as f64) * i as f64;
+                                        let y = (adj.upper() / f64::from(n)) * f64::from(i);
                                         adj.set_value(
                                             y.min((adj.upper() - adj.page_size()).max(0.0)),
                                         );
@@ -7875,26 +7897,28 @@ impl Toolkit for Gtk {
                     if index == 0 {
                         doc.sidebar.append(child);
                         return true;
-                    } else {
-                        let cell = DayCell::filling();
-                        cell.add_child(child);
-                        doc.suppress.set(true);
-                        let page = doc.view.append(&cell);
-                        if let Some(key) = doc.keys.borrow().get(index - 1).cloned() {
-                            doc.page_keys
-                                .borrow_mut()
-                                .insert(widget_key(cell.upcast_ref()), key);
-                        }
-                        if let Some(title) = doc.titles.borrow().get(index - 1) {
-                            page.set_title(title);
-                        }
-                        doc.suppress.set(false);
-                        cell.on_allocate(move |w, h| {
-                            if w > 0 && h > 0 {
-                                emit(id, Event::FrameChanged(Size::new(w as f64, h as f64)));
-                            }
-                        });
                     }
+                    let cell = DayCell::filling();
+                    cell.add_child(child);
+                    doc.suppress.set(true);
+                    let page = doc.view.append(&cell);
+                    if let Some(key) = doc.keys.borrow().get(index - 1).cloned() {
+                        doc.page_keys
+                            .borrow_mut()
+                            .insert(widget_key(cell.upcast_ref()), key);
+                    }
+                    if let Some(title) = doc.titles.borrow().get(index - 1) {
+                        page.set_title(title);
+                    }
+                    doc.suppress.set(false);
+                    cell.on_allocate(move |w, h| {
+                        if w > 0 && h > 0 {
+                            emit(
+                                id,
+                                Event::FrameChanged(Size::new(f64::from(w), f64::from(h))),
+                            );
+                        }
+                    });
                     None
                 }
                 NavPresent::Split(sp) => {
@@ -7927,7 +7951,10 @@ impl Toolkit for Gtk {
                         cell.add_child(child);
                         cell.on_allocate(move |w, h| {
                             if w > 0 && h > 0 {
-                                emit(id, Event::FrameChanged(Size::new(w as f64, h as f64)));
+                                emit(
+                                    id,
+                                    Event::FrameChanged(Size::new(f64::from(w), f64::from(h))),
+                                );
                             }
                         });
                         STACK_PAGE_CELLS
@@ -7989,7 +8016,7 @@ impl Toolkit for Gtk {
                                         f64::from(width),
                                         f64::from(height),
                                     )),
-                                )
+                                );
                             });
                         }
                     });
@@ -8001,7 +8028,7 @@ impl Toolkit for Gtk {
         });
         if handled {
             gtk4::glib::idle_add_local_once(move || {
-                ffi_guard::contain((), || nav_report(host_key))
+                ffi_guard::contain((), || nav_report(host_key));
             });
             return;
         }
@@ -8038,7 +8065,7 @@ impl Toolkit for Gtk {
         });
         if inspected.is_some() {
             gtk4::glib::idle_add_local_once(move || {
-                ffi_guard::contain((), || inspector_report(host_key))
+                ffi_guard::contain((), || inspector_report(host_key));
             });
         } else if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.put(child, 0.0, 0.0);
@@ -8159,8 +8186,7 @@ impl Toolkit for Gtk {
     fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
         match kind {
             kinds::NAV_MENU => {
-                let rows =
-                    NAV_MENUS.with(|m| m.borrow().get(&widget_key(h)).map(|s| s.rows).unwrap_or(0));
+                let rows = NAV_MENUS.with(|m| m.borrow().get(&widget_key(h)).map_or(0, |s| s.rows));
                 Size::new(
                     p.width.unwrap_or(220.0),
                     p.height.unwrap_or(rows as f64 * 36.0 + 8.0),
@@ -8179,7 +8205,7 @@ impl Toolkit for Gtk {
                 let Some(label) = h.downcast_ref::<gtk4::Label>() else {
                     let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
                     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-                    return Size::new(nat_w as f64, nat_h as f64);
+                    return Size::new(f64::from(nat_w), f64::from(nat_h));
                 };
                 let layout = gtk4::pango::Layout::new(&label.pango_context());
                 // A label with styled runs measures from its MARKUP: `label.text()` is the
@@ -8205,32 +8231,27 @@ impl Toolkit for Gtk {
                         })
                     })
                 });
-                match rich {
-                    Some(markup) => layout.set_markup(&markup),
-                    None => {
-                        layout.set_text(&label.text());
-                        layout.set_attributes(label.attributes().as_ref());
-                    }
+                if let Some(markup) = rich {
+                    layout.set_markup(&markup);
+                } else {
+                    layout.set_text(&label.text());
+                    layout.set_attributes(label.attributes().as_ref());
                 }
                 layout.set_wrap(gtk4::pango::WrapMode::WordChar);
                 let (nat_w, _) = layout.pixel_size();
                 let w = match p.width {
-                    Some(pw) => (nat_w as f64).min(pw),
-                    None => nat_w as f64,
+                    Some(pw) => f64::from(nat_w).min(pw),
+                    None => f64::from(nat_w),
                 };
-                layout.set_width((w * gtk4::pango::SCALE as f64).round() as i32);
+                layout.set_width((w * f64::from(gtk4::pango::SCALE)).round() as i32);
                 let (_, nat_h) = layout.pixel_size();
-                Size::new(w.ceil(), nat_h as f64)
-            }
-            kinds::SLIDER => {
-                let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-                Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
+                Size::new(w.ceil(), f64::from(nat_h))
             }
             kinds::PICKER => picker::measure_any(self, h, p),
             kinds::TEXT_AREA => textarea::measure_any(self, h, p),
-            kinds::TEXT_FIELD => {
+            kinds::SLIDER | kinds::TEXT_FIELD => {
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-                Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
+                Size::new(p.width.unwrap_or(180.0), f64::from(nat_h).max(24.0))
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
             // The row box's own natural size, asked with its size request lifted: GTK never
@@ -8239,15 +8260,22 @@ impl Toolkit for Gtk {
             kinds::LIST_ITEM => {
                 let (rw, rh) = h.size_request();
                 h.set_size_request(-1, -1);
-                let width = p.width.map(|w| w.round() as i32).unwrap_or(-1);
+                let width = p.width.map_or(-1, |w| w.round() as i32);
                 let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, width);
                 h.set_size_request(rw, rh);
-                Size::new(p.width.unwrap_or(nat_w as f64), (nat_h as f64).max(44.0))
+                Size::new(
+                    p.width.unwrap_or(f64::from(nat_w)),
+                    f64::from(nat_h).max(44.0),
+                )
             }
             // A canvas has no intrinsic size: accept the offered axes, just as the other
             // backends do. GtkDrawingArea's natural size is zero; using it here collapses
             // `.grow(Dimension::Width).aspect_ratio(...)` to zero height despite the square proposal.
+            #[expect(
+                clippy::match_same_arms,
+                reason = "the canvas and the lists fill the offer for different, separately documented reasons"
+            )]
             kinds::CANVAS => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             // The recycling list fills the space it is offered (its scroll owns overflow).
             kinds::LIST | kinds::TREE => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
@@ -8256,7 +8284,7 @@ impl Toolkit for Gtk {
                     Size::new(side, side)
                 } else {
                     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-                    Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(6.0))
+                    Size::new(p.width.unwrap_or(180.0), f64::from(nat_h).max(6.0))
                 }
             }
             _ => {
@@ -8276,7 +8304,7 @@ impl Toolkit for Gtk {
                 let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
                 h.set_size_request(req_w, req_h);
-                Size::new(nat_w as f64, nat_h as f64)
+                Size::new(f64::from(nat_w), f64::from(nat_h))
             }
         }
     }
@@ -8407,7 +8435,7 @@ impl Toolkit for Gtk {
             -1
         };
         let (_, _, _, nat_baseline) = h.measure(gtk4::Orientation::Vertical, for_width);
-        (nat_baseline >= 0).then_some(nat_baseline as f64)
+        (nat_baseline >= 0).then_some(f64::from(nat_baseline))
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
@@ -8656,8 +8684,7 @@ impl Toolkit for Gtk {
                 let zoom = gtk4::GestureZoom::new();
                 let center = |g: &gtk4::GestureZoom| {
                     g.bounding_box_center()
-                        .map(|(x, y)| Point::new(x, y))
-                        .unwrap_or(Point::ZERO)
+                        .map_or(Point::ZERO, |(x, y)| Point::new(x, y))
                 };
                 zoom.connect_begin(move |g, _| {
                     ffi_guard::contain((), || {
@@ -8668,7 +8695,7 @@ impl Toolkit for Gtk {
                                 scale: 1.0,
                                 location: center(g),
                             },
-                        )
+                        );
                     });
                 });
                 zoom.connect_scale_changed(move |g, scale| {
@@ -8680,7 +8707,7 @@ impl Toolkit for Gtk {
                                 scale,
                                 location: center(g),
                             },
-                        )
+                        );
                     });
                 });
                 zoom.connect_end(move |g, _| {
@@ -8692,7 +8719,7 @@ impl Toolkit for Gtk {
                                 scale: g.scale_delta(),
                                 location: center(g),
                             },
-                        )
+                        );
                     });
                 });
                 h.add_controller(zoom);
@@ -8708,8 +8735,7 @@ impl Toolkit for Gtk {
                 let turn = Rc::new(std::cell::Cell::new((0.0f64, 0.0f64)));
                 let center = |g: &gtk4::GestureRotate| {
                     g.bounding_box_center()
-                        .map(|(x, y)| Point::new(x, y))
-                        .unwrap_or(Point::ZERO)
+                        .map_or(Point::ZERO, |(x, y)| Point::new(x, y))
                 };
                 rotate.connect_begin({
                     let turn = turn.clone();
@@ -8723,7 +8749,7 @@ impl Toolkit for Gtk {
                                     rotation: 0.0,
                                     location: center(g),
                                 },
-                            )
+                            );
                         });
                     }
                 });
@@ -8744,7 +8770,7 @@ impl Toolkit for Gtk {
                                     rotation: total,
                                     location: center(g),
                                 },
-                            )
+                            );
                         });
                     }
                 });
@@ -8758,7 +8784,7 @@ impl Toolkit for Gtk {
                                 rotation: total,
                                 location: center(g),
                             },
-                        )
+                        );
                     });
                 });
                 h.add_controller(rotate);
@@ -8783,7 +8809,7 @@ impl Toolkit for Gtk {
                                 delta: Point::ZERO,
                                 location: Point::ZERO,
                             },
-                        )
+                        );
                     });
                 });
                 scroll.connect_scroll(move |c, dx, dy| {
@@ -8817,7 +8843,7 @@ impl Toolkit for Gtk {
                                 delta: Point::ZERO,
                                 location: Point::ZERO,
                             },
-                        )
+                        );
                     });
                 });
                 h.add_controller(scroll);
@@ -8906,18 +8932,15 @@ impl Toolkit for Gtk {
                     });
                 }
             };
-            match button {
-                Some(b) => {
-                    let click = gtk4::GestureClick::new();
-                    click.set_button(b);
-                    click.connect_pressed(move |_, _n, x, y| show(x, y));
-                    w.add_controller(click);
-                }
-                None => {
-                    let long = gtk4::GestureLongPress::new();
-                    long.connect_pressed(move |_, x, y| show(x, y));
-                    w.add_controller(long);
-                }
+            if let Some(b) = button {
+                let click = gtk4::GestureClick::new();
+                click.set_button(b);
+                click.connect_pressed(move |_, _n, x, y| show(x, y));
+                w.add_controller(click);
+            } else {
+                let long = gtk4::GestureLongPress::new();
+                long.connect_pressed(move |_, x, y| show(x, y));
+                w.add_controller(long);
             }
         };
         attach(h, Some(3));
@@ -8974,11 +8997,11 @@ impl Toolkit for Gtk {
     }
 
     fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
-        self.edit_toolbar(h, ops)
+        Gtk::edit_toolbar(h, ops)
     }
 
     fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {
-        self.patch_toolbar(h, patch);
+        Gtk::patch_toolbar(h, patch);
     }
 
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
@@ -8992,7 +9015,7 @@ impl Toolkit for Gtk {
         let Some(window) = self
             .window_fixed
             .as_ref()
-            .and_then(|f| f.root())
+            .and_then(gtk4::prelude::WidgetExt::root)
             .and_then(|r| r.downcast::<gtk4::Window>().ok())
         else {
             return;
@@ -9027,7 +9050,10 @@ impl Toolkit for Gtk {
         // Viewport, so a fixed two-parent hop lands on the ScrolledWindow and the
         // ToolbarView downcast fails (the bar was never attached at all). Walk ancestors
         // until the ToolbarView instead.
-        let mut cur = self.window_fixed.as_ref().and_then(|f| f.parent());
+        let mut cur = self
+            .window_fixed
+            .as_ref()
+            .and_then(gtk4::prelude::WidgetExt::parent);
         let toolbar = loop {
             match cur {
                 Some(w) => match w.clone().downcast::<adw::ToolbarView>() {
@@ -9075,7 +9101,7 @@ impl Toolkit for Gtk {
 
     fn adopt(&mut self, raw: RawHandle) -> Handle {
         // A recycling GtkListView cell (a GtkFixed) — Day fills/rebinds its row content in place.
-        unsafe { gtk4::glib::translate::from_glib_none(raw as *mut gtk4::ffi::GtkWidget) }
+        unsafe { gtk4::glib::translate::from_glib_none(raw.cast::<gtk4::ffi::GtkWidget>()) }
     }
 
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
@@ -9228,7 +9254,7 @@ impl Toolkit for Gtk {
     fn toggle_sidebar(&mut self, host: &Handle) -> bool {
         crate::toggle_sidebar(host)
     }
-    /// The default PangoCairo font map — the one `create_layout` draws canvas text from — listed
+    /// The default `PangoCairo` font map — the one `create_layout` draws canvas text from — listed
     /// family by family, face by face (docs/fonts.md). Bundled fonts registered in `run` are in
     /// it; the map is created on first use, after that registration.
     fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
@@ -9322,7 +9348,9 @@ impl Toolkit for Gtk {
                     format: day_spec::ImageFormat::sniff(bytes),
                     // Unknown counts as "may have alpha": compositing an opaque image as if it
                     // had an alpha channel is harmless, the reverse loses transparency.
-                    has_alpha: pixbuf.as_ref().is_none_or(|p| p.has_alpha()),
+                    has_alpha: pixbuf
+                        .as_ref()
+                        .is_none_or(gtk4::gdk_pixbuf::Pixbuf::has_alpha),
                 };
                 BITMAPS.with(|m| {
                     m.borrow_mut().insert(
@@ -9573,7 +9601,7 @@ impl Toolkit for Gtk {
             && let Some(win) = self
                 .window_fixed
                 .as_ref()
-                .and_then(|f| f.root())
+                .and_then(gtk4::prelude::WidgetExt::root)
                 .and_then(|r| r.downcast::<gtk4::Window>().ok())
         {
             win.set_title(Some(title));
@@ -9649,7 +9677,7 @@ impl Toolkit for Gtk {
                 h.dialog
                     .borrow()
                     .clone()
-                    .map(|d| d.upcast::<gtk4::Widget>())
+                    .map(gtk4::glib::object::Cast::upcast::<gtk4::Widget>)
             })
             .or_else(|| host.cloned())
             .or_else(|| self.window_fixed.as_ref().map(|w| w.clone().upcast()))
@@ -9659,13 +9687,13 @@ impl Toolkit for Gtk {
         };
         thread_local! {
             static FENCES: std::cell::RefCell<std::collections::HashMap<usize,
-                (gtk4::glib::WeakRef<gtk4::Widget>, day_spec::capture::Fence)>> = Default::default();
+                (gtk4::glib::WeakRef<gtk4::Widget>, day_spec::capture::Fence)>> = RefCell::default();
         }
         let fence = FENCES.with(|f| {
             let mut f = f.borrow_mut();
             f.retain(|_, (w, _)| w.upgrade().is_some());
             f.entry(widget.as_ptr() as usize)
-                .or_insert_with(|| (widget.downgrade(), Default::default()))
+                .or_insert_with(|| (widget.downgrade(), day_spec::capture::Fence::default()))
                 .1
                 .clone()
         });
@@ -9719,15 +9747,14 @@ impl Toolkit for Gtk {
                         ButtonRole::Cancel => dialog.set_close_response(&rid),
                     }
                 }
-                let finish = dialog_finisher(req, dialog.clone());
+                let finish = dialog_finisher(req, &dialog);
                 {
                     let finish = finish.clone();
                     dialog.connect_response(None, move |_, resp| {
                         ffi_guard::contain((), || {
                             let result = resp
                                 .parse::<i64>()
-                                .map(PresentResult::Button)
-                                .unwrap_or(PresentResult::Dismissed);
+                                .map_or(PresentResult::Dismissed, PresentResult::Button);
                             finish(result);
                         });
                     });
@@ -9755,7 +9782,7 @@ impl Toolkit for Gtk {
                 dialog.add_response("ok", ok);
                 dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
                 dialog.set_default_response(Some("ok"));
-                let finish = dialog_finisher(req, dialog.clone());
+                let finish = dialog_finisher(req, &dialog);
                 {
                     let finish = finish.clone();
                     let entry = entry.clone();
@@ -9795,7 +9822,7 @@ impl Toolkit for Gtk {
                 apply_gtk_filters(&dialog, filters);
                 let cancellable = gtk4::gio::Cancellable::new();
                 FILE_DIALOGS.with(|m| m.borrow_mut().insert(req));
-                let window = file_dialog_window(&parent);
+                let window = file_dialog_window(parent.as_ref());
                 let multiple = *multiple;
                 gtk4::glib::idle_add_local_once(move || {
                     if !claim_file_dialog(req) {
@@ -9806,14 +9833,14 @@ impl Toolkit for Gtk {
                         // crosses back, in the picker's order.
                         dialog.open_multiple(window.as_ref(), Some(&cancellable), move |res| {
                             ffi_guard::contain((), || {
-                                emit_file_result(req, res.map(|files| gfile_paths(&files)))
-                            })
+                                emit_file_result(req, res.map(|files| gfile_paths(&files)));
+                            });
                         });
                     } else {
                         dialog.open(window.as_ref(), Some(&cancellable), move |res| {
                             ffi_guard::contain((), || {
-                                emit_file_result(req, res.map(|f| f.path().into_iter().collect()))
-                            })
+                                emit_file_result(req, res.map(|f| f.path().into_iter().collect()));
+                            });
                         });
                     }
                 });
@@ -9826,15 +9853,15 @@ impl Toolkit for Gtk {
                     .build();
                 let cancellable = gtk4::gio::Cancellable::new();
                 FILE_DIALOGS.with(|m| m.borrow_mut().insert(req));
-                let window = file_dialog_window(&parent);
+                let window = file_dialog_window(parent.as_ref());
                 gtk4::glib::idle_add_local_once(move || {
                     if !claim_file_dialog(req) {
                         return;
                     }
                     dialog.select_folder(window.as_ref(), Some(&cancellable), move |res| {
                         ffi_guard::contain((), || {
-                            emit_file_result(req, res.map(|f| f.path().into_iter().collect()))
-                        })
+                            emit_file_result(req, res.map(|f| f.path().into_iter().collect()));
+                        });
                     });
                 });
             }
@@ -9851,7 +9878,7 @@ impl Toolkit for Gtk {
                 apply_gtk_filters(&dialog, spec.filters());
                 let cancellable = gtk4::gio::Cancellable::new();
                 FILE_DIALOGS.with(|m| m.borrow_mut().insert(req));
-                let window = file_dialog_window(&parent);
+                let window = file_dialog_window(parent.as_ref());
                 // The pieces layer copies the staged bytes to the chosen local path.
                 gtk4::glib::idle_add_local_once(move || {
                     if !claim_file_dialog(req) {
@@ -9859,8 +9886,8 @@ impl Toolkit for Gtk {
                     }
                     dialog.save(window.as_ref(), Some(&cancellable), move |res| {
                         ffi_guard::contain((), || {
-                            emit_file_result(req, res.map(|f| f.path().into_iter().collect()))
-                        })
+                            emit_file_result(req, res.map(|f| f.path().into_iter().collect()));
+                        });
                     });
                 });
             }
@@ -9883,9 +9910,9 @@ impl Toolkit for Gtk {
     }
     #[cfg(target_os = "macos")]
     fn share(&mut self, spec: &day_spec::share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
-        let url = spec.url.as_str();
         use objc2::{msg_send, runtime::AnyObject};
         use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString, NSURL};
+        let url = spec.url.as_str();
         let Some(mtm) = objc2::MainThreadMarker::new() else {
             return false;
         };
@@ -9924,15 +9951,14 @@ impl Toolkit for Gtk {
     }
 }
 
-/// The GtkWindow to anchor a file picker on: the fixed content's toplevel.
-fn file_dialog_window(parent: &Option<gtk4::Fixed>) -> Option<gtk4::Window> {
+/// The `GtkWindow` to anchor a file picker on: the fixed content's toplevel.
+fn file_dialog_window(parent: Option<&gtk4::Fixed>) -> Option<gtk4::Window> {
     parent
-        .as_ref()
-        .and_then(|f| f.root())
+        .and_then(gtk4::prelude::WidgetExt::root)
         .and_then(|r| r.downcast::<gtk4::Window>().ok())
 }
 
-/// Apply a file dialog's extension filters as GtkFileFilters (`*.ext` glob patterns).
+/// Apply a file dialog's extension filters as `GtkFileFilters` (`*.ext` glob patterns).
 fn apply_gtk_filters(dialog: &gtk4::FileDialog, filters: &[day_spec::present::FileFilter]) {
     if filters.is_empty() {
         return;
@@ -9950,14 +9976,14 @@ fn apply_gtk_filters(dialog: &gtk4::FileDialog, filters: &[day_spec::present::Fi
 }
 
 /// A file picker between `present()` and its result. `present()` records it as queued and defers
-/// the picker itself to an idle (see the OpenFile arm); the idle then `claim`s it.
+/// the picker itself to an idle (see the `OpenFile` arm); the idle then `claim`s it.
 /// Take ownership of a deferred picker on behalf of GTK: `true` to open it, `false` if the
 /// request was answered while the idle sat in the queue (`dismiss` removed the entry).
 ///
 /// Answering that fast is ordinary — a dayscript `respond` does it, and so does any app that
 /// resolves its own presentation — and the picker must NOT open then: Day considers the request
 /// closed, so a window appearing after it is a ghost whose result belongs to nothing. GTK gives
-/// a second reason to skip it. Opening with an already-cancelled GCancellable leaves the
+/// a second reason to skip it. Opening with an already-cancelled `GCancellable` leaves the
 /// operation in a state GTK never completes: it drops the callback outright on macOS, and on
 /// Linux (GTK 4.14) its completion runs against portal data the cancel already freed and
 /// dereferences null — the SIGSEGV that took down the linux-gtk walkthrough.
@@ -9985,7 +10011,7 @@ fn end_file_dialog(req: u64) {
     });
 }
 
-/// Turn a GtkFileDialog result into a `PresentResult` and enqueue it.
+/// Turn a `GtkFileDialog` result into a `PresentResult` and enqueue it.
 ///
 /// A result for a request that is no longer live has been answered already — `dismiss` removed
 /// the entry — so it is dropped rather than delivered: without that, a picker the app dismissed
@@ -10007,7 +10033,7 @@ fn emit_file_result(req: u64, res: Result<Vec<std::path::PathBuf>, gtk4::glib::E
     emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
 }
 
-/// The local paths of a `GtkFileDialog.open_multiple` answer: a GListModel of GFiles, in the
+/// The local paths of a `GtkFileDialog.open_multiple` answer: a `GListModel` of `GFiles`, in the
 /// picker's order. A file with no local path (a remote GVFS mount) is skipped.
 fn gfile_paths(files: &gtk4::gio::ListModel) -> Vec<std::path::PathBuf> {
     (0..files.n_items())
@@ -10017,7 +10043,7 @@ fn gfile_paths(files: &gtk4::gio::ListModel) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-/// A live modal's resolver: emits the first result only, then closes the AdwDialog (whose
+/// A live modal's resolver: emits the first result only, then closes the `AdwDialog` (whose
 /// close-response re-enters the finisher guarded, and no-ops).
 struct DialogHandle {
     finish: Rc<dyn Fn(day_spec::present::PresentResult)>,
@@ -10025,7 +10051,7 @@ struct DialogHandle {
 
 fn dialog_finisher(
     req: u64,
-    dialog: adw::AlertDialog,
+    dialog: &adw::AlertDialog,
 ) -> Rc<dyn Fn(day_spec::present::PresentResult)> {
     let answered = Rc::new(std::cell::Cell::new(false));
     let closed = Rc::new(std::cell::Cell::new(false));
@@ -10079,25 +10105,24 @@ const HEADER_H: f64 = 47.0;
 /// `target`: `None` = the primary window (`WINDOW_NODE` + the cover follow-along);
 /// `Some(node)` = a secondary window's root (docs/windows.md).
 fn report_content_size(size: Size, target: Option<NodeId>) {
-    match target {
-        Some(node) => emit(node, Event::WindowResized(size)),
-        None => {
-            emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
-            // Presented covers track the content area (their frame is native-owned).
-            COVERS.with(|c| {
-                for (cover, node) in c.borrow().iter() {
-                    let (y, size) = cover_frame(cover, size);
-                    if let Some(root) = cover
-                        .parent()
-                        .and_then(|p| p.downcast::<gtk4::Fixed>().ok())
-                    {
-                        root.move_(cover, 0.0, y);
-                    }
-                    cover.set_size_request(size.width as i32, size.height as i32);
-                    emit(*node, Event::FrameChanged(size));
+    if let Some(node) = target {
+        emit(node, Event::WindowResized(size));
+    } else {
+        emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
+        // Presented covers track the content area (their frame is native-owned).
+        COVERS.with(|c| {
+            for (cover, node) in c.borrow().iter() {
+                let (y, size) = cover_frame(cover, size);
+                if let Some(root) = cover
+                    .parent()
+                    .and_then(|p| p.downcast::<gtk4::Fixed>().ok())
+                {
+                    root.move_(cover, 0.0, y);
                 }
-            });
-        }
+                cover.set_size_request(size.width as i32, size.height as i32);
+                emit(*node, Event::FrameChanged(size));
+            }
+        });
     }
 }
 
@@ -10116,16 +10141,16 @@ fn cover_frame(cover: &gtk4::Fixed, area: Size) -> (f64, Size) {
 /// Render a widget subtree to PNG (the dayscript screenshot seam — see `snapshot_window`
 /// for why no main-loop iteration may happen here).
 fn snapshot_widget(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
+    use gtk4::gdk::prelude::PaintableExt;
     #[cfg(target_os = "macos")]
     if let Ok(png) = snapshot_macos::snapshot(widget) {
         return Ok(png);
     }
-    let w = widget.width() as f64;
-    let h = widget.height() as f64;
+    let w = f64::from(widget.width());
+    let h = f64::from(widget.height());
     if w <= 0.0 || h <= 0.0 {
         return Err("zero-size window".into());
     }
-    use gtk4::gdk::prelude::PaintableExt;
     let paintable = gtk4::WidgetPaintable::new(Some(widget));
     let snapshot = gtk4::Snapshot::new();
     // A stated capture scale (`DAY_CAPTURE_SCALE`, Day.toml `[screenshots]`): render the node
@@ -10181,8 +10206,8 @@ fn window_background() -> gtk4::gdk::RGBA {
     )
 }
 
-/// Build one Day window: AdwApplicationWindow + ToolbarView/HeaderBar chrome + the filling
-/// `DayCell` wrapper + the GtkFixed content (docs/windows.md; see the wrapper comments below —
+/// Build one Day window: `AdwApplicationWindow` + ToolbarView/HeaderBar chrome + the filling
+/// `DayCell` wrapper + the `GtkFixed` content (docs/windows.md; see the wrapper comments below —
 /// factored so `open_window` builds identical chrome).
 /// Wires the resize notifies to `target` (`None` = primary).
 fn build_day_window(
@@ -10217,7 +10242,7 @@ fn build_day_window(
     wrapper.on_allocate(move |width, height| {
         if width > 0 && height > 0 && last.replace((width, height)) != (width, height) {
             ffi_guard::contain((), || {
-                report_content_size(Size::new(f64::from(width), f64::from(height)), target)
+                report_content_size(Size::new(f64::from(width), f64::from(height)), target);
             });
         }
     });
@@ -10329,7 +10354,7 @@ fn watch_window_state(window: &gtk4::Window, target: NodeId) {
                 track.assumed_minimized.set(false);
             }
             report_window_state(w, false);
-        })
+        });
     });
     window.connect_realize(|w| {
         ffi_guard::contain((), || {
@@ -10346,9 +10371,9 @@ fn watch_window_state(window: &gtk4::Window, target: NodeId) {
                     if let Some(w) = weak.upgrade() {
                         report_window_state(&w, false);
                     }
-                })
+                });
             });
-        })
+        });
     });
 }
 
@@ -10409,7 +10434,7 @@ fn set_gtk_window_state(window: &gtk4::Window, state: day_spec::WindowState) {
             if let Some(w) = weak.upgrade() {
                 report_window_state(&w, true);
             }
-        })
+        });
     });
 }
 
@@ -10419,8 +10444,10 @@ fn note_activation_changed(app: &adw::Application) {
     let app = app.clone();
     gtk4::glib::idle_add_local_once(move || {
         ffi_guard::contain((), || {
-            use gtk4::prelude::GtkWindowExt as _;
-            let any = app.windows().iter().any(|w| w.is_active());
+            let any = app
+                .windows()
+                .iter()
+                .any(gtk4::prelude::GtkWindowExt::is_active);
             if ANY_ACTIVE.with(|c| c.replace(any)) != any {
                 let phase = if any {
                     day_spec::Lifecycle::DidBecomeActive
@@ -10437,6 +10464,7 @@ fn note_activation_changed(app: &adw::Application) {
 /// (launch / activation / termination). GTK desktop apps have no background/foreground or
 /// memory-warning concept. `const` so `day::require_lifecycle!` can reject unsupported phases at
 /// compile time. Must match [`Gtk::supports_lifecycle`].
+#[must_use]
 pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
     phase.is_universal()
 }
@@ -10602,7 +10630,7 @@ impl Platform for Gtk {
                                 window
                                     .set_default_size(size.width as i32, size.height as i32 + bar);
                             }
-                        })
+                        });
                     });
                 }
                 check_bundled_fonts(&window);

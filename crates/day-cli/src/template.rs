@@ -109,7 +109,6 @@ fn is_git_url(s: &str) -> bool {
 }
 
 fn read_tree(root: &Path) -> Result<Vec<TemplateFile>, String> {
-    let mut out = Vec::new();
     fn walk(root: &Path, dir: &Path, out: &mut Vec<TemplateFile>) -> Result<(), String> {
         let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         for e in entries.flatten() {
@@ -135,6 +134,7 @@ fn read_tree(root: &Path) -> Result<Vec<TemplateFile>, String> {
         }
         Ok(())
     }
+    let mut out = Vec::new();
     walk(root, root, &mut out)?;
     out.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(out)
@@ -298,6 +298,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::case_sensitive_file_extension_comparisons,
+        reason = "template sources are marked by the exact lowercase `.hbs` suffix"
+    )]
     fn builtin_template_renders() {
         let files = builtin_app();
         assert!(!files.is_empty(), "embedded template is not empty");

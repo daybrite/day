@@ -140,7 +140,7 @@ const WS_CLOSED: u8 = 19;
 const WS_FAILED: u8 = 20;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Reads one frame's fields in order; a short frame reads as zeros and empty strings.
@@ -166,11 +166,11 @@ impl<'a> Fields<'a> {
     }
 
     fn i32(&mut self) -> i32 {
-        self.take(4).try_into().map(i32::from_be_bytes).unwrap_or(0)
+        self.take(4).try_into().map_or(0, i32::from_be_bytes)
     }
 
     fn i64(&mut self) -> i64 {
-        self.take(8).try_into().map(i64::from_be_bytes).unwrap_or(0)
+        self.take(8).try_into().map_or(0, i64::from_be_bytes)
     }
 
     fn str(&mut self) -> String {
@@ -226,11 +226,9 @@ struct AndroidTransport {
 
 impl AndroidTransport {
     fn new(config: &TransportConfig) -> AndroidTransport {
-        let (identity, password) = config
-            .identity
-            .as_ref()
-            .map(|i| (i.pkcs12.as_slice(), i.password.as_str()))
-            .unwrap_or((&[], ""));
+        let (identity, password) = config.identity.as_ref().map_or((&[][..], ""), |i| {
+            (i.pkcs12.as_slice(), i.password.as_str())
+        });
         let client = bridge::client(
             millis(config.timeout_idle),
             config.timeout_total.map_or(0, millis),
@@ -538,8 +536,8 @@ impl Transport for AndroidTransport {
                 path.to_string_lossy().into_owned(),
                 i64::try_from(*len).unwrap_or(-1),
             ),
-            PreparedBody::Stream { reader, len } => match reader.take() {
-                Some(reader) => {
+            PreparedBody::Stream { reader, len } => {
+                if let Some(reader) = reader.take() {
                     lock(&transfer.state).reader = Some(reader);
                     (
                         3,
@@ -547,14 +545,13 @@ impl Transport for AndroidTransport {
                         String::new(),
                         len.and_then(|l| i64::try_from(l).ok()).unwrap_or(-1),
                     )
-                }
-                None => {
+                } else {
                     transfer.finish(Event::Failed(HttpError::Io(
                         "the request body stream was already sent".into(),
                     )));
                     return transfer;
                 }
-            },
+            }
         };
         let grip = transfer.clone();
         let started = bridge::exchange_native_stream(

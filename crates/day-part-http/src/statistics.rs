@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Payload accounting at the transport boundary. No headers, TLS or TCP overhead is counted.
-use crate::{Capabilities, Message, session::lock, transport::*};
+use crate::{
+    Capabilities, Message,
+    session::lock,
+    transport::{
+        Answer, Completion, Event, Events, Prepared, PreparedBody, QuestionId, Socket, Transfer,
+        Transport, WsEvent, WsEvents,
+    },
+};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex, OnceLock},
@@ -34,16 +41,20 @@ pub struct Statistics {
     pub elapsed: Duration,
 }
 impl Statistics {
+    #[must_use]
     pub fn upload_bytes_per_second(&self) -> f64 {
         self.uploaded_bytes as f64 / self.elapsed.as_secs_f64().max(0.001)
     }
+    #[must_use]
     pub fn download_bytes_per_second(&self) -> f64 {
         self.downloaded_bytes as f64 / self.elapsed.as_secs_f64().max(0.001)
     }
+    #[must_use]
     pub fn total_bytes(&self) -> u64 {
         self.uploaded_bytes + self.downloaded_bytes
     }
     /// All sessions, including explicit custom transports. Only day-part-http traffic.
+    #[must_use]
     pub fn global() -> Self {
         global().snapshot()
     }
@@ -142,10 +153,6 @@ impl Meter {
         self.add_bytes(&mut lock(&self.record), upload, download);
     }
     fn add_bytes(&self, r: &mut Record, upload: u64, download: u64) {
-        if r.ended {
-            return;
-        }
-        let sim = r.value.simulated;
         fn add(s: &mut Statistics, u: u64, d: u64, sim: bool) {
             s.uploaded_bytes += u;
             s.downloaded_bytes += d;
@@ -154,6 +161,10 @@ impl Meter {
                 s.simulated_downloaded_bytes += d;
             }
         }
+        if r.ended {
+            return;
+        }
+        let sim = r.value.simulated;
         add(&mut r.value.statistics, upload, download, sim);
         for store in &self.stores {
             add(&mut lock(&store.0).totals, upload, download, sim);
@@ -165,13 +176,6 @@ impl Meter {
         self.add_bytes(&mut r, delta, 0);
     }
     fn end(&self, error: Option<String>) {
-        let mut r = lock(&self.record);
-        if r.ended {
-            return;
-        }
-        r.ended = true;
-        r.value.statistics.elapsed = now().saturating_sub(r.start);
-        r.value.error = error.clone();
         fn finish(s: &mut Statistics, failed: bool) {
             s.active = s.active.saturating_sub(1);
             if failed {
@@ -180,9 +184,17 @@ impl Meter {
                 s.completed += 1;
             }
         }
-        finish(&mut r.value.statistics, error.is_some());
+        let mut r = lock(&self.record);
+        if r.ended {
+            return;
+        }
+        r.ended = true;
+        r.value.statistics.elapsed = now().saturating_sub(r.start);
+        let failed = error.is_some();
+        r.value.error = error;
+        finish(&mut r.value.statistics, failed);
         for store in &self.stores {
-            finish(&mut lock(&store.0).totals, error.is_some());
+            finish(&mut lock(&store.0).totals, failed);
         }
     }
 }
@@ -247,7 +259,7 @@ impl Transport for Observed {
                     WsEvent::Message(msg) => m.bytes(0, message_len(msg)),
                     WsEvent::Closed { .. } => m.end(None),
                     WsEvent::Failed(e) => m.end(Some(e.to_string())),
-                    _ => {}
+                    WsEvent::Open { .. } => {}
                 }
                 events(e);
             }),
@@ -258,10 +270,10 @@ impl Transport for Observed {
         self.inner.cookies()
     }
     fn clear_cookies(&self) {
-        self.inner.clear_cookies()
+        self.inner.clear_cookies();
     }
     fn clear_cache(&self) {
-        self.inner.clear_cache()
+        self.inner.clear_cache();
     }
 }
 struct ObservedTransfer {
@@ -270,14 +282,14 @@ struct ObservedTransfer {
 }
 impl Transfer for ObservedTransfer {
     fn demand(&self, n: u32) {
-        self.inner.demand(n)
+        self.inner.demand(n);
     }
     fn answer(&self, id: QuestionId, a: Answer) {
-        self.inner.answer(id, a)
+        self.inner.answer(id, a);
     }
     fn cancel(&self) {
         self.meter.end(Some("cancelled".into()));
-        self.inner.cancel()
+        self.inner.cancel();
     }
 }
 struct ObservedSocket {
@@ -301,18 +313,18 @@ impl Socket for ObservedSocket {
                 if r.is_ok() {
                     meter.bytes(n, 0);
                 }
-                done(r)
+                done(r);
             }),
-        )
+        );
     }
     fn ping(&self, done: Completion) {
-        self.inner.ping(done)
+        self.inner.ping(done);
     }
     fn close(&self, code: u16, reason: &str) {
         self.meter.end(None);
-        self.inner.close(code, reason)
+        self.inner.close(code, reason);
     }
     fn demand(&self, n: u32) {
-        self.inner.demand(n)
+        self.inner.demand(n);
     }
 }

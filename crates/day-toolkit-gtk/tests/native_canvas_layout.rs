@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Run with a display (on headless Linux: xvfb-run cargo test -p day-toolkit-gtk --test native_canvas_layout).
+//! Run with a display (on headless Linux: xvfb-run cargo test -p day-toolkit-gtk --test `native_canvas_layout`).
 use day_spec::{NodeId, Proposal, Rect, Size, Toolkit, kinds, props::CanvasProps};
 use day_toolkit_gtk::Gtk;
 

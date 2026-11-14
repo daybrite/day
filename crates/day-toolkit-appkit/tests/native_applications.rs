@@ -6,6 +6,7 @@ fn main() {}
 
 #[cfg(target_os = "macos")]
 fn main() {
+    use day_spec::props::{PickerPatch, PickerProps};
     use day_spec::{Event, NodeId, Toolkit, applications::*, kinds, props::ListProps};
     use day_toolkit_appkit::AppKit;
     use objc2::rc::Retained;
@@ -80,7 +81,7 @@ fn main() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let captured = events.clone();
     toolkit.set_event_sink(Box::new(move |node, event| {
-        captured.borrow_mut().push((node, event))
+        captured.borrow_mut().push((node, event));
     }));
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -255,7 +256,6 @@ fn main() {
 
     // Synthetic labels: duplicate titles must remain independent options across a native
     // separator, and selected indexes must refer to options rather than native menu slots.
-    use day_spec::props::{PickerPatch, PickerProps};
     let picker_node = NodeId(902);
     let picker = toolkit.realize(
         kinds::PICKER,

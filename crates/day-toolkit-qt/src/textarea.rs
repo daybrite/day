@@ -75,7 +75,7 @@ fn make(_backend: &mut Qt, p: &TextProps, id: NodeId) -> QtHandle {
         )
     };
     // Qt has no spell-check; editable + selectable are applied together (they interact).
-    unsafe { day_textarea_set_attrs(ptr, p.editable as i32, p.selectable as i32) };
+    unsafe { day_textarea_set_attrs(ptr, i32::from(p.editable), i32::from(p.selectable)) };
     if p.submit_on_enter {
         unsafe { day_textarea_set_submit(ptr, id.0, on_submit) };
     }
@@ -87,8 +87,8 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &TextPatch) {
     unsafe {
         match patch {
             TextPatch::SetText(t) => day_textarea_set_text(h.0, cstr(t).as_ptr()),
-            TextPatch::SetEditable(v) => day_textarea_set_read_only(h.0, (!*v) as i32),
-            TextPatch::SetSelectable(v) => day_textarea_set_selectable(h.0, *v as i32),
+            TextPatch::SetEditable(v) => day_textarea_set_read_only(h.0, i32::from(!*v)),
+            TextPatch::SetSelectable(v) => day_textarea_set_selectable(h.0, i32::from(*v)),
             // Qt ships no built-in spell-check (Cap::TextSpellCheck = Unsupported).
             TextPatch::SetSpellCheck(_) => {}
         }
@@ -100,7 +100,7 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     let avail_w = p.width.unwrap_or(300.0).max(120.0);
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_textarea_measure(h.0, avail_w, min_lines, max_lines, &mut w, &mut hh) };
+    unsafe { day_textarea_measure(h.0, avail_w, min_lines, max_lines, &raw mut w, &raw mut hh) };
     Size::new(w.max(120.0), hh.max(24.0))
 }
 
@@ -117,16 +117,16 @@ pub(crate) fn realize_any(
     }
 }
 
-pub(crate) fn update_any(b: &mut crate::Qt, h: &crate::Handle, patch: &dyn std::any::Any) {
+pub(crate) fn update_any(b: &mut crate::Qt, h: crate::Handle, patch: &dyn std::any::Any) {
     if let Some(p) = patch.downcast_ref::<TextPatch>() {
-        update(b, h, p);
+        update(b, &h, p);
     }
 }
 
 pub(crate) fn measure_any(
     b: &mut crate::Qt,
-    h: &crate::Handle,
+    h: crate::Handle,
     p: day_spec::Proposal,
 ) -> day_spec::Size {
-    measure(b, h, p)
+    measure(b, &h, p)
 }

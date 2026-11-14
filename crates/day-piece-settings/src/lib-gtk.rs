@@ -646,7 +646,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             let v = if *copyable {
                 let text = value.clone();
                 v.on_tap(move || {
-                    day_part_clipboard::set_text(&text.initial());
+                    let _ = day_part_clipboard::set_text(&text.initial());
                 })
                 .any()
             } else {
@@ -1879,7 +1879,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             let v = if *copyable {
                 let text = value.clone();
                 v.on_tap(move || {
-                    day_part_clipboard::set_text(&text.initial());
+                    let _ = day_part_clipboard::set_text(&text.initial());
                 })
                 .any()
             } else {

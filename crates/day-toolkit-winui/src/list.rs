@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! WinUI ItemsRepeater owns realization, layout and the physical cell pool.
-//! Native layout only schedules work: ListSource pulls run outside day-core borrows.
+//! WinUI `ItemsRepeater` owns realization, layout and the physical cell pool.
+//! Native layout only schedules work: `ListSource` pulls run outside day-core borrows.
 //! A sectioned list (docs/list.md "Sections") hands the shim its header rows, which it keeps
 //! out of selection and keyboard travel, and binds one extra cell: the shim's pinned copy of
 //! the current section's header.
@@ -158,7 +158,7 @@ fn scroll(host: usize, row: Option<usize>) {
             ffi::day_winui_list_scroll(
                 host as *mut c_void,
                 row.map_or(-1, |r| r.min(i32::MAX as usize) as i32),
-            )
+            );
         };
         schedule(host, false);
     }));
@@ -271,7 +271,7 @@ fn fill(host: usize, node: NodeId) {
             },
         );
         if c.visible != 0 {
-            first = Some(first.map_or(row, |f: usize| f.min(row)))
+            first = Some(first.map_or(row, |f: usize| f.min(row)));
         }
         if rebind {
             offer(raw, c.cell, c.row);
@@ -295,7 +295,7 @@ fn fill(host: usize, node: NodeId) {
 fn pin(host: usize, node: NodeId, source: &ListSource, reload: bool) {
     let raw = host as *mut c_void;
     let (mut cell, mut width) = (std::ptr::null_mut(), 0.0);
-    let want = unsafe { ffi::day_winui_list_pinned(raw, &mut cell, &mut width) };
+    let want = unsafe { ffi::day_winui_list_pinned(raw, &raw mut cell, &raw mut width) };
     if want < 0 || cell.is_null() || width <= 0.0 || want as usize >= (source.len)() {
         return;
     }
@@ -335,7 +335,7 @@ fn paint_selection(host: usize) {
     });
     if let Some(rows) = rows {
         unsafe {
-            ffi::day_winui_list_select(host as *mut c_void, rows.as_ptr(), rows.len() as i32)
+            ffi::day_winui_list_select(host as *mut c_void, rows.as_ptr(), rows.len() as i32);
         };
     }
 }
@@ -457,7 +457,7 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
                     cstr("E74D").as_ptr(),
                     1,
                     std::ptr::null(),
-                )
+                );
             };
         }
         unsafe { ffi::day_winui_list_actions_end(host, cell) };

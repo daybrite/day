@@ -190,6 +190,10 @@ fn map_error(error: *mut NSError) -> BiometricError {
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every platform arm of `imp` shares this signature, including arms not built on this host"
+)]
 pub fn authenticate(prompt: Prompt, on_done: OnDone) {
     let Some(ctx) = new_context() else {
         on_done(Err(BiometricError::Unsupported));

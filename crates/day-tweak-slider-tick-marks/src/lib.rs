@@ -39,6 +39,7 @@ pub enum TickPosition {
 
 /// The tick configuration: how many marks, whether values snap to them, where they draw.
 #[derive(Clone, Copy, Debug)]
+#[must_use]
 pub struct Tickmarks {
     pub count: u32,
     pub snap: bool,

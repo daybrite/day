@@ -45,7 +45,7 @@ fn main() {
             if result.is_ok() {
                 println!("native palette resolves light and dark semantic colors");
             }
-            std::process::exit(if result.is_ok() { 0 } else { 1 });
+            std::process::exit(i32::from(result.is_err()));
         }),
     );
 }

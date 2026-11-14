@@ -101,6 +101,10 @@ fn method_from_kind(kind: Option<u8>) -> Method {
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every platform arm of `imp` shares this signature, including arms not built on this host"
+)]
 pub fn authenticate(prompt: Prompt, on_done: OnDone) {
     if support() == Support::Unsupported {
         on_done(Err(BiometricError::Unsupported));
@@ -120,7 +124,7 @@ pub fn authenticate(prompt: Prompt, on_done: OnDone) {
                     token: Vec::new(),
                 }),
                 Err(e) => Err(error_from_bridge(e)),
-            })
+            });
         },
     );
 }

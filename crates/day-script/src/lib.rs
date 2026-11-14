@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! day-script: the embedded dayscript engine (DESIGN.md §14). Bind-only-when-invited: the
-//! server starts only when DAYSCRIPT_PORT + DAYSCRIPT_TOKEN are present in the environment
+//! server starts only when `DAYSCRIPT_PORT` + `DAYSCRIPT_TOKEN` are present in the environment
 //! (never otherwise), listens on 127.0.0.1, and accepts only the step catalog. Steps execute
 //! as synthesized Day events on the main thread between flushes, deterministic and
 //! toolkit-uniform. Locator steps get an implicit bounded wait (default 5s).
@@ -106,7 +106,7 @@ pub fn init() {
     let Ok(port) = port.parse::<u16>() else {
         return;
     };
-    std::thread::spawn(move || serve(port, token));
+    std::thread::spawn(move || serve(port, &token));
 }
 
 // ---------------------------------------------------------------------------
@@ -149,16 +149,12 @@ mod web {
     pub fn web_line(line: &str) {
         let reply = match serde_json::from_str::<Request>(line.trim()) {
             Ok(req) => {
-                let authed = WEB.with(|w| {
-                    w.borrow()
-                        .as_ref()
-                        .map(|(t, _)| *t == req.token)
-                        .unwrap_or(false)
-                });
+                let authed =
+                    WEB.with(|w| w.borrow().as_ref().is_some_and(|(t, _)| *t == req.token));
                 if authed {
                     if let Step::MemoryWatch { interval_ms } = req.step {
                         if !memory_watch::valid_interval(interval_ms) {
-                            send_reply(Reply::fail(
+                            send_reply(&Reply::fail(
                                 "memory_watch interval must be 0 or 100..60000 ms",
                                 false,
                             ));
@@ -168,11 +164,11 @@ mod web {
                             w.set(w.get() + 1);
                             w.get()
                         });
-                        send_reply(memory_watch::sample());
+                        send_reply(&memory_watch::sample());
                         if interval_ms > 0 {
                             watch_tick(generation, interval_ms as u32);
                         }
-                        send_reply(Reply::ok());
+                        send_reply(&Reply::ok());
                         return;
                     }
                     let budget_ms = (req.step.wait_budget_secs() * 1000.0) as u32;
@@ -183,13 +179,13 @@ mod web {
             }
             Err(e) => Reply::fail(format!("bad request: {e}"), false),
         };
-        send_reply(reply);
+        send_reply(&reply);
     }
 
     fn attempt(step: Step, remaining_ms: u32, revision: u32) {
         let reply = exec(step.clone(), revision);
         if reply.ok || !reply.retryable || remaining_ms == 0 {
-            send_reply(reply);
+            send_reply(&reply);
             return;
         }
         let interval = if reply.capture_pending { 16 } else { RETRY_MS };
@@ -199,15 +195,15 @@ mod web {
 
     fn watch_tick(generation: u64, interval: u32) {
         day_reactive::on_main_delayed(interval, move || {
-            if WATCH.with(|w| w.get()) == generation {
-                send_reply(memory_watch::sample());
+            if WATCH.with(std::cell::Cell::get) == generation {
+                send_reply(&memory_watch::sample());
                 watch_tick(generation, interval);
             }
         });
     }
 
-    fn send_reply(reply: Reply) {
-        let mut out = serde_json::to_string(&reply).unwrap_or_else(|_| "{\"ok\":false}".into());
+    fn send_reply(reply: &Reply) {
+        let mut out = serde_json::to_string(reply).unwrap_or_else(|_| "{\"ok\":false}".into());
         out.push('\n');
         WEB.with(|w| {
             if let Some((_, send)) = w.borrow().as_ref() {
@@ -219,7 +215,7 @@ mod web {
 #[cfg(target_arch = "wasm32")]
 pub use web::{web_init, web_line};
 
-fn serve(port: u16, token: String) {
+fn serve(port: u16, token: &str) {
     // Give the app time to mount before binding traffic arrives.
     std::thread::sleep(Duration::from_millis(300));
     // Retry, because the port is a fixed per-target number and a capture sweep relaunches the
@@ -255,7 +251,7 @@ fn serve(port: u16, token: String) {
         }
     };
     for stream in listener.incoming().flatten() {
-        handle_conn(stream, &token);
+        handle_conn(stream, token);
     }
 }
 
@@ -285,7 +281,7 @@ fn handle_conn(stream: TcpStream, token: &str) {
                         Reply::fail("memory_watch interval must be 0 or 100..60000 ms", false)
                     }
                 } else {
-                    run_step_with_wait(req.step)
+                    run_step_with_wait(&req.step)
                 }
             }
             Ok(_) => Reply::fail("bad token", false),
@@ -327,11 +323,12 @@ fn next_capture_revision() -> u32 {
 /// Run one step on the calling thread, which must be Day's UI thread with a tree installed:
 /// the entry a harness that already sits on that thread (the mock, `cargo test`) uses instead
 /// of the socket.
+#[must_use]
 pub fn step(step: Step) -> Reply {
     exec(step, next_capture_revision())
 }
 
-fn run_step_with_wait(step: Step) -> Reply {
+fn run_step_with_wait(step: &Step) -> Reply {
     let revision = next_capture_revision();
     let budget = Duration::from_secs_f64(step.wait_budget_secs());
     let deadline = Instant::now() + budget;
@@ -384,21 +381,20 @@ fn run_on_main(step: Step, budget: Duration, revision: u32) -> Reply {
         }
         let _ = tx.send(exec(step, revision));
     });
-    match rx.recv_timeout(budget) {
-        Ok(reply) => reply,
-        Err(_) => {
-            abandoned.store(true, Ordering::SeqCst);
-            Reply {
-                main_thread_stalled: true,
-                ..Reply::fail(
-                    format!(
-                        "main thread did not respond within {:.0}s — raise \
-                         DAY_SCRIPT_MAIN_TIMEOUT_SECS if this machine is just slow",
-                        budget.as_secs_f64()
-                    ),
-                    false,
-                )
-            }
+    if let Ok(reply) = rx.recv_timeout(budget) {
+        reply
+    } else {
+        abandoned.store(true, Ordering::SeqCst);
+        Reply {
+            main_thread_stalled: true,
+            ..Reply::fail(
+                format!(
+                    "main thread did not respond within {:.0}s — raise \
+                     DAY_SCRIPT_MAIN_TIMEOUT_SECS if this machine is just slow",
+                    budget.as_secs_f64()
+                ),
+                false,
+            )
         }
     }
 }
@@ -408,7 +404,7 @@ fn run_on_main(step: Step, budget: Duration, revision: u32) -> Reply {
 // ---------------------------------------------------------------------------
 
 /// Resolve a Fluent key (+ JSON args) in the current locale: the shared engine for the
-/// `key:`-flavored script fields (assert_text, input).
+/// `key:`-flavored script fields (`assert_text`, input).
 /// Walk the app-menu model for `Action` leaves matching the `menu:` step's target: by
 /// exact label, or (when the step used `key:`) by the role's core-catalog key (the
 /// injected Preferences item carries an empty label; its role is its identity). `path`
@@ -605,6 +601,8 @@ fn id_catalog() -> Result<&'static day_script_protocol::IdCatalog, String> {
 }
 
 fn exec(step: Step, revision: u32) -> Reply {
+    use day_spec::Event;
+    use day_spec::present::PresentResult;
     let evidence_class = step.evidence_class();
     let evidence_id = step.element_references().into_iter().next();
     // An optional absent action succeeds without an interaction. Capture presence before
@@ -614,8 +612,6 @@ fn exec(step: Step, revision: u32) -> Reply {
         | Step::Select { id, if_present: true, .. }
         | Step::ContextMenu { id, if_present: true, .. } if find(id).is_err());
 
-    use day_spec::Event;
-    use day_spec::present::PresentResult;
     let result: Result<Reply, Reply> = (|| {
         match step {
             Step::IdMounted => Ok(Reply {
@@ -629,7 +625,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                     ..Reply::ok()
                 })
             }
-            Step::WaitFor { id, .. } => {
+            Step::WaitFor { id, .. } | Step::AssertVisible { id } => {
                 visible(&id)?;
                 Ok(Reply::ok())
             }
@@ -673,9 +669,9 @@ fn exec(step: Step, revision: u32) -> Reply {
                 let node = find(&id)?;
                 let point = match at {
                     Some([x, y]) => day_spec::Point::new(x, y),
-                    None => with_tree(|t| t.node_frame(node))
-                        .map(|f| day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0))
-                        .unwrap_or(day_spec::Point::ZERO),
+                    None => with_tree(|t| t.node_frame(node)).map_or(day_spec::Point::ZERO, |f| {
+                        day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0)
+                    }),
                 };
                 // Declared modifiers stand in for held keys while the tap dispatches
                 // (`day::modifiers()` answers them), then clear, since a synthetic tap cannot
@@ -774,7 +770,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 emit_drag(day_spec::DragPhase::Began, fx, fy);
                 day_reactive::flush_sync();
                 for i in 1..=n {
-                    let f = i as f64 / n as f64;
+                    let f = f64::from(i) / f64::from(n);
                     emit_drag(
                         day_spec::DragPhase::Changed,
                         fx + (tx - fx) * f,
@@ -789,12 +785,11 @@ fn exec(step: Step, revision: u32) -> Reply {
             }
             Step::Hover { id, at, leave } => {
                 let node = find(&id)?;
-                let location = match at {
-                    Some([x, y]) => day_spec::Point::new(x, y),
-                    None => {
-                        let f = with_tree(|t| t.node_frame(node)).unwrap_or_default();
-                        day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0)
-                    }
+                let location = if let Some([x, y]) = at {
+                    day_spec::Point::new(x, y)
+                } else {
+                    let f = with_tree(|t| t.node_frame(node)).unwrap_or_default();
+                    day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0)
                 };
                 let phase = if leave {
                     day_spec::DragPhase::Ended
@@ -826,8 +821,8 @@ fn exec(step: Step, revision: u32) -> Reply {
                 for _ in 0..n {
                     emit_pan(
                         day_spec::DragPhase::Changed,
-                        by[0] / n as f64,
-                        by[1] / n as f64,
+                        by[0] / f64::from(n),
+                        by[1] / f64::from(n),
                     );
                 }
                 emit_pan(day_spec::DragPhase::Ended, 0.0, 0.0);
@@ -854,7 +849,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 for i in 1..=n {
                     emit_pinch(
                         day_spec::DragPhase::Changed,
-                        1.0 + (scale - 1.0) * i as f64 / n as f64,
+                        1.0 + (scale - 1.0) * f64::from(i) / f64::from(n),
                     );
                 }
                 emit_pinch(day_spec::DragPhase::Ended, scale);
@@ -883,7 +878,10 @@ fn exec(step: Step, revision: u32) -> Reply {
                 emit_rotate(day_spec::DragPhase::Began, 0.0);
                 // Cumulative since `Began`, as the platforms report it.
                 for i in 1..=n {
-                    emit_rotate(day_spec::DragPhase::Changed, rotation * i as f64 / n as f64);
+                    emit_rotate(
+                        day_spec::DragPhase::Changed,
+                        rotation * f64::from(i) / f64::from(n),
+                    );
                 }
                 emit_rotate(day_spec::DragPhase::Ended, rotation);
                 Ok(Reply::ok())
@@ -1460,10 +1458,6 @@ fn exec(step: Step, revision: u32) -> Reply {
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
-            Step::AssertVisible { id } => {
-                visible(&id)?;
-                Ok(Reply::ok())
-            }
             Step::AssertHidden { id } => {
                 let Some(node) = with_tree(|t| t.find_by_id(&id)) else {
                     return Ok(Reply::ok());
@@ -1673,17 +1667,16 @@ fn exec(step: Step, revision: u32) -> Reply {
                 // width the capture spans. Otherwise the capture is measured across Day's own
                 // width, and rows beyond Day's content are window area above it (AppKit's
                 // full-size content view under a transparent title bar).
-                let (scale, left, above) = match origin {
-                    Some(o) => (
+                let (scale, left, above) = if let Some(o) = origin {
+                    (
                         img.width as f64 / (window.size.width + 2.0 * o.x).max(1.0),
                         o.x,
                         o.y,
-                    ),
-                    None => {
-                        let scale = img.width as f64 / window.size.width.max(1.0);
-                        let above = (img.height as f64 / scale - window.size.height).max(0.0);
-                        (scale, 0.0, above)
-                    }
+                    )
+                } else {
+                    let scale = img.width as f64 / window.size.width.max(1.0);
+                    let above = (img.height as f64 / scale - window.size.height).max(0.0);
+                    (scale, 0.0, above)
                 };
                 let px = ((left + frame.origin.x - window.origin.x + x * frame.size.width) * scale)
                     .floor()
@@ -1736,10 +1729,9 @@ fn exec(step: Step, revision: u32) -> Reply {
                                  got: Option<String>,
                                  want: Option<String>,
                                  eq: bool| match (got, want) {
-                    (_, None) => {}
                     (None, Some(_)) => unread.push(field.to_owned()),
                     (Some(g), Some(w)) if !eq => {
-                        fails.push(format!("native {field} {g} ≠ expected {w}"))
+                        fails.push(format!("native {field} {g} ≠ expected {w}"));
                     }
                     _ => {}
                 };
@@ -2085,7 +2077,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                         day_reactive::flush_sync();
                     }
                     Ok(Reply::ok())
-                } else if day_core::size_class().is_some_and(|c| c.prefers_split()) {
+                } else if day_core::size_class().is_some_and(day_spec::SizeClass::prefers_split) {
                     // Nothing to pop, and nothing should be: a window past the compact width keeps
                     // the detail beside the list instead of pushing it (docs/size-classes.md), so
                     // the script is already where `nav_back` would have taken it.
@@ -2174,7 +2166,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 } else {
                     PresentResult::Dismissed
                 };
-                day_core::respond_presentation(req, result);
+                let _ = day_core::respond_presentation(req, result);
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
@@ -2293,6 +2285,7 @@ fn role_eq(a: day_spec::Role, b: day_spec::Role) -> bool {
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+#[must_use]
 pub fn b64encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
@@ -2301,7 +2294,7 @@ pub fn b64encode(data: &[u8]) -> String {
             *chunk.get(1).unwrap_or(&0),
             *chunk.get(2).unwrap_or(&0),
         ];
-        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         out.push(B64[(n >> 18) as usize & 63] as char);
         out.push(B64[(n >> 12) as usize & 63] as char);
         out.push(if chunk.len() > 1 {
@@ -2318,6 +2311,7 @@ pub fn b64encode(data: &[u8]) -> String {
     out
 }
 
+#[must_use]
 pub fn b64decode(s: &str) -> Vec<u8> {
     let val = |c: u8| B64.iter().position(|&x| x == c).unwrap_or(0) as u32;
     let bytes: Vec<u8> = s.bytes().filter(|&c| c != b'\n' && c != b'\r').collect();
@@ -2326,6 +2320,10 @@ pub fn b64decode(s: &str) -> Vec<u8> {
         if chunk.len() < 4 {
             break;
         }
+        #[expect(
+            clippy::naive_bytecount,
+            reason = "the chunk is four bytes; a byte-counting dependency would buy nothing"
+        )]
         let pad = chunk.iter().filter(|&&c| c == b'=').count();
         let n = (val(chunk[0]) << 18)
             | (val(chunk[1]) << 12)
@@ -2461,7 +2459,9 @@ mod tests {
     #[test]
     fn optional_tap_only_skips_absent_elements_after_transitions_settle() {
         use day_pieces::prelude::*;
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         day_core::uninstall_tree();
         let enabled = Signal::new(false);
         let presses = Signal::new(0);
@@ -2515,7 +2515,9 @@ mod tests {
     #[test]
     fn nav_back_steps_reach_the_system_back_handler() {
         use day_pieces::prelude::*;
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         day_core::uninstall_tree();
         let enabled = Signal::new(true);
         let backs = Signal::new(0);
@@ -2543,7 +2545,9 @@ mod tests {
     #[test]
     fn tap_waits_for_navigation_and_enabled_state_before_dispatching_once() {
         use day_pieces::prelude::*;
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         day_core::uninstall_tree();
         let enabled = Signal::new(false);
         let presses = Signal::new(0);
@@ -2610,7 +2614,9 @@ mod tests {
     #[test]
     fn the_main_thread_budget_is_generous_overridable_and_never_below_the_step() {
         let five = Duration::from_secs(5);
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // SAFETY: the guard above serializes every mutation of this variable in this crate.
         unsafe { std::env::remove_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS") };
         assert_eq!(
@@ -2722,8 +2728,9 @@ mod tests {
             vec![7]
         );
         // An id that is not in the model matches nothing: never the same-named item by label.
-        assert!(
-            find_menu_actions(&model("    "), "Grid", None, Some("view-ruler"), &[]).is_empty()
+        assert_eq!(
+            find_menu_actions(&model("    "), "Grid", None, Some("view-ruler"), &[]),
+            [] as [(u64, bool, std::vec::Vec<std::string::String>); 0]
         );
     }
 }

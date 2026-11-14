@@ -21,6 +21,7 @@ pub(crate) fn forced_reduce_motion() -> bool {
 /// Skip decorative motion, applying its destination state immediately: the reduced-motion
 /// gate ([`crate::reduce_motion_now`]), which fast mode forces on. Kept under this name for
 /// the backends that ask it before animating a native transition.
+#[must_use]
 pub fn fast_animations() -> bool {
     crate::reduce_motion_now()
 }

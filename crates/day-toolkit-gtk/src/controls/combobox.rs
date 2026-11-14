@@ -113,8 +113,8 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
     // Grow to the proposed width; natural (single-line) height.
     let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-    let w = p.width.unwrap_or(nat_w as f64).max(120.0);
-    Size::new(w, (nat_h as f64).max(24.0))
+    let w = p.width.unwrap_or(f64::from(nat_w)).max(120.0);
+    Size::new(w, f64::from(nat_h).max(24.0))
 }
 
 /// Drop the per-widget state when the widget goes away.

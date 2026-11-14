@@ -50,7 +50,9 @@ struct Registry {
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(Mutex::default);
 
 fn registry() -> MutexGuard<'static, Registry> {
-    REGISTRY.lock().unwrap_or_else(|p| p.into_inner())
+    REGISTRY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The process's background session, made on first use. A bare executable has no bundle
@@ -111,6 +113,10 @@ pub(crate) fn available() -> bool {
     session().is_some()
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every platform arm of `system` shares this signature, including arms not built on this host"
+)]
 pub(crate) fn start(job: SystemJob<'_>, events: SystemEvents) -> Result<(), DownloadError> {
     let session = session().ok_or(DownloadError::Unsupported)?;
     let key = key(job.dir, job.id);
@@ -166,8 +172,12 @@ pub(crate) fn pause(dir: &Path, id: u64, _reference: Option<&str>) -> Result<(),
     let tx = Mutex::new(Some(tx));
     let block = RcBlock::new(move |data: *mut NSData| {
         // SAFETY: Foundation passes resume data or null, valid for the duration of the call.
-        let bytes = unsafe { data.as_ref() }.map(|d| d.to_vec());
-        if let Some(tx) = tx.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        let bytes = unsafe { data.as_ref() }.map(objc2_foundation::NSData::to_vec);
+        if let Some(tx) = tx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
             let _ = tx.send(bytes);
         }
     });
@@ -217,7 +227,11 @@ fn all_tasks(session: &NSURLSession) -> Vec<Shared<NSURLSessionDownloadTask>> {
             .filter_map(|task| task.downcast::<NSURLSessionDownloadTask>().ok())
             .map(Shared)
             .collect();
-        if let Some(tx) = tx.lock().unwrap_or_else(|p| p.into_inner()).take() {
+        if let Some(tx) = tx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
             let _ = tx.send(found);
         }
     });

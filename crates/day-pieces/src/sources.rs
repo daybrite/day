@@ -32,6 +32,7 @@ impl Clone for TextSource {
 }
 
 impl TextSource {
+    #[must_use]
     pub fn initial(&self) -> String {
         match self {
             TextSource::Static(s) => s.clone(),
@@ -159,6 +160,7 @@ pub enum FractionSource {
 
 impl FractionSource {
     /// Untracked seed value, clamped to `0.0..=1.0`.
+    #[must_use]
     pub fn initial(&self) -> f64 {
         let v = match self {
             FractionSource::Static(v) => *v,

@@ -23,6 +23,7 @@
 //! cross-references the metadata's locale keys against the app's translation locales.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -148,7 +149,10 @@ pub(crate) fn png_dims(bytes: &[u8]) -> Option<(u32, u32)> {
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut h = sha2::Sha256::new();
     h.update(bytes);
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    h.finalize().iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 /// `home` → `Home`, `list-item-100` → `List Item 100`: the label for a shot no metadata
@@ -175,8 +179,7 @@ fn derived_label(id: &str) -> String {
 fn iso_utc_now() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let (days, rem) = (secs / 86_400, secs % 86_400);
     let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
     let z = days as i64 + 719_468;
@@ -955,13 +958,13 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             }
             let m = shot_meta.entry(e.shot.clone()).or_default();
             if m.title.is_none() {
-                m.title = e.title.clone();
+                m.title.clone_from(&e.title);
             }
             if m.caption.is_none() {
-                m.caption = e.caption.clone();
+                m.caption.clone_from(&e.caption);
             }
             if m.source.is_none() {
-                m.source = e.source.clone();
+                m.source.clone_from(&e.source);
             }
         }
     }
@@ -973,11 +976,13 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
         let (os, toolkit) = crate::targets::TARGETS
             .iter()
             .find(|t| t.name == *platform)
-            .map(|t| (t.os.to_string(), t.toolkit.to_string()))
-            .unwrap_or_else(|| {
-                let (os, tk) = platform.split_once('-').unwrap_or((platform, ""));
-                (os.to_string(), tk.to_string())
-            });
+            .map_or_else(
+                || {
+                    let (os, tk) = platform.split_once('-').unwrap_or((platform, ""));
+                    (os.to_string(), tk.to_string())
+                },
+                |t| (t.os.to_string(), t.toolkit.to_string()),
+            );
         let mut entries: Vec<&TargetEntry> = by_target[platform].iter().collect();
         entries.sort_by(|a, b| {
             let ra = shot_order.iter().position(|s| *s == a.shot);
@@ -1002,8 +1007,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             let title = meta
                 .and_then(|m| m.title.as_ref())
                 .and_then(|t| t.resolve(for_locale))
-                .map(str::to_string)
-                .unwrap_or_else(|| derived_label(&e.shot));
+                .map_or_else(|| derived_label(&e.shot), str::to_string);
             let caption = meta
                 .and_then(|m| m.caption.as_ref())
                 .and_then(|c| c.resolve(for_locale))
@@ -1383,7 +1387,7 @@ fn decode_ahead<T: Send + 'static>(
 }
 
 fn worker_count() -> usize {
-    std::thread::available_parallelism().map_or(2, |n| n.get())
+    std::thread::available_parallelism().map_or(2, std::num::NonZero::get)
 }
 
 /// The `SHA256SUMS` text for `entries`: one line per path. Two trees may carry one path (an
@@ -1394,7 +1398,7 @@ fn sums_text(entries: &[&Entry]) -> Result<String, String> {
     let mut text = String::new();
     for e in entries {
         match seen.get(e.path.as_str()) {
-            Some(sum) if *sum == e.sha256 => continue,
+            Some(sum) if *sum == e.sha256 => {}
             Some(_) => {
                 return Err(format!(
                     "{}: two trees carry this path with different contents",
@@ -1403,7 +1407,7 @@ fn sums_text(entries: &[&Entry]) -> Result<String, String> {
             }
             None => {
                 seen.insert(&e.path, &e.sha256);
-                text.push_str(&format!("{}  {}\n", e.sha256, e.path));
+                let _ = writeln!(text, "{}  {}", e.sha256, e.path);
             }
         }
     }
@@ -1553,7 +1557,10 @@ impl<W: std::io::Write> std::io::Write for HashingWriter<W> {
 }
 
 fn hex(digest: impl AsRef<[u8]>) -> String {
-    digest.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+    digest.as_ref().iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 // ---- pack ---------------------------------------------------------------------------------
@@ -1824,7 +1831,7 @@ pub fn pack(opts: &PackOptions) -> Result<PathBuf, String> {
         .iter()
         .flat_map(|(_, _, body)| body.iter())
         .filter(|e| is_png(&e.path))
-        .map(|e| std::fs::metadata(&e.source).map(|m| m.len()).unwrap_or(0))
+        .map(|e| std::fs::metadata(&e.source).map_or(0, |m| m.len()))
         .sum();
     eprintln!(
         "{BOLD}       Pack{BOLD:#} {captures} capture(s) in {} tree(s), {} of PNG → {} ({})",
@@ -1842,6 +1849,7 @@ pub fn pack(opts: &PackOptions) -> Result<PathBuf, String> {
 /// a compressed PNG of the same pixels, every other file as it is, and a root `gallery.json`
 /// updated to the files written.
 pub fn unpack(opts: &UnpackOptions) -> Result<(), String> {
+    type Job = (String, Vec<u8>);
     use std::io::Read as _;
 
     let io = |e: std::io::Error| format!("{}: {e}", opts.archive.display());
@@ -1880,7 +1888,6 @@ pub fn unpack(opts: &UnpackOptions) -> Result<(), String> {
     // Writing a compressed PNG costs far more than reading the archive, so captures fan out
     // to worker threads; the bounded channel keeps a few in memory, not a tree.
     let workers = worker_count().clamp(1, 8);
-    type Job = (String, Vec<u8>);
     let (job_tx, job_rx) = std::sync::mpsc::sync_channel::<Job>(workers);
     let job_rx = std::sync::Mutex::new(job_rx);
     let (done_tx, done_rx) = std::sync::mpsc::channel::<Result<(String, u64, String), String>>();
@@ -2135,7 +2142,7 @@ pub fn normalize_capture(path: &Path) -> Result<bool, String> {
         });
     match profile {
         None => return Err(format!("{} is not a PNG", path.display())),
-        Some((true, _)) | Some((_, Some(false))) => return Ok(false),
+        Some((true, _) | (_, Some(false))) => return Ok(false),
         Some(_) => {}
     }
     let (width, height, pixels, bytes) = decode_png(path)?;
@@ -2204,7 +2211,7 @@ const VIDEO_STOP_SECS: u64 = 30;
 /// launched and before the first step, finished when the run ends.
 ///
 /// Beside the video, `<video>.json` records when the recording began and ended on this
-/// machine's clock, plus each script's step timings from its run report (script_report.rs),
+/// machine's clock, plus each script's step timings from its run report (`script_report.rs`),
 /// so takes of the same script on different targets can be cut step by step onto one shared
 /// timeline. The sidecar copies the timings rather than pointing at the report, because the
 /// report lives in the build tree and the take usually outlives it.
@@ -2262,8 +2269,7 @@ const FFMPEG_BT709: [&str; 12] = [
 fn unix_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 impl VideoRecording {
@@ -2463,14 +2469,12 @@ impl VideoRecording {
                 }
             });
         }
-        let started_at = match wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS)) {
-            Ok(at) => at,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
-                return Err(format!("simctl did not start recording {udid}:\n{said}"));
-            }
+        let Ok(started_at) = wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS))
+        else {
+            let _ = child.kill();
+            let _ = child.wait();
+            let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+            return Err(format!("simctl did not start recording {udid}:\n{said}"));
         };
         crate::ops::status(
             "Recording",
@@ -2489,7 +2493,7 @@ impl VideoRecording {
     }
 
     /// Record a macos-appkit app on the run's virtual capture display (`capture_display`, which
-    /// a `--video` run always makes), through ScreenCaptureKit (resources/macos/record-display.m):
+    /// a `--video` run always makes), through `ScreenCaptureKit` (resources/macos/record-display.m):
     /// the app's own windows only, cropped to its main window. The helper reports the first
     /// frame's host-clock time as the recording's time zero, and writes the file's end when its
     /// stdin closes.
@@ -2644,14 +2648,12 @@ impl VideoRecording {
                 }
             });
         }
-        let started_at = match wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS)) {
-            Ok(at) => at,
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
-                return Err(format!("ffmpeg did not start recording {display}:\n{said}"));
-            }
+        let Ok(started_at) = wait.recv_timeout(std::time::Duration::from_secs(VIDEO_START_SECS))
+        else {
+            let _ = child.kill();
+            let _ = child.wait();
+            let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+            return Err(format!("ffmpeg did not start recording {display}:\n{said}"));
         };
         let stdin = child.stdin.take().ok_or("ffmpeg has no stdin")?;
         crate::ops::status(
@@ -2671,8 +2673,8 @@ impl VideoRecording {
     }
 
     /// Record the Oniro emulator `day devices boot` started: its QMP socket (ohos.rs
-    /// `qmp_socket`) answers `screendump`, which this reads GRAB_FPS times a second and pipes
-    /// to ffmpeg as raw frames. Frame n always stands for n/GRAB_FPS seconds after the first,
+    /// `qmp_socket`) answers `screendump`, which this reads `GRAB_FPS` times a second and pipes
+    /// to ffmpeg as raw frames. Frame n always stands for `n/GRAB_FPS` seconds after the first,
     /// and a grab that takes longer than a frame repeats the previous picture rather than
     /// losing the time, so the video's clock is the host's.
     #[cfg(unix)]
@@ -2680,9 +2682,8 @@ impl VideoRecording {
         use std::io::{BufRead as _, Write as _};
         use std::process::{Command, Stdio};
         use std::sync::atomic::{AtomicBool, Ordering};
-        let key = crate::ops::selected_ohos_key()
-            .map(str::to_string)
-            .unwrap_or_else(crate::ohos::ohos_target);
+        let key =
+            crate::ops::selected_ohos_key().map_or_else(crate::ohos::ohos_target, str::to_string);
         let port: u16 = key
             .rsplit(':')
             .next()
@@ -2784,9 +2785,9 @@ impl VideoRecording {
 
     /// Record a Windows desktop app's whole primary screen: the screen rather than the
     /// window, as on Linux, so the secondary windows, dialogs and menus a script opens are in
-    /// the video too. A thread copies the screen with GDI GRAB_FPS times a second and encodes
+    /// the video too. A thread copies the screen with GDI `GRAB_FPS` times a second and encodes
     /// it with Media Foundation's H.264 encoder (`gdi_video`), so nothing beyond Windows is
-    /// needed. Each picture is stamped with the 1/GRAB_FPS slot it was grabbed in and lasts
+    /// needed. Each picture is stamped with the `1/GRAB_FPS` slot it was grabbed in and lasts
     /// until the next; when the encoder falls behind, slots are skipped (the frame rate drops
     /// for a while) rather than queued, so the video's clock stays the host's.
     ///
@@ -2825,7 +2826,7 @@ impl VideoRecording {
             device: screen,
             recorder: "gdi-mediafoundation",
             started_at,
-            log: Default::default(),
+            log: std::sync::Arc::default(),
         })
     }
 
@@ -2835,7 +2836,7 @@ impl VideoRecording {
     }
 
     /// Stop recording, let the recorder finish its file, and write the sidecar beside it
-    /// with the step timings of `reports` (the run's report files, script_report.rs).
+    /// with the step timings of `reports` (the run's report files, `script_report.rs`).
     pub fn finish(mut self, reports: &[PathBuf]) -> Result<PathBuf, String> {
         let stopped_at = unix_ms();
         match std::mem::replace(&mut self.stop, Stop::Interrupt) {
@@ -2883,7 +2884,7 @@ impl VideoRecording {
                 match child.try_wait() {
                     Ok(Some(_)) => break true,
                     Ok(None) if std::time::Instant::now() < deadline => {
-                        std::thread::sleep(std::time::Duration::from_millis(100))
+                        std::thread::sleep(std::time::Duration::from_millis(100));
                     }
                     _ => {
                         let _ = child.kill();
@@ -3048,16 +3049,21 @@ mod gdi_video {
                     ..Default::default()
                 };
                 let mut bits = std::ptr::null_mut();
-                let bitmap =
-                    match CreateDIBSection(Some(memory), &info, DIB_RGB_COLORS, &mut bits, None, 0)
-                    {
-                        Ok(bitmap) if !bits.is_null() => bitmap,
-                        outcome => {
-                            let _ = DeleteDC(memory);
-                            ReleaseDC(None, screen);
-                            return Err(format!("CreateDIBSection: {:?}", outcome.err()));
-                        }
-                    };
+                let bitmap = match CreateDIBSection(
+                    Some(memory),
+                    &raw const info,
+                    DIB_RGB_COLORS,
+                    &raw mut bits,
+                    None,
+                    0,
+                ) {
+                    Ok(bitmap) if !bits.is_null() => bitmap,
+                    outcome => {
+                        let _ = DeleteDC(memory);
+                        ReleaseDC(None, screen);
+                        return Err(format!("CreateDIBSection: {:?}", outcome.err()));
+                    }
+                };
                 SelectObject(memory, bitmap.into());
                 Ok(Self {
                     screen,
@@ -3123,7 +3129,7 @@ mod gdi_video {
         unsafe {
             let writer = MFCreateSinkWriterFromURL(&HSTRING::from(path.as_os_str()), None, None)?;
             let size = ((width as u64) << 32) | height as u64;
-            let rate = ((fps as u64) << 32) | 1;
+            let rate = (u64::from(fps) << 32) | 1;
             let out = MFCreateMediaType()?;
             out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
             out.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
@@ -3157,7 +3163,7 @@ mod gdi_video {
         unsafe {
             let buffer = MFCreateMemoryBuffer(pixels.len() as u32)?;
             let mut data = std::ptr::null_mut();
-            buffer.Lock(&mut data, None, None)?;
+            buffer.Lock(&raw mut data, None, None)?;
             std::ptr::copy_nonoverlapping(pixels.as_ptr(), data, pixels.len());
             buffer.Unlock()?;
             buffer.SetCurrentLength(pixels.len() as u32)?;
@@ -4131,12 +4137,12 @@ mod tests {
                 .len()
         );
         assert_eq!(doc["archive"]["parts"][0]["file"], "tree.tar.xz");
-        assert!(
+        assert_eq!(
             doc["screenshots"][0]["archived"]["sha256"]
                 .as_str()
                 .unwrap()
-                .len()
-                == 64
+                .len(),
+            64
         );
 
         // Both bundles check clean and unpack to the same pixels.

@@ -38,7 +38,7 @@ pub(crate) struct Keep {
 }
 
 impl Keep {
-    /// The ProGuard rule. `includedescriptorclasses` keeps the classes named in a kept member's
+    /// The `ProGuard` rule. `includedescriptorclasses` keeps the classes named in a kept member's
     /// signature too: R8 renaming a Day view class would change the descriptor jni looks the
     /// method up by, and the lookup would fail at startup. Members are kept by name with any
     /// arguments, so an overload costs a few bytes and never a missed method.
@@ -450,7 +450,10 @@ fn java_path(tokens: &[TokenTree]) -> Result<String, Error> {
 /// The class path tokens as text, for the generated `Name => path` (no spans to keep: jni only
 /// reads the path).
 fn path_text(tokens: &[TokenTree]) -> String {
-    tokens.iter().map(|t| t.to_string()).collect::<String>()
+    tokens
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect::<String>()
 }
 
 fn split_commas(trees: &[TokenTree]) -> Vec<&[TokenTree]> {
@@ -509,7 +512,7 @@ fn is_brace(t: &TokenTree) -> bool {
 }
 
 fn span_of(t: Option<&TokenTree>) -> Span {
-    t.map(TokenTree::span).unwrap_or_else(Span::call_site)
+    t.map_or_else(Span::call_site, TokenTree::span)
 }
 
 /// `compile_error!("…")` placed at `span`, so the error underlines the offending tokens.

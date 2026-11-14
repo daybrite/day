@@ -63,3 +63,6 @@ permissions = ["ohos.permission.VIBRATE"]
 
 [build-dependencies]
 day-build = { workspace = true }
+
+[lints]
+workspace = true

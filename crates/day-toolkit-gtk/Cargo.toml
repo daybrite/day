@@ -62,3 +62,6 @@ day-platform-linux = { workspace = true }
 
 [build-dependencies]
 pkg-config = "0.3"
+
+[lints]
+workspace = true

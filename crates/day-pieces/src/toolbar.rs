@@ -16,7 +16,7 @@
 //! navigation list on a narrow window) without the app re-declaring anything.
 //!
 //! A toolbar is chrome, not a piece: it is not laid out by day and does not live in the tree. It
-//! lowers to day_spec's toolkit-neutral [`day_spec::ToolbarItem`] model, which each backend
+//! lowers to `day_spec`'s toolkit-neutral [`day_spec::ToolbarItem`] model, which each backend
 //! realizes with its platform's bar: `NSToolbar`, `AdwHeaderBar`, `QToolBar`, `CommandBar`,
 //! a `UINavigationItem`, a `MaterialToolbar` menu (docs/toolbars.md).
 //!
@@ -41,6 +41,7 @@ use crate::{IntoReactive, IntoText, MenuEntry, Reactive, TextSource};
 /// [`toolbar_separator`]. Search is declared on the navigation surface instead
 /// (`Nav::searchable`, docs/search.md).
 #[derive(Clone)]
+#[must_use]
 pub struct ToolbarEntry {
     id: String,
     kind: Kind,
@@ -68,6 +69,10 @@ enum Kind {
     Separator,
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the public constructors take the id by value and hand it straight on"
+)]
 fn entry(id: day_core::ElementId, kind: Kind) -> ToolbarEntry {
     ToolbarEntry {
         id: id.as_str().to_owned(),
@@ -118,6 +123,7 @@ pub fn toolbar_segmented(
 
 /// One choice in a [`toolbar_segmented`] control.
 #[derive(Clone)]
+#[must_use]
 pub struct Segment {
     label: TextSource,
     icon: Option<day_spec::Icon>,
@@ -191,8 +197,12 @@ impl ToolbarEntry {
     }
 
     /// Override a presentation id (for example, preserve an existing dayscript toolbar id).
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public builder signature; `id!` yields the id by value"
+    )]
     pub fn id(mut self, id: day_core::ElementId) -> Self {
-        self.id = id.as_str().to_owned();
+        id.as_str().clone_into(&mut self.id);
         self
     }
     /// Run `f` when the item is chosen. On a toggle or a search field the value binding carries
@@ -315,7 +325,7 @@ pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     // The host rides in the closure: a second window's button toggles that window's own
     // sidebar, never the first host the toolkit happens to find.
     .action(move || {
-        day_core::toggle_sidebar(host);
+        let _ = day_core::toggle_sidebar(host);
     })
 }
 
@@ -365,7 +375,7 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
                 };
                 let seed = day_reactive::untrack(&resolve);
                 bind_seeded(seed, resolve, move |now: &Vec<(String, Option<String>)>| {
-                    day_core::relabel_contribution(token, now)
+                    day_core::relabel_contribution(token, now);
                 });
             }
             token
@@ -435,19 +445,13 @@ fn lower(
             let (kind, action_id) = match kind {
                 Kind::Button => (
                     ToolbarItemKind::Button,
-                    extra
-                        .clone()
-                        .map(day_core::register_menu_action)
-                        .unwrap_or(0),
+                    extra.clone().map_or(0, day_core::register_menu_action),
                 ),
                 Kind::Menu(items) => (
                     ToolbarItemKind::Menu {
                         items: crate::lower_menu(items),
                     },
-                    extra
-                        .clone()
-                        .map(day_core::register_menu_action)
-                        .unwrap_or(0),
+                    extra.clone().map_or(0, day_core::register_menu_action),
                 ),
                 Kind::Toggle(on) => {
                     let seed = on.get_untracked();

@@ -34,6 +34,7 @@ use crate::{
 /// assert_eq!(count.get(), 1);
 /// ```
 #[derive(Clone)]
+#[must_use]
 pub struct Command {
     id: day_core::ElementId,
     label: TextSource,
@@ -95,11 +96,13 @@ impl Command {
         self
     }
 
+    #[must_use]
     pub fn id(&self) -> &str {
         self.id.as_str()
     }
 
     /// Current title, with tracked reads for reactive presentation builders.
+    #[must_use]
     pub fn label(&self) -> String {
         if self.owner.is_alive() {
             self.label.resolve()
@@ -108,10 +111,12 @@ impl Command {
         }
     }
 
+    #[must_use]
     pub fn is_enabled(&self) -> bool {
         self.owner.is_alive() && self.enabled.get()
     }
 
+    #[must_use]
     pub fn is_checked(&self) -> Option<bool> {
         self.checked
             .as_ref()

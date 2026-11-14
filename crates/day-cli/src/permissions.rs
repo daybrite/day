@@ -253,26 +253,25 @@ pub fn resolve_with(
                 day_build::permissions::names().join(", ")
             ));
         };
-        match by_name.get_mut(spec.name) {
-            Some(existing) => existing.sources.push(crate_name.clone()),
-            None => {
-                // A contribution's reason is the app's to give, so it still comes from the
-                // catalog when the app wrote one there without a Day.toml line of its own.
-                let reasons = if spec.needs_reason {
-                    reason_texts(catalog, &message_id(spec.name), None)
-                } else {
-                    BTreeMap::new()
-                };
-                by_name.insert(
-                    spec.name,
-                    Resolved {
-                        spec,
-                        reason: reasons.get(default).cloned(),
-                        reasons,
-                        sources: vec![crate_name.clone()],
-                    },
-                );
-            }
+        if let Some(existing) = by_name.get_mut(spec.name) {
+            existing.sources.push(crate_name.clone());
+        } else {
+            // A contribution's reason is the app's to give, so it still comes from the
+            // catalog when the app wrote one there without a Day.toml line of its own.
+            let reasons = if spec.needs_reason {
+                reason_texts(catalog, &message_id(spec.name), None)
+            } else {
+                BTreeMap::new()
+            };
+            by_name.insert(
+                spec.name,
+                Resolved {
+                    spec,
+                    reason: reasons.get(default).cloned(),
+                    reasons,
+                    sources: vec![crate_name.clone()],
+                },
+            );
         }
     }
 

@@ -41,7 +41,7 @@ mod sp {
     pub const NONE: i32 = -1;
 }
 
-/// The freedesktop icon name and the QStyle fallback for each standard symbol.
+/// The freedesktop icon name and the `QStyle` fallback for each standard symbol.
 fn icon_for(s: Symbol) -> (&'static str, i32) {
     match s {
         Symbol::Add => ("list-add", sp::NONE),
@@ -58,6 +58,10 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         Symbol::Settings => ("configure", sp::NONE),
         Symbol::Info => ("dialog-information", sp::MSG_INFORMATION),
         Symbol::Star => ("starred", sp::NONE),
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one row per symbol; two symbols sharing an icon name stay separate rows"
+        )]
         Symbol::Bookmark => ("bookmarks", sp::NONE),
         Symbol::Back => ("go-previous", sp::ARROW_BACK),
         Symbol::Forward => ("go-next", sp::ARROW_FORWARD),
@@ -113,6 +117,7 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
 /// else Day's own outline), a bundled image as its resolved file path (no theme name; Qt loads
 /// it through the lookup's file branch), plus the standard pixmap to fall back on (-1 for
 /// none). Public for a piece that draws icons in a shim of its own (`day_qt_icon_new`).
+#[must_use]
 pub fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
     match icon {
         Some(Icon::Symbol(s)) => {
@@ -203,7 +208,7 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
     match &item.kind {
         ToolbarItemKind::Button | ToolbarItemKind::Toggle { .. } => {
             let (checkable, checked) = match item.kind {
-                ToolbarItemKind::Toggle { on } => (1, on as c_int),
+                ToolbarItemKind::Toggle { on } => (1, c_int::from(on)),
                 _ => (0, 0),
             };
             let action = item.action;
@@ -216,10 +221,10 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
                     fallback,
                     tip.as_ptr(),
                     action,
-                    item.enabled as c_int,
+                    c_int::from(item.enabled),
                     checkable,
                     checked,
-                )
+                );
             };
         }
         ToolbarItemKind::Segmented { segments, selected } => {
@@ -249,8 +254,8 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
                     icons.as_ptr(),
                     *selected as c_int,
                     item.action,
-                    item.enabled as c_int,
-                )
+                    c_int::from(item.enabled),
+                );
             };
         }
         ToolbarItemKind::Menu { items } => {
@@ -262,7 +267,7 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
                     icon.as_ptr(),
                     fallback,
                     tip.as_ptr(),
-                    item.enabled as c_int,
+                    c_int::from(item.enabled),
                 )
             };
             if !menu.is_null() {
@@ -283,7 +288,7 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
                     text.as_ptr(),
                     ph.as_ptr(),
                     item.action,
-                    item.enabled as c_int,
+                    c_int::from(item.enabled),
                 );
                 // Qt's own QCompleter drives the popup (docs/search.md).
                 let joined = cstr(&suggestions.join("\n"));
@@ -291,10 +296,10 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
             };
         }
         ToolbarItemKind::Label => unsafe {
-            ffi::day_qt_toolbar_add_label(bar, id.as_ptr(), label.as_ptr())
+            ffi::day_qt_toolbar_add_label(bar, id.as_ptr(), label.as_ptr());
         },
         ToolbarItemKind::Separator => unsafe {
-            ffi::day_qt_toolbar_add_separator(bar, id.as_ptr())
+            ffi::day_qt_toolbar_add_separator(bar, id.as_ptr());
         },
     }
 }
@@ -336,7 +341,7 @@ impl Qt {
                             col,
                             slot.1,
                             after.as_ptr(),
-                        )
+                        );
                     };
                     add_item(win, bar, item);
                     mirror.insert(*index, item.clone());
@@ -361,23 +366,23 @@ impl Qt {
                 unsafe { ffi::day_qt_toolbar_set_text(win, id.as_ptr(), text.as_ptr()) };
             }
             ToolbarPatch::On { on, .. } => unsafe {
-                ffi::day_qt_toolbar_set_checked(win, id.as_ptr(), *on as c_int)
+                ffi::day_qt_toolbar_set_checked(win, id.as_ptr(), c_int::from(*on));
             },
             ToolbarPatch::Selected { index, .. } => unsafe {
-                ffi::day_qt_toolbar_set_selected(win, id.as_ptr(), *index as c_int)
+                ffi::day_qt_toolbar_set_selected(win, id.as_ptr(), *index as c_int);
             },
             ToolbarPatch::Suggestions { list, .. } => unsafe {
                 let joined = cstr(&list.join("\n"));
                 ffi::day_qt_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr());
             },
             ToolbarPatch::Enabled { on, .. } => unsafe {
-                ffi::day_qt_toolbar_set_enabled(win, id.as_ptr(), *on as c_int)
+                ffi::day_qt_toolbar_set_enabled(win, id.as_ptr(), c_int::from(*on));
             },
             ToolbarPatch::Label { label, tooltip, .. } => {
                 let tip = cstr(tooltip.as_deref().unwrap_or(label));
                 let label = cstr(label);
                 unsafe {
-                    ffi::day_qt_toolbar_set_words(win, id.as_ptr(), label.as_ptr(), tip.as_ptr())
+                    ffi::day_qt_toolbar_set_words(win, id.as_ptr(), label.as_ptr(), tip.as_ptr());
                 };
             }
             ToolbarPatch::Placeholder { text, .. } => {

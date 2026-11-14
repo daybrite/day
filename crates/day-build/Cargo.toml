@@ -33,3 +33,6 @@ fluent-syntax = "0.12"
 # SwiftUI bindings (docs/swiftui.md) derive from the same declaration `day build` stages and
 # links, rather than restating the package list in build.rs. Same version day-cli already uses.
 toml = { workspace = true }
+
+[lints]
+workspace = true

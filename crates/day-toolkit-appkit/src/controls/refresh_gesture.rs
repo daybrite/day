@@ -24,7 +24,7 @@ use objc2_app_kit::{NSScrollView, NSViewBoundsDidChangeNotification};
 use objc2_foundation::{NSNotification, NSNotificationCenter};
 
 /// How far past the top (in points) the elastic overscroll must travel to count as a pull,
-/// roughly UIRefreshControl's activation distance.
+/// roughly `UIRefreshControl`'s activation distance.
 const PULL_THRESHOLD: f64 = 60.0;
 
 pub(crate) fn attach(view: &objc2::rc::Retained<objc2_app_kit::NSView>, host: NodeId) {
@@ -64,7 +64,7 @@ pub(crate) fn attach(view: &objc2::rc::Retained<objc2_app_kit::NSView>, host: No
         let center = NSNotificationCenter::defaultCenter();
         // The observer token is a ProtocolObject (no Deref to AnyObject); every ObjC object
         // shares representation, so the pointer cast is the standard bridge.
-        let ptr = objc2::rc::Retained::as_ptr(&token) as *const AnyObject;
+        let ptr = objc2::rc::Retained::as_ptr(&token).cast::<AnyObject>();
         unsafe { center.removeObserver(&*ptr) };
     });
 }

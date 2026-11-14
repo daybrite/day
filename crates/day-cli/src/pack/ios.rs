@@ -325,7 +325,7 @@ fn resolve_field(raw: Option<&String>, what: &str) -> Result<Option<String>, Pac
     }
 }
 
-/// ExportOptions; Xcode ≥15.4 method names ("app-store-connect", "release-testing"). Automatic
+/// `ExportOptions`; Xcode ≥15.4 method names ("app-store-connect", "release-testing"). Automatic
 /// signing, or manual over an installed App Store `profile` for `app_id` (its UUID and the
 /// SHA-1 of its certificate, which names one identity even when the keychain holds several).
 pub(crate) fn export_options(
@@ -336,12 +336,12 @@ pub(crate) fn export_options(
 ) -> String {
     let signing = match profile {
         Some(p) => format!(
-            r#"  <key>signingStyle</key><string>manual</string>
+            r"  <key>signingStyle</key><string>manual</string>
   <key>signingCertificate</key><string>{}</string>
   <key>provisioningProfiles</key><dict>
     <key>{app_id}</key><string>{}</string>
   </dict>
-"#,
+",
             p.cert_sha1, p.uuid
         ),
         None => "  <key>signingStyle</key><string>automatic</string>\n".to_string(),

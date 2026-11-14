@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! A `StatusNotifierItem` server with its `com.canonical.dbusmenu` menu: the Linux status item
-//! ("tray icon") that KDE Plasma, GNOME with the AppIndicator extension, Xfce, LXQt, Budgie,
+//! ("tray icon") that KDE Plasma, GNOME with the AppIndicator extension, Xfce, `LXQt`, Budgie,
 //! Cinnamon and the wlroots bars (waybar, …) display.
 //!
 //! The server is toolkit-agnostic. It takes a neutral [`Item`] (id, title, tooltip, icon as
@@ -43,6 +43,7 @@ pub const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
 pub const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 
 /// Whether a `StatusNotifierWatcher` is on the bus, that is, whether a status item can show.
+#[must_use]
 pub fn watcher_available(conn: &Connection) -> bool {
     conn.name_has_owner(WATCHER_NAME)
 }
@@ -63,6 +64,7 @@ pub struct Pixmap {
 impl Pixmap {
     /// Converts straight (non-premultiplied) RGBA8 bytes; `None` when the length is not
     /// `width × height × 4` or a dimension does not fit `i32`.
+    #[must_use]
     pub fn from_rgba(width: u32, height: u32, rgba: &[u8]) -> Option<Pixmap> {
         let pixels = usize::try_from(u64::from(width) * u64::from(height)).ok()?;
         if rgba.len() != pixels.checked_mul(4)? {
@@ -190,6 +192,7 @@ pub enum Check {
 /// One menu entry. Ids are chosen by the caller, must be unique within the menu, and must not be
 /// 0 (the root). A separator ignores its label; an entry with children is a submenu.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[must_use]
 pub struct MenuEntry {
     /// The id reported in [`Event::MenuItem`].
     pub id: i32,
@@ -329,6 +332,11 @@ impl StatusItem {
     /// Exports the item and its menu on `conn` and registers with the watcher if one is
     /// running (and again whenever one starts). `on_event` runs on the connection's reader
     /// thread, so it should hand the event on rather than block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the item's or the menu's object path is already exported on `conn`,
+    /// when the item's bus name cannot be owned, or when a call to the bus or the watcher fails.
     pub fn new<F>(
         conn: &Connection,
         item: Item,
@@ -412,6 +420,7 @@ impl StatusItem {
 
     /// The bus name the item registered under: its own well-known name, or the connection's
     /// unique name inside a sandbox.
+    #[must_use]
     pub fn service(&self) -> &str {
         &self.service
     }
@@ -422,6 +431,10 @@ impl StatusItem {
     }
 
     /// Replaces the menu and tells hosts to fetch it again.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the `LayoutUpdated` signal cannot be sent.
     pub fn set_menu(&self, menu: Vec<MenuEntry>) -> Result<(), Error> {
         let revision = {
             let mut state = lock(&self.core.state);
@@ -438,28 +451,44 @@ impl StatusItem {
     }
 
     /// Replaces the icon (theme name and pixmaps).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the `NewIcon` signal cannot be sent.
     pub fn set_icon(&self, icon_name: &str, pixmaps: Vec<Pixmap>) -> Result<(), Error> {
         {
             let mut state = lock(&self.core.state);
-            state.item.icon_name = icon_name.to_owned();
+            icon_name.clone_into(&mut state.item.icon_name);
             state.item.icon_pixmaps = pixmaps;
         }
         self.emit("NewIcon", &[])
     }
 
     /// Replaces the title.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the `NewTitle` signal cannot be sent.
     pub fn set_title(&self, title: &str) -> Result<(), Error> {
-        lock(&self.core.state).item.title = title.to_owned();
+        title.clone_into(&mut lock(&self.core.state).item.title);
         self.emit("NewTitle", &[])
     }
 
     /// Replaces the tooltip text.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the `NewToolTip` signal cannot be sent.
     pub fn set_tooltip(&self, tooltip: &str) -> Result<(), Error> {
-        lock(&self.core.state).item.tooltip = tooltip.to_owned();
+        tooltip.clone_into(&mut lock(&self.core.state).item.tooltip);
         self.emit("NewToolTip", &[])
     }
 
     /// Changes the status.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the `NewStatus` signal cannot be sent.
     pub fn set_status(&self, status: Status) -> Result<(), Error> {
         lock(&self.core.state).item.status = status;
         self.emit("NewStatus", &[Value::str(status.as_str())])

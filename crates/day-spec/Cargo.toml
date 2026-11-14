@@ -15,3 +15,6 @@ day-fonts = { workspace = true }
 # handle on Apple" path + desktop dev). Native backends (Android AAsset, GTK GResource, Qt
 # QResource, ArkUI rawfile) register their own opener and don't go through this.
 memmap2 = "0.9"
+
+[lints]
+workspace = true

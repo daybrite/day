@@ -14,7 +14,9 @@ use day_spec::{Event, NodeId, Size, WindowOptions};
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn boot(root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _g = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     day_core::launch_with(
@@ -86,7 +88,7 @@ fn with_animation_threads_into_background_color_patch() {
     assert!(probe.widget(h).last_anim.is_none());
 
     with_animation(Animation::spring(0.4, 0.9), || {
-        c.set(Color::rgb(0.0, 0.0, 1.0))
+        c.set(Color::rgb(0.0, 0.0, 1.0));
     });
     flush_sync();
     let a = probe
@@ -183,14 +185,14 @@ fn curve_and_spring_math_is_well_formed() {
     assert_eq!(sp.fraction(0.0, 0.0), 0.0);
     assert!(!sp.is_settled(0.0, 0.0));
     assert!(sp.is_settled(5.0, 0.0), "well past the settle cap");
-    let overshoots = (1..40).any(|i| sp.fraction(i as f64 * 0.02, 0.0) > 1.0);
+    let overshoots = (1..40).any(|i| sp.fraction(f64::from(i) * 0.02, 0.0) > 1.0);
     assert!(overshoots, "under-damped spring should overshoot 1.0");
     // A critically-damped spring never overshoots.
     let cd = Curve::Spring {
         response: 0.4,
         damping: 1.0,
     };
-    assert!((1..60).all(|i| cd.fraction(i as f64 * 0.02, 0.0) <= 1.000001));
+    assert!((1..60).all(|i| cd.fraction(f64::from(i) * 0.02, 0.0) <= 1.000_001));
 }
 
 #[test]

@@ -26,6 +26,7 @@ use crate::{Color, Font, FontSpec, FontWeight, TextRun, runs_are_valid};
 /// and because a wavy underline is how an app draws its diagnostics (a spelling or grammar
 /// mark of its own making) without fighting the platform's checker for the same pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[must_use]
 pub enum Underline {
     #[default]
     None,
@@ -37,6 +38,7 @@ pub enum Underline {
 }
 
 impl Underline {
+    #[must_use]
     pub fn is_on(self) -> bool {
         self != Underline::None
     }
@@ -64,6 +66,7 @@ pub struct RunStyle {
 
 impl RunStyle {
     /// The style of unstyled text in a document whose base font is `base`.
+    #[must_use]
     pub fn plain(base: Font) -> Self {
         RunStyle {
             font: FontSpec::new(base),
@@ -71,12 +74,14 @@ impl RunStyle {
         }
     }
     /// Bold in the sense a toolbar button means it: semibold or heavier.
+    #[must_use]
     pub fn bold(&self) -> bool {
         self.font.weight.is_some_and(|w| w >= FontWeight::Semibold)
     }
     pub fn set_bold(&mut self, on: bool) {
         self.font.weight = on.then_some(FontWeight::Bold);
     }
+    #[must_use]
     pub fn italic(&self) -> bool {
         self.font.italic
     }
@@ -148,6 +153,7 @@ pub struct ParagraphRun {
 }
 
 impl ParagraphRun {
+    #[must_use]
     pub fn new(range: std::ops::Range<usize>, style: ParagraphStyle) -> Self {
         ParagraphRun {
             range,
@@ -159,6 +165,7 @@ impl ParagraphRun {
             list_level: style.list_level,
         }
     }
+    #[must_use]
     pub fn style(&self) -> ParagraphStyle {
         ParagraphStyle {
             align: self.align,
@@ -208,6 +215,7 @@ impl StyledText {
 
     /// Parse markdown, the ergonomic way to seed a document
     /// ([`styled_codec`](crate::styled_codec)).
+    #[must_use]
     pub fn markdown(md: &str, base: Font) -> Self {
         crate::styled_codec::markdown_to_styled(
             md,
@@ -219,6 +227,7 @@ impl StyledText {
     }
 
     /// Parse an HTML fragment.
+    #[must_use]
     pub fn html(html: &str, base: Font) -> Self {
         crate::styled_codec::html_to_styled(
             html,
@@ -230,6 +239,7 @@ impl StyledText {
     }
 
     /// Parse the RTF subset Day reads (docs/texteditor.md).
+    #[must_use]
     pub fn rtf(rtf: &str, base: Font) -> Self {
         crate::styled_codec::rtf_to_styled(
             rtf,
@@ -242,6 +252,7 @@ impl StyledText {
 
     /// Write this document as markdown / HTML / RTF. Each is lossy in the ways
     /// [`styled_codec`](crate::styled_codec) documents.
+    #[must_use]
     pub fn to_markdown(&self, base: Font) -> String {
         crate::styled_codec::styled_to_markdown(
             self,
@@ -252,6 +263,7 @@ impl StyledText {
         )
     }
 
+    #[must_use]
     pub fn to_html(&self, base: Font) -> String {
         crate::styled_codec::styled_to_html(
             self,
@@ -262,6 +274,7 @@ impl StyledText {
         )
     }
 
+    #[must_use]
     pub fn to_rtf(&self, base: Font) -> String {
         crate::styled_codec::styled_to_rtf(
             self,
@@ -281,12 +294,17 @@ impl StyledText {
         }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
 
     /// Are both range vectors well formed for the text (ascending, non-overlapping, in bounds,
     /// on character boundaries)?
+    ///
+    /// # Errors
+    ///
+    /// Returns a message naming the first run or paragraph run that breaks one of those rules.
     pub fn validate(&self) -> Result<(), String> {
         runs_are_valid(&self.text, &self.runs)?;
         paragraphs_are_valid(&self.text, &self.paragraphs)
@@ -296,6 +314,7 @@ impl StyledText {
     ///
     /// One view that the query and the mutation below are both written against, so neither has to
     /// reason about where a run ends and a gap begins.
+    #[must_use]
     pub fn segments(&self, base: Font) -> Vec<(std::ops::Range<usize>, RunStyle)> {
         let plain = RunStyle::plain(base);
         let mut out = Vec::with_capacity(self.runs.len() * 2 + 1);
@@ -324,6 +343,7 @@ impl StyledText {
     ///
     /// A collapsed caret takes the style of the segment that ENDS at it, preferring that over the
     /// one it starts: typing after a bold word continues bold, which is what every editor does.
+    #[must_use]
     pub fn style_of(&self, range: std::ops::Range<usize>, base: Font) -> RunStyle {
         let segs = self.segments(base);
         if range.is_empty() {
@@ -332,8 +352,7 @@ impl StyledText {
                 .iter()
                 .find(|(r, _)| r.start < at && r.end >= at)
                 .or_else(|| segs.iter().find(|(r, _)| r.contains(&at)))
-                .map(|(_, s)| s.clone())
-                .unwrap_or_else(|| RunStyle::plain(base));
+                .map_or_else(|| RunStyle::plain(base), |(_, s)| s.clone());
         }
         let mut acc: Option<RunStyle> = None;
         for (r, s) in &segs {
@@ -375,6 +394,7 @@ impl StyledText {
 
     /// The paragraph style in effect across `range`, by the same mixed-state rule as
     /// [`StyledText::style_of`].
+    #[must_use]
     pub fn paragraph_style_of(&self, range: std::ops::Range<usize>) -> ParagraphStyle {
         let mut acc: Option<ParagraphStyle> = None;
         for (start, end) in paragraph_bounds(&self.text) {
@@ -416,7 +436,7 @@ impl StyledText {
         self.paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= end.min(p.range.end).max(start + 1))
-            .map(|p| p.style())
+            .map(ParagraphRun::style)
             .unwrap_or_default()
     }
 
@@ -499,6 +519,10 @@ impl StyledText {
 
 /// Fold `b` into the accumulated selection style: an attribute both agree on survives, one they
 /// differ on resets to its default (the toolbar's mixed state).
+#[expect(
+    clippy::float_cmp,
+    reason = "a merged run keeps a scale only when both runs store the identical value"
+)]
 fn merge_style(acc: Option<RunStyle>, b: &RunStyle) -> RunStyle {
     let Some(a) = acc else { return b.clone() };
     RunStyle {
@@ -551,6 +575,7 @@ fn touches(start: usize, end: usize, sel: &std::ops::Range<usize>) -> bool {
 ///
 /// Every `apply` produces fragments; without this a document accumulates one run per edit until
 /// the run vector is longer than the text it describes.
+#[must_use]
 pub fn coalesce_runs(runs: Vec<TextRun>, base: Font) -> Vec<TextRun> {
     let plain = RunStyle::plain(base);
     let mut out: Vec<TextRun> = Vec::with_capacity(runs.len());
@@ -573,6 +598,7 @@ pub fn coalesce_runs(runs: Vec<TextRun>, base: Font) -> Vec<TextRun> {
 ///
 /// An empty string has no paragraphs. A trailing newline makes an empty final paragraph, the way
 /// an editor shows a blank last line, so `"a\n"` is two paragraphs, not one.
+#[must_use]
 pub fn paragraph_bounds(text: &str) -> Vec<(usize, usize)> {
     if text.is_empty() {
         return Vec::new();
@@ -591,6 +617,11 @@ pub fn paragraph_bounds(text: &str) -> Vec<(usize, usize)> {
 
 /// Whether these paragraph runs are well formed for `text`: [`runs_are_valid`]'s rules, applied
 /// to the second range vector.
+///
+/// # Errors
+///
+/// Returns a message naming the first paragraph run that overlaps or precedes the one before
+/// it, ends past the text, has an inverted range, or splits a multi-byte character.
 pub fn paragraphs_are_valid(text: &str, paragraphs: &[ParagraphRun]) -> Result<(), String> {
     let mut prev_end = 0usize;
     for (i, p) in paragraphs.iter().enumerate() {

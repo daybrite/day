@@ -40,3 +40,6 @@ day-platform-android = { workspace = true }
 
 [dev-dependencies]
 day-mock = { path = "../day-mock" }
+
+[lints]
+workspace = true

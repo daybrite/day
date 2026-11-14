@@ -83,6 +83,7 @@ impl<T: Send + 'static> Default for Registry<T> {
 
 impl<T: Send + 'static> Registry<T> {
     /// An empty registry. `const`, so a generated `static` can own it.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             inner: day_async::TokenRegistry::new(),
@@ -129,12 +130,14 @@ impl<T: Send + 'static> Done<T> {
     }
 
     /// The number a foreign arm carries and hands back to the completion symbol.
+    #[must_use]
     pub fn token(&self) -> u64 {
         self.token
     }
 
     /// Hand the token to a foreign arm: the closure stays registered until the generated
     /// completion symbol resolves it, or the waiting future is dropped.
+    #[must_use]
     pub fn into_token(self) -> u64 {
         self.token
     }
@@ -151,6 +154,7 @@ impl<T: Send + 'static> Done<T> {
 /// ever completing (the call never went out). Dropping it cancels the wait (a late completion
 /// then finds nothing) and runs the cancel hook the generated code attached, when the
 /// declaration named a cancel arm.
+#[must_use]
 pub struct Completion<T: Send + 'static> {
     rx: day_async::Oneshot<Result<T, Error>>,
     token: u64,
@@ -166,11 +170,13 @@ impl<T: Send + 'static> Completion<T> {
     }
 
     /// Whether the answer has arrived.
+    #[must_use]
     pub fn is_ready(&self) -> bool {
         self.rx.is_ready()
     }
 
     /// The token the arm was handed: what a declared cancel arm takes.
+    #[must_use]
     pub fn token(&self) -> u64 {
         self.token
     }
@@ -204,6 +210,10 @@ impl<T: Send + 'static> Drop for Completion<T> {
 /// answer when it completes, or with the arm's error when it fails to start (the same error
 /// this returns), so a caller may rely on either channel alone. `Ok` carries the token, which
 /// is what a declared cancel arm takes to find the request it started.
+///
+/// # Errors
+///
+/// Returns the error `call` returned when the arm fails to start; `cb` receives the same error.
 pub fn start_async<T: Send + 'static>(
     registry: &'static Registry<T>,
     cb: impl FnOnce(Result<T, Error>) + Send + 'static,
@@ -272,7 +282,7 @@ struct StreamSlot<T> {
 }
 
 fn lock_ignoring_poison<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The consumers of one `Emit<T>` declaration's streams, keyed by token: the stream
@@ -299,6 +309,7 @@ impl<T: Send + 'static> Default for Streams<T> {
 
 impl<T: Send + 'static> Streams<T> {
     /// An empty set of streams. `const`, so a generated `static` can own it.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             slots: std::sync::Mutex::new(std::collections::BTreeMap::new()),
@@ -405,12 +416,11 @@ impl<T: Send + 'static> Streams<T> {
                 if st.stopped {
                     st.queue.clear();
                 }
-                match st.queue.pop_front() {
-                    Some(item) => item,
-                    None => {
-                        st.delivering = false;
-                        break;
-                    }
+                if let Some(item) = st.queue.pop_front() {
+                    item
+                } else {
+                    st.delivering = false;
+                    break;
                 }
             };
             let ends = !matches!(next, Item::Value(_));
@@ -453,12 +463,14 @@ impl<T: Send + 'static> Emit<T> {
     }
 
     /// The number a foreign arm carries and hands back to the generated helpers.
+    #[must_use]
     pub fn token(&self) -> u64 {
         self.token
     }
 
     /// Hand the token to a foreign arm; the consumer stays registered until the stream ends,
     /// fails, or is stopped.
+    #[must_use]
     pub fn into_token(self) -> u64 {
         self.token
     }
@@ -474,11 +486,13 @@ impl<T: Send + 'static> Emit<T> {
     }
 
     /// Fail the stream.
+    #[must_use]
     pub fn fail(&self, error: Error) -> bool {
         self.streams.fail(self.token, error)
     }
 
     /// Whether the consumer still listens.
+    #[must_use]
     pub fn is_open(&self) -> bool {
         self.streams.is_open(self.token)
     }
@@ -487,6 +501,10 @@ impl<T: Send + 'static> Emit<T> {
 /// Start an `Emit` call: what a generated `<fn>_stream` does. `cb` receives every item, in
 /// order, from whichever thread the platform delivers on. When the arm fails to start, `cb`
 /// receives that failure (once) and this returns it. `Ok` carries the token a stop call takes.
+///
+/// # Errors
+///
+/// Returns the error `call` returned when the arm fails to start; `cb` receives the same error.
 pub fn start_stream<T: Send + 'static>(
     streams: &'static Streams<T>,
     cb: impl FnMut(Item<T>) + Send + 'static,
@@ -517,6 +535,10 @@ pub fn guard(f: impl FnOnce()) {
 /// `ptr` must come from a `Vec::<u8>::with_capacity(len)` the shim filled with `len` bytes and
 /// handed over; this is the one reconstitution, and the caller must never touch it again.
 #[doc(hidden)]
+#[expect(
+    clippy::same_length_and_capacity,
+    reason = "the safety contract is a buffer allocated with capacity `len` and filled with `len` bytes"
+)]
 pub unsafe fn __take_wasm(ptr: *mut u8, len: usize) -> Vec<u8> {
     if ptr.is_null() || len == 0 {
         return Vec::new();
@@ -555,18 +577,23 @@ pub mod arkts {
                 len: 0,
             }
         }
+        #[must_use]
         pub fn bool(v: bool) -> Self {
             Self::plain(0, i64::from(v), 0.0)
         }
+        #[must_use]
         pub fn i32(v: i32) -> Self {
             Self::plain(1, i64::from(v), 0.0)
         }
+        #[must_use]
         pub fn i64(v: i64) -> Self {
             Self::plain(2, v, 0.0)
         }
+        #[must_use]
         pub fn f64(v: f64) -> Self {
             Self::plain(3, 0, v)
         }
+        #[must_use]
         pub fn str(v: &str) -> Self {
             Self {
                 kind: 4,
@@ -576,6 +603,7 @@ pub mod arkts {
                 len: v.len(),
             }
         }
+        #[must_use]
         pub fn bytes(v: &[u8]) -> Self {
             Self {
                 kind: 5,
@@ -598,6 +626,10 @@ pub mod arkts {
 
     /// `Dl_info` (dlfcn.h).
     #[repr(C)]
+    #[expect(
+        clippy::struct_field_names,
+        reason = "the fields keep the names C's `Dl_info` gives them"
+    )]
     struct DlInfo {
         dli_fname: *const c_char,
         dli_fbase: *mut c_void,
@@ -616,6 +648,7 @@ pub mod arkts {
     /// module loader opens `libentry.so` with LOCAL symbol visibility, so `dlsym(NULL, …)` does
     /// not see its symbols, and every bridged call failed as "platform runtime unavailable"
     /// without ever reaching ArkTS. The library holding this very function is the one to ask.
+    #[must_use]
     pub fn lookup(name: &std::ffi::CStr) -> *mut c_void {
         // SAFETY: a plain symbol lookup in the running process.
         let global = unsafe { dlsym(std::ptr::null_mut(), name.as_ptr()) };
@@ -642,7 +675,7 @@ pub mod arkts {
             };
             // SAFETY: `lookup` is a function in this library; dladdr only reads its address and
             // fills `info`, whose `dli_fname` then names this library's file.
-            let found = unsafe { dladdr(lookup as *const c_void, &mut info) } != 0;
+            let found = unsafe { dladdr(lookup as *const c_void, &raw mut info) } != 0;
             if !found || info.dli_fname.is_null() {
                 return 0;
             }
@@ -656,6 +689,10 @@ pub mod arkts {
     /// trailing argument, and completes it itself when the arm returns a promise. A call from
     /// the JS thread runs inline; from any other thread it is posted and the caller parks until
     /// the loop has run it, so `Ok` still means the arm accepted the call.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`invoke_value`].
     pub fn invoke(symbol: &str, args: &[Arg], done: u64) -> Result<(), super::Error> {
         invoke_value(symbol, args, done).map(|_| ())
     }
@@ -663,6 +700,11 @@ pub mod arkts {
     /// [`invoke`], keeping the arm's return value: a scalar the shim marshals into an [`Arg`]
     /// (`i` for booleans and integers, `f` for numbers, both set for a JS number). What a
     /// declaration returning `Result<T, Error>` reads its `T` from.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::Runtime` when the ArkUI bridge is not loaded or cannot run the arm,
+    /// `Error::Encoding` when `symbol` contains a NUL byte, and `Error::Foreign` when the arm fails.
     pub fn invoke_value(symbol: &str, args: &[Arg], done: u64) -> Result<Arg, super::Error> {
         let entry = lookup(c"day_arkui_bridge_invoke");
         if entry.is_null() {
@@ -674,7 +716,7 @@ pub mod arkts {
         let mut ret = Arg::plain(-1, 0, 0.0);
         // SAFETY: the symbol is day-toolkit-arkui's export with exactly this signature.
         let invoke: InvokeFn = unsafe { std::mem::transmute(entry) };
-        match unsafe { invoke(name.as_ptr(), args.as_ptr(), args.len(), done, &mut ret) } {
+        match unsafe { invoke(name.as_ptr(), args.as_ptr(), args.len(), done, &raw mut ret) } {
             0 => Ok(ret),
             2 => Err(super::Error::Runtime),
             _ => Err(super::Error::Foreign(format!("{symbol} failed"))),
@@ -683,6 +725,7 @@ pub mod arkts {
 
     /// Whether the caller is on the JS thread: the UI thread of a Day app on HarmonyOS, where
     /// a blocking wait for an ArkTS answer would deadlock. `false` when no host is running.
+    #[must_use]
     pub fn on_js_thread() -> bool {
         let entry = lookup(c"day_arkui_bridge_on_js_thread");
         if entry.is_null() {
@@ -699,6 +742,7 @@ pub mod arkts {
     ///
     /// `ptr` must point at `len` readable bytes, or be null.
     #[doc(hidden)]
+    #[must_use]
     pub unsafe fn __bytes(ptr: *const u8, len: usize) -> Vec<u8> {
         if ptr.is_null() || len == 0 {
             return Vec::new();

@@ -107,7 +107,7 @@ const WS_CONT: c_int = 4;
 const WS_CLOSE: c_int = 8;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 #[repr(C)]
@@ -213,7 +213,7 @@ fn library() -> Option<&'static Lib> {
 /// Open libcurl and read what it can do.
 ///
 /// # Safety
-/// Call once; curl_global_init is not thread-safe.
+/// Call once; `curl_global_init` is not thread-safe.
 unsafe fn load() -> Option<Lib> {
     const NAMES: [&CStr; 4] = [
         c"libcurl.so.4",
@@ -421,7 +421,7 @@ impl Easy {
     fn info_long(&self, info: c_int) -> Option<i64> {
         let mut value: c_long = 0;
         // SAFETY: a LONG info writes a `long`.
-        let rc = unsafe { (self.lib.easy_getinfo)(self.handle, info, &mut value as *mut c_long) };
+        let rc = unsafe { (self.lib.easy_getinfo)(self.handle, info, &raw mut value) };
         // `long` is 32 bits on 32-bit Linux and 64 bits here.
         #[allow(clippy::useless_conversion)]
         (rc == E_OK).then_some(i64::from(value))
@@ -430,15 +430,14 @@ impl Easy {
     fn info_off(&self, info: c_int) -> Option<i64> {
         let mut value: i64 = 0;
         // SAFETY: an OFF_T info writes a `curl_off_t`.
-        let rc = unsafe { (self.lib.easy_getinfo)(self.handle, info, &mut value as *mut i64) };
+        let rc = unsafe { (self.lib.easy_getinfo)(self.handle, info, &raw mut value) };
         (rc == E_OK).then_some(value)
     }
 
     fn info_string(&self, info: c_int) -> Option<String> {
         let mut value: *const c_char = std::ptr::null();
         // SAFETY: a STRING info writes a pointer owned by the handle.
-        let rc =
-            unsafe { (self.lib.easy_getinfo)(self.handle, info, &mut value as *mut *const c_char) };
+        let rc = unsafe { (self.lib.easy_getinfo)(self.handle, info, &raw mut value) };
         if rc != E_OK || value.is_null() {
             return None;
         }
@@ -589,7 +588,7 @@ impl Easy {
                     self.handle,
                     payload.as_ptr().cast(),
                     payload.len(),
-                    &mut sent,
+                    &raw mut sent,
                     0,
                     flags as c_uint,
                 )
@@ -620,8 +619,8 @@ impl Easy {
                     self.handle,
                     buffer.as_mut_ptr().cast(),
                     buffer.len(),
-                    &mut received,
-                    &mut meta,
+                    &raw mut received,
+                    &raw mut meta,
                 )
             };
             if rc == E_AGAIN {
@@ -697,7 +696,7 @@ impl Drop for Easy {
 /// `data` must be the `Easy` pointer the driver registered, called on the driver thread.
 unsafe fn easy<'a>(data: *mut c_void) -> &'a mut Easy {
     // SAFETY: per the contract above.
-    unsafe { &mut *(data as *mut Easy) }
+    unsafe { &mut *data.cast::<Easy>() }
 }
 
 extern "C" fn on_header(
@@ -711,7 +710,7 @@ extern "C" fn on_header(
     let (easy, bytes) = unsafe {
         (
             easy(data),
-            std::slice::from_raw_parts(buffer as *const u8, len),
+            std::slice::from_raw_parts(buffer.cast_const().cast::<u8>(), len),
         )
     };
     easy.header_line(bytes);
@@ -728,7 +727,8 @@ extern "C" fn on_write(buffer: *mut c_char, size: usize, items: usize, data: *mu
     }
     easy.demand -= 1;
     // SAFETY: libcurl passes `len` readable bytes.
-    let bytes = unsafe { std::slice::from_raw_parts(buffer as *const u8, len) }.to_vec();
+    let bytes =
+        unsafe { std::slice::from_raw_parts(buffer.cast_const().cast::<u8>(), len) }.to_vec();
     easy.emit(Event::Chunk(bytes));
     len
 }
@@ -796,11 +796,11 @@ impl Driver {
             }
             let mut running: c_int = 0;
             // SAFETY: the multi handle is this thread's alone.
-            unsafe { (self.lib.multi_perform)(multi, &mut running) };
+            unsafe { (self.lib.multi_perform)(multi, &raw mut running) };
             loop {
                 let mut left: c_int = 0;
                 // SAFETY: as above; the message is valid until the next multi call.
-                let message = unsafe { (self.lib.multi_info_read)(multi, &mut left) };
+                let message = unsafe { (self.lib.multi_info_read)(multi, &raw mut left) };
                 // SAFETY: a non-null message from curl_multi_info_read.
                 let Some(message) = (unsafe { message.as_ref() }) else {
                     break;
@@ -816,7 +816,7 @@ impl Driver {
             }
             let mut ended = Vec::new();
             fds.clear();
-            for (id, easy) in easies.iter_mut() {
+            for (id, easy) in &mut easies {
                 if !easy.connected {
                     continue;
                 }
@@ -955,25 +955,19 @@ impl Driver {
             }
             Kind::WebSocket => {
                 if code != E_OK || easy.status != 101 {
-                    let error = if code != E_OK {
-                        easy.error(code)
-                    } else {
+                    let error = if code == E_OK {
                         HttpError::Io(format!(
                             "the server answered {} to the upgrade",
                             easy.status
                         ))
+                    } else {
+                        easy.error(code)
                     };
                     return easy.close_with(WsEvent::Failed(error));
                 }
                 let mut socket: c_int = -1;
                 // SAFETY: ACTIVESOCKET writes a `curl_socket_t`, an int on these targets.
-                unsafe {
-                    (self.lib.easy_getinfo)(
-                        easy.handle,
-                        INFO_ACTIVESOCKET,
-                        &mut socket as *mut c_int,
-                    )
-                };
+                unsafe { (self.lib.easy_getinfo)(easy.handle, INFO_ACTIVESOCKET, &raw mut socket) };
                 easy.socket = socket;
                 easy.connected = true;
                 if let Some(events) = &easy.ws_events {
@@ -1037,14 +1031,17 @@ impl Driver {
             message_flags: 0,
             sends: VecDeque::new(),
         });
-        let this = (&mut *easy as *mut Easy).cast::<c_void>();
+        let this = (&raw mut *easy).cast::<c_void>();
         let url = CString::new(prepared.url.clone())
             .map_err(|_| HttpError::BadUrl(prepared.url.clone()))?;
         // libcurl copies string options, so the CStrings may go once they are set.
         easy.setopt_ptr(OPT_URL, url.as_ptr().cast());
         easy.setopt_long(OPT_NOSIGNAL, 1);
         easy.setopt_long(OPT_FOLLOWLOCATION, 0);
-        easy.setopt_ptr(OPT_HEADERFUNCTION, on_header as *const () as *const c_void);
+        easy.setopt_ptr(
+            OPT_HEADERFUNCTION,
+            (on_header as *const ()).cast::<c_void>(),
+        );
         easy.setopt_ptr(OPT_HEADERDATA, this);
         let idle_ms = c_long::try_from(prepared.timeout_idle.as_millis()).unwrap_or(c_long::MAX);
         easy.setopt_long(OPT_CONNECTTIMEOUT_MS, idle_ms);
@@ -1064,7 +1061,7 @@ impl Driver {
             }
             easy.setopt_long(OPT_CONNECT_ONLY, 2);
         } else {
-            easy.setopt_ptr(OPT_WRITEFUNCTION, on_write as *const () as *const c_void);
+            easy.setopt_ptr(OPT_WRITEFUNCTION, (on_write as *const ()).cast::<c_void>());
             easy.setopt_ptr(OPT_WRITEDATA, this);
             easy.setopt_long(OPT_BUFFERSIZE, UPLOAD_BUFFER);
             // The idle bound: under a byte a second for that long ends the transfer.
@@ -1074,7 +1071,7 @@ impl Driver {
             easy.setopt_long(OPT_NOPROGRESS, 0);
             easy.setopt_ptr(
                 OPT_XFERINFOFUNCTION,
-                on_progress as *const () as *const c_void,
+                (on_progress as *const ()).cast::<c_void>(),
             );
             easy.setopt_ptr(OPT_XFERINFODATA, this);
             let method = prepared.method.as_str();
@@ -1086,13 +1083,13 @@ impl Driver {
                 }
                 "POST" => {
                     easy.setopt_long(OPT_POST, 1);
-                    easy.setopt_ptr(OPT_READFUNCTION, on_read as *const () as *const c_void);
+                    easy.setopt_ptr(OPT_READFUNCTION, (on_read as *const ()).cast::<c_void>());
                     easy.setopt_ptr(OPT_READDATA, this);
                     easy.setopt_off(OPT_POSTFIELDSIZE_LARGE, size);
                 }
                 _ if has_body => {
                     easy.setopt_long(OPT_UPLOAD, 1);
-                    easy.setopt_ptr(OPT_READFUNCTION, on_read as *const () as *const c_void);
+                    easy.setopt_ptr(OPT_READFUNCTION, (on_read as *const ()).cast::<c_void>());
                     easy.setopt_ptr(OPT_READDATA, this);
                     easy.setopt_off(OPT_INFILESIZE_LARGE, size);
                     if method != "PUT" {
@@ -1128,10 +1125,7 @@ impl Driver {
                 flags: BLOB_COPY,
             };
             // BLOB_COPY: libcurl copies the bytes before this returns.
-            easy.setopt_ptr(
-                OPT_SSLCERT_BLOB,
-                (&mut blob as *mut Blob).cast_const().cast(),
-            );
+            easy.setopt_ptr(OPT_SSLCERT_BLOB, (&raw mut blob).cast_const().cast());
             easy.setopt_ptr(OPT_SSLCERTTYPE, c"P12".as_ptr().cast());
             if let Ok(password) = CString::new(identity.password.clone()) {
                 easy.setopt_ptr(OPT_KEYPASSWD, password.as_ptr().cast());

@@ -35,6 +35,7 @@ fn with_collator<R>(locale: &str, f: impl FnOnce(Option<&CollatorBorrowed<'stati
 
 /// Compare two strings in `locale`'s collation order (untracked; accepts `-u-co-` extensions,
 /// e.g. `"zh-u-co-stroke"`). Falls back to code-point order if the locale has no collation data.
+#[must_use]
 pub fn compare_in(locale: &str, a: &str, b: &str) -> Ordering {
     with_collator(locale, |c| match c {
         Some(c) => c.compare(a, b),
@@ -44,6 +45,7 @@ pub fn compare_in(locale: &str, a: &str, b: &str) -> Ordering {
 
 /// Compare two strings in the current locale's collation order. Reads the locale signal
 /// (tracked), so a sort inside a reactive closure re-runs when the locale switches.
+#[must_use]
 pub fn compare(a: &str, b: &str) -> Ordering {
     let locale = crate::locale().get();
     compare_in(&locale, a, b)

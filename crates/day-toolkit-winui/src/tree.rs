@@ -1,6 +1,6 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! Native WinUI/XAML TreeView disclosure with Day-owned Canvas row content.
+//! Native WinUI/XAML `TreeView` disclosure with Day-owned Canvas row content.
 use super::*;
 use day_spec::TreeSource;
 use ffi::{
@@ -35,7 +35,7 @@ extern "C" fn expanded(node: u64, token: u64, on: c_int) {
                 token,
                 expanded: on != 0,
             },
-        )
+        );
     });
 }
 extern "C" fn selected(node: u64, tokens: *const u64, len: c_int) {
@@ -51,7 +51,7 @@ extern "C" fn selected(node: u64, tokens: *const u64, len: c_int) {
                 .values_mut()
                 .filter(|e| e.node == NodeId(node))
             {
-                e.selected = tokens.clone();
+                e.selected.clone_from(&tokens);
             }
         });
         emit_deferred(NodeId(node), Event::TreeSelection(tokens));
@@ -119,7 +119,7 @@ pub(super) fn patch(host: usize, patch: &TreePatch) {
         TreePatch::Selected(tokens) => {
             TREES.with(|m| {
                 if let Some(e) = m.borrow_mut().get_mut(&host) {
-                    e.selected = tokens.clone();
+                    e.selected.clone_from(tokens);
                 }
             });
             unsafe {
@@ -170,9 +170,6 @@ fn schedule(host: usize, reload: bool) {
             return;
         };
         if reload {
-            unsafe {
-                tree_begin(host as *mut c_void);
-            }
             fn append(
                 host: usize,
                 source: &TreeSource,
@@ -198,6 +195,9 @@ fn schedule(host: usize, reload: bool) {
                     }
                     append(host, source, Some(t), seen);
                 }
+            }
+            unsafe {
+                tree_begin(host as *mut c_void);
             }
             let mut active = HashSet::new();
             append(host, &source, None, &mut active);
@@ -235,7 +235,7 @@ fn schedule(host: usize, reload: bool) {
         });
         for token in active {
             let mut width = 0.0;
-            let visible = unsafe { tree_frame(host as *mut c_void, token, &mut width) } != 0;
+            let visible = unsafe { tree_frame(host as *mut c_void, token, &raw mut width) } != 0;
             let old = TREES.with(|m| {
                 m.borrow()
                     .get(&host)

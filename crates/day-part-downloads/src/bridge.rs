@@ -483,11 +483,11 @@ impl<'a> Fields<'a> {
     }
 
     fn i32(&mut self) -> i32 {
-        self.take(4).try_into().map(i32::from_be_bytes).unwrap_or(0)
+        self.take(4).try_into().map_or(0, i32::from_be_bytes)
     }
 
     fn i64(&mut self) -> i64 {
-        self.take(8).try_into().map(i64::from_be_bytes).unwrap_or(0)
+        self.take(8).try_into().map_or(0, i64::from_be_bytes)
     }
 
     fn str(&mut self) -> String {
@@ -500,14 +500,21 @@ pub(crate) fn available() -> bool {
     system_ready_native().unwrap_or(false)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every platform arm of `system` shares this signature, including arms not built on this host"
+)]
 pub(crate) fn start(job: SystemJob<'_>, events: SystemEvents) -> Result<(), DownloadError> {
+    use std::fmt::Write as _;
     let part = job.part.to_path_buf();
-    let headers: String = job
+    let headers = job
         .request
         .headers()
         .iter()
-        .map(|(name, value)| format!("{name}\n{value}\n"))
-        .collect();
+        .fold(String::new(), |mut out, (name, value)| {
+            let _ = write!(out, "{name}\n{value}\n");
+            out
+        });
     system_start_native_stream(
         job.reference.unwrap_or(""),
         job.request.url(),

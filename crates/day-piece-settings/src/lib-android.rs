@@ -696,7 +696,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
                 with_id(
                     row.ripple()
                         .on_tap(move || {
-                            day_part_clipboard::set_text(&text.initial());
+                            let _ = day_part_clipboard::set_text(&text.initial());
                         })
                         .any(),
                 )

@@ -94,3 +94,6 @@ objc2-ui-kit = { workspace = true, features = ["UIColorWell", "UIDatePicker", "U
     "UIDragItem", "UIDragSession", "UIDragInteraction", "UIDropInteraction",
     "objc2-core-foundation", "objc2-core-graphics",
 ] }
+
+[lints]
+workspace = true

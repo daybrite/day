@@ -18,6 +18,10 @@ pub struct TabSet<K: Clone + PartialEq + 'static> {
     selected: Signal<Option<K>>,
 }
 impl<K: Clone + PartialEq + 'static> Copy for TabSet<K> {}
+#[expect(
+    clippy::expl_impl_clone_on_copy,
+    reason = "a derive would require `K: Copy`; the handle is `Copy` for every key type"
+)]
 impl<K: Clone + PartialEq + 'static> Clone for TabSet<K> {
     fn clone(&self) -> Self {
         *self
@@ -35,9 +39,11 @@ impl<K: Clone + PartialEq + 'static> TabSet<K> {
             selected: Signal::new(None),
         }
     }
+    #[must_use]
     pub fn keys(self) -> Vec<K> {
         self.order.get()
     }
+    #[must_use]
     pub fn selected(self) -> Option<K> {
         self.selected.get()
     }
@@ -117,6 +123,7 @@ type TabTitle<K> = Rc<dyn Fn(&K) -> String>;
 type TabContent<K> = Rc<dyn Fn(&K) -> AnyPiece>;
 /// A resident, closable document surface. Content is built once per key and disposed
 /// on removal. A selected document owns its native focus and command context.
+#[must_use]
 pub struct DocumentTabs<K: Route> {
     tabs: TabSet<K>,
     title: TabTitle<K>,
@@ -195,7 +202,7 @@ impl<K: Route> DocumentTabs<K> {
         self.on_new = Some(Rc::new(f));
         self
     }
-    /// Installing a handler makes it responsible for calling TabSet::close when accepted.
+    /// Installing a handler makes it responsible for calling `TabSet::close` when accepted.
     pub fn on_close(mut self, f: impl Fn(K) + 'static) -> Self {
         self.on_close = Some(Rc::new(f));
         self
@@ -575,7 +582,7 @@ impl Piece for TabChromeHost {
                         host,
                         Box::new(day_spec::props::DocumentTabsPatch { native: *native }),
                         true,
-                    )
+                    );
                 });
             },
         );
@@ -720,7 +727,7 @@ fn install_window_tabs<K: Route>(
             }
         }
         if order != tabs.keys() {
-            *observed_previous.borrow_mut() = order.clone();
+            (*observed_previous.borrow_mut()).clone_from(&order);
             batch(|| {
                 for (i, key) in order.iter().enumerate() {
                     tabs.move_to(key, i);
@@ -805,9 +812,8 @@ fn install_window_tabs<K: Route>(
                 if let Some(node) = node {
                     let size = initial
                         .as_ref()
-                        .and_then(|w| w.frame())
-                        .map(|r| r.size)
-                        .unwrap_or(day_spec::Size::new(1000.0, 740.0));
+                        .and_then(day_core::WindowHandle::frame)
+                        .map_or(day_spec::Size::new(1000.0, 740.0), |r| r.size);
                     let window = day_core::windows::open_window(
                         day_spec::WindowOptions {
                             title: title.clone(),
@@ -919,7 +925,7 @@ fn install_window_tabs<K: Route>(
                 initial.set_visible(!hide_when_empty && windows.is_empty());
             }
             if added || *last_selected.borrow() != *selected {
-                *last_selected.borrow_mut() = selected.clone();
+                (*last_selected.borrow_mut()).clone_from(selected);
                 if let Some((_, window)) = windows
                     .iter()
                     .find(|(key, _)| Some(key) == selected.as_ref())
@@ -979,12 +985,12 @@ pub(crate) mod conformance {
                 let count = Signal::new(0u32);
                 let key = key.clone();
                 column((
-                    label(format!("Document {key}")).id(day_core::id!(doc, key.to_owned())),
+                    label(format!("Document {key}")).id(day_core::id!(doc, key.clone())),
                     button("Bump")
                         .action(move || count.update(|n| *n += 1))
-                        .id(day_core::id!(document_bump, key.to_owned())),
+                        .id(day_core::id!(document_bump, key.clone())),
                     label(move || count.get().to_string())
-                        .id(day_core::id!(document_count, key.to_owned())),
+                        .id(day_core::id!(document_count, key.clone())),
                 ))
                 .spacing(4.0)
             },
@@ -1406,6 +1412,21 @@ pub(crate) mod conformance {
             .timeout(90.0)
             .page(|| fixture(Closing::Direct, false, true))
             .drive(|d: Drive| async move {
+                // Likewise each count below is given a few turns to settle before it is judged.
+                async fn windows(d: &Drive, what: &str, base: usize, want: usize) -> TestResult {
+                    let mut got = day_core::windows::open_window_count();
+                    for _ in 0..40 {
+                        if got == want {
+                            break;
+                        }
+                        d.pause(0.05).await?;
+                        got = day_core::windows::open_window_count();
+                    }
+                    d.check(
+                        got == want,
+                        &format!("{what}: {got} windows open, expected {want} ({base} before)"),
+                    )
+                }
                 // The previous case's windows may still be closing: a native close reports
                 // back through the platform's own loop. The baseline is the count once it has
                 // held still for a few turns.
@@ -1423,21 +1444,6 @@ pub(crate) mod conformance {
                         base = now;
                         held = 0;
                     }
-                }
-                // Likewise each count below is given a few turns to settle before it is judged.
-                async fn windows(d: &Drive, what: &str, base: usize, want: usize) -> TestResult {
-                    let mut got = day_core::windows::open_window_count();
-                    for _ in 0..40 {
-                        if got == want {
-                            break;
-                        }
-                        d.pause(0.05).await?;
-                        got = day_core::windows::open_window_count();
-                    }
-                    d.check(
-                        got == want,
-                        &format!("{what}: {got} windows open, expected {want} ({base} before)"),
-                    )
                 }
                 d.tap("document_open:a").await?;
                 d.tap("document_open:b").await?;
@@ -1508,10 +1514,10 @@ pub(crate) mod conformance {
                                         .action(move || {
                                             tabs.select(&select_key);
                                         })
-                                        .id(day_core::id!(custom_tab, key.to_owned())),
+                                        .id(day_core::id!(custom_tab, key.clone())),
                                     button("x")
                                         .action(move || closer.close(close_key.clone()))
-                                        .id(day_core::id!(custom_close, key.to_owned())),
+                                        .id(day_core::id!(custom_close, key.clone())),
                                 ))
                             },
                         ),

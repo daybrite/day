@@ -74,6 +74,10 @@ thread_local! {
 }
 
 /// What `tests` answers: every registered test, before any runs.
+///
+/// # Errors
+///
+/// Returns an error when the conformance registry fails validation.
 pub fn listing() -> Result<serde_json::Value, String> {
     day_core::conformance::validate_registry()?;
     let cases = day_core::conformance::cases();
@@ -95,6 +99,11 @@ pub fn listing() -> Result<serde_json::Value, String> {
 /// Answer a `run_tests` step: start the run on its first call, then report "running" until
 /// the task finishes, when the report is handed over once and the run forgotten. Retryable
 /// while running, so the runner's own wait loop polls it.
+///
+/// # Errors
+///
+/// Returns a failing [`Reply`] when the registry fails validation or the report does not serialize,
+/// and a retryable one while the run is still in progress.
 pub fn run_tests(
     filter: &[String],
     shots: ShotPolicy,
@@ -506,7 +515,7 @@ async fn run_step(
 
 fn op_name(op: &DriveOp) -> String {
     match op {
-        DriveOp::Tap(id) => format!("tap {id}"),
+        DriveOp::Tap(id) | DriveOp::TapAt(id, ..) => format!("tap {id}"),
         DriveOp::Input(id, _) => format!("input {id}"),
         DriveOp::Toggle(id, _) => format!("toggle {id}"),
         DriveOp::SetValue(id, _) => format!("set_value {id}"),
@@ -526,7 +535,6 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::Pinch(id, _) => format!("pinch {id}"),
         DriveOp::Rotate(id, _) => format!("rotate {id}"),
         DriveOp::Drag(id, ..) => format!("drag {id}"),
-        DriveOp::TapAt(id, ..) => format!("tap {id}"),
         DriveOp::Key(_, key) => format!("key {key}"),
         DriveOp::AssertAnnounced(text) => format!("assert_announced {text}"),
         DriveOp::AssertValue(id, _) | DriveOp::AssertOn(id, _) => format!("assert_value {id}"),
@@ -550,8 +558,7 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::ToolbarPress(item) | DriveOp::ToolbarToggle(item, _) => format!("toolbar {item}"),
         DriveOp::DialogScripted(_) => "dialog_mode".into(),
         DriveOp::AssertPresented(_) => "assert_presented".into(),
-        DriveOp::Respond(_) => "respond".into(),
-        DriveOp::RespondText(_) => "respond".into(),
+        DriveOp::Respond(_) | DriveOp::RespondText(_) => "respond".into(),
     }
 }
 
@@ -653,6 +660,13 @@ impl Stopwatch {
             started: std::time::Instant::now(),
         }
     }
+    #[cfg_attr(
+        target_arch = "wasm32",
+        expect(
+            clippy::unused_self,
+            reason = "wasm has no clock; the native arm reads the start time"
+        )
+    )]
     fn elapsed_ms(&self) -> u64 {
         #[cfg(not(target_arch = "wasm32"))]
         {

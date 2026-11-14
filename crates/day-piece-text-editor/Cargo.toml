@@ -82,3 +82,6 @@ permissions = []
 # The HarmonyOS half: the ArkTS `RichEditor`, which the ArkUI C node API has no equivalent for.
 [package.metadata.day.ohos]
 ets = ["platform/harmony/ets"]
+
+[lints]
+workspace = true

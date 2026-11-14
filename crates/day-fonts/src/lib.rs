@@ -4,7 +4,7 @@
 //! Bundled custom fonts (DESIGN §18.4).
 //!
 //! A project ships font files under a top-level `fonts/` directory. `day build` stages them into
-//! each platform's native font location (Android `res/font/`, the iOS DayPieces bundle +
+//! each platform's native font location (Android `res/font/`, the iOS `DayPieces` bundle +
 //! `UIAppFonts`, ArkUI rawfile, loose `Resources/fonts` on the desktops) and each backend
 //! registers them at startup so `Font::Custom("Family", pt)` resolves by the font's **family
 //! name**, the name baked into the file's `name` table (what Font Book / fontconfig report), not
@@ -47,6 +47,7 @@ fn u32be(data: &[u8], off: usize) -> Option<u32> {
 /// Read the family and PostScript names from a raw font file (`.ttf`, `.otf`, or the first face
 /// of a `.ttc`). A tiny sfnt reader: only the table directory and the `name` table are touched,
 /// so it is safe to run on untrusted bytes (every access is bounds-checked).
+#[must_use]
 pub fn parse_font_names(data: &[u8]) -> Option<FontNames> {
     // Font collections ('ttcf') front an array of face offsets; take the first face.
     let base = if u32be(data, 0)? == u32::from_be_bytes(*b"ttcf") {
@@ -94,9 +95,8 @@ pub fn parse_font_names(data: &[u8]) -> Option<FontNames> {
         if !matches!(name_id, 1 | 6 | 16) {
             continue;
         }
-        let bytes = match name.get(storage + off..storage + off + len) {
-            Some(b) => b,
-            None => continue,
+        let Some(bytes) = name.get(storage + off..storage + off + len) else {
+            continue;
         };
         let (decoded, score) = match platform {
             // Windows (3) and Unicode (0): UTF-16BE. American English first among Windows.
@@ -149,6 +149,7 @@ pub fn parse_font_names(data: &[u8]) -> Option<FontNames> {
 /// The identifier the Android / ArkUI stagers derive from a family name, and that their runtimes
 /// re-derive to look the font up (Android `R.font.<ident>`): lowercase, `[a-z0-9_]` only, with a
 /// leading letter enforced. `"Special Elite"` → `special_elite`.
+#[must_use]
 pub fn font_ident(family: &str) -> String {
     let mut s: String = family
         .chars()
@@ -170,6 +171,7 @@ pub fn font_ident(family: &str) -> String {
 /// The directory holding the app's bundled font files at runtime: `DAY_FONT_ROOT` (the project's
 /// `fonts/` under `day launch`), then bundle-relative locations next to the executable (macOS
 /// `.app` `Resources/fonts`, files staged next to a desktop binary).
+#[must_use]
 pub fn font_dir() -> Option<PathBuf> {
     if let Ok(root) = std::env::var("DAY_FONT_ROOT") {
         let p = PathBuf::from(root);
@@ -192,6 +194,7 @@ pub fn font_dir() -> Option<PathBuf> {
 
 /// Every bundled font file ([`font_dir`] filtered to [`FONT_EXTS`]), sorted by file name. The
 /// list backends iterate to register the app's fonts at startup.
+#[must_use]
 pub fn bundled_fonts() -> Vec<PathBuf> {
     let Some(dir) = font_dir() else {
         return Vec::new();
@@ -200,6 +203,7 @@ pub fn bundled_fonts() -> Vec<PathBuf> {
 }
 
 /// The font files directly under `dir`, sorted by file name (shared with the CLI's scanner).
+#[must_use]
 pub fn font_files_in(dir: &std::path::Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -210,7 +214,7 @@ pub fn font_files_in(dir: &std::path::Path) -> Vec<PathBuf> {
         let ext = p
             .extension()
             .and_then(|x| x.to_str())
-            .map(|x| x.to_ascii_lowercase());
+            .map(str::to_ascii_lowercase);
         if p.is_file() && ext.is_some_and(|x| FONT_EXTS.contains(&x.as_str())) {
             out.push(p);
         }
@@ -222,6 +226,7 @@ pub fn font_files_in(dir: &std::path::Path) -> Vec<PathBuf> {
 /// Resolve a requested family name to the bundled font file that provides it (case-insensitive,
 /// PostScript name accepted too). For backends whose native font API takes a file path rather
 /// than a registered family name.
+#[must_use]
 pub fn resolve_font_file(family: &str) -> Option<PathBuf> {
     for path in bundled_fonts() {
         let Ok(bytes) = std::fs::read(&path) else {
@@ -245,7 +250,7 @@ mod tests {
     use super::*;
 
     /// Build a minimal single-table sfnt whose `name` table carries the given records
-    /// (platform, encoding, language, name_id, utf16: bool, value).
+    /// (platform, encoding, language, `name_id`, utf16: bool, value).
     fn sfnt_with_names(records: &[(u16, u16, u16, u16, bool, &str)]) -> Vec<u8> {
         let mut strings: Vec<u8> = Vec::new();
         let mut recs: Vec<u8> = Vec::new();

@@ -70,7 +70,7 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &SearchPatch) {
 fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     let width = p.width.unwrap_or(w).max(160.0);
     Size::new(width, hh.max(32.0))
 }

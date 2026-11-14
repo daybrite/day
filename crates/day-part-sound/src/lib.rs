@@ -31,12 +31,12 @@
 //!
 //! | Platform | Engine | Loops |
 //! |---|---|---|
-//! | iOS, macOS | AVAudioEngine and a pool of AVAudioPlayerNodes (iOS in the `.ambient` session) | the node repeats its buffer |
-//! | Android | SoundPool with game audio attributes | the stream repeats |
+//! | iOS, macOS | `AVAudioEngine` and a pool of `AVAudioPlayerNodes` (iOS in the `.ambient` session) | the node repeats its buffer |
+//! | Android | `SoundPool` with game audio attributes | the stream repeats |
 //! | web | Web Audio | the source node repeats its buffer |
-//! | Windows | XAudio2 | the voice repeats its buffer |
-//! | Linux | libpulse (PulseAudio, and PipeWire's Pulse layer), loaded at run time, with the part's own mixer | emulated: the mixer wraps the clip |
-//! | HarmonyOS | SoundPool with the game stream usage | the stream repeats |
+//! | Windows | `XAudio2` | the voice repeats its buffer |
+//! | Linux | libpulse (`PulseAudio`, and `PipeWire`'s Pulse layer), loaded at run time, with the part's own mixer | emulated: the mixer wraps the clip |
+//! | HarmonyOS | `SoundPool` with the game stream usage | the stream repeats |
 //!
 //! Like haptics, every call is fire-and-forget and best effort: none returns an error or panics. A
 //! clip that is missing or unreadable is logged once and stays silent, and so does a platform with
@@ -101,6 +101,7 @@ impl Default for Play {
 
 impl Play {
     /// Centered, at the default priority, at `volume`.
+    #[must_use]
     pub fn at(volume: f32) -> Play {
         Play {
             volume,
@@ -149,11 +150,14 @@ static STATE: Mutex<State> = Mutex::new(State {
 
 fn state() -> MutexGuard<'static, State> {
     // Nothing under the lock can leave it half-written, so a poisoned lock is still usable.
-    STATE.lock().unwrap_or_else(|e| e.into_inner())
+    STATE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Whether this platform has a sound engine. It reports whether the engine can be reached (on
 /// Linux, whether libpulse is installed), not whether a speaker is plugged in.
+#[must_use]
 pub fn is_supported() -> bool {
     imp::supported()
 }
@@ -212,6 +216,7 @@ pub fn set_volume(volume: f32) {
     }
 }
 
+#[must_use]
 pub fn volume() -> f32 {
     state().volume
 }
@@ -223,6 +228,7 @@ pub fn set_enabled(on: bool) {
     retune();
 }
 
+#[must_use]
 pub fn is_enabled() -> bool {
     state().enabled
 }
@@ -240,6 +246,7 @@ pub fn unload_all() {
 /// The clips most recently played, oldest first: what a test or a walkthrough log checks. A clip
 /// counts here once it passed the switch, the volume and the repeat check, whether or not the
 /// platform could sound it.
+#[must_use]
 pub fn recent() -> Vec<String> {
     state().played.iter().cloned().collect()
 }
@@ -284,6 +291,7 @@ impl Loop {
 
     /// Whether the loop is still held: not stopped by [`unload_all`], and not displaced by a
     /// newer loop past [`LOOPS`]. It says nothing about whether a speaker is sounding it.
+    #[must_use]
     pub fn is_playing(&self) -> bool {
         state().loops.iter().any(|l| l.id == self.id)
     }
@@ -360,6 +368,7 @@ pub fn play_loop(clip: &AssetName, opts: Play) -> Loop {
 
 /// The clips looping now, oldest first: what a test or a walkthrough checks. A loop counts here
 /// from [`play_loop`] until it stops, whether or not the platform could sound it.
+#[must_use]
 pub fn loops() -> Vec<String> {
     state().loops.iter().map(|l| l.path.clone()).collect()
 }
@@ -592,6 +601,10 @@ mod mixer {
 /// Milliseconds on a clock that only moves forward, for the repeat check. The web has no clock in
 /// wasm's `std` (`Instant::now` aborts there), so its arm keeps the same rule in JavaScript.
 #[cfg(not(target_arch = "wasm32"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "shares its signature with the wasm arm, which has no clock and answers `None`"
+)]
 fn now_ms() -> Option<u64> {
     static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
     Some(
@@ -1377,7 +1390,7 @@ mod wav {
             (PCM, 8) => 1,
             (PCM, 16) => 2,
             (PCM, 24) => 3,
-            (PCM, 32) | (FLOAT, 32) => 4,
+            (PCM | FLOAT, 32) => 4,
             _ => return Err("not 8-, 16-, 24- or 32-bit PCM or 32-bit float"),
         };
         let channels = channels as usize;
@@ -1388,8 +1401,8 @@ mod wav {
             let mut sum = 0.0f32;
             for s in f.chunks_exact(width) {
                 sum += match (tag, width) {
-                    (PCM, 1) => (s[0] as f32 - 128.0) / 128.0,
-                    (PCM, 2) => i16::from_le_bytes([s[0], s[1]]) as f32 / 32_768.0,
+                    (PCM, 1) => (f32::from(s[0]) - 128.0) / 128.0,
+                    (PCM, 2) => f32::from(i16::from_le_bytes([s[0], s[1]])) / 32_768.0,
                     (PCM, 3) => {
                         (i32::from_le_bytes([0, s[0], s[1], s[2]]) >> 8) as f32 / 8_388_608.0
                     }
@@ -1416,8 +1429,8 @@ mod wav {
         if pcm.rate == rate || len == 0 {
             return pcm.samples;
         }
-        let n = ((len as u64 * rate as u64) / pcm.rate as u64).max(1) as usize;
-        let step = pcm.rate as f64 / rate as f64;
+        let n = ((len as u64 * u64::from(rate)) / u64::from(pcm.rate)).max(1) as usize;
+        let step = f64::from(pcm.rate) / f64::from(rate);
         (0..n)
             .map(|i| {
                 let x = i as f64 * step;
@@ -1441,7 +1454,7 @@ mod tests {
         fmt.extend((if ext { 0xFFFE } else { tag }).to_le_bytes());
         fmt.extend(channels.to_le_bytes());
         fmt.extend(rate.to_le_bytes());
-        let block = channels as u32 * (bits as u32 / 8);
+        let block = u32::from(channels) * (u32::from(bits) / 8);
         fmt.extend((rate * block).to_le_bytes());
         fmt.extend((block as u16).to_le_bytes());
         fmt.extend(bits.to_le_bytes());
@@ -1560,7 +1573,7 @@ mod tests {
         out.as_chunks::<2>()
             .0
             .iter()
-            .map(|f| (f[0] as f32 / 32_767.0, f[1] as f32 / 32_767.0))
+            .map(|f| (f32::from(f[0]) / 32_767.0, f32::from(f[1]) / 32_767.0))
             .collect()
     }
 
@@ -1671,7 +1684,9 @@ mod tests {
     /// Hold [`SHARED`] for the rest of the test. Poisoning is ignored, as it is for [`STATE`]: a
     /// failing test should report itself rather than turn every later one into a poison error.
     fn exclusive() -> MutexGuard<'static, ()> {
-        SHARED.lock().unwrap_or_else(|e| e.into_inner())
+        SHARED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[test]
@@ -1717,7 +1732,7 @@ mod tests {
                 .find(|l| l.path == path)
                 .and_then(|l| l.told)
         };
-        assert!(loops().is_empty());
+        assert_eq!(loops(), [] as [std::string::String; 0]);
         let a = play_loop(&hum, Play::at(0.5));
         assert_eq!(loops(), vec!["sounds/test-hum.wav"]);
         assert!(a.is_playing());
@@ -1759,7 +1774,7 @@ mod tests {
         drop(a);
         assert_eq!(loops(), vec!["sounds/test-siren.wav"]);
         b.stop();
-        assert!(loops().is_empty());
+        assert_eq!(loops(), [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -1775,11 +1790,11 @@ mod tests {
         assert!(held[4].is_playing());
         // Ids are not reused, so a spent handle never stops a later loop.
         drop(held);
-        assert!(loops().is_empty());
+        assert_eq!(loops(), [] as [std::string::String; 0]);
 
         let kept = play_loop(&AssetName::dynamic(names[0].clone()), Play::default());
         unload_all();
-        assert!(loops().is_empty());
+        assert_eq!(loops(), [] as [std::string::String; 0]);
         assert!(!kept.is_playing());
         let next = play_loop(&AssetName::dynamic(names[1].clone()), Play::default());
         drop(kept);

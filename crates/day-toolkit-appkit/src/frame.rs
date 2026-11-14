@@ -1,6 +1,6 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! View-associated CADisplayLink on macOS 14+, Core Video's display link on macOS 13.
+//! View-associated `CADisplayLink` on macOS 14+, Core Video's display link on macOS 13.
 use super::*;
 use day_core::frame::native;
 use day_spec::{CancelFrame, FrameCallback, FrameStamp};
@@ -155,7 +155,7 @@ mod legacy {
             .unwrap_or(0);
         let token = native::register(cb);
         let mut link = std::ptr::null_mut();
-        if unsafe { CVDisplayLinkCreateWithCGDisplay(display, &mut link) } != 0 {
+        if unsafe { CVDisplayLinkCreateWithCGDisplay(display, &raw mut link) } != 0 {
             native::cancel(token);
             log::error!("could not create Core Video display link");
             return Box::new(|| {});
@@ -167,7 +167,7 @@ mod legacy {
                 sent: AtomicBool::new(false),
             }),
         };
-        let context = (&mut *guard.context as *mut Context).cast();
+        let context = (&raw mut *guard.context).cast();
         if unsafe { CVDisplayLinkSetOutputCallback(link, fire, context) } != 0
             || unsafe { CVDisplayLinkStart(link) } != 0
         {

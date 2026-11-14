@@ -12,6 +12,7 @@
 //! Dependencies declare conditional base requirements in `package.metadata.day.flatpak`.
 //! The packer selects them from the resolved graph and the binary's linked libraries.
 
+use std::fmt::Write as _;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::process::Command;
@@ -191,19 +192,20 @@ pub(crate) fn manifest_yaml(
         .unwrap_or_default();
     let mut finish = String::new();
     for arg in FINISH_ARGS {
-        finish.push_str(&format!("  - {arg}\n"));
+        let _ = writeln!(finish, "  - {arg}");
     }
     for arg in finish_args {
         if !FINISH_ARGS.contains(&arg.as_str()) {
             // Quoted, because a value may hold a `:` or a `#` that bare YAML would read.
-            finish.push_str(&format!(
-                "  - {}\n",
+            let _ = writeln!(
+                finish,
+                "  - {}",
                 serde_json::to_string(arg).expect("string")
-            ));
+            );
         }
     }
     format!(
-        r#"id: {id}
+        r"id: {id}
 runtime: {runtime}
 runtime-version: '{runtime_version}'
 sdk: {sdk}
@@ -223,7 +225,7 @@ finish-args:
     sources:
       - type: dir
         path: stage
-"#
+"
     )
 }
 
@@ -254,10 +256,19 @@ fn select_base(
     Ok(selected.into_iter().next())
 }
 
-/// Match a declared library prefix against ELF64 little-endian DT_NEEDED entries.
+/// Match a declared library prefix against ELF64 little-endian `DT_NEEDED` entries.
 /// None means unreadable, unsupported, or no dynamic section. Callers retain declared bases
 /// when the probe is inconclusive. Read small sections rather than the whole executable.
 fn links_library(binary: &Path, prefix: &str) -> Option<bool> {
+    fn u16_at(b: &[u8], o: usize) -> Option<u16> {
+        Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?))
+    }
+    fn u32_at(b: &[u8], o: usize) -> Option<u32> {
+        Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
+    }
+    fn u64_at(b: &[u8], o: usize) -> Option<u64> {
+        Some(u64::from_le_bytes(b.get(o..o + 8)?.try_into().ok()?))
+    }
     const SHT_DYNAMIC: u32 = 6;
     const DT_NULL: u64 = 0;
     const DT_NEEDED: u64 = 1;
@@ -269,15 +280,6 @@ fn links_library(binary: &Path, prefix: &str) -> Option<bool> {
     // \x7fELF, ELFCLASS64, ELFDATA2LSB.
     if ehdr[..4] != *b"\x7fELF" || ehdr[4] != 2 || ehdr[5] != 1 {
         return None;
-    }
-    fn u16_at(b: &[u8], o: usize) -> Option<u16> {
-        Some(u16::from_le_bytes(b.get(o..o + 2)?.try_into().ok()?))
-    }
-    fn u32_at(b: &[u8], o: usize) -> Option<u32> {
-        Some(u32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
-    }
-    fn u64_at(b: &[u8], o: usize) -> Option<u64> {
-        Some(u64::from_le_bytes(b.get(o..o + 8)?.try_into().ok()?))
     }
     let e_shoff = u64_at(&ehdr, 0x28)?;
     let e_shentsize = u16_at(&ehdr, 0x3a)? as usize;
@@ -469,7 +471,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A minimal ELF64 LE file whose dynamic section lists `names` as DT_NEEDED: enough shape
+    /// A minimal ELF64 LE file whose dynamic section lists `names` as `DT_NEEDED`: enough shape
     /// for [`links_library`], so the probe is testable on every host, Linux or otherwise.
     fn elf_needing(names: &[&str]) -> Vec<u8> {
         const STR_OFF: usize = 0x100;

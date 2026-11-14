@@ -343,16 +343,14 @@ fn call_tool(
             let rows: Vec<serde_json::Value> = sessions
                 .iter()
                 .map(|s| {
-                    let kind_direct = crate::external::find_target(project, &s.target)
-                        .ok()
-                        .map(|t| {
+                    let kind_direct =
+                        crate::external::find_target(project, &s.target).is_ok_and(|t| {
                             matches!(
                                 t.kind,
                                 crate::targets::TargetKind::Desktop
                                     | crate::targets::TargetKind::IosSim
                             )
-                        })
-                        .unwrap_or(false);
+                        });
                     serde_json::json!({
                         "target": s.target,
                         "appId": s.app_id,

@@ -724,6 +724,11 @@ jobs:
           # shellcheck disable=SC2086 # $TARGET is a two-token flag or empty
           cargo clippy $TARGET ${{ matrix.clippy }} \
             --no-default-features --features ${{ matrix.toolkit }}
+      # The step above compiles the backend crate as the app's path dependency, which Clippy
+      # does not lint. This one lints the backend, its platform crate, the facade under this
+      # backend's feature and the tweaks as members of this workspace, under its lint policy.
+      - name: Clippy (${{ matrix.toolkit }} backend crates)
+        run: scripts/ci/toolkit-clippy.sh ${{ matrix.toolkit }}
       - name: Native AppKit links, menus, scrolling and document layout
         if: matrix.toolkit == 'appkit'
         run: cargo test --locked -p day-toolkit-appkit --test native_links --test native_main_menu --test native_list_scroll --test native_document_layout --test native_palette
@@ -1315,6 +1320,10 @@ jobs:
         # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
         working-directory: showcase-src
         run: cargo ohos clippy --target aarch64-unknown-linux-ohos --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
+      # The backend crate itself, as a member of this workspace (scripts/ci/toolkit-clippy.sh).
+      - name: Clippy (arkui backend crates)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: scripts/ci/toolkit-clippy.sh arkui
   # WinUI 3 (docs/winui.md): the Windows scaffold check, plus the two things only this
   # stack needs: the Windows App SDK NuGet packages the build compiles against (~250 MB, cached
   # under %LOCALAPPDATA%\day\winappsdk by setup-day-deps' pinned release), and the
@@ -1463,6 +1472,9 @@ jobs:
         env:
           RUSTFLAGS: -D warnings --cfg getrandom_backend="custom"
         run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features dom
+      # The backend crate itself, as a member of this workspace (scripts/ci/toolkit-clippy.sh).
+      - name: Clippy (dom backend crates)
+        run: scripts/ci/toolkit-clippy.sh dom
 
   # ---------------------------------------------------------------------------
   # website: daybrite.dev (DESIGN.md §20.1, step 6). Its own lane: it needs none of the framework

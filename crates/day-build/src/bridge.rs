@@ -54,6 +54,7 @@ impl Lang {
     }
 
     /// The key used in the manifest and in `day build`'s emitters.
+    #[must_use]
     pub fn key(self) -> &'static str {
         match self {
             Lang::Rust => "rust",
@@ -120,6 +121,7 @@ impl Decl {
     /// asynchronous: it returns once the platform has accepted the request and answers later
     /// through the token: once for a `Done` (docs/bridge.md "Callbacks"), any number of times and
     /// then an end for an `Emit` ("Streams"). [`Decl::is_stream`] tells the two apart.
+    #[must_use]
     pub fn done(&self) -> Option<(&str, String)> {
         let (name, ty) = self.args.last()?;
         let ty = ty.trim().trim_start_matches("day_bridge::");
@@ -131,6 +133,7 @@ impl Decl {
     }
 
     /// Whether the handle is a repeating `Emit<T>` stream rather than a one-shot `Done<T>`.
+    #[must_use]
     pub fn is_stream(&self) -> bool {
         self.args.last().is_some_and(|(_, t)| {
             t.trim()
@@ -141,6 +144,7 @@ impl Decl {
 
     /// The arguments an arm marshals: every declared one except the completion handle, which
     /// crosses as a token the generator adds itself.
+    #[must_use]
     pub fn plain_args(&self) -> &[(String, String)] {
         match self.done() {
             Some(_) => &self.args[..self.args.len() - 1],
@@ -185,6 +189,11 @@ pub struct Bridge {
 ///
 /// A crate with no `bridge!` block still gets an (empty) `mod.rs`, so a crate that removes its last
 /// bridge does not fail on a stale `include!`.
+///
+/// # Errors
+///
+/// Returns an error when `CARGO_MANIFEST_DIR`, `OUT_DIR` or `CARGO_PKG_NAME` is unset, and for
+/// every failure of [`generate_in`].
 pub fn generate() -> Result<(), String> {
     let root = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| "CARGO_MANIFEST_DIR unset")?;
     let out = std::env::var("OUT_DIR").map_err(|_| "OUT_DIR unset")?;
@@ -195,6 +204,11 @@ pub fn generate() -> Result<(), String> {
 /// Parse one crate's `bridge!` blocks: the entry point `day build` uses to generate the foreign
 /// half. The CLI reads crate sources rather than build-script output, so staging never depends on
 /// cargo having run first (docs/bridge.md "What the build does").
+///
+/// # Errors
+///
+/// Returns an error when a source file cannot be read, a `bridge!` block does not parse or fails
+/// validation, or an arm's external source file is missing or declares its own Java package.
 pub fn parse_crate(root: &Path) -> Result<Bridge, String> {
     let mut bridge = scan(root)?;
     validate(&bridge)?;
@@ -233,20 +247,20 @@ pub fn parse_crate(root: &Path) -> Result<Bridge, String> {
 }
 
 /// Whether a crate declares any bridge at all; cheap enough to run over a whole dependency graph.
+#[must_use]
 pub fn is_bridged(root: &Path) -> bool {
     let mut sources: Vec<PathBuf> = Vec::new();
     collect_rs(&root.join("src"), &mut sources);
     sources.iter().any(|p| {
-        std::fs::read_to_string(p)
-            .map(|t| {
-                t.lines()
-                    .any(|l| !l.trim_start().starts_with("//") && l.contains("bridge!"))
-            })
-            .unwrap_or(false)
+        std::fs::read_to_string(p).is_ok_and(|t| {
+            t.lines()
+                .any(|l| !l.trim_start().starts_with("//") && l.contains("bridge!"))
+        })
     })
 }
 
-/// The generated Swift adapter for `arm`, ready to stage into the DayPieces package.
+/// The generated Swift adapter for `arm`, ready to stage into the `DayPieces` package.
+#[must_use]
 pub fn swift_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     render_swift(bridge, arm, crate_name)
 }
@@ -254,6 +268,7 @@ pub fn swift_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 /// The generated JVM adapter for `arm` (Kotlin or Java), ready to stage into a Gradle source
 /// directory. The language decides only the file extension and whether the project needs the
 /// Kotlin plugin (see the check in `day lint` and the error in `day build`).
+#[must_use]
 pub fn jvm_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     match arm.lang {
         Lang::Java => render_java(bridge, arm, crate_name),
@@ -262,21 +277,25 @@ pub fn jvm_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 }
 
 /// The generated ES module for `arm`, ready to stage beside the day-toolkit-dom shim.
+#[must_use]
 pub fn js_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     render_js(bridge, arm, crate_name)
 }
 
 /// The generated ArkTS module for `arm`, ready to stage into the HarmonyOS host project.
+#[must_use]
 pub fn arkts_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     render_arkts(bridge, arm, crate_name)
 }
 
 /// The Java package a crate's Kotlin adapter declares, the directory Gradle expects it under.
+#[must_use]
 pub fn kotlin_package_of(crate_name: &str) -> String {
     kotlin_package(crate_name)
 }
 
 /// The file name an arm's adapter is staged under.
+#[must_use]
 pub fn adapter_name(arm: &Arm, crate_name: &str) -> String {
     generated_name(arm, crate_name)
 }
@@ -310,6 +329,11 @@ fn scan(root: &Path) -> Result<Bridge, String> {
 }
 
 /// The testable core of [`generate`]: the Rust side, plus the C/C++ arms cargo itself compiles.
+///
+/// # Errors
+///
+/// Returns an error when [`parse_crate`] fails, or when the output directory or a generated file
+/// cannot be written.
 pub fn generate_in(root: &Path, out_dir: &Path, crate_name: &str) -> Result<(), String> {
     // Only a build script may print cargo directives: `parse_crate` is also called by `day build`,
     // where a stray `cargo:` line would land in the CLI's output (and, once, inside a
@@ -457,7 +481,7 @@ fn parse_into(text: &str, source: &str, bridge: &mut Bridge) -> Result<(), Strin
         let start = at + found;
         // A doc comment showing the macro is not an invocation of it (this crate's own docs do
         // exactly that), so a match whose line is a comment is skipped.
-        let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
         if text[line_start..start].trim_start().starts_with("//") {
             at = start + "bridge!".len();
             continue;
@@ -578,8 +602,7 @@ fn parse_impl(attr: &str, rest: &str, line: usize, bridge: &mut Bridge) -> Resul
     let lang = attr_lang(attr, line)?;
     let inner = attr
         .split_once('(')
-        .map(|(_, v)| v.trim_end().trim_end_matches(')'))
-        .unwrap_or("");
+        .map_or("", |(_, v)| v.trim_end().trim_end_matches(')'));
     let mut platforms = Vec::new();
     let mut options = BTreeMap::new();
     for part in split_top(inner, ',') {
@@ -689,7 +712,7 @@ fn parse_impl(attr: &str, rest: &str, line: usize, bridge: &mut Bridge) -> Resul
 }
 
 fn attr_lang(attr: &str, line: usize) -> Result<Lang, String> {
-    let inner = attr.split_once('(').map(|(_, v)| v).unwrap_or("");
+    let inner = attr.split_once('(').map_or("", |(_, v)| v);
     let first = inner.split([',', ')']).next().unwrap_or("").trim();
     Lang::parse(first).ok_or_else(|| format!("line {line}: unknown bridge language `{first}`"))
 }
@@ -887,7 +910,7 @@ fn split_top(text: &str, sep: char) -> Vec<String> {
 
 fn strip_comments(text: &str) -> String {
     text.lines()
-        .map(|l| l.split_once("//").map(|(a, _)| a).unwrap_or(l))
+        .map(|l| l.split_once("//").map_or(l, |(a, _)| a))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -1315,7 +1338,7 @@ fn render_c(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     let _ = writeln!(out, "#include <stdint.h>");
     let _ = writeln!(out, "#include <stddef.h>");
     if let Some(prelude) = &arm.prelude {
-        let _ = writeln!(out, "{}", prelude);
+        let _ = writeln!(out, "{prelude}");
     }
     // The completion symbols an asynchronous arm answers through, declared before the arm so
     // it can call `<fn>_complete(done, value)` / `<fn>_fail(done)` like any local function
@@ -1444,7 +1467,7 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     );
     let _ = writeln!(out, "import Foundation");
     if let Some(prelude) = &arm.prelude {
-        let _ = writeln!(out, "{}", prelude);
+        let _ = writeln!(out, "{prelude}");
     }
     // swiftc maps every following line back to the crate's own source, so a type error in an arm
     // names the file its author opened (docs/bridge.md "Diagnostics").
@@ -1458,7 +1481,7 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         let verb = callback_verb(decl);
         let raw = format!("__day_bridge_{verb}_{}", decl.name);
         let (abi_params, ok_param, ok_call, fail_call) = match value.as_str() {
-            "()" => ("", String::new(), "".to_string(), "".to_string()),
+            "()" => ("", String::new(), String::new(), String::new()),
             "String" => (
                 ", _ value: UnsafePointer<CChar>?",
                 ", _ value: String".to_string(),
@@ -1639,7 +1662,7 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         arm.line
     );
     if let Some(prelude) = &arm.prelude {
-        let _ = writeln!(out, "{}", prelude);
+        let _ = writeln!(out, "{prelude}");
     }
     // The completion helpers an asynchronous arm answers through (docs/bridge.md "Callbacks"):
     // `<fn>_complete(done, value)` and `<fn>_fail(done, message)`, over the wasm export Rust
@@ -1803,7 +1826,7 @@ fn render_arkts(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         let _ = writeln!(out, "import nativeEntry from 'libentry.so';");
     }
     if let Some(prelude) = &arm.prelude {
-        let _ = writeln!(out, "{}", prelude);
+        let _ = writeln!(out, "{prelude}");
     }
     // The completion helpers an asynchronous arm answers through (docs/bridge.md "Callbacks"):
     // `<fn>_complete(done, value)` and `<fn>_fail(done, message)`, over the shim's
@@ -2155,7 +2178,7 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     );
     let _ = writeln!(out, "package {pkg}\n");
     if let Some(prelude) = &arm.prelude {
-        let _ = writeln!(out, "{}", prelude);
+        let _ = writeln!(out, "{prelude}");
     }
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
 
@@ -2261,7 +2284,7 @@ fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     );
     let _ = writeln!(out, "package {pkg};\n");
     if let Some(prelude) = &arm.prelude {
-        let _ = writeln!(out, "{}", prelude);
+        let _ = writeln!(out, "{prelude}");
     }
     let _ = writeln!(out, "\npublic final class {class} {{");
     let _ = writeln!(out, "    private {class}() {{}}\n");
@@ -2449,14 +2472,13 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
             "f32" => params.push("value: day_platform_android::jni::sys::jfloat".into()),
             "f64" => params.push("value: day_platform_android::jni::sys::jdouble".into()),
             "String" => {
-                params.push("value: day_platform_android::jni::objects::JString<'_>".into())
+                params.push("value: day_platform_android::jni::objects::JString<'_>".into());
             }
             _ => params.push("value: day_platform_android::jni::objects::JByteArray<'_>".into()),
         }
         params.push("message: day_platform_android::jni::objects::JString<'_>".into());
         let convert = match value.as_str() {
             "()" => "Ok(())".to_string(),
-            "bool" => "Ok(value)".to_string(),
             "String" => "if value.is_null() { Ok(String::new()) } else { with_env(|env| read_jstring(env, &value)).ok_or(day_bridge::Error::Encoding) }".to_string(),
             "Vec<u8>" => "if value.is_null() { Ok(Vec::new()) } else { with_env(|env| env.convert_byte_array(&value)).map_err(|_| day_bridge::Error::Encoding) }".to_string(),
             _ => "Ok(value)".to_string(),
@@ -2706,7 +2728,7 @@ fn render_c_rust(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
                         out,
                         "        return {};",
                         if decl.ret.is_empty() {
-                            "".to_string()
+                            String::new()
                         } else {
                             "Err(day_bridge::Error::Encoding)".to_string()
                         }
@@ -3196,7 +3218,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    const SPEECH: &str = r###"
+    const SPEECH: &str = r##"
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
@@ -3222,7 +3244,7 @@ day_bridge::bridge! {
     #[day_bridge::impl(rust, platforms = [other])]
     fn stop_native() {}
 }
-"###;
+"##;
 
     fn parse(src: &str) -> Bridge {
         let mut b = Bridge::default();
@@ -3243,7 +3265,10 @@ day_bridge::bridge! {
         assert_eq!(b.decls[0].args, vec![("text".into(), "&str".into())]);
         assert_eq!(b.decls[0].ret, "Result<(), day_bridge::Error>");
         assert_eq!(b.decls[1].name, "stop_native");
-        assert!(b.decls[1].args.is_empty());
+        assert_eq!(
+            b.decls[1].args,
+            [] as [(std::string::String, std::string::String); 0]
+        );
         assert_eq!(b.arms.len(), 3);
         assert_eq!(
             b.arms[0].prelude.as_deref(),
@@ -3286,14 +3311,14 @@ day_bridge::bridge! {
     #[test]
     fn rejects_an_argument_named_after_a_generated_length() {
         let b = parse(
-            r###"
+            r#"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn f(body: &[u8], body_len: i64); }
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn f(_body: &[u8], _body_len: i64) {}
             }
-            "###,
+            "#,
         );
         let err = validate(&b).expect_err("a name the generated length takes");
         assert!(err.contains("`body_len`"), "{err}");
@@ -3302,14 +3327,14 @@ day_bridge::bridge! {
     #[test]
     fn rejects_a_type_outside_the_table() {
         let b = parse(
-            r###"
+            r#"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn f(x: Option<i32>); }
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn f(_x: Option<i32>) {}
             }
-            "###,
+            "#,
         );
         let err = validate(&b).unwrap_err();
         assert!(err.contains("does not cross a bridge"), "{err}");
@@ -3318,14 +3343,14 @@ day_bridge::bridge! {
     #[test]
     fn rejects_a_bare_return() {
         let b = parse(
-            r###"
+            r#"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn ready() -> bool; }
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn ready() -> bool { false }
             }
-            "###,
+            "#,
         );
         let err = validate(&b).unwrap_err();
         assert!(err.contains("`ready` returns `bool`"), "{err}");
@@ -3334,7 +3359,7 @@ day_bridge::bridge! {
     #[test]
     fn passes_a_bool_to_a_jvm_arm() {
         let b = parse(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn hold(on: bool); }
@@ -3346,7 +3371,7 @@ day_bridge::bridge! {
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn hold(_on: bool) {}
             }
-            "###,
+            "##,
         );
         validate(&b).expect("valid");
         let rust = render_jvm_rust(&b, "day-part-test");
@@ -3357,14 +3382,14 @@ day_bridge::bridge! {
     #[test]
     fn rejects_a_missing_fallback() {
         let b = parse(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn f(); }
                 #[day_bridge::impl(kotlin, platforms = [android])]
                 kotlin!(r#" fun f() {} "#);
             }
-            "###,
+            "##,
         );
         assert!(validate(&b).unwrap_err().contains("no `other` arm"));
     }
@@ -3372,7 +3397,7 @@ day_bridge::bridge! {
     #[test]
     fn rejects_two_arms_claiming_one_platform() {
         let b = parse(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn f(); }
@@ -3383,7 +3408,7 @@ day_bridge::bridge! {
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn f() {}
             }
-            "###,
+            "##,
         );
         assert!(validate(&b).unwrap_err().contains("already claimed"));
     }
@@ -3394,7 +3419,7 @@ day_bridge::bridge! {
     #[test]
     fn a_body_containing_a_quote_hash_needs_more_hashes() {
         let b = parse(
-            r####"
+            r###"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn focus_native(); }
@@ -3405,12 +3430,12 @@ day_bridge::bridge! {
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn focus_native() {}
             }
-            "####,
+            "###,
         );
         let arm = b.arms.iter().find(|a| a.lang == Lang::Js).unwrap();
         let body = arm.body.as_deref().unwrap();
         assert!(
-            body.contains("querySelector(\"#speech\")") && body.ends_with("}"),
+            body.contains("querySelector(\"#speech\")") && body.ends_with('}'),
             "the whole body survives:\n{body}"
         );
         // The arm after it still parses, which is what an early terminator would have eaten.
@@ -3421,22 +3446,22 @@ day_bridge::bridge! {
     #[test]
     fn rejects_unknown_arm_options_and_values() {
         let bad_key = parse_err(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::impl(c, platforms = [linux], linkk = ["speechd"])]
                 c!(r#" void f(void) {} "#);
             }
-            "###,
+            "##,
         );
         assert!(bad_key.contains("unknown arm option `linkk`"), "{bad_key}");
 
         let bad_encoding = parse_err(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::impl(cpp, platforms = [windows], encoding = "utf-16")]
                 cpp!(r#" void f(void) {} "#);
             }
-            "###,
+            "##,
         );
         assert!(
             bad_encoding.contains("expected \"utf8\" or \"utf16\""),
@@ -3444,12 +3469,12 @@ day_bridge::bridge! {
         );
 
         let bad_support = parse_err(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::impl(arkts, platforms = [ohos], support = "partial")]
                 arkts!(r#" export function f() {} "#);
             }
-            "###,
+            "##,
         );
         assert!(
             bad_support.contains("expected \"native\" or \"emulated\""),
@@ -3460,7 +3485,7 @@ day_bridge::bridge! {
     #[test]
     fn rejects_a_package_line_in_a_prelude() {
         let err = parse_err(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::impl(kotlin, platforms = [android])]
                 kotlin!(
@@ -3472,7 +3497,7 @@ day_bridge::bridge! {
                     "#,
                 );
             }
-            "###,
+            "##,
         );
         assert!(err.contains("belongs to the generator"), "{err}");
     }
@@ -3482,7 +3507,7 @@ day_bridge::bridge! {
     #[test]
     fn a_prelude_reaches_only_its_own_arm() {
         let b = parse(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn f(); }
@@ -3506,7 +3531,7 @@ day_bridge::bridge! {
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn f() {}
             }
-            "###,
+            "##,
         );
         let windows = b
             .arms
@@ -3525,12 +3550,12 @@ day_bridge::bridge! {
     #[test]
     fn a_standalone_prelude_attribute_says_what_replaced_it() {
         let err = parse_err(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::prelude(swift)]
                 swift!(r#" import AVFoundation "#);
             }
-            "###,
+            "##,
         );
         assert!(err.contains("no longer exists"), "{err}");
         assert!(err.contains("prelude = r#"), "{err}");
@@ -3635,7 +3660,7 @@ day_bridge::bridge! {
     #[test]
     fn a_cpp_arm_exports_unmangled_utf16_adapters() {
         let b = parse(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" {
@@ -3651,7 +3676,7 @@ day_bridge::bridge! {
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn stop_native() {}
             }
-            "###,
+            "##,
         );
         validate(&b).expect("valid");
         let arm = b.arms.iter().find(|a| a.lang == Lang::Cpp).unwrap();
@@ -3681,7 +3706,7 @@ day_bridge::bridge! {
     #[test]
     fn a_c_arm_takes_no_extern_c_wrapper() {
         let b = parse(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn f(text: &str); }
@@ -3690,7 +3715,7 @@ day_bridge::bridge! {
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn f(_text: &str) {}
             }
-            "###,
+            "##,
         );
         let arm = b.arms.iter().find(|a| a.lang == Lang::C).unwrap();
         let c = render_c(&b, arm, "day-part-demo");
@@ -3746,7 +3771,7 @@ day_bridge::bridge! {
         );
     }
 
-    const ASYNC: &str = r###"
+    const ASYNC: &str = r##"
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
@@ -3798,7 +3823,7 @@ day_bridge::bridge! {
     #[day_bridge::impl(rust, platforms = [other])]
     fn stop_native() {}
 }
-"###;
+"##;
 
     #[test]
     fn a_done_argument_is_recognized_and_stripped_from_the_marshaled_list() {
@@ -3965,7 +3990,7 @@ day_bridge::bridge! {
     #[test]
     fn synchronous_js_arms_can_access_the_host_runtime() {
         let b = parse(
-            r###"
+            r##"
             day_bridge::bridge! {
                 #[day_bridge::declare]
                 extern "day" { fn attach(id: i32); }
@@ -3974,7 +3999,7 @@ day_bridge::bridge! {
                 #[day_bridge::impl(rust, platforms = [other])]
                 fn attach(_id: i32) {}
             }
-        "###,
+        "##,
         );
         let arm = b.arms.iter().find(|a| a.lang == Lang::Js).unwrap();
         let js = render_js(&b, arm, "day-piece-demo");
@@ -4142,7 +4167,7 @@ day_bridge::bridge! {
         assert!(rust.contains("Ok(ret.i != 0)"), "{rust}");
     }
 
-    const STREAM: &str = r###"
+    const STREAM: &str = r##"
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
@@ -4192,7 +4217,7 @@ day_bridge::bridge! {
         Ok(())
     }
 }
-"###;
+"##;
 
     #[test]
     fn an_emit_argument_is_a_stream_handle() {

@@ -10,8 +10,8 @@
 use super::DeviceInfo;
 use std::os::raw::c_ulong;
 
-/// RTL_OSVERSIONINFOW (winnt.h). `szCSDVersion` is a fixed 128-wide-char service-pack string; we do
-/// not read it, but the layout must match for RtlGetVersion to fill the numeric fields.
+/// `RTL_OSVERSIONINFOW` (winnt.h). `szCSDVersion` is a fixed 128-wide-char service-pack string; we do
+/// not read it, but the layout must match for `RtlGetVersion` to fill the numeric fields.
 #[repr(C)]
 struct OsVersionInfoW {
     dw_os_version_info_size: c_ulong,
@@ -37,7 +37,7 @@ pub fn get() -> DeviceInfo {
         dw_platform_id: 0,
         sz_csd_version: [0; 128],
     };
-    let system_version = if unsafe { RtlGetVersion(&mut info) } == 0 {
+    let system_version = if unsafe { RtlGetVersion(&raw mut info) } == 0 {
         format!(
             "{}.{}.{}",
             info.dw_major_version, info.dw_minor_version, info.dw_build_number

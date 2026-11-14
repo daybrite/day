@@ -52,6 +52,7 @@ pub enum SwiftUiPatch {
 
 /// A hosted SwiftUI view. Bind its data reactively with `.params(...)`; keep its `@State` across
 /// unmount/remount with `.state_key(...)`.
+#[must_use]
 pub struct SwiftUi {
     name: String,
     params: Option<Reactive<String>>,
@@ -96,7 +97,7 @@ impl SwiftUi {
 impl Piece for SwiftUi {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let params = self.params;
-        let seed = params.as_ref().map(|p| p.get_untracked());
+        let seed = params.as_ref().map(day_pieces::Reactive::get_untracked);
         let props = SwiftUiProps {
             name: self.name,
             params: seed.clone(),
@@ -129,6 +130,7 @@ impl Piece for SwiftUi {
 
 /// Whether this build hosts SwiftUI natively: `Native` on macos-appkit and ios-uikit, else
 /// `Unsupported`. The gate app code should branch on, never a backend-feature `cfg`.
+#[must_use]
 pub fn support() -> day_spec::Support {
     #[cfg(any(
         all(feature = "appkit", target_os = "macos"),
@@ -154,6 +156,7 @@ pub mod json {
     pub struct Value(String);
 
     /// A JSON string value.
+    #[must_use]
     pub fn string(s: &str) -> Value {
         let mut out = String::with_capacity(s.len() + 2);
         out.push('"');
@@ -163,11 +166,13 @@ pub mod json {
     }
 
     /// A JSON integer value.
+    #[must_use]
     pub fn int(n: i64) -> Value {
         Value(n.to_string())
     }
 
     /// A JSON number value (non-finite floats have no JSON spelling and render as `0`).
+    #[must_use]
     pub fn float(n: f64) -> Value {
         Value(if n.is_finite() {
             n.to_string()
@@ -177,11 +182,13 @@ pub mod json {
     }
 
     /// A JSON boolean value.
+    #[must_use]
     pub fn boolean(b: bool) -> Value {
         Value(if b { "true" } else { "false" }.into())
     }
 
     /// A JSON object from `(key, value)` fields, in the given order.
+    #[must_use]
     pub fn object(fields: &[(&str, Value)]) -> String {
         let mut out = String::from("{");
         for (i, (key, value)) in fields.iter().enumerate() {
@@ -198,6 +205,7 @@ pub mod json {
     }
 
     fn escape_into(s: &str, out: &mut String) {
+        use std::fmt::Write as _;
         for c in s.chars() {
             match c {
                 '"' => out.push_str("\\\""),
@@ -205,7 +213,9 @@ pub mod json {
                 '\n' => out.push_str("\\n"),
                 '\r' => out.push_str("\\r"),
                 '\t' => out.push_str("\\t"),
-                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c if (c as u32) < 0x20 => {
+                    let _ = write!(out, "\\u{:04x}", c as u32);
+                }
                 c => out.push(c),
             }
         }

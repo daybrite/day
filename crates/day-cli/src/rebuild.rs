@@ -183,8 +183,7 @@ fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, Str
             .arg("-d")
             .arg(&inner)
             .status()
-            .map(|s| s.success())
-            .unwrap_or(false),
+            .is_ok_and(|s| s.success()),
         "dmg" if cfg!(target_os = "macos") => mount_dmg(artifact, &inner).is_ok(),
         _ => false,
     };
@@ -252,8 +251,7 @@ fn mount_dmg(dmg: &Path, dest: &Path) -> Result<(), String> {
         .args(["detach", "-force", "-quiet"])
         .arg(&mnt)
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+        .is_ok_and(|s| s.success());
     if !detached {
         detach_image(dmg);
     }
@@ -655,15 +653,12 @@ fn compare(
     project_dir: &Path,
     target: &'static crate::targets::Target,
 ) -> (Verdict, Verdict) {
-    let (a, b) = match (digest(original), digest(rebuilt)) {
-        (Ok(a), Ok(b)) => (a, b),
-        _ => {
-            let why = Verdict::Unchecked("could not hash one of the artifacts".into());
-            return (
-                Verdict::Unchecked("could not hash one of the artifacts".into()),
-                why,
-            );
-        }
+    let (Ok(a), Ok(b)) = (digest(original), digest(rebuilt)) else {
+        let why = Verdict::Unchecked("could not hash one of the artifacts".into());
+        return (
+            Verdict::Unchecked("could not hash one of the artifacts".into()),
+            why,
+        );
     };
     let container = if a == b {
         Verdict::Identical
@@ -1059,6 +1054,17 @@ fn zero_macho_uuid(buf: &mut [u8]) -> usize {
 /// whose `cputype` is one Mach-O actually defines. A class file's corresponding bytes are its
 /// version and constant-pool count, which do not land on a cputype.
 fn looks_macho(head: &[u8]) -> bool {
+    // `mach/machine.h`: the 64-bit forms are the 32-bit ones | CPU_ARCH_ABI64 (0x0100_0000), and
+    // arm64_32 | CPU_ARCH_ABI64_32 (0x0200_0000).
+    const CPU_TYPES: [u32; 7] = [
+        7,           // x86
+        0x0100_0007, // x86_64
+        12,          // arm
+        0x0100_000C, // arm64
+        0x0200_000C, // arm64_32
+        18,          // ppc
+        0x0100_0012, // ppc64
+    ];
     if head.len() < 4 {
         return false;
     }
@@ -1077,17 +1083,6 @@ fn looks_macho(head: &[u8]) -> bool {
     if !matches!(be(0), Some(0xCAFE_BABE | 0xCAFE_BABF)) {
         return false;
     }
-    // `mach/machine.h`: the 64-bit forms are the 32-bit ones | CPU_ARCH_ABI64 (0x0100_0000), and
-    // arm64_32 | CPU_ARCH_ABI64_32 (0x0200_0000).
-    const CPU_TYPES: [u32; 7] = [
-        7,           // x86
-        0x0100_0007, // x86_64
-        12,          // arm
-        0x0100_000C, // arm64
-        0x0200_000C, // arm64_32
-        18,          // ppc
-        0x0100_0012, // ppc64
-    ];
     let archs = be(4).unwrap_or(0);
     (1..=32).contains(&archs) && be(8).is_some_and(|cpu| CPU_TYPES.contains(&cpu))
 }
@@ -1292,8 +1287,7 @@ fn unpack(container: &Path, dest: &Path) -> Result<(), String> {
                 .arg("-d")
                 .arg(portable(dest))
                 .status()
-                .map(|s| s.success())
-                .unwrap_or(false),
+                .is_ok_and(|s| s.success()),
             "unzip",
         ),
         Some("dmg") if cfg!(target_os = "macos") => mount_dmg(container, dest),
@@ -1313,8 +1307,7 @@ fn unpack_flatpak(bundle: &Path, dest: &Path) -> bool {
         .arg("--mode=archive")
         .arg(format!("--repo={}", repo.display()))
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+        .is_ok_and(|s| s.success());
     if !ok {
         return false;
     }
@@ -1346,8 +1339,7 @@ fn unpack_flatpak(bundle: &Path, dest: &Path) -> bool {
         .args(["checkout", "--union", &r])
         .arg(dest)
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .is_ok_and(|s| s.success())
 }
 
 /// Every regular file under `root`, relative to it, sorted: the comparison unit.
@@ -1386,6 +1378,10 @@ fn file_list(root: &Path) -> Vec<PathBuf> {
 /// is identical. Counting them as payload differences would make the Windows leg permanently red
 /// for the one reason §20.3 already classes as advisory. They are reported as excluded, never
 /// silently dropped.
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "JAR signers write the signature files with these uppercase extensions"
+)]
 fn signature_member(rel: &Path) -> bool {
     // By component, not by prefix: inside an `.ipa` or a `.dmg` this material sits under
     // `Payload/<App>.app/Contents/`, so anchoring at the root would match none of it.
@@ -1578,10 +1574,10 @@ fn elf_sections(buf: &[u8]) -> Option<Vec<(String, usize, usize)>> {
     let strtab = u64_at(header(shstrndx)? + 0x18)?;
     let mut out = Vec::with_capacity(shnum);
     for i in 0..shnum {
+        const SHT_NOBITS: u32 = 8;
         let h = header(i)?;
         let name_at = strtab.checked_add(u32_at(h)? as usize)?;
         let name = buf.get(name_at..)?.split(|&c| c == 0).next()?;
-        const SHT_NOBITS: u32 = 8;
         let size = if u32_at(h + 4)? == SHT_NOBITS {
             0
         } else {
@@ -2229,7 +2225,7 @@ image-type      : UDIF read-only [write once]
         }
     }
 
-    /// `makeappx` writes AppxBlockMap.xml and [Content_Types].xml from its own walk of the staging
+    /// `makeappx` writes AppxBlockMap.xml and [`Content_Types`].xml from its own walk of the staging
     /// directory, so they index the ZIP rather than carry build output, and they differed between
     /// two packs of a byte-identical payload, which made windows-xaml red. They are excluded as
     /// container material, not as signature material: the distinction is what the report prints.
@@ -2353,7 +2349,7 @@ image-type      : UDIF read-only [write once]
 
     /// The Rust port must agree with the retired scripts/ci/macho-normalize.py (last present at
     /// 07dc6ac), which was validated against
-    /// two real showcase binaries that differed only in LC_UUID.
+    /// two real showcase binaries that differed only in `LC_UUID`.
     #[test]
     fn zeroing_the_uuid_matches_the_python_normalizer() {
         // A minimal 64-bit little-endian Mach-O with one LC_UUID load command.

@@ -892,7 +892,7 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
             if *copyable {
                 let text = value.clone();
                 row.activate = Some(Rc::new(move || {
-                    day_part_clipboard::set_text(&text.initial());
+                    let _ = day_part_clipboard::set_text(&text.initial());
                 }));
             }
             return Some(with_id(row.any()));

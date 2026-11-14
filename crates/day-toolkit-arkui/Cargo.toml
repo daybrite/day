@@ -53,3 +53,6 @@ libc = { workspace = true }
 [package.metadata.day.ohos]
 
 ets = ["controls/searchfield/platform/harmony/ets", "controls/combobox/platform/harmony/ets"]
+
+[lints]
+workspace = true

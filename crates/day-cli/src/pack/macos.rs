@@ -149,10 +149,10 @@ fn dmg(
         .map_err(PackError::Sign)?;
 
         // --- notarize + staple (outermost container only) --------------------
-        if !opts.no_notarize {
-            notarize(project, opts, &dmg)?;
-        } else {
+        if opts.no_notarize {
             status("Notarize", "skipped (--no-notarize)");
+        } else {
+            notarize(project, opts, &dmg)?;
         }
     }
 
@@ -335,34 +335,31 @@ fn sign_app(
     let mut nested = nested_signables(app);
     nested.push(app.to_path_buf()); // the bundle itself is signed last
 
-    match &identity {
-        Some(id) => {
-            status("Signing", &format!("codesign ({id})"));
-            for item in &nested {
-                let mut cmd = Command::new("codesign");
-                cmd.args(["--force", "--timestamp", "--options", "runtime", "-s", id]);
-                // Entitlements apply to the main executable (via the bundle) and to each app
-                // extension, never to dylibs.
-                if let Some(e) = item_entitlements(item) {
-                    cmd.arg("--entitlements").arg(e);
-                }
-                cmd.arg(item);
-                run_tool(&mut cmd, "codesign")?;
+    if let Some(id) = &identity {
+        status("Signing", &format!("codesign ({id})"));
+        for item in &nested {
+            let mut cmd = Command::new("codesign");
+            cmd.args(["--force", "--timestamp", "--options", "runtime", "-s", id]);
+            // Entitlements apply to the main executable (via the bundle) and to each app
+            // extension, never to dylibs.
+            if let Some(e) = item_entitlements(item) {
+                cmd.arg("--entitlements").arg(e);
             }
-            Ok(SignTier::Release)
+            cmd.arg(item);
+            run_tool(&mut cmd, "codesign")?;
         }
-        None => {
-            status("Signing", "ad-hoc codesign (no signing.macos.identity)");
-            for item in &nested {
-                let mut cmd = Command::new("codesign");
-                cmd.args(["--force", "-s", "-"]);
-                if let Some(e) = item_entitlements(item) {
-                    cmd.arg("--entitlements").arg(e);
-                }
-                run_tool(cmd.arg(item), "codesign (ad-hoc)")?;
+        Ok(SignTier::Release)
+    } else {
+        status("Signing", "ad-hoc codesign (no signing.macos.identity)");
+        for item in &nested {
+            let mut cmd = Command::new("codesign");
+            cmd.args(["--force", "-s", "-"]);
+            if let Some(e) = item_entitlements(item) {
+                cmd.arg("--entitlements").arg(e);
             }
-            Ok(SignTier::DevSigned)
+            run_tool(cmd.arg(item), "codesign (ad-hoc)")?;
         }
+        Ok(SignTier::DevSigned)
     }
 }
 
@@ -432,75 +429,72 @@ fn store_pkg(
     } else {
         store_material(project, entitlements.clone()).map_err(PackError::Sign)?
     };
-    match material {
-        Some(m) => {
-            let pkg = dist.join(super::naming::artifact_file(
-                project,
-                target,
-                opts,
-                &[],
-                "pkg",
-            ));
-            status(
-                "Signing",
-                &format!("for the Mac App Store ({})", m.identity),
-            );
-            mac_app_store_pkg(&app, &pkg, &m).map_err(PackError::Sign)?;
-            status(
-                "Packed",
-                &format!("{} (installer: {})", pkg.display(), m.installer_identity),
-            );
-            Ok(Artifact {
-                path: pkg,
-                kind: "pkg",
-                sha256: String::new(),
-                tier: SignTier::Release,
-            })
-        }
-        None => {
-            // Ad hoc with the app's entitlements, so the bundle inside still carries its sandbox
-            // policy for the `day sign apply` that finishes the job.
-            status("Signing", "ad-hoc codesign (no Mac App Store material)");
-            for item in nested_signables(&app) {
-                run_tool(
-                    Command::new("codesign")
-                        .args(["--force", "-s", "-"])
-                        .arg(&item),
-                    "codesign (ad-hoc)",
-                )
-                .map_err(PackError::Sign)?;
-            }
-            let mut cmd = Command::new("codesign");
-            cmd.args(["--force", "-s", "-"]);
-            if let Some(e) = &entitlements {
-                cmd.arg("--entitlements").arg(e);
-            }
-            run_tool(cmd.arg(&app), "codesign (ad-hoc)").map_err(PackError::Sign)?;
-            let pkg = dist.join(super::naming::artifact_file(
-                project,
-                target,
-                opts,
-                &["unsigned"],
-                "pkg",
-            ));
-            let _ = std::fs::remove_file(&pkg);
-            status("Packing", "productbuild (unsigned)");
+    if let Some(m) = material {
+        let pkg = dist.join(super::naming::artifact_file(
+            project,
+            target,
+            opts,
+            &[],
+            "pkg",
+        ));
+        status(
+            "Signing",
+            &format!("for the Mac App Store ({})", m.identity),
+        );
+        mac_app_store_pkg(&app, &pkg, &m).map_err(PackError::Sign)?;
+        status(
+            "Packed",
+            &format!("{} (installer: {})", pkg.display(), m.installer_identity),
+        );
+        Ok(Artifact {
+            path: pkg,
+            kind: "pkg",
+            sha256: String::new(),
+            tier: SignTier::Release,
+        })
+    } else {
+        // Ad hoc with the app's entitlements, so the bundle inside still carries its sandbox
+        // policy for the `day sign apply` that finishes the job.
+        status("Signing", "ad-hoc codesign (no Mac App Store material)");
+        for item in nested_signables(&app) {
             run_tool(
-                Command::new("productbuild")
-                    .arg("--component")
-                    .arg(&app)
-                    .arg("/Applications")
-                    .arg(&pkg),
-                "productbuild",
+                Command::new("codesign")
+                    .args(["--force", "-s", "-"])
+                    .arg(&item),
+                "codesign (ad-hoc)",
             )
-            .map_err(PackError::Other)?;
-            Ok(Artifact {
-                path: pkg,
-                kind: "pkg",
-                sha256: String::new(),
-                tier: SignTier::Unsigned,
-            })
+            .map_err(PackError::Sign)?;
         }
+        let mut cmd = Command::new("codesign");
+        cmd.args(["--force", "-s", "-"]);
+        if let Some(e) = &entitlements {
+            cmd.arg("--entitlements").arg(e);
+        }
+        run_tool(cmd.arg(&app), "codesign (ad-hoc)").map_err(PackError::Sign)?;
+        let pkg = dist.join(super::naming::artifact_file(
+            project,
+            target,
+            opts,
+            &["unsigned"],
+            "pkg",
+        ));
+        let _ = std::fs::remove_file(&pkg);
+        status("Packing", "productbuild (unsigned)");
+        run_tool(
+            Command::new("productbuild")
+                .arg("--component")
+                .arg(&app)
+                .arg("/Applications")
+                .arg(&pkg),
+            "productbuild",
+        )
+        .map_err(PackError::Other)?;
+        Ok(Artifact {
+            path: pkg,
+            kind: "pkg",
+            sha256: String::new(),
+            tier: SignTier::Unsigned,
+        })
     }
 }
 
@@ -913,24 +907,6 @@ fn store_entitlements(
 /// do: no category, no version, or a device or personal-data entitlement without the usage
 /// description macOS shows at the prompt (TCC terminates an app that has none).
 fn store_problems(info: &plist::Dictionary, entitlements: &plist::Dictionary) -> Vec<String> {
-    let has = |key: &str| {
-        info.get(key)
-            .and_then(plist::Value::as_string)
-            .is_some_and(|v| !v.trim().is_empty())
-    };
-    let mut problems = Vec::new();
-    if !has("LSApplicationCategoryType") {
-        problems.push(
-            "Info.plist has no LSApplicationCategoryType, which the Mac App Store requires: add \
-             it to platform/macos/Runner/Info.plist (public.app-category.developer-tools, say)"
-                .to_string(),
-        );
-    }
-    for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
-        if !has(key) {
-            problems.push(format!("Info.plist has no {key}"));
-        }
-    }
     // Entitlement → the usage descriptions that satisfy it (any one).
     const USAGE: &[(&str, &[&str])] = &[
         (
@@ -968,6 +944,24 @@ fn store_problems(info: &plist::Dictionary, entitlements: &plist::Dictionary) ->
             ],
         ),
     ];
+    let has = |key: &str| {
+        info.get(key)
+            .and_then(plist::Value::as_string)
+            .is_some_and(|v| !v.trim().is_empty())
+    };
+    let mut problems = Vec::new();
+    if !has("LSApplicationCategoryType") {
+        problems.push(
+            "Info.plist has no LSApplicationCategoryType, which the Mac App Store requires: add \
+             it to platform/macos/Runner/Info.plist (public.app-category.developer-tools, say)"
+                .to_string(),
+        );
+    }
+    for key in ["CFBundleShortVersionString", "CFBundleVersion"] {
+        if !has(key) {
+            problems.push(format!("Info.plist has no {key}"));
+        }
+    }
     for (entitlement, keys) in USAGE {
         let on = entitlements
             .get(entitlement)
@@ -1076,8 +1070,7 @@ fn notarize(project: &Project, opts: &PackOptions, dmg: &Path) -> Result<(), Pac
         .args(["-a", "-t", "open", "--context", "context:primary-signature"])
         .arg(dmg)
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+        .is_ok_and(|s| s.success());
     if ok {
         status("Verified", "spctl accepts the notarized dmg");
     } else {
@@ -1243,7 +1236,7 @@ mod tests {
             quarantine_paths(listing, bundle),
             vec!["Contents/embedded.provisionprofile".to_string()]
         );
-        assert!(quarantine_paths("", bundle).is_empty());
+        assert_eq!(quarantine_paths("", bundle), [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -1286,6 +1279,9 @@ mod tests {
                 "Show where you are.".into(),
             ),
         ]);
-        assert!(store_problems(&complete, &entitlements).is_empty());
+        assert_eq!(
+            store_problems(&complete, &entitlements),
+            [] as [std::string::String; 0]
+        );
     }
 }

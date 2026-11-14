@@ -57,7 +57,7 @@ pub fn request_open_files(files: Vec<String>) {
     }
     PENDING
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push_back(files);
     if day_reactive::has_main_poster() {
         day_reactive::on_main(drain_open_files);
@@ -71,7 +71,7 @@ pub(crate) fn drain_open_files() {
         };
         let next = PENDING
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .pop_front();
         let Some(files) = next else { break };
         handler(files);
@@ -96,7 +96,7 @@ pub(crate) fn launch_files(args: impl Iterator<Item = String>) -> Vec<String> {
             files.push(arg);
         } else if arg == "--day-open-file" {
             if let Some(path) = args.next() {
-                files.push(path)
+                files.push(path);
             }
         } else if !arg.starts_with('-') && std::path::Path::new(&arg).is_file() {
             files.push(arg);
@@ -120,6 +120,7 @@ pub fn forward_launch_args(args: Vec<String>) {
 /// (`--day-open-url <link>`): `<scheme>://<route>` with the app's URL scheme, which `day build`
 /// hands the binary as `DAY_APP_SCHEME`, else the bare route. Either form reaches the route
 /// through the deep-link intake.
+#[must_use]
 pub fn launch_link(route: &str) -> String {
     let scheme = std::env::var("DAY_APP_SCHEME")
         .ok()
@@ -158,7 +159,7 @@ mod tests {
                     request_open_files(vec!["reentrant.epub".into()]);
                 }
                 seen.borrow_mut().extend(files);
-            })
+            });
         });
         drain_open_files();
         request_open_files(vec!["warm.epub".into()]);

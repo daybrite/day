@@ -36,6 +36,7 @@ pub enum OhosScene {
 }
 
 impl OhosScene {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             OhosScene::InUse => "inuse",
@@ -240,18 +241,21 @@ pub const OHOS_PHOTOS_APL_NOTE: &str = "ohos.permission.READ_IMAGEVIDEO is a sys
      default `normal` level cannot be granted. Prefer PhotoViewPicker, which needs no permission.";
 
 /// Look a permission up by its `Day.toml` name.
+#[must_use]
 pub fn find(name: &str) -> Option<&'static PermissionSpec> {
     ALL.iter().find(|s| s.name == name)
 }
 
 /// Look a permission up by its Rust variant spelling (`day lint`'s source scan). A
 /// declaration-only row has no variant and is never found this way.
+#[must_use]
 pub fn find_variant(variant: &str) -> Option<&'static PermissionSpec> {
     ALL.iter()
         .find(|s| !s.variant.is_empty() && s.variant == variant)
 }
 
 /// Every valid `[permissions]` key, for error messages.
+#[must_use]
 pub fn names() -> Vec<&'static str> {
     ALL.iter().map(|s| s.name).collect()
 }
@@ -361,10 +365,10 @@ mod tests {
     #[test]
     fn biometrics_declares_everywhere_but_macos() {
         let spec = find("biometrics").expect("biometrics");
-        assert!(spec.variant.is_empty());
+        assert_eq!(spec.variant, "");
         assert_eq!(spec.android, &[android("android.permission.USE_BIOMETRIC")]);
         assert_eq!(spec.ios, &["NSFaceIDUsageDescription"]);
-        assert!(spec.macos.is_empty());
+        assert_eq!(spec.macos, [] as [&str; 0]);
         assert_eq!(spec.ohos.len(), 1);
         assert!(OHOS_SYSTEM_GRANT.contains(&spec.ohos[0].name));
         assert!(spec.needs_reason);
@@ -374,7 +378,7 @@ mod tests {
     #[test]
     fn motion_is_ios_only_on_apple() {
         let spec = find("motion").expect("motion");
-        assert!(!spec.ios.is_empty());
-        assert!(spec.macos.is_empty());
+        assert_ne!(spec.ios, [] as [&str; 0]);
+        assert_eq!(spec.macos, [] as [&str; 0]);
     }
 }

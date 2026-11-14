@@ -12,7 +12,7 @@ use std::collections::HashMap;
 pub use day_geometry::*;
 
 pub mod controls;
-pub use controls::datetime::{DayDate, DayTime};
+pub use controls::datetime::{DayDate, DayTime, now_epoch_millis, now_epoch_secs};
 
 pub mod applications;
 pub mod capture;
@@ -52,6 +52,7 @@ pub use day_fonts as fonts;
 /// scheme passes through unchanged (it is already a route). One definition, shared by every
 /// platform's intake and the dayscript `deep_link` step, so a URL maps to the same route
 /// bytes everywhere; percent-decoding stays with the route parser (docs/navigation.md).
+#[must_use]
 pub fn route_of_url(url: &str) -> String {
     match url.split_once("://") {
         Some((_, rest)) => rest.to_string(),
@@ -131,18 +132,18 @@ builtin_kinds! {
     Nav = NAV => "day.nav",
     /// One destination's native container inside a NAV host.
     NavPage = NAV_PAGE => "day.nav_page",
-    /// Native navigation item list (docs/navigation.md): NSOutlineView source list /
-    /// GtkListBox navigation-sidebar / QListWidget / UITableView rows with chevrons.
+    /// Native navigation item list (docs/navigation.md): `NSOutlineView` source list /
+    /// `GtkListBox` navigation-sidebar / `QListWidget` / `UITableView` rows with chevrons.
     NavMenu = NAV_MENU => "day.nav_menu",
-    /// Native recycling list (docs/list.md): NSTableView / UITableView / RecyclerView /
-    /// GtkListView / QListView. Owns scrolling + cell reuse; Day binds row content on demand.
+    /// Native recycling list (docs/list.md): `NSTableView` / `UITableView` / `RecyclerView` /
+    /// `GtkListView` / `QListView`. Owns scrolling + cell reuse; Day binds row content on demand.
     List = LIST => "day.list",
     /// A recycled row's content anchor inside a `LIST`; Day adopts the native cell as its handle.
     /// Adopted, never realized: `Toolkit::adopt` wraps the native cell, so backends' `realize`
     /// never sees this kind.
     ListCell = LIST_CELL => "day.list_cell",
-    /// Native hierarchical tree (docs/tree.md): NSOutlineView / sidebar collection list /
-    /// GtkListView+TreeListModel / WinUI TreeView / ArkTS TreeView. Rows nest, disclose, and
+    /// Native hierarchical tree (docs/tree.md): `NSOutlineView` / sidebar collection list /
+    /// `GtkListView`+`TreeListModel` / WinUI `TreeView` / ArkTS `TreeView`. Rows nest, disclose, and
     /// drag-to-reparent; Day binds row content on demand through `Toolkit::attach_tree`.
     /// Row cells are adopted (the same `LIST_CELL` anchor path as `List`).
     Tree = TREE => "day.tree",
@@ -187,6 +188,7 @@ builtin_kinds! {
 /// day-spec has never heard of) is assumed to be worth asking. An extension piece that turns
 /// out to have no baseline answers `None`, which costs one query; an allowlist would instead
 /// silently leave every extension piece centered, which is the bug this shape avoids.
+#[must_use]
 pub fn kind_has_baseline(kind: PieceKind) -> bool {
     !matches!(
         Builtin::from_key(kind),
@@ -247,6 +249,7 @@ pub mod placeholder {
     }
 
     /// Every kind that has rendered a placeholder in this process, sorted. Empty is the goal.
+    #[must_use]
     pub fn seen() -> Vec<PieceKind> {
         table()
             .lock()
@@ -309,6 +312,7 @@ pub mod sidetable {
     }
 
     impl<V> SideTable<V> {
+        #[must_use]
         pub fn new() -> Self {
             Self::build(None)
         }
@@ -340,6 +344,7 @@ pub mod sidetable {
 
         /// Remove and tear down the entry (returns `None` always when a teardown hook
         /// exists, because the value is consumed by it; use [`SideTable::take`] to skip it).
+        #[must_use]
         pub fn remove(&self, key: usize) -> Option<V> {
             let v = self.map.borrow_mut().remove(&key)?;
             match &self.teardown {
@@ -352,14 +357,17 @@ pub mod sidetable {
         }
 
         /// Remove without running the teardown hook (the caller takes ownership).
+        #[must_use]
         pub fn take(&self, key: usize) -> Option<V> {
             self.map.borrow_mut().remove(&key)
         }
 
+        #[must_use]
         pub fn contains(&self, key: usize) -> bool {
             self.map.borrow().contains_key(&key)
         }
 
+        #[must_use]
         pub fn get(&self, key: usize) -> Option<V>
         where
             V: Clone,
@@ -419,7 +427,7 @@ pub mod ffi_guard {
             Err(payload) => {
                 let msg = payload
                     .downcast_ref::<&str>()
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .or_else(|| payload.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "<non-string panic>".into());
                 log::error!("panic contained at an FFI boundary: {msg}");
@@ -479,8 +487,7 @@ pub mod offscreen {
         let (tx, rx) = mpsc::channel::<Job>();
         let rx = Arc::new(Mutex::new(rx));
         let want = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(2)
+            .map_or(2, std::num::NonZero::get)
             .saturating_sub(1)
             .clamp(1, 4);
         let mut started = 0;
@@ -578,6 +585,7 @@ pub mod keys {
     }
 
     /// Whether `node` has one.
+    #[must_use]
     pub fn handled(node: NodeId) -> bool {
         HANDLED.with(|h| h.borrow().contains(&node))
     }
@@ -597,6 +605,7 @@ pub mod keys {
     /// Whether `node` takes the whole keyboard: it declared so AND it [`handled`]s keys. A
     /// declaration with no `.on_key` behind it claims nothing, so every backend asks this one
     /// question before it raises a soft keyboard, names a letter or claims a Tab.
+    #[must_use]
     pub fn text(node: NodeId) -> bool {
         TEXT.with(|h| h.borrow().contains(&node)) && handled(node)
     }
@@ -611,6 +620,7 @@ pub mod keys {
     /// [`super::KeyEvent::key`]) pressed with `modifiers`: one of [`FIELD_KEYS`], no modifier
     /// held, and a handler declared for the field. A backend that answers yes reports
     /// `Event::Key` for `node` and keeps the key from the native field.
+    #[must_use]
     pub fn field_claims(node: NodeId, key: &str, modifiers: u8) -> bool {
         modifiers == 0 && FIELD_KEYS.contains(&key) && handled(node)
     }
@@ -1205,6 +1215,7 @@ impl Lifecycle {
     /// phases (`WillEnterForeground`, `DidEnterBackground`, `DidReceiveMemoryWarning`) are mobile
     /// concepts and are only delivered by the mobile backends. `const` so it composes into a
     /// backend's `const fn lifecycle_supported` and thus into compile-time guards.
+    #[must_use]
     pub const fn is_universal(self) -> bool {
         matches!(
             self,
@@ -1218,6 +1229,7 @@ impl Lifecycle {
     }
 
     /// A stable, human-readable name (for logs/warnings).
+    #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
             Lifecycle::WillLaunch => "WillLaunch",
@@ -1273,6 +1285,7 @@ pub enum GestureKind {
 /// Ctrl on GTK/Qt/XAML) so one declaration reads correctly everywhere. `key` is a single character
 /// (`"s"`, `"."`) or a named key (`"Return"`, `"Delete"`, `"Left"`, `"F1"`).
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[must_use]
 pub struct Shortcut {
     pub key: String,
     /// ⌘ (Apple) / Ctrl (elsewhere). The conventional command modifier.
@@ -1563,6 +1576,7 @@ pub enum Symbol {
 /// The match is exhaustive so that a new [`Symbol`] must name its glyph here rather than
 /// silently drawing nothing on Apple. A name this OS release does not know still resolves to
 /// no image, and the item falls back to its label.
+#[must_use]
 pub fn sf_symbol_name(s: Symbol) -> &'static str {
     match s {
         Symbol::Add => "plus",
@@ -1570,7 +1584,7 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Delete => "trash",
         Symbol::Edit => "pencil",
         Symbol::New => "square.and.pencil",
-        Symbol::Open => "folder",
+        Symbol::Open | Symbol::Folder => "folder",
         Symbol::Save => "square.and.arrow.down",
         Symbol::Print => "printer",
         Symbol::Refresh => "arrow.clockwise",
@@ -1606,7 +1620,6 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Cut => "scissors",
         Symbol::Paste => "doc.on.clipboard",
         Symbol::Mail => "envelope",
-        Symbol::Folder => "folder",
         Symbol::Document => "doc",
         Symbol::Check => "checkmark",
         Symbol::Close => "xmark",
@@ -1616,11 +1629,10 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Circle => "circle",
         Symbol::CircleFilled => "circle.fill",
         Symbol::Line => "line.diagonal",
-        Symbol::Group => "square.on.square",
+        Symbol::Group | Symbol::Tabs => "square.on.square",
         Symbol::Ungroup => "square.on.square.dashed",
         Symbol::Text => "textformat",
         Symbol::Location => "location",
-        Symbol::Tabs => "square.on.square",
         Symbol::Book => "book",
         Symbol::History => "clock.arrow.circlepath",
     }
@@ -1839,6 +1851,7 @@ pub enum ToolbarPatch {
 
 impl ToolbarPatch {
     /// The id of the item this patch addresses.
+    #[must_use]
     pub fn item(&self) -> &str {
         match self {
             ToolbarPatch::Focus { item }
@@ -1861,12 +1874,12 @@ impl ToolbarPatch {
         match (self, &mut it.kind) {
             (ToolbarPatch::Focus { .. }, ToolbarItemKind::Search { .. }) => (),
             (ToolbarPatch::Text { text, .. }, ToolbarItemKind::Search { text: t, .. }) => {
-                *t = text.clone()
+                t.clone_from(text);
             }
             (
                 ToolbarPatch::Suggestions { list, .. },
                 ToolbarItemKind::Search { suggestions, .. },
-            ) => *suggestions = list.clone(),
+            ) => suggestions.clone_from(list),
             (ToolbarPatch::On { on, .. }, ToolbarItemKind::Toggle { on: o }) => *o = *on,
             (
                 ToolbarPatch::Selected { index, .. },
@@ -1880,7 +1893,7 @@ impl ToolbarPatch {
             (
                 ToolbarPatch::Placeholder { text, .. },
                 ToolbarItemKind::Search { placeholder, .. },
-            ) => *placeholder = text.clone(),
+            ) => placeholder.clone_from(text),
             _ => return false,
         }
         true
@@ -1914,7 +1927,7 @@ impl ToolbarOp {
         match self {
             ToolbarOp::Remove { id } => items.retain(|i| i.id != *id),
             ToolbarOp::Insert { index, item } => {
-                items.insert((*index).min(items.len()), item.clone())
+                items.insert((*index).min(items.len()), item.clone());
             }
         }
     }
@@ -1936,21 +1949,25 @@ pub struct ToolbarMirror {
 
 impl ToolbarMirror {
     /// The bar's items, in model order.
+    #[must_use]
     pub fn items(&self) -> &[ToolbarItem] {
         &self.items
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
     /// The item with this id.
+    #[must_use]
     pub fn get(&self, id: &str) -> Option<&ToolbarItem> {
         self.items.iter().find(|i| i.id == id)
     }
 
     /// The item dispatching `action`: how a backend whose native bar reports only an action
     /// id (a menu tap) finds what was tapped.
+    #[must_use]
     pub fn by_action(&self, action: u64) -> Option<&ToolbarItem> {
         self.items
             .iter()
@@ -1997,7 +2014,7 @@ impl ToolbarMirror {
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyEvent {
     /// The key's name, in the web `KeyboardEvent.key` vocabulary every platform can map onto:
-    /// the four arrows ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown") and the ten digits
+    /// the four arrows ("`ArrowLeft`", "`ArrowRight`", "`ArrowUp`", "`ArrowDown`") and the ten digits
     /// ("0" through "9", from the main row or the numeric keypad) everywhere, plus
     /// "Delete" and "Backspace" on backends with no menu bar ([`Cap::AppMenu`] unsupported),
     /// where no accelerator can own those keys. A focused piece claims every key the route
@@ -2011,14 +2028,14 @@ pub struct KeyEvent {
     /// digits reports "1" with [`KeyEvent::SHIFT`] set; XAML and ArkUI read the physical key.
     /// Backends emit `Event::Key` only while no text widget has focus; a field's own editing
     /// keys never surface here. The one exception is a single-line text field with a key
-    /// handler ([`keys::handled`] for its node): it hands "ArrowUp", "ArrowDown" and "Escape",
+    /// handler ([`keys::handled`] for its node): it hands "`ArrowUp`", "`ArrowDown`" and "Escape",
     /// pressed with no modifier, to that handler instead of acting on them itself, so an
     /// address bar can walk a suggestion list (docs/textfield.md "Keys").
     ///
     /// A piece that declared `Decorate::keyboard()` takes the full route instead: every key
     /// the platform delivers while it is focused. A key that types nothing is named by its
     /// web name ([`KeyEvent::NAMED`]: "Enter", "Tab", "Escape", "Backspace", "Delete", "Home",
-    /// "End", "PageUp", "PageDown", "Insert", the arrows and "F1" through "F12"); a key that
+    /// "End", "`PageUp`", "`PageDown`", "Insert", the arrows and "F1" through "F12"); a key that
     /// types is named by its unmodified character ("a", "A" under Shift, "8", "ü" on a layout
     /// that has one), and what it typed rides in [`KeyEvent::text`]. Under Control or Alt the
     /// name stays that character ("c" with [`KeyEvent::CONTROL`] set, never the control code
@@ -2085,6 +2102,7 @@ impl KeyEvent {
     ];
 
     /// The text this press typed ([`KeyEvent::text`]), or `None` for a key that typed nothing.
+    #[must_use]
     pub fn typed(&self) -> Option<&str> {
         self.text.as_deref()
     }
@@ -2127,6 +2145,7 @@ impl KeyEvent {
     }
 
     /// The web name for the function key `F<n>`, `1..=12`.
+    #[must_use]
     pub fn function_name(n: u8) -> Option<&'static str> {
         match n {
             1..=12 => Some(Self::NAMED[13 + n as usize]),
@@ -2136,11 +2155,13 @@ impl KeyEvent {
 
     /// The key name for a typed character when it is one of the ten digits: what a backend
     /// reports for a keypress that types `0`–`9`.
+    #[must_use]
     pub fn digit_name(c: char) -> Option<&'static str> {
         c.to_digit(10).map(|d| Self::DIGITS[d as usize])
     }
 
     /// The value of a digit key, or `None` for every other key.
+    #[must_use]
     pub fn digit(&self) -> Option<u8> {
         match self.key.as_bytes() {
             [d @ b'0'..=b'9'] => Some(d - b'0'),
@@ -2148,15 +2169,19 @@ impl KeyEvent {
         }
     }
 
+    #[must_use]
     pub fn shift(&self) -> bool {
         self.modifiers & Self::SHIFT != 0
     }
+    #[must_use]
     pub fn primary(&self) -> bool {
         self.modifiers & Self::PRIMARY != 0
     }
+    #[must_use]
     pub fn alt(&self) -> bool {
         self.modifiers & Self::ALT != 0
     }
+    #[must_use]
     pub fn control(&self) -> bool {
         self.modifiers & Self::CONTROL != 0
     }
@@ -2273,14 +2298,14 @@ pub struct ListSource {
     /// Re-lay the row bound to this cell at `width`, called from the cell's own native layout
     /// pass, the hook [`TreeSource::layout_cell`] already gives trees. day-core lays a row at the
     /// `LIST`'s width first, which is right wherever the cell is the row itself; a backend
-    /// whose native row wraps the cell in chrome (GtkListView's themed `row` node pads it)
+    /// whose native row wraps the cell in chrome (`GtkListView`'s themed `row` node pads it)
     /// corrects it here, so the row fits the cell the platform gave it instead of holding the
     /// whole list wider than its frame. Skips quietly when called inside a day-core borrow (a
     /// snapshot pass).
     pub layout_cell: std::rc::Rc<dyn Fn(RawHandle, f64)>,
     /// The height day-core last laid the row bound to this cell at: the row's own height,
     /// padding included, as `RowHeight` resolves it. A backend whose cell measures itself
-    /// (GtkListView's `DayCell`) reports it as the cell's height, so a padded row keeps its
+    /// (`GtkListView`'s `DayCell`) reports it as the cell's height, so a padded row keeps its
     /// bottom padding rather than the height of its last child's frame. `0.0` before the row's
     /// first layout, or inside a day-core borrow.
     pub cell_height: std::rc::Rc<dyn Fn(RawHandle) -> f64>,
@@ -2556,6 +2581,7 @@ impl SizeClass {
     pub const SPLIT_MIN_WIDTH: f64 = 600.0;
 
     /// Bucket a window's size in points. The one place the breakpoint numbers appear.
+    #[must_use]
     pub fn from_size(width: f64, height: f64) -> Self {
         SizeClass {
             width: match width {
@@ -2575,6 +2601,7 @@ impl SizeClass {
 
     /// Whether a two-pane presentation fits. The rule behind an automatic
     /// [`props::NavPresentation`]: anything wider than compact gets both panes.
+    #[must_use]
     pub fn prefers_split(self) -> bool {
         self.width > WidthClass::Compact
     }
@@ -2630,8 +2657,8 @@ pub enum Cap {
     /// events), `Emulated` where Day's own menu items dispatch it, `Unsupported` elsewhere.
     EditBridge,
     /// The toolkit realizes `ListProps::reorderable` as drag-to-reorder rows: `Native` when the
-    /// platform's own mechanism drives it (NSTableView drag/drop, UITableView drag delegates,
-    /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
+    /// platform's own mechanism drives it (`NSTableView` drag/drop, `UITableView` drag delegates,
+    /// `ItemTouchHelper`, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
     /// list renders normally but rows cannot be dragged (docs/list.md).
     ListReorder,
     /// Sidebar destinations can be dragged to reorder (`NavBuilder::reorder_items`) and between
@@ -2668,8 +2695,8 @@ pub enum Cap {
     /// from plain pieces. Apps have no reason to probe this; the piece does.
     ListItem,
     /// The toolkit realizes `kinds::TREE` as a hierarchical tree view (docs/tree.md):
-    /// `Native` where a platform tree widget hosts Day-built rows (NSOutlineView, the UIKit
-    /// sidebar list, GtkListView+TreeListModel, WinUI TreeView, ArkTS TreeView), `Emulated`
+    /// `Native` where a platform tree widget hosts Day-built rows (`NSOutlineView`, the UIKit
+    /// sidebar list, GtkListView+TreeListModel, WinUI `TreeView`, ArkTS `TreeView`), `Emulated`
     /// where Day flattens the tree onto its list machinery, `Unsupported` where neither
     /// exists yet. An app gates its tree UI on this answer rather than showing a placeholder.
     Tree,
@@ -2782,7 +2809,7 @@ pub enum Cap {
     ///   or in place of (stacked) the destination content itself.
     NavContentList,
     /// The toolkit shows the current destination's title in a native header/bar, so a page
-    /// needn't repeat it in its own content. `Native` on XAML (the NavigationView header),
+    /// needn't repeat it in its own content. `Native` on XAML (the `NavigationView` header),
     /// UIKit (`UINavigationBar`), Android (`MaterialToolbar`), and ArkUI (`NavDestination`
     /// title bars). The desktop custom back-headers (AppKit/Qt/web) show a title only in
     /// stack mode, so those backends stay `Unsupported` (docs/navigation.md).
@@ -2890,7 +2917,7 @@ pub enum Cap {
     Cursor,
     /// The toolkit can enumerate the platform's font families with the faces each ships
     /// ([`Toolkit::font_families`], docs/fonts.md). `Native` where an OS font database answers
-    /// (NSFontManager, UIFont, Pango, QFontDatabase, Android's `fonts.xml`,
+    /// (`NSFontManager`, `UIFont`, Pango, `QFontDatabase`, Android's `fonts.xml`,
     /// `OH_Drawing_FontMgr`, DirectWrite); `Emulated` where the list is composed rather than
     /// read: web-dom answers the CSS generic families plus the bundled `document.fonts`, since
     /// a browser exposes no local font list without a permission prompt; `Unsupported` means
@@ -3004,7 +3031,7 @@ pub enum Cap {
     DragRegion,
     /// The toolkit shows status items ([`Toolkit::set_status_items`], docs/status-item.md): the
     /// macOS menu bar, the Windows notification area, a Linux tray. On Linux the answer depends
-    /// on the desktop: `Native` while a StatusNotifierItem host is running (KDE Plasma, most
+    /// on the desktop: `Native` while a `StatusNotifierItem` host is running (KDE Plasma, most
     /// panels, GNOME with the AppIndicator extension), `Unsupported` without one (stock GNOME),
     /// so an app can keep a window instead of vanishing into a tray nobody shows.
     StatusItem,
@@ -3137,6 +3164,7 @@ impl Cap {
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
     /// here until it is given one, and the unit test below then holds `ALL` to it.
+    #[must_use]
     pub const fn ordinal(self) -> usize {
         match self {
             Cap::DragDrop => 0,
@@ -3272,6 +3300,7 @@ pub enum ImageFormat {
 impl ImageFormat {
     /// The IANA media type, which is also the string the ArkUI packer, GDI+ and the browser's
     /// `toBlob` take. `Unknown` answers `application/octet-stream`.
+    #[must_use]
     pub fn mime(self) -> &'static str {
         match self {
             ImageFormat::Png => "image/png",
@@ -3295,6 +3324,7 @@ impl ImageFormat {
     /// Reading the header instead gives the same answer the decoder would, before any decoding.
     ///
     /// `None` when the header is absent, truncated, or a container this does not parse.
+    #[must_use]
     pub fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
         let be16 = |i: usize| -> Option<u32> {
             Some(u32::from(u16::from_be_bytes([
@@ -3397,6 +3427,7 @@ impl ImageFormat {
     /// Hand-rolled rather than a crate: it is a dozen byte comparisons against fixed prefixes,
     /// and the alternative is an image-decoding dependency in the one crate that must stay
     /// dependency-free.
+    #[must_use]
     pub fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
         let starts = |sig: &[u8]| bytes.len() >= sig.len() && &bytes[..sig.len()] == sig;
         if starts(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
@@ -3532,8 +3563,9 @@ pub const EXPORT_MAX_PIXELS: u64 = 64 * 1024 * 1024;
 /// The pixel size a drawing of `size` points renders to at `scale` pixels per point: each side
 /// rounded up, so a drawing never loses its last partial pixel. Shared by day-core's limit
 /// check and every backend, so the bitmap a backend allocates is the one day-core approved.
+#[must_use]
 pub fn export_pixels(size: Size, scale: f64) -> (u32, u32) {
-    let side = |v: f64| (v * scale).ceil().clamp(0.0, u32::MAX as f64) as u32;
+    let side = |v: f64| (v * scale).ceil().clamp(0.0, f64::from(u32::MAX)) as u32;
     (side(size.width), side(size.height))
 }
 
@@ -3825,12 +3857,14 @@ pub enum Cursor {
 
 impl Cursor {
     /// A toolkit-specific cursor by its native name (see [`Cursor::Native`]).
+    #[must_use]
     pub const fn native(name: &'static str) -> Self {
         Cursor::Native(std::borrow::Cow::Borrowed(name))
     }
 
     /// The CSS keyword for a named cursor, which GTK and the DOM take as it is. A native cursor
     /// answers its own name, so a backend keyed on CSS names may still recognize it.
+    #[must_use]
     pub fn css_name(&self) -> &str {
         match self {
             Cursor::Default => "default",
@@ -3897,6 +3931,7 @@ impl Cursor {
 /// `preferredScreenEdgesDeferringSystemGestures`; on Android any non-empty set enters
 /// swipe-to-reveal immersive mode (the closest platform analogue).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[must_use]
 pub struct Edges(pub u8);
 
 impl Edges {
@@ -3907,12 +3942,14 @@ impl Edges {
     pub const TRAILING: Edges = Edges(8);
     pub const ALL: Edges = Edges(15);
 
+    #[must_use]
     pub fn contains(self, other: Edges) -> bool {
         self.0 & other.0 == other.0
     }
     pub fn union(self, other: Edges) -> Edges {
         Edges(self.0 | other.0)
     }
+    #[must_use]
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
@@ -3948,22 +3985,23 @@ impl Curve {
     /// overshooting it for an under-damped spring). Easing curves clamp to `duration`; springs
     /// evaluate their analytic unit-step response and use `duration` only as a settle cap. Drives
     /// the self-driven/canvas path; native backends interpolate on their own compositor instead.
+    #[must_use]
     pub fn fraction(self, elapsed: f64, duration: f64) -> f64 {
-        match self {
-            Curve::Spring { response, damping } => spring_step(response, damping, elapsed),
-            _ => {
-                let t = if duration <= 0.0 {
-                    1.0
-                } else {
-                    (elapsed / duration).clamp(0.0, 1.0)
-                };
-                self.ease(t)
-            }
+        if let Curve::Spring { response, damping } = self {
+            spring_step(response, damping, elapsed)
+        } else {
+            let t = if duration <= 0.0 {
+                1.0
+            } else {
+                (elapsed / duration).clamp(0.0, 1.0)
+            };
+            self.ease(t)
         }
     }
 
     /// Eased progress for normalized `t` in `0.0..=1.0` (springs pass through; use [`Self::fraction`]).
     #[inline]
+    #[must_use]
     pub fn ease(self, t: f64) -> f64 {
         match self {
             Curve::Linear | Curve::Spring { .. } => t,
@@ -3974,6 +4012,7 @@ impl Curve {
     }
 
     /// Whether the transition has settled, so the canvas frame clock can stop ticking it.
+    #[must_use]
     pub fn is_settled(self, elapsed: f64, duration: f64) -> bool {
         match self {
             Curve::Spring { response, damping } => {
@@ -4012,6 +4051,7 @@ fn spring_step(response: f64, damping: f64, t: f64) -> f64 {
 /// samples `curve` via [`Curve::fraction`]. Threaded through `Toolkit::update`/`set_frame`/
 /// `set_opacity`/`set_transform`.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[must_use]
 pub struct AnimSpec {
     pub duration_ms: u32,
     pub delay_ms: u32,
@@ -4092,12 +4132,14 @@ impl AnimSpec {
         self
     }
     #[inline]
+    #[must_use]
     pub fn duration_secs(&self) -> f64 {
-        self.duration_ms as f64 / 1000.0
+        f64::from(self.duration_ms) / 1000.0
     }
     #[inline]
+    #[must_use]
     pub fn delay_secs(&self) -> f64 {
-        self.delay_ms as f64 / 1000.0
+        f64::from(self.delay_ms) / 1000.0
     }
 }
 
@@ -4130,6 +4172,7 @@ impl Role {
     /// user hasn't set an explicit `.role()`. Native controls already expose these, so Day records
     /// them for `a11y_audit` (§14.2) rather than overriding the widget; only canvas/custom pieces
     /// need Day to apply a role. Returns `None` for kinds with no inherent control role.
+    #[must_use]
     pub fn for_kind(kind: PieceKind) -> Role {
         match kind {
             kinds::BUTTON => Role::Button,
@@ -4165,19 +4208,19 @@ impl A11yProps {
     /// each `set_a11y` re-applies the full picture and `a11y_audit` has the complete expectation.
     pub fn merge(&mut self, other: &A11yProps) {
         if other.label.is_some() {
-            self.label = other.label.clone();
+            self.label.clone_from(&other.label);
         }
         if other.hint.is_some() {
-            self.hint = other.hint.clone();
+            self.hint.clone_from(&other.hint);
         }
         if other.value.is_some() {
-            self.value = other.value.clone();
+            self.value.clone_from(&other.value);
         }
         if other.role != Role::None {
             self.role = other.role;
         }
         if other.identifier.is_some() {
-            self.identifier = other.identifier.clone();
+            self.identifier.clone_from(&other.identifier);
         }
         self.hidden |= other.hidden;
         self.decorative |= other.decorative;
@@ -4188,11 +4231,12 @@ impl A11yProps {
 
     /// The role to *expect* for a node of `kind` carrying these annotations: an explicit
     /// `.role()` wins, otherwise the kind's native default (`Role::for_kind`).
+    #[must_use]
     pub fn resolved_role(&self, kind: PieceKind) -> Role {
-        if self.role != Role::None {
-            self.role
-        } else {
+        if self.role == Role::None {
             Role::for_kind(kind)
+        } else {
+            self.role
         }
     }
 }
@@ -4240,6 +4284,7 @@ pub struct NativeSnapshot {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
+#[must_use]
 pub enum Shape {
     Rect(Rect),
     RoundedRect(Rect, f64),
@@ -4408,6 +4453,7 @@ impl Path {
 /// does when two radii on one side would overlap, which is what a caller animating a radius or
 /// drawing a short bar needs to not think about.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
+#[must_use]
 pub struct CornerRadii {
     pub top_left: f64,
     pub top_right: f64,
@@ -4459,6 +4505,7 @@ impl CornerRadii {
     }
 
     /// The four radii, clockwise from the top left.
+    #[must_use]
     pub fn to_array(self) -> [f64; 4] {
         [
             self.top_left,
@@ -4469,11 +4516,17 @@ impl CornerRadii {
     }
 
     /// Whether every corner is square.
+    #[must_use]
     pub fn is_zero(self) -> bool {
         self.to_array().iter().all(|r| *r <= 0.0)
     }
 
     /// Whether every corner has the same radius, so the rectangle is a [`Shape::RoundedRect`].
+    #[must_use]
+    #[expect(
+        clippy::float_cmp,
+        reason = "uniform means the four stored radii are exactly equal"
+    )]
     pub fn is_uniform(self) -> bool {
         let [a, b, c, d] = self.to_array();
         a == b && b == c && c == d
@@ -4517,6 +4570,7 @@ pub fn arc_point(center: Point, radius: f64, angle_deg: f64) -> Point {
 /// error peaks at 2.7 × 10⁻⁴ of the radius, a quarter of a pixel on a circle a thousand points
 /// across (docs/canvas.md "Paths"). The same beziers on every backend mean the same pixels on
 /// every backend, which an arc op interpreted by nine rasterizers would not.
+#[must_use]
 pub fn arc_cubics(center: Point, radius: f64, start_deg: f64, sweep_deg: f64) -> Vec<PathSeg> {
     let (start, sweep) = (start_deg.to_radians(), sweep_deg.to_radians());
     if !radius.is_finite() || radius <= 0.0 || !sweep.is_finite() || sweep == 0.0 {
@@ -4545,6 +4599,7 @@ pub fn arc_cubics(center: Point, radius: f64, start_deg: f64, sweep_deg: f64) ->
 /// The closed contour of a rectangle rounded corner by corner, clockwise from the top left, with
 /// the radii [fitted](CornerRadii::fitted) first. A square corner is a sharp point, not a
 /// zero-length curve.
+#[must_use]
 pub fn rounded_rect_segs(rect: Rect, radii: CornerRadii) -> Vec<PathSeg> {
     let r = radii.fitted(rect.size);
     let (x0, y0) = (rect.origin.x, rect.origin.y);
@@ -4640,6 +4695,7 @@ impl Default for StrokeStyle {
 
 impl StrokeStyle {
     /// A solid stroke of `width`, everything else default.
+    #[must_use]
     pub fn width(width: f64) -> Self {
         StrokeStyle {
             width,
@@ -4647,6 +4703,7 @@ impl StrokeStyle {
         }
     }
     /// A dashed stroke: `dash` is on/off run lengths, repeating.
+    #[must_use]
     pub fn dashed(width: f64, dash: Vec<f64>) -> Self {
         StrokeStyle {
             width,
@@ -4655,6 +4712,7 @@ impl StrokeStyle {
         }
     }
     /// Rounded ends and joins, the shape a data line usually wants.
+    #[must_use]
     pub fn round(width: f64) -> Self {
         StrokeStyle {
             width,
@@ -4665,6 +4723,11 @@ impl StrokeStyle {
     }
     /// Is this the plain width-only stroke every pre-existing call site asks for? Backends use
     /// it to skip setting dash/cap/join state they would only have to set back.
+    #[must_use]
+    #[expect(
+        clippy::float_cmp,
+        reason = "10.0 is the stored default miter limit, compared as a sentinel"
+    )]
     pub fn is_plain(&self) -> bool {
         self.cap == LineCap::Butt
             && self.join == LineJoin::Miter
@@ -4703,6 +4766,7 @@ pub struct UnitPoint {
 }
 
 impl UnitPoint {
+    #[must_use]
     pub const fn new(x: f64, y: f64) -> Self {
         UnitPoint { x, y }
     }
@@ -4736,10 +4800,12 @@ pub struct LinearGradient {
 }
 
 impl LinearGradient {
+    #[must_use]
     pub fn new(start: UnitPoint, end: UnitPoint, stops: Vec<(f64, Color)>) -> Self {
         LinearGradient { start, end, stops }
     }
     /// Top-to-bottom between two colors: the everyday sky/backdrop case.
+    #[must_use]
     pub fn vertical(top: Color, bottom: Color) -> Self {
         LinearGradient::new(
             UnitPoint::TOP,
@@ -4748,6 +4814,7 @@ impl LinearGradient {
         )
     }
     /// Leading-to-trailing between two colors.
+    #[must_use]
     pub fn horizontal(leading: Color, trailing: Color) -> Self {
         LinearGradient::new(
             UnitPoint::LEADING,
@@ -4770,6 +4837,7 @@ pub struct RadialGradient {
 }
 
 impl RadialGradient {
+    #[must_use]
     pub fn new(center: UnitPoint, radius: f64, stops: Vec<(f64, Color)>) -> Self {
         RadialGradient {
             center,
@@ -4778,6 +4846,7 @@ impl RadialGradient {
         }
     }
     /// Centered, edge-touching (radius 0.5) between two colors: the everyday glow case.
+    #[must_use]
     pub fn centered(inner: Color, outer: Color) -> Self {
         RadialGradient::new(UnitPoint::CENTER, 0.5, vec![(0.0, inner), (1.0, outer)])
     }
@@ -4853,7 +4922,7 @@ pub enum TextVAlign {
 ///
 /// Two axes rather than a list of named positions, because that is the shape of the problem and
 /// of every native API underneath: `NSAttributedString` drawing, Pango extents,
-/// `QFontMetricsF`, `Paint.Align`, Canvas2D's `textAlign`/`textBaseline`. The alignment is done
+/// `QFontMetricsF`, `Paint.Align`, `Canvas2D`'s `textAlign`/`textBaseline`. The alignment is done
 /// by the backend, which is both cheaper and more accurate than doing it in app code: it already
 /// has the laid-out metrics, where an app has to ask for them through
 /// [`Toolkit::measure_text`] first.
@@ -4895,6 +4964,7 @@ impl TextAnchor {
     ///
     /// `height` is the line box (ascent + descent) and `ascent` the baseline's offset from its
     /// top, the two numbers [`TextMetrics`] carries.
+    #[must_use]
     pub fn offset(self, width: f64, height: f64, ascent: f64) -> (f64, f64) {
         let dx = match self.h {
             props::TextAlign::Leading => 0.0,
@@ -4912,13 +4982,15 @@ impl TextAnchor {
 
     /// The anchor as one number, for the numeric op stream the serializing backends share:
     /// `h * 4 + v`, so it still occupies the single slot the two-variant enum did.
+    #[must_use]
     pub fn pack(self) -> f64 {
-        (self.h as u8 * 4 + self.v as u8) as f64
+        f64::from(self.h as u8 * 4 + self.v as u8)
     }
 
     /// Inverse of [`TextAnchor::pack`]. An unrecognized code answers the default rather than
     /// failing: a stream is only ever written by a matching encoder, and a drawing with text in
     /// the wrong corner beats one that panics inside a native draw callback.
+    #[must_use]
     pub fn unpack(code: f64) -> TextAnchor {
         let c = code.round().clamp(0.0, 11.0) as u8;
         let h = match c / 4 {
@@ -5041,6 +5113,7 @@ impl Font {
     /// (`Font::custom(res::fonts::pacifico, 24.0)`), which exists only if the family ships in the
     /// project's `fonts/` directory, so the font is guaranteed bundled. For a family name known
     /// another way, the untyped [`Font::Custom`] variant is the escape hatch.
+    #[must_use]
     pub const fn custom(family: FontFamily, size: f64) -> Font {
         Font::Custom(family.as_str(), size)
     }
@@ -5078,6 +5151,7 @@ impl FontWeight {
     /// The CSS / OpenType numeric weight (100 … 900), the one number every platform font API
     /// also speaks (`Typeface.create(base, weight, italic)`, `QFont::Weight`,
     /// `DWRITE_FONT_WEIGHT`, `OH_Drawing_FontWeight`), and what the canvas wire carries.
+    #[must_use]
     pub const fn css(self) -> u16 {
         match self {
             FontWeight::UltraLight => 100,
@@ -5094,6 +5168,7 @@ impl FontWeight {
 
     /// The nearest rung to a CSS weight (ties round heavier, like CSS font matching); anything
     /// outside 100 … 900 clamps.
+    #[must_use]
     pub fn from_css(n: u16) -> FontWeight {
         let n = n.clamp(100, 900);
         let idx = (usize::from(n) + 50) / 100; // 100 → 1 … 900 → 9
@@ -5102,6 +5177,7 @@ impl FontWeight {
 
     /// The English face name for a rung ("Semibold"), for platforms whose enumeration names
     /// no face (see [`FontFace::synthesized_name`]).
+    #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
             FontWeight::UltraLight => "Ultra Light",
@@ -5129,6 +5205,7 @@ pub struct FontFace {
 impl FontFace {
     /// A display name from weight + slant ("Semibold Italic") for platforms whose enumeration
     /// API names no face (Android's `fonts.xml`, the CSS generic families).
+    #[must_use]
     pub fn synthesized_name(weight: FontWeight, italic: bool) -> String {
         if italic {
             format!("{} Italic", weight.name())
@@ -5148,15 +5225,18 @@ pub struct FontFamilyInfo {
 
 impl FontFamilyInfo {
     /// Whether any face is [`FontWeight::Bold`] or heavier.
+    #[must_use]
     pub fn has_bold(&self) -> bool {
         self.faces.iter().any(|f| f.weight >= FontWeight::Bold)
     }
     /// Whether any face is italic.
+    #[must_use]
     pub fn has_italic(&self) -> bool {
         self.faces.iter().any(|f| f.italic)
     }
     /// The nearest face: an exact slant match preferred, then the smallest weight distance
     /// (ties go heavier, like CSS font matching). `None` only when the family lists no faces.
+    #[must_use]
     pub fn face_for(&self, weight: FontWeight, italic: bool) -> Option<&FontFace> {
         let want = i32::from(weight.css());
         self.faces.iter().min_by_key(|f| {
@@ -5208,6 +5288,7 @@ impl TextMetrics {
     /// 0.6 × size per character, 1.2 × size tall, the baseline at 0.9 × size, caps at 0.7 × size.
     /// Its ink is the whole line box, the safe direction to be wrong in (see
     /// [`ink`](TextMetrics::ink)).
+    #[must_use]
     pub fn approximate(text: &str, size: f64) -> TextMetrics {
         let (width, height) = (0.6 * size * text.chars().count() as f64, 1.2 * size);
         TextMetrics {
@@ -5222,6 +5303,7 @@ impl TextMetrics {
     /// Read the eight-slot form the serializing backends (qt, xaml, arkui, web) fill across their
     /// C ABI: advance, line height, ascent, cap height, then the ink box relative to the line
     /// box's top-leading corner. One definition so four shims cannot drift from each other.
+    #[must_use]
     pub fn from_slots(out: &[f64; 8]) -> TextMetrics {
         TextMetrics {
             width: out[0],
@@ -5235,6 +5317,7 @@ impl TextMetrics {
     /// The line box's top-leading corner, given a baseline-relative measurement, the shape every
     /// backend's metrics come in. `ink_*` are relative to the drawing origin on the baseline
     /// (`ink_top` negative above it), the convention Skia, Core Text and Qt all report in.
+    #[must_use]
     pub fn from_baseline(
         width: f64,
         ascent: f64,
@@ -5273,12 +5356,13 @@ pub struct CanvasFont {
 
 impl CanvasFont {
     /// The family name to send over the wire, empty for the default.
+    #[must_use]
     pub fn family_str(&self) -> &str {
         self.family.as_deref().unwrap_or("")
     }
     /// The CSS weight to send over the wire, 0 for the default.
     pub fn css_weight(&self) -> u16 {
-        self.weight.map(FontWeight::css).unwrap_or(0)
+        self.weight.map_or(0, FontWeight::css)
     }
 }
 
@@ -5340,6 +5424,7 @@ pub fn parse_font_list(s: &str) -> Vec<FontFamilyInfo> {
 /// weight override, an italic flag, and the tabular-figures request. Backends resolve this to one
 /// native font.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[must_use]
 pub struct FontSpec {
     pub style: Font,
     pub weight: Option<FontWeight>,
@@ -5360,7 +5445,7 @@ pub struct FontSpec {
     /// is not a backend duty and has no duty-matrix row. Every in-tree backend honors it: AppKit
     /// and UIKit re-pick the system face (`monospacedDigitSystemFont`), GTK and Qt and ArkUI set
     /// the `tnum` OpenType feature, Android `setFontFeatureSettings`, XAML the `Typography`
-    /// NumeralAlignment property, and web-dom `font-variant-numeric`. A font with no `tnum` table,
+    /// `NumeralAlignment` property, and web-dom `font-variant-numeric`. A font with no `tnum` table,
     /// or an SDK predating the attribute, renders the stock proportional figures.
     pub tabular: bool,
     /// Ask for the platform's monospaced face at this style's size, what `` `code` `` in a
@@ -5424,6 +5509,7 @@ impl FontSpec {
     /// The point size this descriptor resolves to, given the size the platform assigns its
     /// semantic style. The one place `scale` is applied, so every backend's font resolver
     /// multiplies the same way.
+    #[must_use]
     pub fn resolved_points(&self, style_points: f64) -> f64 {
         let base = match self.style {
             Font::System(pt) | Font::Custom(_, pt) => pt,
@@ -5478,6 +5564,7 @@ impl Default for TextRun {
 
 impl TextRun {
     /// A run that only changes the font, the common case for emphasis.
+    #[must_use]
     pub fn font(range: std::ops::Range<usize>, font: FontSpec) -> Self {
         TextRun {
             range,
@@ -5488,6 +5575,7 @@ impl TextRun {
 
     /// This run's attributes without its range: what a selection's style is compared against
     /// and what an editor's toolbar toggles (docs/texteditor.md).
+    #[must_use]
     pub fn style(&self) -> RunStyle {
         RunStyle {
             font: self.font,
@@ -5500,6 +5588,7 @@ impl TextRun {
     }
 
     /// A run of `style` over `range`.
+    #[must_use]
     pub fn styled(range: std::ops::Range<usize>, style: RunStyle) -> Self {
         TextRun {
             range,
@@ -5526,6 +5615,7 @@ impl TextRun {
 /// `base_points` is the size the label itself resolved to. Only a relative-size run
 /// ([`FontSpec::scale`]) needs it, and only in the Qt dialect: Pango markup takes a percentage
 /// directly, while Qt's CSS subset understands `pt` and `px` and ignores `%`.
+#[must_use]
 pub fn runs_to_markup(
     text: &str,
     runs: &[TextRun],
@@ -5568,6 +5658,7 @@ impl Symbol {
     ///
     /// `None` for a variant with no drawing yet: `Symbol` is `#[non_exhaustive]`, so a new one
     /// degrades to a label rather than failing to compile.
+    #[must_use]
     pub fn outline_path(self) -> Option<&'static str> {
         use Symbol as S;
         // The wildcard is unreachable today (every variant is drawn below) and it is here for
@@ -5581,7 +5672,7 @@ impl Symbol {
                 "M3 17.3V21h3.7L17.8 9.9l-3.7-3.7zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7z"
             }
             S::New => "M13 2H6v20h12V7h-5zm2 .5L19.5 7H15z",
-            S::Open => "M2 5h7l2 2h11v12H2z",
+            S::Open | S::Folder => "M2 5h7l2 2h11v12H2z",
             S::Save => "M3 3h13l5 5v13H3zm5 0h7v6H8zm-1 11h10v7H7z",
             S::Print => "M7 3h10v4H7zM4 8h16v8h-3v6H7v-6H4z",
             S::Refresh => "M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z",
@@ -5645,7 +5736,6 @@ impl Symbol {
             }
             S::Paste => "M9 2h6v2h3v18H6V4h3zm0 2v2h6V4z",
             S::Mail => "M2 5h20v14H2zm2 3.2V17h16V8.2l-8 5z",
-            S::Folder => "M2 5h7l2 2h11v12H2z",
             S::Document => "M14 2H6v20h12V6zm.5.8L17.2 6H14.5z",
             S::Check => "M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
             S::Close => {
@@ -5678,6 +5768,7 @@ impl Symbol {
     }
 
     /// [`Self::outline_path`] wrapped as a standalone SVG document.
+    #[must_use]
     pub fn outline_svg(self) -> Option<String> {
         self.outline_path().map(|d| {
             format!(
@@ -5732,6 +5823,10 @@ fn hex(c: Color) -> String {
 }
 
 /// Does this run need a `<span>` in `dialect`, or do the plain tags cover it?
+#[expect(
+    clippy::float_cmp,
+    reason = "a scale of exactly 1.0 is the unscaled default, compared as a sentinel"
+)]
 fn needs_span(r: &TextRun, dialect: MarkupDialect) -> bool {
     let extras = r.color.is_some() || r.background.is_some() || r.font.scale != 1.0;
     match dialect {
@@ -5741,7 +5836,13 @@ fn needs_span(r: &TextRun, dialect: MarkupDialect) -> bool {
     }
 }
 
+#[expect(
+    clippy::float_cmp,
+    reason = "a scale of exactly 1.0 is the unscaled default, compared as a sentinel"
+)]
 fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut String) {
+    use std::fmt::Write as _;
+
     if let Some(url) = r.link.as_deref() {
         out.push_str("<a href=\"");
         escape_markup(url, out);
@@ -5758,10 +5859,10 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut Str
             MarkupDialect::Pango => {
                 out.push_str("<span");
                 if let Some(c) = &color {
-                    out.push_str(&format!(" foreground=\"{c}\""));
+                    let _ = write!(out, " foreground=\"{c}\"");
                 }
                 if let Some(c) = &background {
-                    out.push_str(&format!(" background=\"{c}\""));
+                    let _ = write!(out, " background=\"{c}\"");
                 }
                 if mono {
                     out.push_str(" font_family=\"monospace\"");
@@ -5773,7 +5874,7 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut Str
                     // rather than merely unscaled. A point size still tracks the desktop's text
                     // scaling, since Pango resolves points through the Xft DPI.
                     let pts = r.font.resolved_points(base_points);
-                    out.push_str(&format!(" size=\"{}\"", (pts * 1024.0).round() as i64));
+                    let _ = write!(out, " size=\"{}\"", (pts * 1024.0).round() as i64);
                 }
                 out.push('>');
             }
@@ -5783,17 +5884,17 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut Str
                 // from the `<code>` tag below, which Qt maps to its own fixed font.
                 out.push_str("<span style=\"");
                 if let Some(c) = &color {
-                    out.push_str(&format!("color:{c};"));
+                    let _ = write!(out, "color:{c};");
                 }
                 if let Some(c) = &background {
-                    out.push_str(&format!("background-color:{c};"));
+                    let _ = write!(out, "background-color:{c};");
                 }
                 if r.font.scale != 1.0 {
                     // Points, not a percentage: Qt's rich-text CSS subset understands `pt` and
                     // `px` and silently ignores `%`, which is why a scaled run rendered at the
                     // base size here while every other backend scaled it.
                     let pt = r.font.resolved_points(base_points);
-                    out.push_str(&format!("font-size:{pt}pt;"));
+                    let _ = write!(out, "font-size:{pt}pt;");
                 }
                 out.push_str("\">");
             }
@@ -5846,6 +5947,11 @@ fn close_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
 /// Checked once in the pieces layer rather than in eight backends. A backend handed overlapping
 /// ranges would produce a different wrong answer per platform, and a range splitting a multi-byte
 /// character would panic on `str` slicing in some and render mojibake in others.
+///
+/// # Errors
+///
+/// Returns a message naming the first run that overlaps or precedes the run before it, ends
+/// past the text, has an inverted range, or splits a multi-byte character.
 pub fn runs_are_valid(text: &str, runs: &[TextRun]) -> Result<(), String> {
     let mut prev_end = 0usize;
     for (i, r) in runs.iter().enumerate() {
@@ -6111,16 +6217,16 @@ pub mod props {
         Enabled(bool),
     }
 
-    /// SwiftUI's `pickerStyle` analogue (kinds::PICKER). Each maps to a distinct native
+    /// SwiftUI's `pickerStyle` analogue (`kinds::PICKER`). Each maps to a distinct native
     /// control per toolkit (docs/picker.md).
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub enum PickerStyle {
-        /// A dropdown/pop-up menu (NSPopUpButton / GtkDropDown / QComboBox / UIButton+UIMenu / Spinner).
+        /// A dropdown/pop-up menu (`NSPopUpButton` / `GtkDropDown` / `QComboBox` / UIButton+UIMenu / Spinner).
         #[default]
         Menu,
-        /// A horizontal segmented control (NSSegmentedControl / UISegmentedControl / linked toggles / …).
+        /// A horizontal segmented control (`NSSegmentedControl` / `UISegmentedControl` / linked toggles / …).
         Segmented,
-        /// A vertical radio-button group laid out inline (NSButton radios / GtkCheckButton group / …).
+        /// A vertical radio-button group laid out inline (`NSButton` radios / `GtkCheckButton` group / …).
         Inline,
     }
 
@@ -6161,7 +6267,7 @@ pub mod props {
         Enabled(bool),
     }
 
-    /// Full text-area props (realize, kinds::TEXT_AREA; docs/textarea.md). `text` seeds the
+    /// Full text-area props (realize, `kinds::TEXT_AREA`; docs/textarea.md). `text` seeds the
     /// editor; `min_lines`/`max_lines` bound the auto-growing height in text lines
     /// (`max_lines == 0` = unbounded). `editable`/`selectable`/`spellcheck` control the native
     /// editor attributes (all default `true`); a backend that can't honor one answers
@@ -6240,6 +6346,7 @@ pub mod props {
     /// native field counts: UTF-16 code units (Apple, Android, Qt, WinUI, the web, ArkUI) or
     /// bytes. GTK counts characters, which is [`TextSelection::clamped`].
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    #[must_use]
     pub struct TextSelection {
         pub start: usize,
         pub end: usize,
@@ -6261,6 +6368,7 @@ pub mod props {
         }
 
         /// The clamped range as UTF-16 code-unit offsets into `text`: `(start, end)`.
+        #[must_use]
         pub fn utf16(self, text: &str) -> (usize, usize) {
             let r = self.clamped(text);
             let at = |chars: usize| -> usize {
@@ -6271,6 +6379,7 @@ pub mod props {
 
         /// The clamped range as UTF-8 byte offsets into `text`: `(start, end)`, each on a
         /// character boundary.
+        #[must_use]
         pub fn bytes(self, text: &str) -> (usize, usize) {
             let r = self.clamped(text);
             let at = |chars: usize| -> usize {
@@ -6478,6 +6587,7 @@ pub mod props {
 
     impl NavPresentation {
         /// `true` for [`NavPresentation::Split`], the shape most backend code wants.
+        #[must_use]
         pub fn is_split(self) -> bool {
             self == NavPresentation::Split
         }
@@ -6485,6 +6595,7 @@ pub mod props {
         /// `true` when the rows are the chrome rather than a drawn page: [`Self::Tabs`] and
         /// [`Self::Rail`]. Both hide the `Pane::Sidebar` page and render its rows themselves, so
         /// backend code that only cares about that distinction asks this instead of matching both.
+        #[must_use]
         pub fn rows_are_chrome(self) -> bool {
             matches!(self, NavPresentation::Tabs | NavPresentation::Rail)
         }
@@ -6894,11 +7005,11 @@ pub mod props {
         /// Currently rendered by AppKit/UIKit; other backends may ignore this decoration.
         IconProgress(Vec<(usize, Option<f64>)>),
         /// Programmatic highlight sync: toolkits apply without re-emitting
-        /// SelectionChanged (the TextField from_native echo rule).
+        /// `SelectionChanged` (the `TextField` `from_native` echo rule).
         Selected(Option<usize>),
         /// The item set changed (data-driven `nav().items(signal, …)`): rebuild the rows
         /// from these labels/icons, then apply `selected` (docs/navigation.md). Applied without
-        /// re-emitting SelectionChanged.
+        /// re-emitting `SelectionChanged`.
         ///
         /// `rows_changed` is `Some` when the rows themselves are the ones already shown (same
         /// keys, sections and row menus) and only these rows' title, icon, tint or badge moved:
@@ -7226,6 +7337,7 @@ pub mod present {
 
     /// An app-writable scratch directory: the backend-supplied one, else `std::env::temp_dir()`.
     /// Used by the file-save flow (docs/files.md) to stage bytes before the native save picker.
+    #[must_use]
     pub fn app_temp_dir() -> std::path::PathBuf {
         APP_TEMP_DIR.with(|d| {
             d.borrow().clone().unwrap_or_else(|| {
@@ -7260,6 +7372,7 @@ pub mod present {
         }
 
         /// The bytes at `path`, if present.
+        #[must_use]
         pub fn read(path: &str) -> Option<Vec<u8>> {
             FILES.with(|f| f.borrow().get(path).cloned())
         }
@@ -7293,6 +7406,7 @@ pub mod present {
     impl PresentSpec {
         /// Backend-facing flattening for the C ABI: `(title, message, button labels, button
         /// roles as ints, sheet-or-prompt fields)`. Pure-Rust backends read the enum directly.
+        #[must_use]
         pub fn title(&self) -> &str {
             match self {
                 PresentSpec::Dialog { title, .. }
@@ -7302,6 +7416,7 @@ pub mod present {
                 | PresentSpec::SaveFile { title, .. } => title,
             }
         }
+        #[must_use]
         pub fn message(&self) -> Option<&str> {
             match self {
                 PresentSpec::Dialog { message, .. } | PresentSpec::Prompt { message, .. } => {
@@ -7312,6 +7427,7 @@ pub mod present {
         }
         /// Button labels joined with [`UNIT_SEP`], the encoding the nav menu and combobox
         /// shims already use for string lists.
+        #[must_use]
         pub fn buttons_joined(&self) -> String {
             match self {
                 PresentSpec::Dialog { buttons, .. } => buttons
@@ -7324,6 +7440,7 @@ pub mod present {
             }
         }
         /// Button roles as ints (0 default, 1 cancel, 2 destructive), joined with commas.
+        #[must_use]
         pub fn roles_joined(&self) -> String {
             let roles: Vec<i32> = match self {
                 PresentSpec::Dialog { buttons, .. } => {
@@ -7336,7 +7453,7 @@ pub mod present {
             };
             roles
                 .iter()
-                .map(|r| r.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(",")
         }
@@ -7344,6 +7461,7 @@ pub mod present {
         // --- file-dialog accessors (docs/files.md) ---
 
         /// The file filters, if this is a file dialog.
+        #[must_use]
         pub fn filters(&self) -> &[FileFilter] {
             match self {
                 PresentSpec::OpenFile { filters, .. } | PresentSpec::SaveFile { filters, .. } => {
@@ -7354,10 +7472,12 @@ pub mod present {
         }
         /// Whether an open-file dialog lets the user pick several files (`false` for every
         /// other spec).
+        #[must_use]
         pub fn multiple(&self) -> bool {
             matches!(self, PresentSpec::OpenFile { multiple: true, .. })
         }
         /// The suggested file name for a save dialog (empty otherwise).
+        #[must_use]
         pub fn suggested_name(&self) -> &str {
             match self {
                 PresentSpec::SaveFile { suggested_name, .. } => suggested_name,
@@ -7365,6 +7485,7 @@ pub mod present {
             }
         }
         /// The Day-written temp source path for a save dialog (empty otherwise).
+        #[must_use]
         pub fn src_path(&self) -> &str {
             match self {
                 PresentSpec::SaveFile { src_path, .. } => src_path,
@@ -7373,6 +7494,7 @@ pub mod present {
         }
         /// Filters flattened for the C ABI: each filter is `name|ext1,ext2`, joined by
         /// [`UNIT_SEP`]. A trailing `|` (no extensions) means "all files". Empty when unfiltered.
+        #[must_use]
         pub fn filters_joined(&self) -> String {
             self.filters()
                 .iter()
@@ -7402,6 +7524,7 @@ pub mod storage {
     /// The app's id, `[app] id` from Day.toml: `DAY_APP_ID` from `day launch`, else the value
     /// `day build` baked in, else the executable's name (a test binary or a bare `cargo run`).
     /// Made safe as a single folder name.
+    #[must_use]
     pub fn app_id() -> String {
         std::env::var("DAY_APP_ID")
             .ok()
@@ -7415,14 +7538,14 @@ pub mod storage {
                 let exe = std::env::current_exe().ok()?;
                 exe.file_stem()?.to_str().map(str::to_owned)
             })
-            .map(|id| folder_name(&id))
-            .unwrap_or_else(|| "day-app".to_owned())
+            .map_or_else(|| "day-app".to_owned(), |id| folder_name(&id))
     }
 
     /// The app's data directory, for what it cannot recreate: databases, documents, downloads
     /// the user kept. Application Support on Apple platforms (inside the container when
     /// sandboxed), `%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` on Linux, the app's files
     /// directory on Android and HarmonyOS. `DAY_DATA_DIR` replaces it.
+    #[must_use]
     pub fn data_dir() -> Option<PathBuf> {
         resolve(Dir::Data, Os::HOST, &app_id(), &env_path)
     }
@@ -7431,6 +7554,7 @@ pub mod storage {
     /// folder per hosted app (a day-lite superapp, a crash reporter's store), or a tool finding
     /// where an app it launched writes. On Android and HarmonyOS, where the host's directory is
     /// already the one app's, the id changes nothing.
+    #[must_use]
     pub fn data_dir_for(app_id: &str) -> Option<PathBuf> {
         resolve(Dir::Data, Os::HOST, &folder_name(app_id), &env_path)
     }
@@ -7439,6 +7563,7 @@ pub mod storage {
     /// it, and backups skip it. Caches on Apple platforms, `%LOCALAPPDATA%\<id>\cache` on
     /// Windows, `$XDG_CACHE_HOME` on Linux, the app's cache directory on Android and HarmonyOS.
     /// `DAY_CACHE_DIR` replaces it; with only `DAY_DATA_DIR` set it is that directory's `cache`.
+    #[must_use]
     pub fn cache_dir() -> Option<PathBuf> {
         resolve(Dir::Cache, Os::HOST, &app_id(), &env_path)
     }
@@ -7447,6 +7572,7 @@ pub mod storage {
     /// Apple platforms (whose preferences proper are the user defaults), the roaming
     /// `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` on Linux. With `DAY_DATA_DIR` set (as the
     /// Android and HarmonyOS hosts do) it is that directory's `config`.
+    #[must_use]
     pub fn config_dir() -> Option<PathBuf> {
         resolve(Dir::Config, Os::HOST, &app_id(), &env_path)
     }
@@ -7716,6 +7842,7 @@ pub struct FrameStamp {
     pub target_timestamp: Option<f64>,
 }
 impl FrameStamp {
+    #[must_use]
     pub fn new(timestamp: f64) -> Self {
         Self {
             timestamp,
@@ -7765,16 +7892,16 @@ impl SystemColor {
     /// These are fixed sRGB colors, not an approximation of a user-selected system accent.
     pub const fn fallback(self, dark: bool) -> Color {
         Color::hex(match (self, dark) {
-            (Self::Accent, false) => 0x0a66ff,
-            (Self::Accent, true) => 0x3f83ff,
-            (Self::Text, false) => 0x1d1d1f,
-            (Self::Text, true) => 0xf5f5f7,
-            (Self::SecondaryText, false) => 0x6e6e73,
-            (Self::SecondaryText, true) => 0x98989d,
-            (Self::Background, false) => 0xffffff,
-            (Self::Background, true) => 0x1e1e20,
-            (Self::Surface, false) => 0xf3f2f7,
-            (Self::Surface, true) => 0x2c2c2e,
+            (Self::Accent, false) => 0x000a_66ff,
+            (Self::Accent, true) => 0x003f_83ff,
+            (Self::Text, false) => 0x001d_1d1f,
+            (Self::Text, true) => 0x00f5_f5f7,
+            (Self::SecondaryText, false) => 0x006e_6e73,
+            (Self::SecondaryText, true) => 0x0098_989d,
+            (Self::Background, false) => 0x00ff_ffff,
+            (Self::Background, true) => 0x001e_1e20,
+            (Self::Surface, false) => 0x00f3_f2f7,
+            (Self::Surface, true) => 0x002c_2c2e,
         })
     }
 }
@@ -7823,7 +7950,7 @@ pub trait Toolkit: Sized + 'static {
     /// Put `child` at index `to` among `parent`'s native children: day's z-order resync, which
     /// walks the whole sibling row and asks for every position in turn. A child already at `to`
     /// must therefore cost nothing: a backend that re-parents unconditionally pays for the
-    /// untouched siblings too, and where re-parenting means detach-then-add (no ViewGroup move
+    /// untouched siblings too, and where re-parenting means detach-then-add (no `ViewGroup` move
     /// primitive on Android) the detach resigns the focus of everything inside the subtree,
     /// which is how a text field being typed into loses the keyboard (docs/focus.md).
     fn move_child(&mut self, parent: &Self::Handle, child: &Self::Handle, to: usize);
@@ -8008,7 +8135,7 @@ pub trait Toolkit: Sized + 'static {
     // `Event::MenuAction(id)` (enqueue-only) for each id'd item; `role` items use the native standard
     // command. Default no-op: a toolkit without a menu bar / context menu shows nothing.
     /// The application menu (macOS/Windows/Linux menu bar; the app-bar overflow on Android; the
-    /// UIMenuBuilder main menu on iPadOS/Catalyst). Replaces any previous app menu.
+    /// `UIMenuBuilder` main menu on iPadOS/Catalyst). Replaces any previous app menu.
     fn set_app_menu(&mut self, _items: &[MenuItem]) {}
     /// A context menu for `h`, shown on secondary-click (desktop) or long-press (mobile). Passing an
     /// empty slice removes it.
@@ -8191,6 +8318,12 @@ pub trait Toolkit: Sized + 'static {
     /// [`Cap::CanvasPdf`] first.
     fn render_pdf(&mut self, _req: u64, _pages: &[PdfPage], _info: &PdfInfo) {}
 
+    /// Capture the primary window's content as encoded image bytes (the dayscript `screenshot`
+    /// step, docs/window-image.md).
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the backend cannot capture; the default always does.
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
@@ -8211,7 +8344,12 @@ pub trait Toolkit: Sized + 'static {
     /// a frame. Pending requests are retried within the dayscript deadline.
     ///
     /// Ready means the platform render checkpoint completed, not that a vsync callback
-    /// proves pixels were displayed. OnCapture delegates freshness to snapshot_window.
+    /// proves pixels were displayed. `OnCapture` delegates freshness to `snapshot_window`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the checkpoint cannot be established, for example because the
+    /// window closed.
     fn prepare_snapshot(
         &mut self,
         _host: Option<&Self::Handle>,
@@ -8230,6 +8368,10 @@ pub trait Toolkit: Sized + 'static {
     /// error, so an app asking for chrome degrades to "what there was" instead of failing. The
     /// dayscript `screenshot` step never calls this, which is what keeps every captured gallery
     /// baseline byte-identical to before it existed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the backend cannot capture the window.
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
         self.snapshot_window()
     }
@@ -8303,6 +8445,11 @@ pub trait Toolkit: Sized + 'static {
     }
 
     /// Read current OS associations. Unsupported platforms must not fabricate a default.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`applications::ApplicationError::Unsupported`] where the platform has no
+    /// association query (the default), or the platform's own failure.
     fn application_handlers(
         &mut self,
         _query: &applications::HandlerQuery,
@@ -8446,6 +8593,10 @@ pub trait Toolkit: Sized + 'static {
     /// Snapshot the window whose content container is `host` (the dayscript `screenshot`
     /// step's `window:` target). The default answers the primary snapshot, so backends that
     /// never open windows stay correct without changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the backend cannot capture that window.
     fn snapshot_window_of(&mut self, _host: &Self::Handle) -> Result<Vec<u8>, String> {
         self.snapshot_window()
     }
@@ -8555,6 +8706,7 @@ impl WindowKind {
     /// Whether this is a panel (settings or About) rather than a document window: the kinds
     /// every desktop draws fixed-size, centered and out of the Window menu, and mobile presents
     /// as a cover.
+    #[must_use]
     pub fn is_panel(self) -> bool {
         !matches!(self, WindowKind::Normal)
     }
@@ -8622,6 +8774,7 @@ pub enum WindowState {
 
 impl WindowState {
     /// The wire code of [`bridge::BridgeKind::WindowStateChanged`].
+    #[must_use]
     pub const fn code(self) -> i32 {
         match self {
             WindowState::Normal => 0,
@@ -8632,6 +8785,7 @@ impl WindowState {
     }
 
     /// The state a wire code names; an unknown code reads as `Normal`.
+    #[must_use]
     pub const fn from_code(code: i32) -> WindowState {
         match code {
             1 => WindowState::Minimized,
@@ -8816,15 +8970,19 @@ impl StatusImage {
         })
     }
 
+    #[must_use]
     pub fn width(&self) -> u32 {
         self.width
     }
+    #[must_use]
     pub fn height(&self) -> u32 {
         self.height
     }
+    #[must_use]
     pub fn scale(&self) -> f64 {
         self.scale
     }
+    #[must_use]
     pub fn pixels(&self) -> &[u8] {
         &self.rgba
     }
@@ -8866,7 +9024,7 @@ mod status_image_tests {
 }
 
 /// One status item: an icon in the menu bar (macOS), the notification area (Windows) or a
-/// StatusNotifierItem host's tray (Linux), with a menu (docs/status-item.md).
+/// `StatusNotifierItem` host's tray (Linux), with a menu (docs/status-item.md).
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatusItemSpec {
     /// The app's name for the item, stable across updates: what a backend diffs by.
@@ -8960,6 +9118,7 @@ pub enum WindowTabbing {
 pub type AppLocales = (&'static str, &'static [(&'static str, &'static str)]);
 
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct WindowOptions {
     pub title: String,
     pub size: Size,
@@ -9223,6 +9382,7 @@ pub trait Platform: Toolkit {
 /// under a 1x xvfb the same 2560x1600 pixels a HiDPI laptop produces. A backend that reads the
 /// compositor's pixels back (AppKit, XAML) captures at the display's own scale and ignores it.
 /// `None` when unset or unparseable: capture at the backend's natural scale.
+#[must_use]
 pub fn capture_scale() -> Option<f64> {
     std::env::var("DAY_CAPTURE_SCALE")
         .ok()
@@ -9246,6 +9406,7 @@ pub fn frame_timestamp() -> f64 {
 /// `LANGUAGE` is the GNU multi-language list (`fr:en`); `LC_ALL`, `LC_MESSAGES` and `LANG` each
 /// carry one locale in POSIX form (`fr_FR.UTF-8`), which becomes `fr-FR`. Shared by the backends
 /// whose platform has no richer API to ask (§12.2, docs/localization.md).
+#[must_use]
 pub fn posix_locale_hints() -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut push = |tag: &str| {
@@ -9319,6 +9480,7 @@ impl<B: Toolkit> Registry<B> {
             log::warn!("duplicate renderer for piece kind {kind:?} — later registration wins");
         }
     }
+    #[must_use]
     pub fn get(&self, kind: PieceKind) -> Option<&Renderer<B>> {
         self.map.get(kind)
     }
@@ -9463,8 +9625,13 @@ impl OpCode {
 
     /// The code back from a wire number (a decoder-side aid and the round-trip test's
     /// reference); `None` for anything outside the table.
+    #[must_use]
+    #[expect(
+        clippy::float_cmp,
+        reason = "wire codes are small integers, which f64 represents exactly"
+    )]
     pub fn from_wire(n: f64) -> Option<OpCode> {
-        OpCode::ALL.into_iter().find(|c| *c as i32 as f64 == n)
+        OpCode::ALL.into_iter().find(|c| f64::from(*c as i32) == n)
     }
 }
 
@@ -9497,6 +9664,7 @@ impl OpCode {
 /// IEEE bits, masked to the 53 bits an `f64` wire slot carries exactly. `0.0` is reserved for "no
 /// key": a decoder seeing it must decode the payload as it always did, which is also what every
 /// decoder written before this key existed does with the slot.
+#[must_use]
 pub fn geometry_key(shape: &Shape) -> f64 {
     fn mix(h: &mut u64, v: f64) {
         for byte in v.to_bits().to_le_bytes() {
@@ -9609,6 +9777,7 @@ fn encode_points(pts: &[Point]) -> String {
 /// Path segments for the texts channel: `"M x y L x y Q cx cy x y C … Z"`, one token per
 /// command or number. Coordinates use up to six decimal places, without trailing zeros;
 /// non-finite values and magnitudes outside the fixed-point range use their display form.
+#[must_use]
 pub fn encode_path(path: &Path) -> String {
     let mut out = String::with_capacity(path.segs.len() * 16);
     let points = |out: &mut String, cmd: char, pts: &[Point]| {
@@ -9645,6 +9814,7 @@ pub fn encode_path(path: &Path) -> String {
 /// gives for free, so the backends agree. `None` (an empty region, an empty intersection, or a
 /// bitmap with no pixels) draws nothing. Every backend that replays in Rust calls this; the
 /// C++/Java/JS decoders repeat the same arithmetic.
+#[must_use]
 pub fn clamp_image_source(source: Rect, rect: Rect, pixels: Size) -> Option<(Rect, Rect)> {
     if !(source.size.width > 0.0 && source.size.height > 0.0) {
         return None;
@@ -9679,6 +9849,7 @@ fn rule_bits(rule: FillRule) -> f64 {
 /// numbers channel, nine `f64` slots per record (`[kind, a, b, c, d, e, f, g, color]`, kinds
 /// from [`OpCode`]), and the texts channel, one entry per record that carries text or
 /// variable-length geometry, in record order.
+#[must_use]
 pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     encode_ops_into(ops, None)
 }
@@ -9692,6 +9863,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
 /// Formatting a coordinate and parsing it back were, together, half of what a map tile's export
 /// cost on Android (docs/canvas.md "Exporting"); a decoder that can take an array of doubles
 /// across its boundary skips both.
+#[must_use]
 pub fn encode_ops_with_geometry(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>, Vec<f64>) {
     let mut geometry = Vec::new();
     let (nums, texts) = encode_ops_into(ops, Some(&mut geometry));
@@ -9729,17 +9901,14 @@ fn geometry_payload(
     text: impl FnOnce() -> String,
     numbers: impl FnOnce(&mut Vec<f64>),
 ) -> (f64, f64) {
-    match geometry {
-        Some(g) => {
-            let offset = g.len();
-            numbers(g);
-            texts.push(String::new());
-            (offset as f64, (g.len() - offset) as f64)
-        }
-        None => {
-            texts.push(text());
-            (0.0, 0.0)
-        }
+    if let Some(g) = geometry {
+        let offset = g.len();
+        numbers(g);
+        texts.push(String::new());
+        (offset as f64, (g.len() - offset) as f64)
+    } else {
+        texts.push(text());
+        (0.0, 0.0)
     }
 }
 
@@ -9749,7 +9918,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
         let g = (c.g.clamp(0.0, 1.0) * 255.0) as u32;
         let b = (c.b.clamp(0.0, 1.0) * 255.0) as u32;
         let a = (c.a.clamp(0.0, 1.0) * 255.0) as u32;
-        ((a << 24) | (r << 16) | (g << 8) | b) as f64
+        f64::from((a << 24) | (r << 16) | (g << 8) | b)
     }
     #[allow(clippy::too_many_arguments)]
     fn push(
@@ -9764,7 +9933,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
         col: Color,
         nums: &mut Vec<f64>,
     ) {
-        nums.extend_from_slice(&[k as i32 as f64, a, b, c, d, e, f, g, color_bits(col)]);
+        nums.extend_from_slice(&[f64::from(k as i32), a, b, c, d, e, f, g, color_bits(col)]);
     }
     /// The kind-18 prefix a non-plain stroke style emits, applying to the next stroke record,
     /// the same "modifier record" rule the gradient and font records follow. A plain style emits
@@ -9797,7 +9966,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
             style
                 .dash
                 .iter()
-                .map(|d| d.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(" "),
         );
@@ -9879,7 +10048,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
                 nums,
             ),
             Shape::Line(p1, p2) => {
-                push(OpCode::Line, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, col, nums)
+                push(OpCode::Line, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, col, nums);
             }
             Shape::Polygon(pts) => {
                 // Variable-length points ride the texts side-channel ("x,y x,y …"),
@@ -10060,7 +10229,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
                     // last slot is a coordinate rather than a color, which is what lets four
                     // points fit with nothing wasted.
                     let mut rec = [
-                        OpCode::StampPoints as i32 as f64,
+                        f64::from(OpCode::StampPoints as i32),
                         0.0,
                         0.0,
                         0.0,
@@ -10427,7 +10596,7 @@ mod font_list_tests {
         assert_eq!(list[0].faces[1].name, "Bold Italic"); // synthesized from 700 + italic
         assert_eq!(list[1].family, "Day Mono");
         assert_eq!(list[2].family, "Faceless");
-        assert!(list[2].faces.is_empty());
+        assert_eq!(list[2].faces, [] as [FontFace; 0]);
     }
 
     #[test]
@@ -10641,6 +10810,10 @@ mod encode_ops_tests {
     /// whole 9-slot records of known codes, and the texts channel must carry exactly one
     /// entry per text-carrying record, in order: the contract every shim decoder assumes.
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "wire slots hold integer codes and exact test constants"
+    )]
     fn encode_ops_emits_whole_records_and_matched_text_payloads() {
         let r = Rect::new(1.0, 2.0, 3.0, 4.0);
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -10790,32 +10963,32 @@ mod encode_ops_tests {
         // past any id this process will mint), and nothing of an image reaches the texts channel.
         let img = nums
             .chunks(9)
-            .find(|r| r[0] == OpCode::Image as i32 as f64)
+            .find(|r| r[0] == f64::from(OpCode::Image as i32))
             .expect("Image record");
         assert_eq!(&img[1..7], &[1.0, 2.0, 3.0, 4.0, 7.0, 0.5]);
         // The region rides its own prefix record, in bitmap pixels, with nothing else in it.
         let src = nums
             .chunks(9)
-            .find(|r| r[0] == OpCode::ImageSource as i32 as f64)
+            .find(|r| r[0] == f64::from(OpCode::ImageSource as i32))
             .expect("ImageSource record");
         assert_eq!(&src[1..8], &[16.0, 32.0, 8.0, 8.0, 0.0, 0.0, 0.0]);
         // …carrying the CSS weight and the slant, with the family on the texts channel.
         let font_rec = nums
             .chunks(9)
-            .find(|r| r[0] == OpCode::SetFont as i32 as f64)
+            .find(|r| r[0] == f64::from(OpCode::SetFont as i32))
             .expect("SetFont record");
         assert_eq!(&font_rec[1..3], &[700.0, 1.0]);
         assert_eq!(texts.iter().filter(|t| *t == "Day Sans").count(), 1);
         // …with width 0, per the documented asymmetry.
         let arc = nums
             .chunks(9)
-            .find(|r| r[0] == OpCode::StrokeArc as i32 as f64);
+            .find(|r| r[0] == f64::from(OpCode::StrokeArc as i32));
         assert_eq!(arc.map(|r| r[7]), Some(0.0));
         // A gradient-filled shape's color slot is opaque white, never clear (Skia decoders
         // modulate the shader by it).
         let path_rec = nums
             .chunks(9)
-            .find(|r| r[0] == OpCode::FillPath as i32 as f64);
+            .find(|r| r[0] == f64::from(OpCode::FillPath as i32));
         assert_eq!(
             path_rec.map(|r| r[8] as u32),
             Some(0xFFFF_FFFF),
@@ -10824,6 +10997,10 @@ mod encode_ops_tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "wire slots hold integer codes and exact test constants"
+    )]
     fn variable_length_geometry_carries_a_content_key() {
         let path = |x: f64| {
             Shape::Path(Path {
@@ -10882,14 +11059,14 @@ mod encode_ops_tests {
         ]);
         let slot_a = |code: OpCode| {
             nums.chunks(9)
-                .find(|r| r[0] == code as i32 as f64)
+                .find(|r| r[0] == f64::from(code as i32))
                 .unwrap_or_else(|| panic!("no {code:?} record"))[1]
         };
         assert_eq!(slot_a(OpCode::FillPath), geometry_key(&path(0.0)));
         assert_eq!(slot_a(OpCode::FillPolygon), geometry_key(&poly));
         let clips: Vec<&[f64]> = nums
             .chunks(9)
-            .filter(|r| r[0] == OpCode::Clip as i32 as f64)
+            .filter(|r| r[0] == f64::from(OpCode::Clip as i32))
             .collect();
         assert_eq!(clips[0][1], geometry_key(&path(0.0)), "path clip keys");
         assert_eq!(
@@ -11151,7 +11328,7 @@ mod sidetable_tests {
         assert_eq!(torn.get(), 1, "teardown ran for the swept value");
 
         // remove() runs the teardown too; take() bypasses it for ownership transfer.
-        hooked.remove(8);
+        let _ = hooked.remove(8);
         assert_eq!(torn.get(), 2);
         hooked.insert(9, 3);
         assert_eq!(hooked.take(9), Some(3));
@@ -11179,7 +11356,7 @@ mod cursor_tests {
     #[test]
     fn named_cursors_have_distinct_css_names() {
         let mut seen = std::collections::BTreeSet::new();
-        for c in Cursor::NAMED.iter() {
+        for c in &Cursor::NAMED {
             assert!(
                 seen.insert(c.css_name().to_string()),
                 "duplicate: {}",

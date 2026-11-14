@@ -36,7 +36,7 @@ fn main() {
             assert_eq!(item.keyEquivalentModifierMask(), modifiers);
             let target = item.target().unwrap();
             let application: &objc2::runtime::AnyObject = app;
-            assert!(std::ptr::eq(&*target, application));
+            assert!(std::ptr::eq(&raw const *target, application));
             assert!(!item.title().is_empty());
         }
         let services = app.servicesMenu().expect("registered native Services menu");
@@ -194,7 +194,7 @@ fn main() {
                 }
                 println!("native default and rebuilt application menus passed");
             }));
-            std::process::exit(if result.is_ok() { 0 } else { 1 });
+            std::process::exit(i32::from(result.is_err()));
         }),
     );
 }

@@ -43,7 +43,7 @@ fn event_delivery_shares_source_and_last_drop_stops_it() {
         h.run(|_, _| {
             events.send("start").unwrap();
             Some(Source(events.clone()))
-        })
+        });
     });
     assert_eq!(recv(&lifecycle), "start");
     assert!(
@@ -121,7 +121,7 @@ fn callback_can_drop_itself_and_subscribe_again() {
         h.run(|_, _| {
             events.send("start").unwrap();
             Some(Source(events.clone()))
-        })
+        });
     });
     assert_eq!(recv(&lifecycle), "start");
     hub.push(KIND, 1, READING);
@@ -168,6 +168,10 @@ fn reentrant_delivery_is_coalesced_without_locking_user_code() {
     let (tx, rx) = mpsc::channel();
     lock(&listener.delivery).handler = Some(Box::new(move |r| {
         tx.send(r.x).unwrap();
+        #[expect(
+            clippy::float_cmp,
+            reason = "matches the exact constant this test delivers"
+        )]
         if r.x == 1.0 {
             let l = weak.upgrade().unwrap();
             l.deliver(SensorReading { x: 2.0, ..r });
@@ -196,7 +200,7 @@ fn drop_during_start_releases_old_source_before_restarting() {
                 recv(&resume_rx);
             }
             Some(Source(events.clone()))
-        })
+        });
     });
     assert_eq!(recv(&start_rx), 1);
     drop(old);
@@ -234,7 +238,7 @@ fn calibration_modes_have_independent_sources_delivery_and_lifetimes() {
         h.run(|sensor, _| {
             starts.send(sensor).unwrap();
             Some(Source(stops.clone()))
-        })
+        });
     });
     assert_eq!(recv(&started), calibrated);
     assert_eq!(recv(&started), raw);

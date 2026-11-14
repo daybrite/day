@@ -3,7 +3,7 @@
 
 //! The frame clock (§8.4, docs/frames.md) on `OH_NativeVSync` (`ohos_sys::vsync`).
 //!
-//! Native VSync may arrive off the JS/UI thread. Only an integer ticket crosses threads, then
+//! Native `VSync` may arrive off the JS/UI thread. Only an integer ticket crosses threads, then
 //! resolves on the UI loop, so cancellation can destroy the source without leaving a dangling
 //! Rust closure pointer in a callback already queued by the system.
 

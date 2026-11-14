@@ -68,10 +68,10 @@ fn main() {
         icon: None,
         enabled: true,
         action: ACTION,
-        placement: Default::default(),
-        label_style: Default::default(),
+        placement: day_spec::ToolbarPlacement::default(),
+        label_style: day_spec::LabelStyle::default(),
         prominent: false,
-        column: Default::default(),
+        column: day_spec::ToolbarColumn::default(),
     };
     assert!(toolkit.edit_toolbar(&host, &[ToolbarOp::Insert { index: 0, item }]));
     let bar = window
@@ -95,9 +95,9 @@ fn main() {
     };
     let type_text = |text: &str| {
         let range = objc2_foundation::NSRange::new(usize::MAX, 0);
-        let _: () = unsafe {
-            msg_send![&*editor(), insertText: &*NSString::from_str(text), replacementRange: range]
-        };
+        unsafe {
+            let () = msg_send![&*editor(), insertText: &*NSString::from_str(text), replacementRange: range];
+        }
     };
     let press_return = || {
         let _: () = unsafe { msg_send![&*editor(), doCommandBySelector: sel!(insertNewline:)] };

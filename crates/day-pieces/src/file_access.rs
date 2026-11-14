@@ -14,11 +14,13 @@ pub struct FileAccess {
     _access: apple::Access,
 }
 impl FileAccess {
+    #[must_use]
     pub fn file(&self) -> &FileUrl {
         &self.file
     }
     /// Renew a stale bookmark with `file().bookmark(...)` while this guard is alive and
     /// replace the stored bytes. A moved file may resolve to a different path.
+    #[must_use]
     pub fn was_stale(&self) -> bool {
         self.stale
     }
@@ -73,7 +75,7 @@ mod apple {
                 &NSData::with_bytes(bytes),
                 Resolution::WithSecurityScope | Resolution::WithoutUI,
                 None,
-                &mut stale,
+                &raw mut stale,
             )
         }
         .map_err(|e| io::Error::other(e.to_string()))?;

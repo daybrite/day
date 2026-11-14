@@ -7,7 +7,7 @@
 //!
 //! * **Build time** (day-cli): `day icon build` renders app-icon masters into every platform's icon
 //!   formats, and resource staging (§18.3) converts `resource/vectors/` sources into the form
-//!   each toolkit loads natively: a VectorDrawable on Android, a rasterized PNG ladder where
+//!   each toolkit loads natively: a `VectorDrawable` on Android, a rasterized PNG ladder where
 //!   the toolkit has no vector path.
 //! * **Runtime** (future, opt-in): the same pure byte-in/byte-out functions can rasterize a
 //!   downloaded SVG inside an app. Nothing here touches day-cli types, the filesystem, or a
@@ -16,7 +16,7 @@
 //! The engine is [`resvg`]/[`usvg`] with the `text` feature off: masters and vector assets
 //! must carry outlined text; a `<text>` element is reported as an error by the callers rather
 //! than rendered wrong. Everything else is hand-rolled here precisely because the formats are
-//! small: ICO and ICNS are trivial PNG containers, a VectorDrawable is a constrained XML
+//! small: ICO and ICNS are trivial PNG containers, a `VectorDrawable` is a constrained XML
 //! serialization of the usvg tree, and an SF Symbol template is sliced/assembled textually.
 //!
 //! Sources understood by [`classify`]:

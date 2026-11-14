@@ -40,7 +40,7 @@ unsafe extern "C" {
 extern "C" fn on_select(id: u64, idx: c_int) {
     // Contained: a panic unwinding into the C++/WinRT shim frame is UB (day-spec's ffi_guard).
     day_spec::ffi_guard::contain((), || {
-        crate::emit(NodeId(id), Event::SelectionChanged(idx as i64))
+        crate::emit(NodeId(id), Event::SelectionChanged(i64::from(idx)));
     });
 }
 
@@ -78,14 +78,14 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &PickerPatch) {
             let joined = crate::cstr(&opts.join("\n"));
             unsafe { day_picker_xaml_set_options(h.0, joined.as_ptr()) };
         }
-        PickerPatch::Enabled(on) => unsafe { day_picker_xaml_set_enabled(h.0, *on as c_int) },
+        PickerPatch::Enabled(on) => unsafe { day_picker_xaml_set_enabled(h.0, c_int::from(*on)) },
     }
 }
 
 fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(120.0), hh.max(32.0))
 }
 
@@ -102,12 +102,20 @@ pub(crate) fn realize_any(
     }
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the handle arrives by reference from the `Toolkit` method that dispatches here"
+)]
 pub(crate) fn update_any(b: &mut crate::Xaml, h: &crate::WinHandle, patch: &dyn std::any::Any) {
     if let Some(p) = patch.downcast_ref::<PickerPatch>() {
         update(b, h, p);
     }
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the handle arrives by reference from the `Toolkit` method that dispatches here"
+)]
 pub(crate) fn measure_any(
     b: &mut crate::Xaml,
     h: &crate::WinHandle,

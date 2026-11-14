@@ -111,6 +111,7 @@ pub enum Permission {
 impl Permission {
     /// A stable ASCII id: `"location"`, `"camera"`, … or the raw string. Locale-independent, so it
     /// is safe to assert on in dayscript and to write to logs.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Permission::Location => "location",
@@ -149,6 +150,7 @@ pub enum Gate {
 
 impl Gate {
     /// A short display label (`"prompts"` / `"ungated"` / `"absent"`).
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Gate::Prompts => "prompts",
@@ -194,12 +196,14 @@ pub enum Status {
 
 impl Status {
     /// Whether the capability may be used now.
+    #[must_use]
     pub fn is_granted(self) -> bool {
         self == Status::Granted
     }
 
     /// A short display label (`"granted"`, `"denied"`, `"prompt"`, `"restricted"`,
     /// `"unsupported"`, `"unknown"`). Locale-independent, so safe to assert on in dayscript.
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Status::Granted => "granted",
@@ -224,6 +228,7 @@ impl std::fmt::Display for Status {
 
 /// Whether this target gates `perm` at all (fixed at compile time for most permissions; a few are
 /// decided by the OS version, e.g. Android motion below API 29).
+#[must_use]
 pub fn gate(perm: Permission) -> Gate {
     imp::gate(perm)
 }
@@ -233,6 +238,7 @@ pub fn gate(perm: Permission) -> Gate {
 /// On the web, and for `Notifications` on Apple platforms, the platform can only answer
 /// asynchronously: this returns the last value this process observed, or [`Status::Unknown`] before
 /// the first observation. Use [`status_future`] when the answer must be authoritative.
+#[must_use]
 pub fn status(perm: Permission) -> Status {
     imp::status(perm)
 }
@@ -248,6 +254,7 @@ pub fn status_async(perm: Permission, on_done: impl FnOnce(Status) + Send + 'sta
 
 /// [`status_async`] as a `Future`. Plain oneshot plumbing over the same completion; any executor
 /// can await it, including a test's `block_on`.
+#[must_use]
 pub fn status_future(perm: Permission) -> StatusFuture {
     let shared = new_state();
     let sink = shared.clone();
@@ -261,6 +268,7 @@ pub fn status_future(perm: Permission) -> StatusFuture {
 /// Whether calling [`request`] would actually put a prompt on screen right now. When this is
 /// `false` the answer is already final for this launch, so draw an "open Settings" path
 /// ([`open_settings`]) rather than a "grant access" button.
+#[must_use]
 pub fn can_prompt(perm: Permission) -> bool {
     imp::can_prompt(perm)
 }
@@ -272,6 +280,7 @@ pub fn can_prompt(perm: Permission) -> bool {
 ///
 /// This crate cannot draw the explanation itself (a part must not depend on `day-pieces`), which is
 /// the right split anyway: the copy is yours and belongs in your own `res::str` keys.
+#[must_use]
 pub fn should_show_rationale(perm: Permission) -> bool {
     imp::should_show_rationale(perm)
 }
@@ -299,6 +308,7 @@ pub fn request(perm: Permission, on_done: impl FnOnce(Status) + Send + 'static) 
 /// platform can dismiss its own permission prompt programmatically. The user's answer is still
 /// recorded, so the next [`status`] is correct. (This is the one place this crate's futures differ
 /// from `day-part-http`'s, whose `Drop` really does cancel the request.)
+#[must_use]
 pub fn request_future(perm: Permission) -> StatusFuture {
     let shared = new_state();
     let sink = shared.clone();
@@ -348,6 +358,7 @@ pub fn request_many(perms: &[Permission], on_done: impl FnOnce(Vec<Status>) + Se
 }
 
 /// [`request_many`] as a `Future`.
+#[must_use]
 pub fn request_many_future(perms: &[Permission]) -> StatusesFuture {
     let shared = Arc::new(Mutex::new(AnswerState::<Vec<Status>>::default()));
     let sink = shared.clone();
@@ -403,15 +414,12 @@ fn request_boxed(perm: Permission, on_done: Cb) {
 
     let start = {
         let mut table = lock(inflight());
-        match table.get_mut(&perm) {
-            Some(waiters) => {
-                waiters.push(on_done);
-                false
-            }
-            None => {
-                table.insert(perm, vec![on_done]);
-                true
-            }
+        if let Some(waiters) = table.get_mut(&perm) {
+            waiters.push(on_done);
+            false
+        } else {
+            table.insert(perm, vec![on_done]);
+            true
         }
     };
     if start {
@@ -712,6 +720,7 @@ pub mod android {
         Permission::Raw("android.permission.READ_MEDIA_VISUAL_USER_SELECTED");
 
     /// Any other Android permission id.
+    #[must_use]
     pub const fn raw(name: &'static str) -> Permission {
         Permission::Raw(name)
     }

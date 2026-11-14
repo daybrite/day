@@ -1,4 +1,4 @@
-//! The items, and the state the list and the editor share: https://daybrite.dev/docs/explanation/reactivity
+//! The items, and the state the list and the editor share: <https://daybrite.dev/docs/explanation/reactivity>
 
 use crate::{Section, res};
 use day::prelude::*;
@@ -69,10 +69,10 @@ impl Tint {
 
     pub(crate) fn color(self) -> Color {
         Color::hex(match self {
-            Tint::Blue => 0x3478F6,
-            Tint::Green => 0x30B355,
-            Tint::Orange => 0xF2910A,
-            Tint::Purple => 0xA550D6,
+            Tint::Blue => 0x34_78F6,
+            Tint::Green => 0x30_B355,
+            Tint::Orange => 0xF2_910A,
+            Tint::Purple => 0xA5_50D6,
         })
     }
 }
@@ -85,7 +85,7 @@ fn any<T: Copy, L>(options: &[(T, L)]) -> T {
     options[n as usize % options.len()].0
 }
 
-/// An app setting, shown in Settings: https://daybrite.dev/docs/how-to/guide-storage
+/// An app setting, shown in Settings: <https://daybrite.dev/docs/how-to/guide-storage>
 pub(crate) static SHOW_DONE: Pref<bool> = Pref::new("app.show_done", || true);
 
 /// One window's state. `Copy` copies the handles, not the items.

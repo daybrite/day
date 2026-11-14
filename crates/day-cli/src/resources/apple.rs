@@ -7,7 +7,7 @@
 //! the `.xcodeproj` already links), declared `resources: [.process(...)]`. xcodebuild's `actool`
 //! compiles the catalog into an optimized, deduplicated `Assets.car` in `DayPieces_DayPieces.bundle`;
 //! `day-toolkit-uikit` loads images by name from that bundle. This is invoked from `pieces::write_ios_pieces`
-//! (which owns the DayPieces package), not the `stage()` dispatcher.
+//! (which owns the `DayPieces` package), not the `stage()` dispatcher.
 //!
 //! Data (`assets/`) is copied into the app bundle by the xcode-backend copy phase and read back
 //! through the default mmap file opener (a plain bundle file, the Apple native path). macOS/AppKit

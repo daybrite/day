@@ -124,7 +124,7 @@ fn base_query(key: Option<&str>, data_protection: bool) -> Query {
 
 /// The typed dictionary as the untyped one the Security calls take.
 fn as_dictionary(query: &Query) -> &CFDictionary {
-    let ptr: *const CFMutableDictionary<CFString, CFType> = &**query;
+    let ptr: *const CFMutableDictionary<CFString, CFType> = &raw const **query;
     // SAFETY: a CFMutableDictionary is a CFDictionary, and the type parameters are a Rust-side
     // annotation over the same opaque object.
     unsafe { &*ptr.cast::<CFDictionary>() }
@@ -135,7 +135,7 @@ fn copy_matching(query: &Query) -> Result<Option<CFRetained<CFType>>, i32> {
     let mut result: *const CFType = std::ptr::null();
     // SAFETY: the dictionary is live for the call; `result` receives a +1 reference on success,
     // owned by the `CFRetained` built from it, or stays null.
-    let status = unsafe { SecItemCopyMatching(as_dictionary(query), &mut result) };
+    let status = unsafe { SecItemCopyMatching(as_dictionary(query), &raw mut result) };
     if status != ERR_SUCCESS {
         return Err(status);
     }
@@ -198,8 +198,7 @@ fn attributes_of(key: &str) -> Result<Option<Protection>, KeychainError> {
                 unsafe { CFRetained::cast_unchecked::<CFDictionary<CFString, CFType>>(attrs) };
             Ok(Some(protection_of(&attrs)))
         }
-        Ok(None) => Ok(None),
-        Err(ERR_ITEM_NOT_FOUND) => Ok(None),
+        Ok(None) | Err(ERR_ITEM_NOT_FOUND) => Ok(None),
         Err(status) => Err(status_error(status)),
     }
 }

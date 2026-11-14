@@ -1,7 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 use day_spec::sidetable::SideTable;
-use day_spec::{Point, ffi_guard, transfer::*};
+use day_spec::{
+    Point, ffi_guard,
+    transfer::{Location, Offer, Operation, Source, Target},
+};
 std::thread_local! {
     static SOURCES: SideTable<Source> = SideTable::new();
     static TARGETS: SideTable<Target> = SideTable::new();
@@ -48,7 +51,7 @@ pub unsafe extern "C" fn day_dom_drag_accept(
     n: usize,
     local: bool,
 ) -> bool {
-    let bytes = unsafe { Vec::from_raw_parts(p, n, n) };
+    let bytes = unsafe { crate::take_bytes(p, n) };
     ffi_guard::contain(false, || {
         let at = Location {
             position: Point::new(x, y),
@@ -73,7 +76,7 @@ pub unsafe extern "C" fn day_dom_drag_receive(
     n: usize,
     local: bool,
 ) -> bool {
-    let bytes = unsafe { Vec::from_raw_parts(p, n, n) };
+    let bytes = unsafe { crate::take_bytes(p, n) };
     ffi_guard::contain(false, || {
         let Some(offer) = Offer::decode(&bytes) else {
             return false;

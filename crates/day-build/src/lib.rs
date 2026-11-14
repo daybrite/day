@@ -37,6 +37,7 @@
 mod scoped_locales;
 pub use scoped_locales::{generate_locales, render_crate_locales};
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 pub mod bridge;
@@ -48,6 +49,11 @@ pub mod swiftui;
 /// `day build` supplies `DAY_APP_TITLE` after resolving flavor and target overrides. A plain
 /// Cargo build reads `[app].title` from Day.toml, falling back to the Cargo package name.
 /// Registers both inputs so changing the title invalidates the generated output.
+///
+/// # Errors
+///
+/// Returns an error when `DAY_APP_TITLE` is unset and `CARGO_MANIFEST_DIR` or `CARGO_PKG_NAME` is
+/// unset, Day.toml cannot be read or parsed, or `app.title` is not a string.
 pub fn app_title() -> Result<String, String> {
     println!("cargo:rerun-if-env-changed=DAY_APP_TITLE");
     println!("cargo:rerun-if-changed=Day.toml");
@@ -84,6 +90,11 @@ pub struct WindowGeometry {
 
 /// Read [`WindowGeometry`] from the project's Day.toml (registered for rerun by
 /// [`app_title`]).
+///
+/// # Errors
+///
+/// Returns an error when `CARGO_MANIFEST_DIR` is unset, Day.toml does not parse, or a `[window]`
+/// value has the wrong type. A missing Day.toml yields the default geometry.
 pub fn window_geometry() -> Result<WindowGeometry, String> {
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     match std::fs::read_to_string(root.join("Day.toml")) {
@@ -240,6 +251,10 @@ pub struct ResourcePlan {
 /// line every app has to be told to add.
 ///
 /// An app that wants only part of it can keep calling the narrower functions; they stay public.
+///
+/// # Errors
+///
+/// Returns the errors of [`generate_resources`].
 pub fn prebuild_project() -> Result<(), String> {
     generate_resources()
 }
@@ -250,6 +265,11 @@ pub fn prebuild_project() -> Result<(), String> {
 /// `build.rs` should `.expect(...)` this so the problem fails the build loudly.
 ///
 /// [`prebuild_project`] is what a scaffolded `build.rs` calls; this is the one step it performs.
+///
+/// # Errors
+///
+/// Returns an error when `CARGO_MANIFEST_DIR` or `OUT_DIR` is unset, a resource name is not
+/// portable or collides with another, Day.toml is invalid, or the generated file cannot be written.
 pub fn generate_resources() -> Result<(), String> {
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let out = PathBuf::from(env("OUT_DIR")?);
@@ -336,7 +356,7 @@ fn render_shortcuts(shortcuts: &[(String, String)]) -> String {
          static __DAY_LAUNCHER_SHORTCUTS: &[(&str, &str)] = &[\n",
     );
     for (route, label) in shortcuts {
-        s.push_str(&format!("    ({route:?}, {label:?}),\n"));
+        let _ = writeln!(s, "    ({route:?}, {label:?}),");
     }
     s.push_str("];\n");
     s
@@ -363,12 +383,21 @@ fn env(key: &str) -> Result<String, String> {
 }
 
 /// Scan and validate a project's resources into a [`ResourcePlan`] (the pure, testable core).
+///
+/// # Errors
+///
+/// Returns the errors of [`plan_resources_in`].
 pub fn plan_resources(root: &Path) -> Result<ResourcePlan, String> {
     plan_resources_in(&root.join("resource"))
 }
 
 /// The same, given the resource tree itself rather than the project root: what a flavored build
 /// passes, because its tree is the merge of the app's and the flavor's and lives under `build/`.
+///
+/// # Errors
+///
+/// Returns an error, with a fix hint, when a resource name is not portable, two resources produce
+/// the same symbol, or a locale catalog is invalid.
 pub fn plan_resources_in(resource: &Path) -> Result<ResourcePlan, String> {
     Ok(ResourcePlan {
         images: plan_images(&resource.join("images"))?,
@@ -411,7 +440,7 @@ fn list_files(dir: &Path) -> Vec<PathBuf> {
 /// stem, Android/HarmonyOS re-sanitize it.
 fn plan_vectors(dir: &Path) -> Result<Vec<Entry>, String> {
     let mut out: Vec<Entry> = Vec::new();
-    let mut names: std::collections::BTreeSet<String> = Default::default();
+    let mut names: std::collections::BTreeSet<String> = std::collections::BTreeSet::default();
     let entries: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -463,7 +492,8 @@ fn plan_vectors(dir: &Path) -> Result<Vec<Entry>, String> {
 
 fn plan_images(dir: &Path) -> Result<Vec<Entry>, String> {
     // stem -> (scales seen, first source path)
-    let mut seen: std::collections::BTreeMap<String, (Vec<u32>, String)> = Default::default();
+    let mut seen: std::collections::BTreeMap<String, (Vec<u32>, String)> =
+        std::collections::BTreeMap::default();
     for path in list_files(dir) {
         let stem = path
             .file_stem()
@@ -597,7 +627,7 @@ fn plan_fonts(dir: &Path) -> Result<Vec<Entry>, String> {
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
+            .map(str::to_ascii_lowercase)
             .unwrap_or_default();
         if !matches!(ext.as_str(), "ttf" | "otf") {
             continue; // non-font files are ignored (matches scan_fonts, which errors at stage time)
@@ -617,7 +647,8 @@ fn plan_fonts(dir: &Path) -> Result<Vec<Entry>, String> {
 
 /// Reject two entries whose symbols collide after sanitization (they would define the same constant).
 fn dedup_symbols(entries: Vec<Entry>, kind: &str) -> Result<Vec<Entry>, String> {
-    let mut seen: std::collections::BTreeMap<String, String> = Default::default();
+    let mut seen: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::default();
     for e in &entries {
         if let Some(prev) = seen.insert(e.symbol.clone(), e.source.clone()) {
             return Err(format!(
@@ -665,6 +696,7 @@ fn ftl_files(dir: &Path) -> Vec<PathBuf> {
 ///
 /// The flattening is injective by construction: the string planner fails the build when two keys
 /// generate the same name.
+#[must_use]
 pub fn res_str_ident(key: &str) -> String {
     key.replace('.', "_")
 }
@@ -673,6 +705,7 @@ pub fn res_str_ident(key: &str) -> String {
 /// placeables rendered as `{ $var }`), for tooling that reads a catalog message as data rather
 /// than as UI copy: the permission reasons `day build` writes into each platform's manifest
 /// (docs/permissions.md, "Localized reasons").
+#[must_use]
 pub fn message_texts(ftl_src: &str) -> Vec<(String, String)> {
     ftl_messages(ftl_src)
         .into_iter()
@@ -681,6 +714,7 @@ pub fn message_texts(ftl_src: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+#[must_use]
 pub fn message_keys(ftl_src: &str) -> Vec<String> {
     ftl_messages(ftl_src)
         .into_iter()
@@ -701,10 +735,13 @@ fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
 }
 
 fn plan_strings_from_files(files: &[PathBuf]) -> Result<Vec<StrEntry>, String> {
+    use std::collections::btree_map::Entry;
     // key -> (params: name -> numeric, the locale file that first defined it)
-    let mut agreed: std::collections::BTreeMap<String, (Params, String)> = Default::default();
+    let mut agreed: std::collections::BTreeMap<String, (Params, String)> =
+        std::collections::BTreeMap::default();
     // key -> (reference value text, whether it came from `en`)
-    let mut docs: std::collections::BTreeMap<String, (String, bool)> = Default::default();
+    let mut docs: std::collections::BTreeMap<String, (String, bool)> =
+        std::collections::BTreeMap::default();
     for path in files {
         let src = std::fs::read_to_string(path)
             .map_err(|e| format!("day-build: reading {}: {e}", display(path)))?;
@@ -732,7 +769,6 @@ fn plan_strings_from_files(files: &[PathBuf]) -> Result<Vec<StrEntry>, String> {
                 docs.insert(msg.key.clone(), (msg.value_text, is_en));
             }
             // Params: names must agree across locales; numeric is the OR across locales.
-            use std::collections::btree_map::Entry;
             match agreed.entry(msg.key.clone()) {
                 Entry::Vacant(v) => {
                     v.insert((msg.params, loc.clone()));
@@ -763,7 +799,8 @@ fn plan_strings_from_files(files: &[PathBuf]) -> Result<Vec<StrEntry>, String> {
     // An attribute's generated fn is `message_attr`; it must not collide with a message
     // of that name (or another attribute flattening to it).
     {
-        let mut fn_names: std::collections::BTreeMap<String, &String> = Default::default();
+        let mut fn_names: std::collections::BTreeMap<String, &String> =
+            std::collections::BTreeMap::default();
         for key in agreed.keys() {
             let fn_name = res_str_ident(key);
             if let Some(prev) = fn_names.insert(fn_name.clone(), key) {
@@ -805,7 +842,8 @@ fn comma(names: &Vars) -> String {
 /// directory carries no name rules of its own. A tag that Fluent can't parse degrades to `en`
 /// at runtime (`day_localization::build_bundles`), which is the engine's call, not the build's.
 fn plan_locales(dir: &Path) -> Vec<LocaleEntry> {
-    let mut by_locale: std::collections::BTreeMap<String, Vec<PathBuf>> = Default::default();
+    let mut by_locale: std::collections::BTreeMap<String, Vec<PathBuf>> =
+        std::collections::BTreeMap::default();
     for path in ftl_files(dir) {
         let locale = locale_of(&path);
         // A stray `.ftl` directly in `resource/locales/` has the bucket itself as its parent and
@@ -831,8 +869,7 @@ fn default_locale(locales: &[LocaleEntry]) -> String {
     }
     locales
         .first()
-        .map(|l| l.locale.clone())
-        .unwrap_or_else(|| "en".to_string())
+        .map_or_else(|| "en".to_string(), |l| l.locale.clone())
 }
 
 /// The locale directory name of a `resource/locales/<locale>/*.ftl` path (its parent dir name).
@@ -1034,6 +1071,7 @@ fn collect_inline_vars(
 /// Parsers here hand back `&str` views into the source rather than spans, so the only way to say
 /// where a fragment came from is to compare addresses. Returns `None` for a string that merely
 /// looks alike but was allocated elsewhere, which is what makes it safe to call on anything.
+#[must_use]
 pub fn offset_in(src: &str, part: &str) -> Option<usize> {
     let (base, at) = (src.as_ptr() as usize, part.as_ptr() as usize);
     (at >= base && at + part.len() <= base + src.len()).then_some(at - base)
@@ -1041,6 +1079,7 @@ pub fn offset_in(src: &str, part: &str) -> Option<usize> {
 
 /// The 1-based line and column of a byte offset, for callers that report positions to a human or
 /// an editor. Columns count CHARACTERS rather than bytes, which is what an editor's column means.
+#[must_use]
 pub fn line_col(src: &str, offset: usize) -> (usize, usize) {
     let upto = &src[..offset.min(src.len())];
     let line = upto.matches('\n').count() + 1;
@@ -1050,6 +1089,7 @@ pub fn line_col(src: &str, offset: usize) -> (usize, usize) {
 
 /// Every message key in a Fluent resource with the byte offset of its identifier, which turns a
 /// coverage finding into a diagnostic on the right line rather than on line 1.
+#[must_use]
 pub fn ftl_key_offsets(src: &str) -> Vec<(String, usize)> {
     use fluent_syntax::ast::Entry;
     let res = match fluent_syntax::parser::parse(src) {
@@ -1088,6 +1128,7 @@ pub struct FtlCall {
 
 /// Every function call in every message of a Fluent resource (parse errors tolerated; the
 /// partial resource is walked, matching [`message_keys`]).
+#[must_use]
 pub fn function_calls(src: &str) -> Vec<FtlCall> {
     use fluent_syntax::ast::Entry;
     let res = match fluent_syntax::parser::parse(src) {
@@ -1151,8 +1192,9 @@ fn collect_inline_calls(
                 .iter()
                 .filter_map(|n| {
                     let value = match &n.value {
-                        X::StringLiteral { value } => value.to_string(),
-                        X::NumberLiteral { value } => value.to_string(),
+                        X::StringLiteral { value } | X::NumberLiteral { value } => {
+                            value.to_string()
+                        }
                         _ => return None,
                     };
                     Some((n.name.name.to_string(), value))
@@ -1231,12 +1273,14 @@ fn is_rust_ident(s: &str) -> bool {
 /// Render a plan to the `day_resources.rs` source text. This file is `include!`d inside the app's
 /// `pub mod res { … }`, so the lint waivers are **outer** attributes on each bucket module (an inner
 /// `#![…]` is not valid at an `include!` site) and cover a bucket with no constants (unused `use`).
+#[must_use]
 pub fn render(plan: &ResourcePlan) -> String {
     render_app(plan, None, WindowGeometry::default())
 }
 
 /// [`render`] with the app's Day.toml identity: its title for `window_options()` when the
 /// catalog has no `app_title` message, and its `[window]` geometry.
+#[must_use]
 pub fn render_app(plan: &ResourcePlan, app_title: Option<&str>, window: WindowGeometry) -> String {
     let mut s = String::new();
     s.push_str("// @generated by day-build — do not edit.\n");
@@ -1269,11 +1313,12 @@ fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
 
 fn render_locales_for(s: &mut String, locales: &[LocaleEntry], scope: Option<&str>) {
     s.push_str("#[allow(dead_code)]\npub mod locales {\n");
-    s.push_str(&format!(
+    let _ = writeln!(
+        s,
         "    /// The fallback locale — the one whose strings show when the running locale has no\n\
-         \x20   /// translation for a key.\n    pub const DEFAULT: &str = {:?};\n\n",
+         \x20   /// translation for a key.\n    pub const DEFAULT: &str = {:?};\n",
         default_locale(locales)
-    ));
+    );
     s.push_str(
         "    /// Every locale under `resource/locales/`, embedded at build time: one\n\
      \x20   /// `(tag, fluent-source)` pair per directory.\n\
@@ -1294,7 +1339,7 @@ fn render_locales_for(s: &mut String, locales: &[LocaleEntry], scope: Option<&st
         } else {
             format!("concat!({}, \"\\n\")", sources.join(", \"\\n\", "))
         };
-        s.push_str(&format!("        ({:?}, {src}),\n", l.locale));
+        let _ = writeln!(s, "        ({:?}, {src}),", l.locale);
     }
     s.push_str("    ];\n\n");
     s.push_str(
@@ -1304,22 +1349,24 @@ fn render_locales_for(s: &mut String, locales: &[LocaleEntry], scope: Option<&st
      \x20   pub const ALL: &[(&str, &str)] = &[\n",
     );
     for l in locales {
-        s.push_str(&format!(
-            "        ({:?}, {:?}),\n",
+        let _ = writeln!(
+            s,
+            "        ({:?}, {:?}),",
             l.locale,
             language_name(l)
                 .or_else(|| endonym(&l.locale).map(str::to_owned))
                 .unwrap_or_else(|| l.locale.clone())
-        ));
+        );
     }
     s.push_str("    ];\n\n");
     if let Some(name) = scope {
-        s.push_str(&format!(
+        let _ = writeln!(
+            s,
             "    /// Private namespace; ordinary app installation never replaces this catalog.\n\
              pub static SCOPE: day_localization_ui::Catalog = day_localization_ui::Catalog {{ name: {name:?}, default: DEFAULT, locales: CATALOG }};\n\
              /// Register for qualified scripting lookups. Accessors also do this automatically.\n\
-             pub fn register() {{ day_localization_ui::register_catalog(&SCOPE); }}\n"
-        ));
+             pub fn register() {{ day_localization_ui::register_catalog(&SCOPE); }}"
+        );
     } else {
         s.push_str(
         "    /// Register [`CATALOG`] under [`DEFAULT`] — call once, before the first localized\n\
@@ -1438,7 +1485,7 @@ fn render_strings_for(s: &mut String, entries: &[StrEntry], api: &str, construct
     // Day's own strings (`day_cancel`, `day_about_website`, …) sit beside the crate's, so every
     // localized string is named the same way. The glob loses to an item of the same name, so a
     // message the crate defines under a core key overrides that accessor, as it overrides the text.
-    s.push_str(&format!("    pub use ::{api}::res::str::*;\n"));
+    let _ = writeln!(s, "    pub use ::{api}::res::str::*;");
     for e in entries {
         // Each param is `impl day::IntoFArg<Mn>`, or `IntoNumberFArg` when the message uses it as a
         // plural/`select` selector (a distinct marker generic per arg). The Rust parameter ident is
@@ -1471,8 +1518,9 @@ fn render_strings_for(s: &mut String, entries: &[StrEntry], api: &str, construct
                 .enumerate()
                 .map(|(i, p)| format!("pub {}: A{i}", ident_token(&sanitize_ident(&p.name))))
                 .collect();
-            s.push_str(&format!(
-                "    /// The arguments of `{}`: `{}`.\n    pub struct {struct_name}<{}> {{ {} }}\n",
+            let _ = writeln!(
+                s,
+                "    /// The arguments of `{}`: `{}`.\n    pub struct {struct_name}<{}> {{ {} }}",
                 e.key,
                 e.params
                     .iter()
@@ -1481,7 +1529,7 @@ fn render_strings_for(s: &mut String, entries: &[StrEntry], api: &str, construct
                     .join("`, `"),
                 type_params.join(", "),
                 fields.join(", "),
-            ));
+            );
             let bounds: Vec<String> = e
                 .params
                 .iter()
@@ -1497,18 +1545,20 @@ fn render_strings_for(s: &mut String, entries: &[StrEntry], api: &str, construct
                 .collect();
             let mut body = format!("{constructor}{:?})", e.key);
             for p in &e.params {
-                body.push_str(&format!(
+                let _ = write!(
+                    body,
                     ".arg({:?}, args.{})",
                     p.name,
                     ident_token(&sanitize_ident(&p.name))
-                ));
+                );
             }
-            s.push_str(&format!(
-                "    /// {doc}\n    pub fn {fn_name}<{}, {}>(args: {struct_name}<{}>) -> {api}::LocalizedText {{ {body} }}\n",
+            let _ = writeln!(
+                s,
+                "    /// {doc}\n    pub fn {fn_name}<{}, {}>(args: {struct_name}<{}>) -> {api}::LocalizedText {{ {body} }}",
                 generics.join(", "),
                 bounds.join(", "),
                 type_params.join(", "),
-            ));
+            );
             continue;
         }
         let sig_params: Vec<String> = e
@@ -1524,21 +1574,24 @@ fn render_strings_for(s: &mut String, entries: &[StrEntry], api: &str, construct
         };
         let mut body = format!("{constructor}{:?})", e.key);
         for p in &e.params {
-            body.push_str(&format!(
+            let _ = write!(
+                body,
                 ".arg({:?}, {})",
                 p.name,
                 ident_token(&sanitize_ident(&p.name))
-            ));
+            );
         }
-        s.push_str(&format!(
-            "    /// {doc}\n    pub fn {fn_name}{generic_list}({}) -> {api}::LocalizedText {{ {body} }}\n",
+        let _ = writeln!(
+            s,
+            "    /// {doc}\n    pub fn {fn_name}{generic_list}({}) -> {api}::LocalizedText {{ {body} }}",
             sig_params.join(", "),
-        ));
+        );
     }
     s.push_str("}\n\n");
 }
 
 /// `items_moved` → `ItemsMoved`: the name of a message's argument struct.
+#[must_use]
 pub fn pascal_case(ident: &str) -> String {
     let mut out = String::with_capacity(ident.len());
     let mut upper = true;
@@ -1580,13 +1633,13 @@ fn render_window_options(
     if has_title {
         s.push_str("        .title_fn(|| str::app_title().format())\n");
     } else if let Some(title) = app_title {
-        s.push_str(&format!("        .title({title:?})\n"));
+        let _ = writeln!(s, "        .title({title:?})");
     }
     if let Some((w, h)) = window.size {
-        s.push_str(&format!("        .size({w:?}, {h:?})\n"));
+        let _ = writeln!(s, "        .size({w:?}, {h:?})");
     }
     if let Some((w, h)) = window.min_size {
-        s.push_str(&format!("        .min_size({w:?}, {h:?})\n"));
+        let _ = writeln!(s, "        .min_size({w:?}, {h:?})");
     }
     s.push_str("        .version(env!(\"CARGO_PKG_VERSION\"))\n}\n\n");
 }
@@ -1603,38 +1656,41 @@ fn render_assets(s: &mut String, root: &AssetNode) {
 
 fn render_asset_node(s: &mut String, module: &str, node: &AssetNode, depth: usize) {
     let pad = "    ".repeat(depth);
-    s.push_str(&format!("{pad}pub mod {} {{\n", ident_token(module)));
-    s.push_str(&format!("{pad}    use day::{{AssetDir, AssetName}};\n"));
+    let _ = writeln!(s, "{pad}pub mod {} {{", ident_token(module));
+    let _ = writeln!(s, "{pad}    use day::{{AssetDir, AssetName}};");
     for e in &node.files {
-        s.push_str(&format!(
-            "{pad}    /// `{}`\n{pad}    pub const {}: AssetName = AssetName::from_static({:?});\n",
+        let _ = writeln!(
+            s,
+            "{pad}    /// `{}`\n{pad}    pub const {}: AssetName = AssetName::from_static({:?});",
             e.source,
             ident_token(&e.symbol),
             e.value,
-        ));
+        );
     }
     for (sym, sub) in &node.dirs {
-        s.push_str(&format!(
-            "{pad}    /// `resource/assets/{}` (directory)\n{pad}    pub const {}: AssetDir = AssetDir::from_static({:?});\n",
+        let _ = writeln!(
+            s,
+            "{pad}    /// `resource/assets/{}` (directory)\n{pad}    pub const {}: AssetDir = AssetDir::from_static({:?});",
             sub.path,
             ident_token(sym),
             sub.path,
-        ));
+        );
         render_asset_node(s, sym, sub, depth + 1);
     }
-    s.push_str(&format!("{pad}}}\n"));
+    let _ = writeln!(s, "{pad}}}");
 }
 
 fn render_bucket(s: &mut String, module: &str, ty: &str, entries: &[Entry]) {
     s.push_str("#[allow(non_upper_case_globals, dead_code, unused_imports)]\n");
-    s.push_str(&format!("pub mod {module} {{\n    use day::{ty};\n"));
+    let _ = writeln!(s, "pub mod {module} {{\n    use day::{ty};");
     for e in entries {
-        s.push_str(&format!(
-            "    /// `{}`\n    pub const {}: {ty} = {ty}::from_static({:?});\n",
+        let _ = writeln!(
+            s,
+            "    /// `{}`\n    pub const {}: {ty} = {ty}::from_static({:?});",
             e.source,
             ident_token(&e.symbol),
             e.value,
-        ));
+        );
     }
     s.push_str("}\n\n");
 }
@@ -1670,6 +1726,7 @@ fn parse_scale(stem: &str) -> (String, u32) {
 /// Sanitize a name to the strictest platform identifier rules (Android `R` / ArkUI): lowercase, only
 /// `[a-z0-9_]`, forced leading letter. The canonical copy: the CLI stagers re-export this so the
 /// staged native name and the generated constant string agree by construction.
+#[must_use]
 pub fn sanitize_ident(name: &str) -> String {
     let mut s: String = name
         .chars()
@@ -1695,7 +1752,7 @@ pub fn sanitize_ident(name: &str) -> String {
 /// release binary reproducible from another directory (`day rebuild`, §20.3): rustc records
 /// source positions as offsets into every file it loaded, a crate that calls into this module
 /// loads this file too, and a path spelled out here would change its length, shift every later
-/// offset, and change the binary's ThinLTO symbol suffixes with them. A file outside the crate (a
+/// offset, and change the binary's `ThinLTO` symbol suffixes with them. A file outside the crate (a
 /// flavor's merged tree under another root) keeps its absolute path; `{:?}` escapes either into a
 /// valid Rust literal, Windows separators included.
 fn include_source(path: &Path, manifest_dir: Option<&Path>) -> String {
@@ -1894,7 +1951,7 @@ mod tests {
         let plan = plan_resources(&root).unwrap();
         assert!(plan.images.is_empty() && plan.fonts.is_empty());
         assert!(plan.assets.files.is_empty() && plan.assets.dirs.is_empty());
-        assert!(plan.strings.is_empty());
+        assert_eq!(plan.strings, [] as [StrEntry; 0]);
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1928,7 +1985,7 @@ mod tests {
              counter_value = { $count ->\n    [one] { $count } click\n   *[other] { $count } clicks\n}\n",
         );
         let plan = plan_resources(&root).unwrap();
-        assert!(names(entry(&plan, "nav_home")).is_empty());
+        assert_eq!(names(entry(&plan, "nav_home")), [] as [&str; 0]);
         assert_eq!(names(entry(&plan, "greeting")), vec!["name"]);
         assert_eq!(entry(&plan, "greeting").doc, "Hello, { $name }!"); // #5
         assert!(!entry(&plan, "greeting").params[0].numeric);
@@ -2228,7 +2285,7 @@ mod tests {
         let root = tmp("locales-none");
         touch(&root.join("resource/images"), "logo.png", b"x");
         let plan = plan_resources(&root).unwrap();
-        assert!(plan.locales.is_empty());
+        assert_eq!(plan.locales, [] as [LocaleEntry; 0]);
         let code = render(&plan);
         assert!(code.contains("pub const DEFAULT: &str = \"en\";"));
         assert!(code.contains("pub const CATALOG: &[(&str, &str)] = &[\n    ];"));

@@ -62,11 +62,8 @@ impl Live {
         }
     }
 
-    fn sample(&mut self, reading: MemorySample) {
-        let elapsed = self
-            .start
-            .map(|s| s.elapsed().as_millis() as u64)
-            .unwrap_or(0);
+    fn sample(&mut self, reading: &MemorySample) {
+        let elapsed = self.start.map_or(0, |s| s.elapsed().as_millis() as u64);
         let memory = &mut self.value["memory"];
         memory["metric"] = json!(reading.metric);
         memory["samples"]
@@ -170,7 +167,7 @@ impl Active {
     fn record(&self) -> Option<Record> {
         self.0.lock().unwrap().clone()
     }
-    fn sample(&self, sample: MemorySample) {
+    fn sample(&self, sample: &MemorySample) {
         if let Some(record) = self.record() {
             record.lock().unwrap().sample(sample);
         }
@@ -261,7 +258,7 @@ impl Reports {
             let parsed = std::fs::read_to_string(script)
                 .ok()
                 .and_then(|s| day_script_protocol::Script::from_yaml(&s).ok());
-            let planned = parsed.as_ref().map(|s| s.steps.len()).unwrap_or(0);
+            let planned = parsed.as_ref().map_or(0, |s| s.steps.len());
             let run_id = format!(
                 "{}-{}-{stamp}-{}-{index}",
                 target.name,
@@ -408,9 +405,7 @@ impl Reports {
                 }
             }
             let mb = |value: Option<f64>| {
-                value
-                    .map(|v| format!("{:.2}", v / 1e6))
-                    .unwrap_or_else(|| "unknown".into())
+                value.map_or_else(|| "unknown".into(), |v| format!("{:.2}", v / 1e6))
             };
             let avg = (!samples.is_empty())
                 .then(|| samples.iter().map(|v| *v as f64).sum::<f64>() / samples.len() as f64);
@@ -480,8 +475,8 @@ pub(crate) struct Reader {
 fn read_replies(
     mut reader: impl BufRead,
     stopping: &AtomicBool,
-    active: Active,
-    tx: mpsc::Sender<std::io::Result<String>>,
+    active: &Active,
+    tx: &mpsc::Sender<std::io::Result<String>>,
 ) {
     // Keep raw bytes across poll timeouts, including a timeout halfway through a
     // UTF-8 character. Decode only once the complete reply has arrived.
@@ -518,7 +513,7 @@ fn read_replies(
                     && let Ok(reply) = serde_json::from_str::<Reply>(&line)
                     && let Some(sample) = reply.memory_sample
                 {
-                    active.sample(*sample);
+                    active.sample(&sample);
                 } else if tx.send(Ok(line)).is_err() {
                     break;
                 }
@@ -536,7 +531,6 @@ fn read_replies(
                 if cfg!(windows) && error.raw_os_error() == Some(997) {
                     std::thread::sleep(READER_POLL);
                 }
-                continue;
             }
             Err(error) => {
                 let _ = tx.send(Err(error));
@@ -556,7 +550,7 @@ impl Reader {
         let stopping = Arc::new(AtomicBool::new(false));
         let worker_stopping = stopping.clone();
         let thread = std::thread::spawn(move || {
-            read_replies(BufReader::new(input), &worker_stopping, active, tx);
+            read_replies(BufReader::new(input), &worker_stopping, &active, &tx);
         });
         Ok(Self {
             replies,
@@ -632,7 +626,7 @@ fn command(program: &str, args: &[&str]) -> std::process::Command {
     cmd
 }
 fn hardware(target: &Target, root: &Path) -> Value {
-    let mut host = json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"logical_cpus":std::thread::available_parallelism().ok().map(|n| n.get()),"model":null,"cpu":null,"memory_bytes":null,"os_version":null});
+    let mut host = json!({"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"logical_cpus":std::thread::available_parallelism().ok().map(std::num::NonZero::get),"model":null,"cpu":null,"memory_bytes":null,"os_version":null});
     if cfg!(target_os = "macos") {
         host["model"] = json!(probe(root, command("sysctl", &["-n", "hw.model"])));
         host["cpu"] = json!(probe(
@@ -825,7 +819,7 @@ mod tests {
             let _inflight = reports.step(2, "assert_visible");
         } // Unwinding/transport failure.
         for bytes in [Some(100), Some(300), Some(200)] {
-            reports.active.sample(MemorySample {
+            reports.active.sample(&MemorySample {
                 bytes,
                 metric: "fixture".into(),
             });
@@ -983,9 +977,10 @@ mod tests {
             read_replies(
                 BufReader::new(input),
                 &AtomicBool::new(false),
-                Active::default(),
-                tx,
+                &Active::default(),
+                &tx,
             );
+            drop(tx);
             let result = rx.recv().unwrap();
             if retry {
                 assert_eq!(result.unwrap(), expected);
@@ -1003,9 +998,10 @@ mod tests {
         read_replies(
             BufReader::new(&b"{\"ok\":true}\n{\"ok\":true,\"data\":{\"ids\":[\"na"[..]),
             &AtomicBool::new(false),
-            Active::default(),
-            tx,
+            &Active::default(),
+            &tx,
         );
+        drop(tx);
         assert_eq!(rx.recv().unwrap().unwrap(), "{\"ok\":true}\n");
         let error = rx.recv().unwrap().unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
@@ -1019,11 +1015,11 @@ mod tests {
     #[test]
     fn unavailable_final_reading_is_not_replaced_with_an_older_value() {
         let (reports, root) = fixture();
-        reports.active.sample(MemorySample {
+        reports.active.sample(&MemorySample {
             bytes: Some(100),
             metric: "fixture".into(),
         });
-        reports.active.sample(MemorySample {
+        reports.active.sample(&MemorySample {
             bytes: None,
             metric: "fixture".into(),
         });

@@ -39,7 +39,7 @@ pub fn request_open_url(url: &str) {
     }
     PENDING
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push_back(url.into());
     if day_reactive::has_main_poster() {
         day_reactive::on_main(drain);
@@ -92,7 +92,7 @@ pub fn request_shared_text(text: &str, subject: Option<&str>) {
     }
     SHARED
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push_back(text.into());
     if day_reactive::has_main_poster() {
         day_reactive::on_main(drain_shared);
@@ -109,7 +109,10 @@ fn drain_shared_queue(queue: &Mutex<VecDeque<String>>) {
         let Some(handler) = SHARED_HANDLERS.with(|h| h.borrow().last().cloned()) else {
             return;
         };
-        let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+        let next = queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front();
         let Some(text) = next else { return };
         handler(&text);
     }
@@ -171,7 +174,10 @@ fn web_link_in(text: &str) -> Option<&str> {
 }
 fn drain_queue(queue: &Mutex<VecDeque<String>>) {
     loop {
-        let next = queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+        let next = queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front();
         let Some(url) = next else { break };
         // Newest first; a snapshot, so a handler may register or unregister another.
         let handlers: Vec<_> = HANDLERS.with(|h| h.borrow().iter().rev().cloned().collect());
@@ -271,7 +277,7 @@ mod tests {
                         .push_back("atom:https://fixture.example/atom".into());
                 }
                 true
-            })
+            });
         });
         drain_queue(&queue);
         queue
@@ -304,7 +310,7 @@ mod tests {
             on_open_url(move |url| {
                 received.borrow_mut().push(url.to_owned());
                 true
-            })
+            });
         });
         let part_scope = day_reactive::Scope::child();
         let received = part_seen.clone();
@@ -315,7 +321,7 @@ mod tests {
                     received.borrow_mut().push(url.to_owned());
                 }
                 mine
-            })
+            });
         });
         queue.lock().unwrap().extend([
             "myapp://auth?code=1".to_string(),

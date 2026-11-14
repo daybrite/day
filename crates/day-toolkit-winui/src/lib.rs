@@ -4,7 +4,7 @@
 //! WinUI 3 backend for `windows-winui`, over the `day-toolkit-xaml-sys` C++/WinRT shim.
 //! The `winui` feature selects Microsoft.UI.Xaml; the deprecated `windows-xaml`
 //! target uses Windows.UI.Xaml through the same shim. Controls live in a
-//! DesktopWindowXamlSource, with Day layout placing them inside XAML Canvases.
+//! `DesktopWindowXamlSource`, with Day layout placing them inside XAML Canvases.
 //! Toolkit-independent Windows services come from `day-platform-windows`.
 //! The `Xaml` and `XamlExt` type names remain shared by both target variants.
 
@@ -23,6 +23,7 @@ mod tree;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::{CStr, CString};
+use std::fmt::Write as _;
 use std::os::raw::{c_char, c_double, c_int, c_void};
 use std::rc::Rc;
 
@@ -156,10 +157,10 @@ struct SplitNav {
     menu_node: u64,
     sidebar_page: Option<(*mut c_void, NodeId)>,
     /// (page, node, title) — the title is attached by `NavPatch::Pushed`/`Title` so a pop can
-    /// restore the PREVIOUS page's title into the NavigationView header (stack_sync).
+    /// restore the PREVIOUS page's title into the `NavigationView` header (`stack_sync`).
     detail_pages: Vec<(*mut c_void, NodeId, String)>,
     /// A push/pop stack (NavProps.presentation == Stack): no menu/sidebar, every page stacks in the
-    /// content region, and the NavigationView back button appears once a page is pushed.
+    /// content region, and the `NavigationView` back button appears once a page is pushed.
     is_stack: bool,
     /// Whether the destinations are RESIDENT — `Tabs` and `Rail`, where the rows are the chrome
     /// and every page stays realized so `Select` can switch between them. A `Split` nav is not:
@@ -180,12 +181,12 @@ enum NavState {
     Split(SplitNav),
 }
 
-/// Fixed height (pt) of the NavigationView PaneHeader that hosts day's sidebar header piece
+/// Fixed height (pt) of the `NavigationView` `PaneHeader` that hosts day's sidebar header piece
 /// (logo + app title) — a bare Canvas has no desired size, so the slot needs an explicit one.
 const NAV_PANE_HEADER_H: c_int = 60;
 
-/// Tree and reorderable-list sidebars supply their own rows instead of MenuItems.
-/// Move the page out of the 60-point PaneHeader and let Day size the whole sidebar:
+/// Tree and reorderable-list sidebars supply their own rows instead of `MenuItems`.
+/// Move the page out of the 60-point `PaneHeader` and let Day size the whole sidebar:
 /// Canvas children can paint outside that header while remaining unhittable there.
 fn attach_custom_sidebar() {
     let pending = PENDING_SPLIT_NAV.with(|v| v.replace(std::ptr::null_mut()));
@@ -225,12 +226,12 @@ extern "C" fn nav_menu_changed(id: u64, index: c_int) {
     // a panic unwinding into the C++/WinRT shim frame is undefined behavior (day-spec's
     // ffi_guard).
     ffi_guard::contain((), || {
-        emit(NodeId(id), Event::SelectionChanged(index as i64))
+        emit(NodeId(id), Event::SelectionChanged(i64::from(index)));
     });
 }
 
-/// A user pick in a NavigationView pane: the shim passes the HOST node id + item index; route it to
-/// the host's NAV_MENU node (whose day handler maps the index back to a route).
+/// A user pick in a `NavigationView` pane: the shim passes the HOST node id + item index; route it to
+/// the host's `NAV_MENU` node (whose day handler maps the index back to a route).
 extern "C" fn document_event(host_id: u64, kind: c_int, index: c_int, key: *const c_char) {
     ffi_guard::contain((), || {
         let tag = match kind {
@@ -249,7 +250,7 @@ extern "C" fn document_event(host_id: u64, kind: c_int, index: c_int, key: *cons
             NodeId(host_id),
             Event::Custom {
                 tag,
-                num: index as f64,
+                num: f64::from(index),
                 text,
             },
         );
@@ -265,12 +266,12 @@ extern "C" fn nav_selection(host_id: u64, index: c_int) {
             _ => None,
         });
         if let Some(menu_node) = menu {
-            emit(NodeId(menu_node), Event::SelectionChanged(index as i64));
+            emit(NodeId(menu_node), Event::SelectionChanged(i64::from(index)));
         }
     });
 }
 
-/// A NavigationView region reflowed (window resize, pane open/close): report the true size so day
+/// A `NavigationView` region reflowed (window resize, pane open/close): report the true size so day
 /// re-lays the affected page(s). region 0 = content (detail pages), 1 = pane header (sidebar page).
 extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
     ffi_guard::contain((), || {
@@ -279,7 +280,7 @@ extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
         }
         let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
         let Some(host) = host else { return };
-        let size = Size::new(w as f64, h as f64);
+        let size = Size::new(f64::from(w), f64::from(h));
         let reports: Vec<NodeId> = NAV_STATE.with(|m| {
             let m = m.borrow();
             let Some(NavState::Split(s)) = m.get(&(host as usize)) else {
@@ -460,12 +461,15 @@ extern "C" fn inspector_region_size(host_id: u64, region: c_int, w: c_int, h: c_
                 .and_then(|p| if region == 1 { p.panel } else { p.content })
         });
         if let Some(id) = id {
-            emit(id, Event::FrameChanged(Size::new(w as f64, h as f64)));
+            emit(
+                id,
+                Event::FrameChanged(Size::new(f64::from(w), f64::from(h))),
+            );
         }
     });
 }
 
-/// The NavigationView back button: pop one level (the stack surface writes it back into its path).
+/// The `NavigationView` back button: pop one level (the stack surface writes it back into its path).
 extern "C" fn nav_back(host_id: u64) {
     ffi_guard::contain((), || {
         emit(
@@ -473,7 +477,7 @@ extern "C" fn nav_back(host_id: u64) {
             Event::NavBack {
                 already_popped: false,
             },
-        )
+        );
     });
 }
 
@@ -484,10 +488,13 @@ fn stack_sync(host: *mut c_void) {
         if let Some(NavState::Split(s)) = m.borrow().get(&(host as usize)) {
             let last = s.detail_pages.len().saturating_sub(1);
             for (i, (page, _, _)) in s.detail_pages.iter().enumerate() {
-                unsafe { ffi::day_xaml_set_visible(*page, (i == last) as c_int) };
+                unsafe { ffi::day_xaml_set_visible(*page, c_int::from(i == last)) };
             }
             unsafe {
-                ffi::day_xaml_nav_set_back_visible(s.nav_view, (s.detail_pages.len() >= 2) as c_int)
+                ffi::day_xaml_nav_set_back_visible(
+                    s.nav_view,
+                    c_int::from(s.detail_pages.len() >= 2),
+                );
             };
             // Restore the (new) top page's title — without this a pop left the POPPED page's
             // title in the NavigationView header until the next push.
@@ -524,7 +531,7 @@ fn select_sync(host: *mut c_void) {
         }
     });
     for (page, visible) in pages {
-        unsafe { ffi::day_xaml_set_visible(page, visible as c_int) };
+        unsafe { ffi::day_xaml_set_visible(page, c_int::from(visible)) };
     }
 }
 
@@ -556,8 +563,8 @@ fn apply_button_content(
             cstr(glyph).as_ptr(),
             cstr(&name).as_ptr(),
             cstr(&geometry).as_ptr(),
-            icon_only as c_int,
-        )
+            c_int::from(icon_only),
+        );
     };
 }
 
@@ -649,7 +656,7 @@ fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextR
                 bg_argb,
                 scale_permille,
                 cstr(&link).as_ptr(),
-            )
+            );
         };
     };
     for r in runs {
@@ -682,7 +689,7 @@ fn cstr(s: &str) -> CString {
     CString::new(s).unwrap_or_else(|_| CString::new(s.replace('\0', "")).unwrap_or_default())
 }
 
-/// A styled run's link was clicked (docs/text-runs.md). The Hyperlink carries no NavigateUri,
+/// A styled run's link was clicked (docs/text-runs.md). The Hyperlink carries no `NavigateUri`,
 /// so nothing has opened anything yet: the label's `.on_link()` decides.
 extern "C" fn on_link(id: u64, url: *const c_char) {
     ffi_guard::contain((), || {
@@ -742,7 +749,7 @@ extern "C" fn on_press(id: u64) {
                 // returned, and `release` drops a button's entry before the shim frees the
                 // element, so `button` is still the live element registered for this node.
                 unsafe {
-                    ffi::day_xaml_show_button_menu(button as *mut c_void, cstr(&spec).as_ptr())
+                    ffi::day_xaml_show_button_menu(button as *mut c_void, cstr(&spec).as_ptr());
                 };
             }
         }
@@ -846,7 +853,7 @@ extern "C" fn on_focus(id: u64, kind: c_int) {
     });
 }
 
-/// A `0.0..=1.0` fraction as ProgressBar ticks (0..1000), clamped.
+/// A `0.0..=1.0` fraction as `ProgressBar` ticks (0..1000), clamped.
 fn progress_ticks(fraction: f64) -> c_int {
     (fraction.clamp(0.0, 1.0) * 1000.0).round() as c_int
 }
@@ -855,7 +862,7 @@ fn progress_ticks(fraction: f64) -> c_int {
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Xaml>];
 
-/// A live secondary window (docs/windows.md): the shim's SecWindow plus the day content
+/// A live secondary window (docs/windows.md): the shim's `SecWindow` plus the day content
 /// root the tree adopted.
 struct XamlWin {
     win: *mut c_void,
@@ -892,6 +899,7 @@ impl Xaml {
 }
 
 impl Xaml {
+    #[must_use]
     pub fn new() -> Self {
         let mut registry = Registry::default();
         for f in RENDERERS {
@@ -920,32 +928,29 @@ impl Default for Xaml {
     }
 }
 
-/// Day font intents → (XAML FontSize in DIPs, bold).
+/// Day font intents → (XAML `FontSize` in DIPs, bold).
 /// Point size + the style's inherent weight for a logical [`Font`]. XAML's `TextBlock.FontSize`
 /// auto-scales with the OS text-scale-factor (Settings ▸ Accessibility ▸ Text size), so these sizes
 /// honor accessibility.
 ///
 /// The sizes are the Windows 11 (Fluent) type ramp WinUI's own text styles use, so a Day label
 /// sits beside the controls' text as a native one would: Caption 12, Body 14 (the controls'
-/// `ControlContentThemeFontSize`), BodyStrong 14 semibold, BodyLarge 18, Subtitle 20 semibold,
+/// `ControlContentThemeFontSize`), `BodyStrong` 14 semibold, `BodyLarge` 18, Subtitle 20 semibold,
 /// Title 28 semibold. Fluent has nothing below 12 px; Caption2 alone goes to 11, as the
 /// smallest Windows UI text (the taskbar clock's) does.
 fn xaml_style(f: Font) -> (f64, day_spec::FontWeight) {
-    use day_spec::FontWeight::*;
+    use day_spec::FontWeight::{Regular, Semibold};
     match f {
         Font::LargeTitle => (28.0, Semibold), // TitleTextBlockStyle
         Font::Title => (20.0, Semibold),      // SubtitleTextBlockStyle
         Font::Title2 => (18.0, Regular),      // BodyLargeTextBlockStyle
         Font::Title3 => (16.0, Semibold),
         Font::Headline => (14.0, Semibold), // BodyStrongTextBlockStyle
-        Font::Subheadline => (12.0, Regular),
-        Font::Body => (14.0, Regular), // BodyTextBlockStyle
+        Font::Subheadline | Font::Footnote | Font::Caption => (12.0, Regular), // CaptionTextBlockStyle
+        Font::Body => (14.0, Regular),                                         // BodyTextBlockStyle
         Font::Callout => (13.0, Regular),
-        Font::Footnote => (12.0, Regular), // CaptionTextBlockStyle
-        Font::Caption => (12.0, Regular),
         Font::Caption2 => (11.0, Regular),
-        Font::System(pt) => (pt, Regular),
-        Font::Custom(_, pt) => (pt, Regular),
+        Font::System(pt) | Font::Custom(_, pt) => (pt, Regular),
     }
 }
 
@@ -963,32 +968,30 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
 
     RESOLVED.with(|cache| {
         let mut cache = cache.borrow_mut();
-        let entry =
-            cache.entry(family).or_insert_with(|| {
-                match day_spec::fonts::resolve_font_file(family)
-                    .as_deref()
-                    .and_then(|p| p.file_name())
-                    .and_then(|n| n.to_str())
-                {
-                    Some(file) => Some(cstr(&format!("ms-appx:///fonts/{file}#{family}"))),
-                    None => {
-                        log::warn!(
-                            "unknown font family {family:?} — falling back to the system font \
-                         (is the file in the project's fonts/ directory?)"
-                        );
-                        None
-                    }
-                }
-            });
+        let entry = cache.entry(family).or_insert_with(|| {
+            if let Some(file) = day_spec::fonts::resolve_font_file(family)
+                .as_deref()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+            {
+                Some(cstr(&format!("ms-appx:///fonts/{file}#{family}")))
+            } else {
+                log::warn!(
+                    "unknown font family {family:?} — falling back to the system font \
+                     (is the file in the project's fonts/ directory?)"
+                );
+                None
+            }
+        });
         if let Some(s) = entry {
             unsafe { ffi::day_xaml_label_set_font_family(h, s.as_ptr()) };
         }
     });
 }
 
-/// Win2D resolves bundled fonts through file URIs. Unlike XAML's FontFamily, its ms-appx
-/// resolver requires package identity and throws ERROR_NOT_FOUND in an unpackaged app.
-/// Use Windows' file-URI conversion to match the StorageFile resolver used by Win2D.
+/// `Win2D` resolves bundled fonts through file URIs. Unlike XAML's `FontFamily`, its ms-appx
+/// resolver requires package identity and throws `ERROR_NOT_FOUND` in an unpackaged app.
+/// Use Windows' file-URI conversion to match the `StorageFile` resolver used by `Win2D`.
 #[cfg(feature = "winui")]
 fn win2d_font_family(path: &std::path::Path, family: &str) -> Option<String> {
     use std::os::windows::ffi::OsStrExt;
@@ -1012,7 +1015,7 @@ fn win2d_font_family(path: &std::path::Path, family: &str) -> Option<String> {
         .collect();
     let mut url = vec![0u16; path.len() * 3 + 16];
     let mut len = u32::try_from(url.len()).ok()?;
-    let hr = unsafe { UrlCreateFromPathW(path.as_ptr(), url.as_mut_ptr(), &mut len, 0) };
+    let hr = unsafe { UrlCreateFromPathW(path.as_ptr(), url.as_mut_ptr(), &raw mut len, 0) };
     if hr < 0 {
         return None;
     }
@@ -1049,7 +1052,7 @@ fn win2d_font_paths_are_windows_file_uris() {
 }
 
 /// A bundled canvas family names its file as well as its family, so it cannot silently fall
-/// back to a system face. Win2D uses file URIs; the deprecated XAML renderer uses ms-appx.
+/// back to a system face. `Win2D` uses file URIs; the deprecated XAML renderer uses ms-appx.
 /// System families stay as bare names. Cached because resolution parses font name tables.
 fn canvas_family(family: &str) -> String {
     thread_local! {
@@ -1129,7 +1132,7 @@ fn stage_bundled_fonts() {
             continue; // already staged next to the exe (packed apps)
         }
         if let Err(e) =
-            std::fs::create_dir_all(&dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()))
+            std::fs::create_dir_all(&dir).and_then(|()| std::fs::copy(&src, &dst).map(|_| ()))
         {
             log::warn!(
                 "day-toolkit-winui: could not stage bundled font {}: {e}",
@@ -1139,7 +1142,7 @@ fn stage_bundled_fonts() {
     }
 }
 
-/// Stage bundled images (DAY_IMAGE_ROOT, plus the vector raster cache DAY_VECTOR_RASTER_ROOT —
+/// Stage bundled images (`DAY_IMAGE_ROOT`, plus the vector raster cache `DAY_VECTOR_RASTER_ROOT` —
 /// docs/vectors.md) next to the exe under `images/` so a `BitmapIcon` can load them via
 /// `ms-appx:///images/<file>` (same unpackaged-islands workaround as the fonts). Only nav
 /// icons need this today (regular `image()` loads bytes via a stream); a no-op when packed
@@ -1172,7 +1175,7 @@ fn stage_bundled_images() {
                 continue;
             }
             let _ = std::fs::create_dir_all(&dst_dir)
-                .and_then(|_| std::fs::copy(&src, &dst).map(|_| ()));
+                .and_then(|()| std::fs::copy(&src, &dst).map(|_| ()));
         }
     }
 }
@@ -1193,18 +1196,23 @@ fn xaml_weight(w: day_spec::FontWeight) -> c_int {
     }
 }
 
-/// (point size, FontWeight numeric, italic) for the C++/WinRT shim.
+/// (point size, `FontWeight` numeric, italic) for the C++/WinRT shim.
 fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int, c_int) {
     let (pt, inherent) = xaml_style(spec.style);
     let weight = xaml_weight(spec.weight.unwrap_or(inherent));
-    (pt, weight, spec.italic as c_int, spec.tabular as c_int)
+    (
+        pt,
+        weight,
+        c_int::from(spec.italic),
+        c_int::from(spec.tabular),
+    )
 }
 
 /// Natural (unconstrained) desired size from the shim's XAML Measure.
 fn natural(h: *mut c_void) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { ffi::day_xaml_measure(h, -1.0, -1.0, &mut w, &mut hh) };
+    unsafe { ffi::day_xaml_measure(h, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w, hh)
 }
 
@@ -1216,13 +1224,14 @@ extern "C" fn on_menu_action(id: u64) {
 
 /// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
 /// `const` so `day::require_lifecycle!` can reject unsupported phases at compile time.
+#[must_use]
 pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
     phase.is_universal()
 }
 
-/// Phase codes (from the shim's WndProc) → day lifecycle events.
+/// Phase codes (from the shim's `WndProc`) → day lifecycle events.
 extern "C" fn on_lifecycle(code: c_int) {
-    use day_spec::Lifecycle::*;
+    use day_spec::Lifecycle::{DidBecomeActive, WillResignActive, WillTerminate};
     ffi_guard::contain((), || {
         let phase = match code {
             2 => DidBecomeActive,
@@ -1235,7 +1244,10 @@ extern "C" fn on_lifecycle(code: c_int) {
 }
 
 fn win_role_label(role: day_spec::MenuRole) -> String {
-    use day_spec::MenuRole::*;
+    use day_spec::MenuRole::{
+        About, CheckForUpdates, CloseWindow, Copy, Cut, Delete, Fullscreen, Minimize, NewWindow,
+        Paste, Preferences, Quit, Redo, SelectAll, Undo,
+    };
     match role {
         Cut => "Cut",
         Copy => "Copy",
@@ -1258,16 +1270,16 @@ fn win_role_label(role: day_spec::MenuRole) -> String {
 
 /// Standard (keycode, modifier-bitmask) for a role: bit0 Control, bit1 Shift, bit2 Alt.
 fn win_role_keymods(role: day_spec::MenuRole) -> (i32, i32) {
-    use day_spec::MenuRole::*;
+    use day_spec::MenuRole::{CloseWindow, Copy, Cut, NewWindow, Paste, Redo, SelectAll, Undo};
     match role {
-        Cut => (b'X' as i32, 1),
-        Copy => (b'C' as i32, 1),
-        Paste => (b'V' as i32, 1),
-        SelectAll => (b'A' as i32, 1),
-        Undo => (b'Z' as i32, 1),
-        Redo => (b'Y' as i32, 1),
-        NewWindow => (b'N' as i32, 1),
-        CloseWindow => (b'W' as i32, 1),
+        Cut => (i32::from(b'X'), 1),
+        Copy => (i32::from(b'C'), 1),
+        Paste => (i32::from(b'V'), 1),
+        SelectAll => (i32::from(b'A'), 1),
+        Undo => (i32::from(b'Z'), 1),
+        Redo => (i32::from(b'Y'), 1),
+        NewWindow => (i32::from(b'N'), 1),
+        CloseWindow => (i32::from(b'W'), 1),
         _ => (0, 0),
     }
 }
@@ -1322,8 +1334,7 @@ fn win_keycode(key: &str) -> i32 {
             .strip_prefix('F')
             .and_then(|n| n.parse::<i32>().ok())
             .filter(|n| (1..=12).contains(n))
-            .map(|n| 0x70 + (n - 1))
-            .unwrap_or(0),
+            .map_or(0, |n| 0x70 + (n - 1)),
     }
 }
 
@@ -1339,7 +1350,7 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
         match item {
             day_spec::MenuItem::Separator => out.push_str("-\t0\t-1\t0\t0\t1\t\n"),
             day_spec::MenuItem::Submenu { label, items, .. } => {
-                out.push_str(&format!("S\t0\t-1\t0\t0\t1\t{}\n", clean(label)));
+                let _ = writeln!(out, "S\t0\t-1\t0\t0\t1\t{}", clean(label));
                 serialize_menu_xaml(items, out);
                 out.push_str("E\t0\t-1\t0\t0\t1\t\n");
             }
@@ -1353,7 +1364,7 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                 icon,
                 ..
             } => {
-                let en = *enabled as i32;
+                let en = i32::from(*enabled);
                 // Label/shortcut fall back to the role's platform defaults; the DISPATCH
                 // is chosen separately below.
                 let text = match role {
@@ -1382,26 +1393,32 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                 // A 9th field: -1 a plain command, 0/1 a ToggleMenuFlyoutItem sitting off/on.
                 let chk = checked.map_or(-1, i32::from);
                 match role {
-                    Some(r) if *action == 0 => out.push_str(&format!(
-                        "R\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                        *r as i32,
-                        key,
-                        mods,
-                        en,
-                        clean(&text),
-                        glyph,
-                        chk
-                    )),
-                    _ => out.push_str(&format!(
-                        "A\t{}\t-1\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                        action,
-                        key,
-                        mods,
-                        en,
-                        clean(&text),
-                        glyph,
-                        chk
-                    )),
+                    Some(r) if *action == 0 => {
+                        let _ = writeln!(
+                            out,
+                            "R\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                            *r as i32,
+                            key,
+                            mods,
+                            en,
+                            clean(&text),
+                            glyph,
+                            chk
+                        );
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "A\t{}\t-1\t{}\t{}\t{}\t{}\t{}\t{}",
+                            action,
+                            key,
+                            mods,
+                            en,
+                            clean(&text),
+                            glyph,
+                            chk
+                        );
+                    }
                 }
             }
         }
@@ -1463,7 +1480,7 @@ impl Toolkit for Xaml {
 
     fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
         unsafe {
-            day_toolkit_xaml_sys::day_xaml_set_visible(handle.0, visible as i32);
+            day_toolkit_xaml_sys::day_xaml_set_visible(handle.0, i32::from(visible));
         }
     }
 
@@ -1633,10 +1650,9 @@ impl Toolkit for Xaml {
                 Some(Builtin::Scroll) => {
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
-                        .map(|p| p.horizontal)
-                        .unwrap_or(false);
+                        .is_some_and(|p| p.horizontal);
                     let mut content: *mut c_void = std::ptr::null_mut();
-                    let sv = ffi::day_xaml_scroll_new(&mut content, horizontal as c_int);
+                    let sv = ffi::day_xaml_scroll_new(&raw mut content, c_int::from(horizontal));
                     SCROLL_STATE.with(|m| m.borrow_mut().insert(sv as usize, content));
                     WinHandle(sv)
                 }
@@ -1686,11 +1702,11 @@ impl Toolkit for Xaml {
                         nav_selection,
                         nav_region_size,
                         nav_back,
-                        &mut content,
-                        is_stack as c_int,
-                        (day_core::layout_direction() == day_spec::LayoutDirection::Rtl) as c_int,
-                        p.documents.is_some() as c_int,
-                        p.documents.as_ref().is_some_and(|d| d.can_add) as c_int,
+                        &raw mut content,
+                        c_int::from(is_stack),
+                        c_int::from(day_core::layout_direction() == day_spec::LayoutDirection::Rtl),
+                        c_int::from(p.documents.is_some()),
+                        c_int::from(p.documents.as_ref().is_some_and(|d| d.can_add)),
                         cstr(p.documents.as_ref().map_or("", |d| d.new_label.as_str())).as_ptr(),
                         document_event,
                     );
@@ -1726,26 +1742,26 @@ impl Toolkit for Xaml {
                     WinHandle(page)
                 }
                 Some(Builtin::Inspector) => {
-                    let (visible, width, leading) = props
-                        .downcast_ref::<InspectorProps>()
-                        .map(|p| {
-                            (
-                                p.visible,
-                                p.width,
-                                p.edge == day_spec::props::PaneEdge::Leading,
-                            )
-                        })
-                        .unwrap_or((false, 280.0, false));
+                    let (visible, width, leading) =
+                        props
+                            .downcast_ref::<InspectorProps>()
+                            .map_or((false, 280.0, false), |p| {
+                                (
+                                    p.visible,
+                                    p.width,
+                                    p.edge == day_spec::props::PaneEdge::Leading,
+                                )
+                            });
                     let mut content: *mut c_void = std::ptr::null_mut();
                     let mut panel: *mut c_void = std::ptr::null_mut();
                     let sv = ffi::day_xaml_inspector_new(
                         id.0,
                         width,
-                        visible as c_int,
-                        leading as c_int,
+                        c_int::from(visible),
+                        c_int::from(leading),
                         inspector_region_size,
-                        &mut content,
-                        &mut panel,
+                        &raw mut content,
+                        &raw mut panel,
                     );
                     INSPECTOR_STATE.with(|m| {
                         m.borrow_mut().insert(
@@ -1765,8 +1781,7 @@ impl Toolkit for Xaml {
                     let pane = ffi::day_xaml_container_new();
                     let panel = props
                         .downcast_ref::<InspectorPaneProps>()
-                        .map(|p| p.panel)
-                        .unwrap_or(false);
+                        .is_some_and(|p| p.panel);
                     INSPECTOR_PANE_IDS.with(|m| m.borrow_mut().insert(pane as usize, (id, panel)));
                     WinHandle(pane)
                 }
@@ -1790,8 +1805,24 @@ impl Toolkit for Xaml {
                     let Some(p) = props_of::<NavMenuProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
-                    let pending = PENDING_SPLIT_NAV.with(|c| c.get());
-                    if !pending.is_null() {
+                    let pending = PENDING_SPLIT_NAV.with(std::cell::Cell::get);
+                    if pending.is_null() {
+                        // Standalone ListView (non-split fallback).
+                        let w = ffi::day_xaml_navlist_new(id.0, nav_menu_changed);
+                        ffi::day_xaml_navlist_set_items(
+                            w,
+                            cstr(&p.items.join("\n")).as_ptr(),
+                            cstr(&join_sections(&p.sections)).as_ptr(),
+                        );
+                        ffi::day_xaml_navlist_set_selected(
+                            w,
+                            p.selected.map_or(-1, |i| i as c_int),
+                        );
+                        let headings = p.sections.iter().filter(|s| s.is_some()).count();
+                        NAV_MENU_ROWS
+                            .with(|m| m.borrow_mut().insert(w as usize, (p.items.len(), headings)));
+                        WinHandle(w)
+                    } else {
                         // Split nav: the destinations become the NavigationView's own MenuItems, so
                         // the menu node is just an invisible placeholder inside the sidebar page.
                         let icons_joined = p
@@ -1826,7 +1857,7 @@ impl Toolkit for Xaml {
                         );
                         ffi::day_xaml_nav_set_selected(
                             pending,
-                            p.selected.map(|i| i as c_int).unwrap_or(-1),
+                            p.selected.map_or(-1, |i| i as c_int),
                         );
                         NAV_STATE.with(|m| {
                             if let Some(NavState::Split(s)) =
@@ -1844,29 +1875,13 @@ impl Toolkit for Xaml {
                         NAV_MENU_HOST
                             .with(|m| m.borrow_mut().insert(placeholder as usize, pending));
                         WinHandle(placeholder)
-                    } else {
-                        // Standalone ListView (non-split fallback).
-                        let w = ffi::day_xaml_navlist_new(id.0, nav_menu_changed);
-                        ffi::day_xaml_navlist_set_items(
-                            w,
-                            cstr(&p.items.join("\n")).as_ptr(),
-                            cstr(&join_sections(&p.sections)).as_ptr(),
-                        );
-                        ffi::day_xaml_navlist_set_selected(
-                            w,
-                            p.selected.map(|i| i as c_int).unwrap_or(-1),
-                        );
-                        let headings = p.sections.iter().filter(|s| s.is_some()).count();
-                        NAV_MENU_ROWS
-                            .with(|m| m.borrow_mut().insert(w as usize, (p.items.len(), headings)));
-                        WinHandle(w)
                     }
                 }
                 Some(Builtin::Label) => {
                     let Some(p) = props_of::<LabelProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
-                    let h = ffi::day_xaml_label_new(cstr(&p.text).as_ptr(), p.wraps as c_int);
+                    let h = ffi::day_xaml_label_new(cstr(&p.text).as_ptr(), c_int::from(p.wraps));
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_xaml_label_set_font(h, pt, weight, italic, tabular);
                     apply_custom_family(h, p.font);
@@ -1914,17 +1929,17 @@ impl Toolkit for Xaml {
                         apply_button_content(h, &p.title, p.icon.as_ref(), p.icon_only);
                     }
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
-                    ffi::day_xaml_set_enabled(h, p.enabled as c_int);
-                    ffi::day_xaml_button_set_selected(h, p.selected as c_int);
+                    ffi::day_xaml_set_enabled(h, c_int::from(p.enabled));
+                    ffi::day_xaml_button_set_selected(h, c_int::from(p.selected));
                     WinHandle(h)
                 }
                 Some(Builtin::Toggle) => {
                     let Some(p) = props_of::<ToggleProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
-                    let h = ffi::day_xaml_toggle_new(p.on as c_int, id.0, on_toggle);
+                    let h = ffi::day_xaml_toggle_new(c_int::from(p.on), id.0, on_toggle);
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
-                    ffi::day_xaml_set_enabled(h, p.enabled as c_int);
+                    ffi::day_xaml_set_enabled(h, c_int::from(p.enabled));
                     WinHandle(h)
                 }
                 Some(Builtin::Slider) => {
@@ -1936,7 +1951,7 @@ impl Toolkit for Xaml {
                     let step = p.step.unwrap_or((p.max - p.min) / 1000.0).max(1e-9);
                     let h = ffi::day_xaml_slider_new(p.value, p.min, p.max, step, id.0, on_slider);
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
-                    ffi::day_xaml_set_enabled(h, p.enabled as c_int);
+                    ffi::day_xaml_set_enabled(h, c_int::from(p.enabled));
                     WinHandle(h)
                 }
                 Some(Builtin::Picker) => picker::realize_any(self, props, id),
@@ -1953,7 +1968,7 @@ impl Toolkit for Xaml {
                         on_text,
                     );
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
-                    ffi::day_xaml_set_enabled(h, p.enabled as c_int);
+                    ffi::day_xaml_set_enabled(h, c_int::from(p.enabled));
                     TEXT_FIELD_NODE.with(|m| m.borrow_mut().insert(h as usize, id.0));
                     WinHandle(h)
                 }
@@ -2031,7 +2046,7 @@ impl Toolkit for Xaml {
                                 let h = ffi::day_xaml_vector_new(
                                     cstr(&spec).as_ptr(),
                                     mode,
-                                    p.tint.map(argb).unwrap_or(0),
+                                    p.tint.map_or(0, argb),
                                     tinted,
                                 );
                                 (!h.is_null()).then_some(h)
@@ -2050,7 +2065,7 @@ impl Toolkit for Xaml {
                                 let h = ffi::day_xaml_image_tinted_new(
                                     cstr(&file).as_ptr(),
                                     mode,
-                                    p.tint.map(argb).unwrap_or(0),
+                                    p.tint.map_or(0, argb),
                                     tinted,
                                 );
                                 (!h.is_null()).then_some(h)
@@ -2070,10 +2085,9 @@ impl Toolkit for Xaml {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell)
-                | Some(Builtin::ListItem)
-                | Some(Builtin::Split)
-                | Some(Builtin::SplitPane)
+                Some(
+                    Builtin::ListCell | Builtin::ListItem | Builtin::Split | Builtin::SplitPane,
+                )
                 | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
@@ -2106,7 +2120,7 @@ impl Toolkit for Xaml {
                             day_spec::props::ImagePatch::Tint(tint) => {
                                 ffi::day_xaml_image_set_tint(
                                     h.0,
-                                    tint.map(argb).unwrap_or(0),
+                                    tint.map_or(0, argb),
                                     i32::from(tint.is_some()),
                                 );
                             }
@@ -2156,7 +2170,7 @@ impl Toolkit for Xaml {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
                             LabelPatch::Text(t) => {
-                                ffi::day_xaml_label_set_text(h.0, cstr(t).as_ptr())
+                                ffi::day_xaml_label_set_text(h.0, cstr(t).as_ptr());
                             }
                             LabelPatch::Font(f) => {
                                 let (pt, weight, italic, tabular) = font_params(*f);
@@ -2167,7 +2181,7 @@ impl Toolkit for Xaml {
                                 let node = LABEL_NODE
                                     .with(|m| m.borrow().get(&(h.0 as usize)).copied())
                                     .unwrap_or(0);
-                                set_label_runs(h.0, node, text, runs)
+                                set_label_runs(h.0, node, text, runs);
                             }
                             LabelPatch::Color(c) => ffi::day_xaml_label_set_color(
                                 h.0,
@@ -2180,14 +2194,16 @@ impl Toolkit for Xaml {
                     if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                         match p {
                             ButtonPatch::Content(c) => {
-                                apply_button_content(h.0, &c.title, c.icon.as_ref(), c.icon_only)
+                                apply_button_content(h.0, &c.title, c.icon.as_ref(), c.icon_only);
                             }
                             ButtonPatch::Title(t) => {
-                                ffi::day_xaml_button_set_title(h.0, cstr(t).as_ptr())
+                                ffi::day_xaml_button_set_title(h.0, cstr(t).as_ptr());
                             }
-                            ButtonPatch::Enabled(e) => ffi::day_xaml_set_enabled(h.0, *e as c_int),
+                            ButtonPatch::Enabled(e) => {
+                                ffi::day_xaml_set_enabled(h.0, c_int::from(*e));
+                            }
                             ButtonPatch::Selected(on) => {
-                                ffi::day_xaml_button_set_selected(h.0, *on as c_int)
+                                ffi::day_xaml_button_set_selected(h.0, c_int::from(*on));
                             }
                             ButtonPatch::Style(s) => apply_button_style(h.0, *s),
                         }
@@ -2196,8 +2212,10 @@ impl Toolkit for Xaml {
                 kinds::TOGGLE => {
                     if let Some(p) = patch.downcast_ref::<TogglePatch>() {
                         match p {
-                            TogglePatch::On(on) => ffi::day_xaml_toggle_set(h.0, *on as c_int),
-                            TogglePatch::Enabled(e) => ffi::day_xaml_set_enabled(h.0, *e as c_int),
+                            TogglePatch::On(on) => ffi::day_xaml_toggle_set(h.0, c_int::from(*on)),
+                            TogglePatch::Enabled(e) => {
+                                ffi::day_xaml_set_enabled(h.0, c_int::from(*e));
+                            }
                         }
                     }
                 }
@@ -2205,7 +2223,9 @@ impl Toolkit for Xaml {
                     if let Some(p) = patch.downcast_ref::<SliderPatch>() {
                         match p {
                             SliderPatch::Value(v) => ffi::day_xaml_slider_set(h.0, *v),
-                            SliderPatch::Enabled(e) => ffi::day_xaml_set_enabled(h.0, *e as c_int),
+                            SliderPatch::Enabled(e) => {
+                                ffi::day_xaml_set_enabled(h.0, c_int::from(*e));
+                            }
                         }
                     }
                 }
@@ -2232,9 +2252,8 @@ impl Toolkit for Xaml {
                     // Split navs drive the NavigationView pane; a plain ListView otherwise.
                     let host = NAV_MENU_HOST.with(|m| m.borrow().get(&(h.0 as usize)).copied());
                     match patch.downcast_ref::<NavMenuPatch>() {
-                        Some(NavMenuPatch::IconProgress(_)) => {}
                         Some(NavMenuPatch::Selected(sel)) => {
-                            let idx = sel.map(|i| i as c_int).unwrap_or(-1);
+                            let idx = sel.map_or(-1, |i| i as c_int);
                             match host {
                                 Some(nav) => ffi::day_xaml_nav_set_selected(nav, idx),
                                 None => ffi::day_xaml_navlist_set_selected(h.0, idx),
@@ -2258,62 +2277,57 @@ impl Toolkit for Xaml {
                             document_keys,
                             ..
                         }) => {
-                            let idx = selected.map(|i| i as c_int).unwrap_or(-1);
+                            let idx = selected.map_or(-1, |i| i as c_int);
                             let joined = cstr(&items.join("\n"));
                             let sections_joined = cstr(&join_sections(sections));
-                            match host {
-                                Some(nav) => {
-                                    let icons_joined = icons
-                                        .iter()
-                                        .map(|ic| {
-                                            ic.as_deref().map(icon_file_name).unwrap_or_default()
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join("\n");
-                                    ffi::day_xaml_document_items(
-                                        nav,
-                                        cstr(&items.join("\u{1f}")).as_ptr(),
-                                        cstr(&document_keys.join("\u{1f}")).as_ptr(),
-                                    );
-                                    ffi::day_xaml_nav_set_items(
-                                        nav,
-                                        joined.as_ptr(),
-                                        cstr(&icons_joined).as_ptr(),
-                                        cstr(&join_geoms(icons)).as_ptr(),
-                                        cstr(&join_tints(tints)).as_ptr(),
-                                        cstr(
-                                            &badge_icons
-                                                .iter()
-                                                .map(|ic| {
-                                                    ic.as_deref()
-                                                        .map(icon_file_name)
-                                                        .unwrap_or_default()
-                                                })
-                                                .collect::<Vec<_>>()
-                                                .join("\n"),
-                                        )
-                                        .as_ptr(),
-                                        cstr(&join_geoms(badge_icons)).as_ptr(),
-                                        cstr(&join_tints(badge_tints)).as_ptr(),
-                                        sections_joined.as_ptr(),
-                                    );
-                                    ffi::day_xaml_nav_set_selected(nav, idx);
-                                }
-                                None => {
-                                    ffi::day_xaml_navlist_set_items(
-                                        h.0,
-                                        joined.as_ptr(),
-                                        sections_joined.as_ptr(),
-                                    );
-                                    ffi::day_xaml_navlist_set_selected(h.0, idx);
-                                    let headings = sections.iter().filter(|s| s.is_some()).count();
-                                    NAV_MENU_ROWS.with(|m| {
-                                        m.borrow_mut().insert(h.0 as usize, (items.len(), headings))
-                                    });
-                                }
+                            if let Some(nav) = host {
+                                let icons_joined = icons
+                                    .iter()
+                                    .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                ffi::day_xaml_document_items(
+                                    nav,
+                                    cstr(&items.join("\u{1f}")).as_ptr(),
+                                    cstr(&document_keys.join("\u{1f}")).as_ptr(),
+                                );
+                                ffi::day_xaml_nav_set_items(
+                                    nav,
+                                    joined.as_ptr(),
+                                    cstr(&icons_joined).as_ptr(),
+                                    cstr(&join_geoms(icons)).as_ptr(),
+                                    cstr(&join_tints(tints)).as_ptr(),
+                                    cstr(
+                                        &badge_icons
+                                            .iter()
+                                            .map(|ic| {
+                                                ic.as_deref()
+                                                    .map(icon_file_name)
+                                                    .unwrap_or_default()
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join("\n"),
+                                    )
+                                    .as_ptr(),
+                                    cstr(&join_geoms(badge_icons)).as_ptr(),
+                                    cstr(&join_tints(badge_tints)).as_ptr(),
+                                    sections_joined.as_ptr(),
+                                );
+                                ffi::day_xaml_nav_set_selected(nav, idx);
+                            } else {
+                                ffi::day_xaml_navlist_set_items(
+                                    h.0,
+                                    joined.as_ptr(),
+                                    sections_joined.as_ptr(),
+                                );
+                                ffi::day_xaml_navlist_set_selected(h.0, idx);
+                                let headings = sections.iter().filter(|s| s.is_some()).count();
+                                NAV_MENU_ROWS.with(|m| {
+                                    m.borrow_mut().insert(h.0 as usize, (items.len(), headings))
+                                });
                             }
                         }
-                        None => {}
+                        Some(NavMenuPatch::IconProgress(_)) | None => {}
                     }
                 }
                 // Split navs show the current destination in the NavigationView Header (the whole
@@ -2367,7 +2381,7 @@ impl Toolkit for Xaml {
                 kinds::INSPECTOR => {
                     if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>()
                     {
-                        ffi::day_xaml_inspector_set_open(h.0, *v as c_int);
+                        ffi::day_xaml_inspector_set_open(h.0, c_int::from(*v));
                     }
                 }
                 kinds::NAV => {
@@ -2376,6 +2390,10 @@ impl Toolkit for Xaml {
                         return;
                     }
                     if let Some(np) = patch.downcast_ref::<NavPatch>() {
+                        #[expect(
+                            clippy::match_same_arms,
+                            reason = "each variant that sets no title keeps its own explanation"
+                        )]
                         let title = match np {
                             NavPatch::Pushed { title, .. } => Some(title.as_str()),
                             NavPatch::Title(t) => Some(t.as_str()),
@@ -2463,10 +2481,10 @@ impl Toolkit for Xaml {
                                 }
                             }
                             TextFieldPatch::Placeholder(t) => {
-                                ffi::day_xaml_textbox_set_placeholder(h.0, cstr(t).as_ptr())
+                                ffi::day_xaml_textbox_set_placeholder(h.0, cstr(t).as_ptr());
                             }
                             TextFieldPatch::Enabled(e) => {
-                                ffi::day_xaml_set_enabled(h.0, *e as c_int)
+                                ffi::day_xaml_set_enabled(h.0, c_int::from(*e));
                             }
                             TextFieldPatch::Select(sel) => {
                                 let at = |n: usize| n.min(c_int::MAX as usize) as c_int;
@@ -2632,12 +2650,12 @@ impl Toolkit for Xaml {
                         return;
                     };
                     let (mut w, mut h) = (0.0, 0.0);
-                    unsafe { ffi::day_xaml_widget_size(host, &mut w, &mut h) };
+                    unsafe { ffi::day_xaml_widget_size(host, &raw mut w, &raw mut h) };
                     if w > 0.0 && h > 0.0 {
                         emit(node, Event::FrameChanged(Size::new(w, h)));
                     }
                 });
-                let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+                let data = Box::into_raw(Box::new(boxed)).cast::<c_void>();
                 unsafe { ffi::day_xaml_post(run_posted, data) };
                 if stack {
                     stack_sync(parent.0);
@@ -2676,7 +2694,7 @@ impl Toolkit for Xaml {
             // Seed the pane with the host's current bounds — adding a child does not refire
             // SizeChanged (the nav content-region rule above).
             let (mut w, mut h) = (0.0, 0.0);
-            unsafe { ffi::day_xaml_widget_size(host, &mut w, &mut h) };
+            unsafe { ffi::day_xaml_widget_size(host, &raw mut w, &raw mut h) };
             if w > 0.0 && h > 0.0 && pane_id.0 != 0 {
                 emit(pane_id, Event::FrameChanged(Size::new(w, h)));
             }
@@ -2754,7 +2772,7 @@ impl Toolkit for Xaml {
                         // Height-for-width: re-measure wrapped at the proposed width.
                         let mut w = 0.0;
                         let mut hh = 0.0;
-                        unsafe { ffi::day_xaml_measure(h.0, pw, -1.0, &mut w, &mut hh) };
+                        unsafe { ffi::day_xaml_measure(h.0, pw, -1.0, &raw mut w, &raw mut hh) };
                         Size::new(pw.ceil(), hh.ceil())
                     }
                     _ => Size::new(nat.width.ceil(), nat.height.ceil()),
@@ -2820,7 +2838,7 @@ impl Toolkit for Xaml {
 
     fn set_selectable(&mut self, h: &WinHandle, selectable: bool) -> Option<WinHandle> {
         // The shim try_as's to a TextBlock, so a non-label handle is a safe no-op (docs/text.md).
-        unsafe { ffi::day_xaml_label_set_selectable(h.0, selectable as c_int) };
+        unsafe { ffi::day_xaml_label_set_selectable(h.0, c_int::from(selectable)) };
         None
     }
 
@@ -2832,7 +2850,7 @@ impl Toolkit for Xaml {
         let key = h.0 as usize;
         let node = TEXT_FIELD_NODE.with(|m| m.borrow().get(&key).copied())?;
         let swapped = unsafe {
-            ffi::day_xaml_field_set_secure(h.0, traits.secure as c_int, node, on_text, on_focus)
+            ffi::day_xaml_field_set_secure(h.0, c_int::from(traits.secure), node, on_text, on_focus)
         };
         let live = if swapped.is_null() { h.0 } else { swapped };
         // The shim declines the rebuild when the field hangs somewhere it cannot take the
@@ -2863,7 +2881,12 @@ impl Toolkit for Xaml {
         // characters, so it would refuse text the bound allows. day-pieces holds the bound. The
         // action key's label has no counterpart on this keyboard.
         unsafe {
-            ffi::day_xaml_field_set_traits(live, traits.read_only as c_int, scope, plain as c_int)
+            ffi::day_xaml_field_set_traits(
+                live,
+                c_int::from(traits.read_only),
+                scope,
+                c_int::from(plain),
+            );
         };
         if swapped.is_null() {
             return None;
@@ -2903,7 +2926,7 @@ impl Toolkit for Xaml {
         // Qt's painter transform use, so a rotated/scaled box matches across backends.
         let (dur, curve) = xaml_anim_args(anim);
         unsafe {
-            ffi::day_xaml_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve)
+            ffi::day_xaml_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve);
         };
     }
 
@@ -2931,7 +2954,7 @@ impl Toolkit for Xaml {
                     0,
                     frame.size.width.round() as c_int,
                     NAV_PANE_HEADER_H,
-                )
+                );
             };
             return;
         }
@@ -2942,7 +2965,7 @@ impl Toolkit for Xaml {
                 frame.origin.y.round() as c_int,
                 frame.size.width.round() as c_int,
                 frame.size.height.round() as c_int,
-            )
+            );
         };
         // (Nav hosts are NavigationViews — they reflow their own regions, which report FrameChanged.)
         list::frame(h, frame);
@@ -2957,12 +2980,12 @@ impl Toolkit for Xaml {
                     c,
                     content.width.round() as c_int,
                     content.height.round() as c_int,
-                )
+                );
             };
         }
     }
 
-    /// A WinUI ListViewItem: 12px horizontal padding and a 40px minimum height.
+    /// A WinUI `ListViewItem`: 12px horizontal padding and a 40px minimum height.
     fn list_row_metrics(&mut self, _h: &WinHandle) -> day_spec::RowMetrics {
         day_spec::RowMetrics {
             insets: day_spec::Insets {
@@ -2981,14 +3004,14 @@ impl Toolkit for Xaml {
                 h.0,
                 target.origin.y.round() as c_int,
                 target.size.height.round() as c_int,
-                animated as c_int,
-            )
+                c_int::from(animated),
+            );
         };
     }
 
     fn scroll_offset(&mut self, h: &WinHandle) -> Point {
         let (mut x, mut y) = (0.0_f64, 0.0_f64);
-        unsafe { ffi::day_xaml_scroll_offset(h.0, &mut x, &mut y) };
+        unsafe { ffi::day_xaml_scroll_offset(h.0, &raw mut x, &raw mut y) };
         Point::new(x, y)
     }
 
@@ -3021,7 +3044,7 @@ impl Toolkit for Xaml {
     fn focus(&mut self, h: &WinHandle, _node: NodeId, focused: bool) {
         // The shim resigns to the window's invisible focus sink — system XAML has no
         // "focus nothing" — and only while this control still owns focus.
-        unsafe { ffi::day_xaml_control_focus(h.0, focused as c_int) };
+        unsafe { ffi::day_xaml_control_focus(h.0, c_int::from(focused)) };
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {
@@ -3029,13 +3052,13 @@ impl Toolkit for Xaml {
     }
 
     fn set_a11y(&mut self, h: &WinHandle, a11y: &A11yProps) {
+        use day_spec::Role;
         if let Some(id) = &a11y.identifier {
             unsafe { ffi::day_xaml_set_name(h.0, cstr(id).as_ptr()) };
         }
         // The rest crosses in one call; an unset member goes over as an empty string / 0 and
         // the shim leaves that property alone (docs/accessibility.md). Role codes are `Role`'s
         // declaration order, the table the shim's `day_xaml_set_a11y` documents too.
-        use day_spec::Role;
         let (role, level) = match a11y.role {
             Role::None => (0, 0),
             Role::Button => (1, 0),
@@ -3054,7 +3077,7 @@ impl Toolkit for Xaml {
         let label = cstr(a11y.label.as_deref().unwrap_or(""));
         let hint = cstr(a11y.hint.as_deref().unwrap_or(""));
         let value = cstr(a11y.value.as_deref().unwrap_or(""));
-        let hidden = (a11y.hidden || a11y.decorative) as c_int;
+        let hidden = c_int::from(a11y.hidden || a11y.decorative);
         unsafe {
             ffi::day_xaml_set_a11y(
                 h.0,
@@ -3064,19 +3087,20 @@ impl Toolkit for Xaml {
                 role,
                 level,
                 hidden,
-            )
+            );
         };
     }
 
     fn announce(&mut self, text: &str, urgent: bool) {
-        unsafe { ffi::day_xaml_announce(cstr(text).as_ptr(), urgent as c_int) };
+        unsafe { ffi::day_xaml_announce(cstr(text).as_ptr(), c_int::from(urgent)) };
     }
 
-    /// The element's own answers, read back by the shim: the automation peer's name, ItemStatus
-    /// (where `set_a11y` puts a value), AutomationId and the role `set_a11y` wrote; the text a
-    /// TextBlock, TextBox or Button shows; a Slider's value or a progress bar's fraction; a
-    /// toggle's state; IsEnabled; Visibility up to the content canvas and the bounds in it.
+    /// The element's own answers, read back by the shim: the automation peer's name, `ItemStatus`
+    /// (where `set_a11y` puts a value), `AutomationId` and the role `set_a11y` wrote; the text a
+    /// `TextBlock`, `TextBox` or Button shows; a Slider's value or a progress bar's fraction; a
+    /// toggle's state; `IsEnabled`; Visibility up to the content canvas and the bounds in it.
     fn read_native(&self, h: &WinHandle) -> day_spec::NativeSnapshot {
+        use day_spec::Role;
         let mut raw = ffi::DayXamlNative {
             found: 0,
             role: 0,
@@ -3097,7 +3121,7 @@ impl Toolkit for Xaml {
             h: 0.0,
         };
         // SAFETY: `raw` is a live, writable `DayXamlNative`; the shim fills it in place.
-        unsafe { ffi::day_xaml_read_native(h.0, &mut raw) };
+        unsafe { ffi::day_xaml_read_native(h.0, &raw mut raw) };
         // Takes ownership of one of the shim's heap strings: copied out, then released.
         let take = |p: *mut c_char| -> Option<String> {
             if p.is_null() {
@@ -3112,7 +3136,6 @@ impl Toolkit for Xaml {
             }
         };
         let tri = |v: c_int| (v >= 0).then_some(v != 0);
-        use day_spec::Role;
         let found = raw.found != 0;
         let role = match raw.role {
             1 => Role::Button,
@@ -3190,7 +3213,7 @@ impl Toolkit for Xaml {
         // Kept, because day's app menu is installed once but Windows draws it per window: a
         // window opened later has to be given the menu that was set before it existed
         // (see `open_window`). Re-set on a locale change, so the stored spec stays current.
-        self.menu_spec = spec.clone();
+        self.menu_spec.clone_from(&spec);
         let c = cstr(&spec);
         unsafe { ffi::day_xaml_set_app_menu(self.window, c.as_ptr()) };
         // Every window already open shows the same bar — the menu is app-level, not per-window.
@@ -3211,7 +3234,7 @@ impl Toolkit for Xaml {
                     cstr(&spec.buttons_joined()).as_ptr(),
                     cstr(&spec.roles_joined()).as_ptr(),
                     self.window,
-                )
+                );
             },
             PresentSpec::Prompt {
                 placeholder,
@@ -3229,19 +3252,19 @@ impl Toolkit for Xaml {
                     cstr(ok).as_ptr(),
                     cstr(cancel).as_ptr(),
                     self.window,
-                )
+                );
             },
             PresentSpec::OpenFile { multiple, .. } => unsafe {
                 ffi::day_xaml_present_file_open(
                     req,
                     cstr(spec.title()).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
-                    *multiple as c_int,
+                    c_int::from(*multiple),
                     self.window,
-                )
+                );
             },
             PresentSpec::OpenFolder { .. } => unsafe {
-                ffi::day_xaml_present_folder_open(req, cstr(spec.title()).as_ptr(), self.window)
+                ffi::day_xaml_present_folder_open(req, cstr(spec.title()).as_ptr(), self.window);
             },
             PresentSpec::SaveFile { suggested_name, .. } => unsafe {
                 // The pieces layer copies the staged bytes to the chosen path (docs/files.md).
@@ -3251,7 +3274,7 @@ impl Toolkit for Xaml {
                     cstr(suggested_name).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
                     self.window,
-                )
+                );
             },
         }
     }
@@ -3306,7 +3329,7 @@ impl Toolkit for Xaml {
         let (nums, texts) = day_spec::encode_ops(&ops);
         let joined = cstr(&texts.join("\u{1f}"));
         unsafe {
-            ffi::day_xaml_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr())
+            ffi::day_xaml_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr());
         };
     }
 
@@ -3320,7 +3343,7 @@ impl Toolkit for Xaml {
         options: &WindowOptions,
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<WinHandle> {
-        let fixed = kind.is_panel() as c_int;
+        let fixed = c_int::from(kind.is_panel());
         let chrome = window_chrome(options);
         let win = unsafe {
             ffi::day_xaml_window_new2(
@@ -3329,7 +3352,7 @@ impl Toolkit for Xaml {
                 options.size.height as c_int,
                 id.0,
                 fixed,
-                &chrome,
+                &raw const chrome,
             )
         };
         if win.is_null() {
@@ -3384,7 +3407,7 @@ impl Toolkit for Xaml {
         }
     }
 
-    /// `.window_drag_region()` (docs/window-chrome.md): the window's WM_NCHITTEST answers
+    /// `.window_drag_region()` (docs/window-chrome.md): the window's `WM_NCHITTEST` answers
     /// HTCAPTION over the element's own background, so Windows runs its own title-bar move
     /// (Aero Snap included), double-click maximize and window menu. Controls inside keep their
     /// clicks: the hit test stops at the first Control above the region.
@@ -3397,7 +3420,7 @@ impl Toolkit for Xaml {
                 d.remove(&(h.0 as usize));
             }
         });
-        unsafe { ffi::day_xaml_set_drag_region(h.0, drag as c_int) };
+        unsafe { ffi::day_xaml_set_drag_region(h.0, c_int::from(drag)) };
     }
 
     fn apply_window(&mut self, host: &WinHandle, change: &day_spec::WindowChange) {
@@ -3412,7 +3435,7 @@ impl Toolkit for Xaml {
             C::State(state) => unsafe { ffi::day_xaml_window_set_state(win, state.code()) },
             // Captures, recordings and screen sharing leave the window out; the user still sees it.
             C::ContentProtected(on) => unsafe {
-                ffi::day_xaml_window_set_protected(win, *on as c_int)
+                ffi::day_xaml_window_set_protected(win, c_int::from(*on));
             },
             // SetWindowPos: the outer frame's origin, the content size around which the frame
             // and the docked chrome are added.
@@ -3421,13 +3444,13 @@ impl Toolkit for Xaml {
                 let z = size.unwrap_or(Size::new(0.0, 0.0));
                 ffi::day_xaml_window_set_frame(
                     win,
-                    origin.is_some() as c_int,
+                    c_int::from(origin.is_some()),
                     p.x,
                     p.y,
-                    size.is_some() as c_int,
+                    c_int::from(size.is_some()),
                     z.width,
                     z.height,
-                )
+                );
             },
             // WM_GETMINMAXINFO's track sizes.
             C::Limits { min, max } => set_limits(win, *min, *max),
@@ -3435,25 +3458,32 @@ impl Toolkit for Xaml {
                 ffi::day_xaml_window_set_flag(
                     win,
                     0,
-                    (*level == day_spec::WindowLevel::Floating) as c_int,
-                )
+                    c_int::from(*level == day_spec::WindowLevel::Floating),
+                );
             },
             // ITaskbarList::DeleteTab / AddTab.
             C::SkipTaskbar(skip) => unsafe {
-                ffi::day_xaml_window_set_flag(win, 1, *skip as c_int)
+                ffi::day_xaml_window_set_flag(win, 1, c_int::from(*skip));
             },
-            C::Resizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 2, *on as c_int) },
-            C::Minimizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 3, *on as c_int) },
-            C::Maximizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 4, *on as c_int) },
-            C::Closable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 5, *on as c_int) },
-            C::Visible(on) => unsafe { ffi::day_xaml_window_set_flag(win, 6, *on as c_int) },
+            C::Resizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 2, c_int::from(*on)) },
+            C::Minimizable(on) => unsafe {
+                ffi::day_xaml_window_set_flag(win, 3, c_int::from(*on));
+            },
+            C::Maximizable(on) => unsafe {
+                ffi::day_xaml_window_set_flag(win, 4, c_int::from(*on));
+            },
+            C::Closable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 5, c_int::from(*on)) },
+            C::Visible(on) => unsafe { ffi::day_xaml_window_set_flag(win, 6, c_int::from(*on)) },
             // The title bar's DWM dark flag and the island root's RequestedTheme.
             C::Appearance(dark) => unsafe {
-                ffi::day_xaml_window_set_appearance(win, dark.map_or(-1, c_int::from))
+                ffi::day_xaml_window_set_appearance(win, dark.map_or(-1, c_int::from));
             },
             // FlashWindowEx.
             C::RequestAttention(a) => unsafe {
-                ffi::day_xaml_window_attention(win, (*a == day_spec::Attention::Critical) as c_int)
+                ffi::day_xaml_window_attention(
+                    win,
+                    c_int::from(*a == day_spec::Attention::Critical),
+                );
             },
             // Windows has no API to put a window on every virtual desktop.
             C::OnAllWorkspaces(_) => {}
@@ -3526,10 +3556,10 @@ impl Toolkit for Xaml {
                     cstr(tip).as_ptr(),
                     cstr(&glyph).as_ptr(),
                     cstr(&image).as_ptr(),
-                    item.template as c_int,
+                    c_int::from(item.template),
                     item.activate,
                     cstr(&menu).as_ptr(),
-                )
+                );
             };
         }
         let ids = items
@@ -3575,7 +3605,7 @@ impl Toolkit for Xaml {
     /// day-core decides about quitting; what keeping the app alive needs here is somewhere for
     /// Day's posts to go once that window is gone.
     fn set_keep_running(&mut self, keep: bool) {
-        unsafe { ffi::day_xaml_set_keep_running(keep as c_int) };
+        unsafe { ffi::day_xaml_set_keep_running(c_int::from(keep)) };
     }
 
     /// A SECONDARY window's own pixels (docs/windows.md). Previously this kept the trait default,
@@ -3612,7 +3642,7 @@ impl Toolkit for Xaml {
     }
 
     /// The system's light/dark setting (a `DAY_THEME` force wins). Previously this took the trait
-    /// default, which reads DAY_THEME and nothing else — so on Windows every palette closure day
+    /// default, which reads `DAY_THEME` and nothing else — so on Windows every palette closure day
     /// evaluated resolved LIGHT no matter what the system was set to, while the XAML controls
     /// around it themed themselves correctly. That mismatch is what made a dark-mode window show
     /// app-painted surfaces in light colors.
@@ -3637,34 +3667,31 @@ impl Toolkit for Xaml {
         let held =
             unsafe { ffi::day_xaml_image_decode(id.0, bytes.as_ptr(), bytes.len() as c_int) != 0 };
         let format = day_spec::ImageFormat::sniff(bytes);
-        let event = match (held, day_spec::ImageFormat::dimensions(bytes)) {
-            (true, Some((w, h))) => {
-                let info = day_spec::BitmapInfo {
-                    pixels: Size::new(f64::from(w), f64::from(h)),
-                    // Decoded bytes carry no density — a PNG is simply its pixels.
-                    scale: 1.0,
+        let event = if let (true, Some((w, h))) = (held, day_spec::ImageFormat::dimensions(bytes)) {
+            let info = day_spec::BitmapInfo {
+                pixels: Size::new(f64::from(w), f64::from(h)),
+                // Decoded bytes carry no density — a PNG is simply its pixels.
+                scale: 1.0,
+                format,
+                // Derived from the container rather than measured: nothing here decodes far
+                // enough to inspect an alpha channel.
+                has_alpha: !matches!(
                     format,
-                    // Derived from the container rather than measured: nothing here decodes far
-                    // enough to inspect an alpha channel.
-                    has_alpha: !matches!(
-                        format,
-                        Some(day_spec::ImageFormat::Jpeg) | Some(day_spec::ImageFormat::Bmp)
-                    ),
-                };
-                BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
-                Event::ImageDecoded {
-                    req,
-                    result: Ok(info),
-                }
+                    Some(day_spec::ImageFormat::Jpeg | day_spec::ImageFormat::Bmp)
+                ),
+            };
+            BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+            Event::ImageDecoded {
+                req,
+                result: Ok(info),
             }
+        } else {
             // A container whose header this does not parse would leave the caller with no size
             // to lay out against, so it is refused rather than answered with zeros.
-            _ => {
-                unsafe { ffi::day_xaml_image_release(id.0) };
-                Event::ImageDecoded {
-                    req,
-                    result: Err(day_spec::ImageError::Decode),
-                }
+            unsafe { ffi::day_xaml_image_release(id.0) };
+            Event::ImageDecoded {
+                req,
+                result: Err(day_spec::ImageError::Decode),
             }
         };
         emit(day_spec::WINDOW_NODE, event);
@@ -3732,7 +3759,7 @@ impl Toolkit for Xaml {
                     id.0,
                     fit.width as c_int,
                     fit.height as c_int,
-                    &mut len,
+                    &raw mut len,
                 );
                 if !bytes.is_null() {
                     result = Ok(std::slice::from_raw_parts(bytes, len as usize).to_vec());
@@ -3789,7 +3816,7 @@ impl Toolkit for Xaml {
         }
     }
 
-    /// Win2D text layout measured with the font the canvas draws with (docs/fonts.md).
+    /// `Win2D` text layout measured with the font the canvas draws with (docs/fonts.md).
     fn measure_text(
         &mut self,
         text: &str,
@@ -3861,7 +3888,7 @@ fn join_sections(sections: &[Option<String>]) -> String {
 fn join_tints(tints: &[Option<day_spec::Color>]) -> String {
     tints
         .iter()
-        .map(|t| t.map(argb).unwrap_or(0).to_string())
+        .map(|t| t.map_or(0, argb).to_string())
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -3897,7 +3924,7 @@ fn join_geoms(icons: &[Option<String>]) -> String {
 /// lookup (probing `DAY_IMAGE_ROOT`/`DAY_ASSET_ROOT` for dev/`day launch` runs, then the exe-relative
 /// dirs, inferring the extension), exactly as the AppKit/GTK/Qt backends do. An unresolved name
 /// yields `""`, which `day_xaml_image_new` renders as an empty placeholder — the prior behavior.
-/// A nav-icon name → the bundled file's NAME (e.g. "nav_controls" → "nav_controls.png"), which the
+/// A nav-icon name → the bundled file's NAME (e.g. "`nav_controls`" → "`nav_controls.png`"), which the
 /// shim loads as `ms-appx:///images/<file>` (staged by `stage_bundled_images`). Empty if unresolved.
 fn icon_file_name(name: &str) -> String {
     day_spec::resource::resolve_image_file(name)
@@ -3924,8 +3951,8 @@ extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
     ffi_guard::contain((), || {
         emit(
             day_spec::NodeId(node),
-            Event::WindowResized(Size::new(w as f64, h as f64)),
-        )
+            Event::WindowResized(Size::new(f64::from(w), f64::from(h))),
+        );
     });
 }
 extern "C" fn win_closed(node: u64) {
@@ -3937,7 +3964,7 @@ extern "C" fn primary_closed() {
     ffi_guard::contain((), || emit(day_spec::WINDOW_NODE, Event::WindowClosed));
 }
 /// The user flipped Windows between light and dark: re-read the setting into day's dark signal so
-/// palette closures recolor live, the same way GTK's StyleManager `dark` notify drives it.
+/// palette closures recolor live, the same way GTK's `StyleManager` `dark` notify drives it.
 extern "C" fn appearance_changed() {
     ffi_guard::contain((), day_core::note_appearance_changed);
 }
@@ -3949,7 +3976,7 @@ extern "C" fn motion_changed() {
 }
 extern "C" fn win_focused(node: u64, active: c_int) {
     ffi_guard::contain((), || {
-        emit(day_spec::NodeId(node), Event::WindowFocused(active != 0))
+        emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
     });
 }
 /// A window's display state changed, or a request for one did not land (docs/windows.md "Window
@@ -4082,8 +4109,8 @@ fn window_chrome(options: &WindowOptions) -> ffi::DayXamlChrome {
         },
         background,
         material,
-        shadow: options.shadow as c_int,
-        resizable: options.resizable as c_int,
+        shadow: c_int::from(options.shadow),
+        resizable: c_int::from(options.resizable),
         placement,
         x,
         y,
@@ -4109,11 +4136,11 @@ fn cover_frame(cover: *mut c_void, area: Size) -> (f64, Size) {
 
 fn cover_extent(window: *mut c_void) -> Size {
     let (mut w, mut h) = (0.0f64, 0.0f64);
-    unsafe { ffi::day_xaml_window_chrome_size(window, &mut w, &mut h) };
+    unsafe { ffi::day_xaml_window_chrome_size(window, &raw mut w, &raw mut h) };
     if w > 0.0 && h > 0.0 {
         Size::new(w, h)
     } else {
-        LAST_WINDOW_SIZE.with(|c| c.get())
+        LAST_WINDOW_SIZE.with(std::cell::Cell::get)
     }
 }
 
@@ -4123,7 +4150,7 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
     // smaller than asked above 100% scale, but day's layout and the XAML elements it places
     // agree at every scale.
     ffi_guard::contain((), || {
-        let size = Size::new(w as f64, h as f64);
+        let size = Size::new(f64::from(w), f64::from(h));
         LAST_WINDOW_SIZE.with(|c| c.set(size));
         emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
         // Presented emulated covers track the WHOLE window, chrome included (docs/cover.md) —
@@ -4140,7 +4167,7 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
                         y.round() as c_int,
                         full.width.round() as c_int,
                         full.height.round() as c_int,
-                    )
+                    );
                 };
                 emit(*node, Event::FrameChanged(full));
             }
@@ -4174,7 +4201,7 @@ extern "C" fn control_loaded(id: u64) {
                 t.layout_if_needed();
             });
         });
-        let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        let data = Box::into_raw(Box::new(boxed)).cast::<c_void>();
         unsafe { ffi::day_xaml_post(run_posted, data) };
     });
 }
@@ -4182,7 +4209,7 @@ extern "C" fn control_loaded(id: u64) {
 extern "C" fn run_posted(data: *mut c_void) {
     // The posted-closure trampoline runs arbitrary Rust (deferred emits, list populates) —
     // contained like every other FFI entry (day-spec's ffi_guard).
-    let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data as *mut _) };
+    let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data.cast()) };
     ffi_guard::contain((), f);
 }
 
@@ -4291,8 +4318,7 @@ impl Platform for Xaml {
         unsafe {
             let (min_w, min_h) = options
                 .min_size
-                .map(|s| (s.width as c_int, s.height as c_int))
-                .unwrap_or((0, 0));
+                .map_or((0, 0), |s| (s.width as c_int, s.height as c_int));
             // One process per app (docs/deep-links.md "Single-instance forwarding"): a second
             // launch hands its arguments to the running one and ends here, before any window.
             ffi::day_xaml_set_forward_cb(forwarded_args);
@@ -4308,7 +4334,7 @@ impl Platform for Xaml {
                 options.size.height as c_int,
                 min_w,
                 min_h,
-                &chrome,
+                &raw const chrome,
             );
             if win.is_null() {
                 log::error!(
@@ -4354,7 +4380,7 @@ impl Platform for Xaml {
     }
 
     fn post(f: Box<dyn FnOnce() + Send>) {
-        let data = Box::into_raw(Box::new(f)) as *mut c_void;
+        let data = Box::into_raw(Box::new(f)).cast::<c_void>();
         unsafe { ffi::day_xaml_post(run_posted, data) };
     }
 
@@ -4367,7 +4393,7 @@ impl Platform for Xaml {
             Self::post_delayed(STEP, Box::new(move || Self::post_delayed(ms - STEP, f)));
             return;
         }
-        let data = Box::into_raw(Box::new(f)) as *mut c_void;
+        let data = Box::into_raw(Box::new(f)).cast::<c_void>();
         unsafe { ffi::day_xaml_post_delayed(ms, run_posted, data) };
     }
 }

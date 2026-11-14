@@ -38,7 +38,11 @@ fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 fn jar_client() -> Client {
@@ -155,7 +159,7 @@ fn a_jar_keeps_cookies_across_a_redirect() {
     let resp = block_on(client.fetch_future(Request::get(server.url("/cookies/delete?flavor"))))
         .expect("delete");
     assert_eq!(resp.text(), "none");
-    assert!(client.cookies().is_empty());
+    assert_eq!(client.cookies(), [] as [day_part_http::Cookie; 0]);
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]

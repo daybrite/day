@@ -22,14 +22,16 @@ new_key_type! {
     pub struct RNode;
 }
 
+#[must_use]
 pub fn rnode_to_id(n: RNode) -> NodeId {
     NodeId(n.data().as_ffi())
 }
+#[must_use]
 pub fn id_to_rnode(id: NodeId) -> RNode {
     RNode::from(KeyData::from_ffi(id.0))
 }
 
-/// Read-only layout facts a parent may consult about a child (§7.2 ChildRef).
+/// Read-only layout facts a parent may consult about a child (§7.2 `ChildRef`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Flex {
     /// Wants to fill the horizontal / vertical axis when offered space.
@@ -52,7 +54,7 @@ pub struct Flex {
 }
 
 /// Per-node grid facts (docs/grid.md), carried on [`Flex`]: the shipped form of the §7.2
-/// ChildRef facts surface. Set at build time by `grid_row` and the `.grid_span`/`.grid_align`
+/// `ChildRef` facts surface. Set at build time by `grid_row` and the `.grid_span`/`.grid_align`
 /// modifiers; only `GridLayout` reads them.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct GridFacts {
@@ -246,7 +248,7 @@ impl<B: Toolkit> Tree<B> {
             scope: Scope::root(),
             id: None,
             parked_id: None,
-            a11y: Default::default(),
+            a11y: A11yProps::default(),
             cache: Vec::new(),
             baseline_cache: None,
             probe: NodeProbe::default(),
@@ -259,7 +261,7 @@ impl<B: Toolkit> Tree<B> {
             is_boundary: true,
         });
         Tree {
-            mounted_id_families: Default::default(),
+            mounted_id_families: std::collections::BTreeSet::default(),
             toolkit,
             nodes,
             windows: vec![WindowEntry {
@@ -298,7 +300,7 @@ impl<B: Toolkit> Tree<B> {
             scope,
             id: None,
             parked_id: None,
-            a11y: Default::default(),
+            a11y: A11yProps::default(),
             cache: Vec::new(),
             baseline_cache: None,
             probe: NodeProbe::default(),
@@ -477,11 +479,7 @@ impl<B: Toolkit> Tree<B> {
     fn remove_subtree_impl(&mut self, node: RNode) {
         // Detach native roots from their native ancestor, queue every handle for release,
         // drop handler entries, then remove the node records.
-        let parent = self
-            .nodes
-            .get(node)
-            .map(|n| n.parent)
-            .unwrap_or(RNode::null());
+        let parent = self.nodes.get(node).map_or(RNode::null(), |n| n.parent);
         if let Some(p) = self.nodes.get_mut(parent) {
             p.children.retain(|&c| c != node);
         }
@@ -725,7 +723,7 @@ impl<B: Toolkit> Tree<B> {
         for i in 0..self.windows.len() {
             let (root, size) = (self.windows[i].root, self.windows[i].size);
             let p = Proposal::exact(size);
-            crate::layout::measure_node(self, root, p);
+            let _ = crate::layout::measure_node(self, root, p);
             crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
         }
         // Bound list cells live outside the window trees: their anchors are parentless
@@ -954,12 +952,12 @@ pub trait TreeOps {
     fn parent_of(&self, node: RNode) -> Option<RNode>;
     fn node_kind(&self, node: RNode) -> Option<PieceKind>;
     /// The app-authored `.id()` string on `node` (`find_by_id`'s inverse), or `None` for an id-less
-    /// or disposed node. Backs the free [`id_of`], the recorder's NodeId → id lookup (§14.6).
+    /// or disposed node. Backs the free [`id_of`], the recorder's `NodeId` → id lookup (§14.6).
     fn node_id(&self, node: RNode) -> Option<String>;
     /// A clone of the node's native handle boxed as `Any` (None for layout-only or disposed
-    /// nodes). TreeOps is object-safe, so the generic `Toolkit::Handle` can't appear here;
+    /// nodes). `TreeOps` is object-safe, so the generic `Toolkit::Handle` can't appear here;
     /// toolkit ext modules downcast to their concrete Handle type. This is the tweaks door
-    /// (docs/tweaks.md): cloning is cheap on every backend (a retain / gobject ref / GlobalRef
+    /// (docs/tweaks.md): cloning is cheap on every backend (a retain / gobject ref / `GlobalRef`
     /// clone / Copy pointer) and the clone never outlives the native widget's own refcounting.
     fn node_handle_any(&self, node: RNode) -> Option<Box<dyn Any>>;
     fn node_frame(&self, node: RNode) -> Option<Rect>;
@@ -989,16 +987,31 @@ pub trait TreeOps {
     /// Arm or release the platform's system back for the app's handlers
     /// (`Toolkit::set_system_back`, docs/navigation.md "Handling the system Back").
     fn set_system_back(&mut self, _armed: bool) {}
+    /// Establish a screenshot checkpoint for the window rooted at `root`, or the primary
+    /// window for `None` (see `Toolkit::prepare_snapshot`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when that window is gone or the toolkit cannot set the checkpoint.
     fn prepare_snapshot(
         &mut self,
         root: Option<RNode>,
         revision: u32,
     ) -> Result<day_spec::capture::Readiness, String>;
+    /// Capture the primary window's content (see `Toolkit::snapshot_window`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the toolkit's message when it cannot capture the window.
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     /// Where the primary window's root sits in [`Self::snapshot`]'s image, in points (see
     /// `Toolkit::snapshot_origin`); `None` when the toolkit does not say.
     fn snapshot_origin(&mut self) -> Option<Point>;
     /// The same capture with the window's own chrome (see `Toolkit::snapshot_window_chrome`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the toolkit's message when it cannot capture the window.
     fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String>;
 
     // --- raster images (docs/images.md) -------------------------------------------------
@@ -1070,7 +1083,7 @@ pub trait TreeOps {
     fn fit_window(&mut self, root: RNode, size: Size);
     /// Register an extra layout root: a node that stays attached in the tree (native
     /// re-homing needs the parent link) but lays out independently at its own reported
-    /// size: the cover-fallback surface (docs/windows.md). The primary root's PassThrough
+    /// size: the cover-fallback surface (docs/windows.md). The primary root's `PassThrough`
     /// layout only descends into its first child, so a second top-level surface must drive
     /// its own layout entry. `set_root_size` resizes it; drop it before subtree removal.
     fn add_extra_layout_root(&mut self, node: RNode, size: Size);
@@ -1106,6 +1119,10 @@ pub trait TreeOps {
     /// Replace the app's run-time launcher shortcuts.
     fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]);
     /// Snapshot the window whose root is `root` (the primary answers `snapshot`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when that window is gone or the toolkit cannot capture it.
     fn snapshot_of(&mut self, root: RNode) -> Result<Vec<u8>, String>;
     /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
     fn capability(&self, cap: Cap) -> Support;
@@ -1122,6 +1139,13 @@ pub trait TreeOps {
     fn open_url(&mut self, url: &str);
     fn share_support(&self) -> Support;
     fn share(&mut self, spec: &day_spec::share::ShareSpec, anchor: Option<RNode>) -> bool;
+    /// Read the system's current associations for `query` (see
+    /// `Toolkit::application_handlers`).
+    ///
+    /// # Errors
+    ///
+    /// Returns `ApplicationError::Unsupported` where the backend has no association query, or
+    /// the platform's own failure.
     fn application_handlers(
         &mut self,
         query: &day_spec::applications::HandlerQuery,
@@ -1162,10 +1186,10 @@ pub trait TreeOps {
         built: crate::list::BuiltRow,
         header: bool,
     );
-    /// Lay the row out inside its cell bounds (row content width × the RowHeight).
+    /// Lay the row out inside its cell bounds (row content width × the `RowHeight`).
     fn list_layout_cell(&mut self, node: RNode, key: usize);
     /// Re-lay the row at the cell's actual width (the list's width is only the first
-    /// approximation: a native row's chrome, GtkListView's themed `row` node, makes the cell
+    /// approximation: a native row's chrome, `GtkListView`'s themed `row` node, makes the cell
     /// narrower, and a row laid at the list's width holds the whole list wider than its frame).
     fn list_layout_cell_width(&mut self, node: RNode, key: usize, width: f64);
     /// The height the cell's row was last laid at (`ListSource::cell_height`); 0 before its
@@ -1223,7 +1247,7 @@ pub trait TreeOps {
         anchor: RNode,
         built: crate::tree_driver::TreeBuiltRow,
     );
-    /// Lay the row out inside its cell bounds (row content width × the RowHeight).
+    /// Lay the row out inside its cell bounds (row content width × the `RowHeight`).
     fn tree_layout_cell(&mut self, node: RNode, key: usize);
     /// Re-lay the row at the cell's actual width (indentation makes tree cells per-row wide).
     fn tree_layout_cell_width(&mut self, node: RNode, key: usize, width: f64);
@@ -1355,13 +1379,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         {
             use day_spec::props::*;
             if let Some(p) = props.downcast_ref::<LabelProps>() {
-                probe.text = p.text.clone();
+                probe.text.clone_from(&p.text);
                 probe.font = Some(p.font);
             } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
-                probe.selected = p.selected.map(|i| i as i64).unwrap_or(-1);
+                probe.selected = p.selected.map_or(-1, |i| i as i64);
                 probe.value = probe.selected as f64;
             } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
-                probe.text = p.title.clone();
+                probe.text.clone_from(&p.title);
                 probe.enabled = p.enabled;
                 // The selected state reads like a toggle's (`assert_on`).
                 probe.flag = p.selected;
@@ -1372,7 +1396,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 probe.value = p.value;
                 probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<TextFieldProps>() {
-                probe.text = p.text.clone();
+                probe.text.clone_from(&p.text);
                 probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<ProgressProps>() {
                 // `flag` marks indeterminate; `value` holds the determinate fraction.
@@ -1384,10 +1408,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 // A picker's text is the option it shows: what `assert_text` should see
                 // (the index is `assert_value`'s answer). Kept current by both patches below.
                 probe.text = p.options.get(p.selected).cloned().unwrap_or_default();
-                probe.options = p.options.clone();
+                probe.options.clone_from(&p.options);
                 probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
-                probe.text = p.text.clone();
+                probe.text.clone_from(&p.text);
             }
         }
         let node = self.nodes.insert(NodeData {
@@ -1400,7 +1424,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             scope,
             id: None,
             parked_id: None,
-            a11y: Default::default(),
+            a11y: A11yProps::default(),
             cache: Vec::new(),
             baseline_cache: None,
             probe,
@@ -1420,11 +1444,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn attach(&mut self, parent: RNode, child: RNode) {
-        let index = self
-            .nodes
-            .get(parent)
-            .map(|p| p.children.len())
-            .unwrap_or(0);
+        let index = self.nodes.get(parent).map_or(0, |p| p.children.len());
         self.attach_impl(parent, child, index);
     }
 
@@ -1831,7 +1851,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(n) = self.nodes.get_mut(node) {
             // Both fields, as a picker does: `assert_value` reads `value` for a number and
             // `assert_selected` reads `selected`, and a nav host answers either.
-            n.probe.selected = selected.map(|i| i as i64).unwrap_or(-1);
+            n.probe.selected = selected.map_or(-1, |i| i as i64);
             n.probe.value = n.probe.selected as f64;
         }
     }
@@ -1919,7 +1939,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let Some(h) = n.handle.clone() else {
             return false;
         };
-        let viewport = n.last_native_frame.map(|f| f.size).unwrap_or(Size::ZERO);
+        let viewport = n.last_native_frame.map_or(Size::ZERO, |f| f.size);
         let content = n.scroll_content.unwrap_or(viewport);
         // Compose a content-space rect whose minimal reveal lands on the target
         // (`Toolkit::scroll_to` is scrollRectToVisible semantics on every backend).
@@ -1979,15 +1999,16 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     // `Runs`, and a probe that only tracked `Text` would report the string the
                     // label was born with forever (docs/text-runs.md).
                     match p {
-                        LabelPatch::Text(t) => n.probe.text = t.clone(),
-                        LabelPatch::Runs(t, _) => n.probe.text = t.clone(),
+                        LabelPatch::Text(t) | LabelPatch::Runs(t, _) => {
+                            n.probe.text.clone_from(t);
+                        }
                         LabelPatch::Font(font) => n.probe.font = Some(*font),
                         LabelPatch::Color(_) => {}
                     }
                 } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                     match p {
-                        ButtonPatch::Title(t) => n.probe.text = t.clone(),
-                        ButtonPatch::Content(c) => n.probe.text = c.title.clone(),
+                        ButtonPatch::Title(t) => n.probe.text.clone_from(t),
+                        ButtonPatch::Content(c) => n.probe.text.clone_from(&c.title),
                         ButtonPatch::Enabled(e) => n.probe.enabled = *e,
                         ButtonPatch::Selected(on) => n.probe.flag = *on,
                         // The style is a look, not something a probe asserts on.
@@ -2009,7 +2030,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                             n.probe.selected = *i as i64;
                             n.probe.value = *i as f64;
                         }
-                        PickerPatch::Options(opts) => n.probe.options = opts.clone(),
+                        PickerPatch::Options(opts) => n.probe.options.clone_from(opts),
                         PickerPatch::Enabled(e) => n.probe.enabled = *e,
                     }
                     let i = n.probe.selected.max(0) as usize;
@@ -2017,21 +2038,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 } else if let Some(TextAreaPatch::SetText(t)) =
                     patch.downcast_ref::<TextAreaPatch>()
                 {
-                    n.probe.text = t.clone();
+                    n.probe.text.clone_from(t);
                 } else if let Some(ProgressPatch::Value(v)) = patch.downcast_ref::<ProgressPatch>()
                 {
                     n.probe.flag = v.is_none();
                     n.probe.value = v.unwrap_or(0.0);
                 } else if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                     match p {
-                        TextFieldPatch::Text { text, .. } => n.probe.text = text.clone(),
+                        TextFieldPatch::Text { text, .. } => n.probe.text.clone_from(text),
                         TextFieldPatch::Enabled(e) => n.probe.enabled = *e,
                         _ => {}
                     }
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()
                 {
-                    n.probe.selected = sel.map(|i| i as i64).unwrap_or(-1);
+                    n.probe.selected = sel.map_or(-1, |i| i as i64);
                     n.probe.value = n.probe.selected as f64;
                 }
             }
@@ -2053,8 +2074,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let had = self
             .nodes
             .get(node)
-            .map(|n| n.implicit_anim.is_some())
-            .unwrap_or(false);
+            .is_some_and(|n| n.implicit_anim.is_some());
         if let Some(n) = self.nodes.get_mut(node) {
             n.implicit_anim = anim;
         } else {
@@ -2084,7 +2104,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         };
         // The node's laid-out size, passed so backends resolve the transform's anchor to a pixel
         // pivot without querying the (possibly not-yet-allocated) native widget (§8.4).
-        let size = n.last_native_frame.map(|f| f.size).unwrap_or(Size::ZERO);
+        let size = n.last_native_frame.map_or(Size::ZERO, |f| f.size);
         let anim = self.resolve_anim(node);
         self.toolkit.set_transform(&h, t, size, anim.as_ref());
     }
@@ -2178,7 +2198,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let Some(n) = self.nodes.get(node) else {
             return;
         };
-        let size = n.last_native_frame.map(|f| f.size).unwrap_or(Size::ZERO);
+        let size = n.last_native_frame.map_or(Size::ZERO, |f| f.size);
         if let Some(h) = n.handle.clone() {
             self.toolkit.replay(&h, &ops, size);
         }
@@ -2193,7 +2213,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn invalidate_all_measurements(&mut self) {
-        for (_, n) in self.nodes.iter_mut() {
+        for (_, n) in &mut self.nodes {
             n.needs_measure = true;
             n.needs_layout = true;
             n.cache.clear();
@@ -2237,7 +2257,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn child_count(&self, node: RNode) -> usize {
-        self.nodes.get(node).map(|n| n.children.len()).unwrap_or(0)
+        self.nodes.get(node).map_or(0, |n| n.children.len())
     }
 
     fn first_child(&self, node: RNode) -> Option<RNode> {
@@ -2300,9 +2320,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn find_by_id(&self, id: &str) -> Option<RNode> {
         // A settings page can exist both in the app sidebar and in its focused window/cover.
         // Slot order can otherwise mix fields from one form with the Save button of another.
-        let focused = crate::windows::focused_window()
-            .map(|w| id_to_rnode(crate::windows::window_node_id(&w)))
-            .unwrap_or_else(|| self.root());
+        let focused = crate::windows::focused_window().map_or_else(
+            || self.root(),
+            |w| id_to_rnode(crate::windows::window_node_id(&w)),
+        );
         let mut fallback = None;
         for (key, node) in &self.nodes {
             if node.id.as_deref() != Some(id) {
@@ -2361,7 +2382,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn set_system_back(&mut self, armed: bool) {
-        self.toolkit.set_system_back(armed)
+        self.toolkit.set_system_back(armed);
     }
 
     fn prepare_snapshot(
@@ -2472,7 +2493,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             scope: Scope::root(),
             id: None,
             parked_id: None,
-            a11y: Default::default(),
+            a11y: A11yProps::default(),
             cache: Vec::new(),
             baseline_cache: None,
             probe: NodeProbe::default(),
@@ -2650,7 +2671,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 sections: sections.clone(),
             },
         );
-        let source = crate::list::make_source(node, driver, sections);
+        let source = crate::list::make_source(node, &driver, sections.as_ref());
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.attach_list(&handle, source);
         }
@@ -2750,8 +2771,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             self.nodes
                 .get(node)
                 .and_then(|n| n.last_native_frame)
-                .map(|f| f.size.width)
-                .unwrap_or(self.windows[0].size.width)
+                .map_or(self.windows[0].size.width, |f| f.size.width)
         });
         self.layout_list_cell_at(node, key, width);
     }
@@ -2836,7 +2856,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn list_scroll_to_end(&mut self, node: RNode) {
         // Empty list: nothing to scroll to (the row count is read straight from the piece's
         // snapshot, with no tree access, so this guard is cheap and backend-independent).
-        if self.lists.get(&node).map(|s| (s.driver.len)()).unwrap_or(0) == 0 {
+        if self.lists.get(&node).map_or(0, |s| (s.driver.len)()) == 0 {
             return;
         }
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
@@ -2850,7 +2870,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn list_scroll_to_row(&mut self, node: RNode, row: usize) {
-        let len = self.lists.get(&node).map(|s| (s.driver.len)()).unwrap_or(0);
+        let len = self.lists.get(&node).map_or(0, |s| (s.driver.len)());
         if len == 0 {
             return;
         }
@@ -2972,8 +2992,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             self.nodes
                 .get(node)
                 .and_then(|n| n.last_native_frame)
-                .map(|f| f.size.width)
-                .unwrap_or(self.windows[0].size.width)
+                .map_or(self.windows[0].size.width, |f| f.size.width)
         });
         self.layout_tree_cell_at(node, key, width);
     }
@@ -3280,6 +3299,7 @@ pub fn prepare_remount() {
 /// The one caller that is not a test is Android's `nativeStart`, which an activity recreation can
 /// re-enter after the app is already up (docs/settings.md "Appearance on Android"). Everywhere
 /// else launch happens exactly once by construction.
+#[must_use]
 pub fn is_mounted() -> bool {
     TREE.with(|t| t.borrow().is_some())
 }
@@ -3305,6 +3325,11 @@ pub fn uninstall_tree() {
 /// Access the installed tree. Tree methods never run user code, so nesting cannot occur
 /// while a borrow is held; if events were queued during the call, they are pumped after
 /// the borrow is released (the "safe point" of §3.3).
+///
+/// # Panics
+///
+/// Panics when no tree is installed on the calling thread: before the app has started, or off
+/// the UI thread.
 pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
     let r = TREE.with(|t| {
         let mut opt = t.borrow_mut();
@@ -3322,7 +3347,7 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
 /// borrowed. Tree methods never run user code, but a backend may pump its native message
 /// loop from inside one (XAML's `open_window` waits for the new root to load; a modal native
 /// loop can nest anywhere), and a closure that loop dispatches would re-enter [`with_tree`]
-/// on the borrowed tree and panic ("RefCell already borrowed"). Held closures run at the end
+/// on the borrowed tree and panic ("`RefCell` already borrowed"). Held closures run at the end
 /// of the outermost `with_tree`, in arrival order, each contained like any posted task.
 pub(crate) fn run_posted_or_defer(f: Box<dyn FnOnce() + Send>) {
     // A post that arrives while the thread's locals are being torn down (a future cancelled by
@@ -3355,6 +3380,7 @@ fn run_deferred() {
 /// Query the active toolkit's support for a capability (docs). Lets app/piece code adapt its
 /// content to the backend, e.g. a page can skip a title the native nav already shows in a header
 /// (`Cap::NavHeader`), or pick a presentation from `Cap::NavSplit`.
+#[must_use]
 pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
     with_tree(|t| t.capability(cap))
 }
@@ -3390,6 +3416,7 @@ pub fn announce_urgent(text: &str) {
 }
 
 /// Whether the current toolkit can present a native sharing chooser.
+#[must_use]
 pub fn share_support() -> Support {
     with_tree(|t| t.share_support())
 }
@@ -3403,6 +3430,7 @@ pub type ShareActionEntry = (String, Option<day_spec::Symbol>, Rc<dyn Fn()>);
 ///
 /// Returns false if unavailable or presentation failed; cancellation is not an error and no
 /// completion is implied. Apps use day-pieces' `Share` builder, which resolves localized titles.
+#[must_use]
 pub fn present_share(
     url: &str,
     title: &str,
@@ -3433,6 +3461,11 @@ pub fn present_share(
 
 /// Query current system associations on the UI thread. macOS AppKit implements all query
 /// kinds; other backends return `Unsupported`. No application is launched by discovery.
+///
+/// # Errors
+///
+/// Returns `ApplicationError::Unsupported` where the backend has no association query, or the
+/// platform's own failure.
 pub fn application_handlers(
     query: &day_spec::applications::HandlerQuery,
 ) -> Result<day_spec::applications::ApplicationHandlers, day_spec::applications::ApplicationError> {
@@ -3440,6 +3473,10 @@ pub fn application_handlers(
 }
 
 /// The OS-chosen browser for HTTPS links, read afresh rather than cached by Day.
+///
+/// # Errors
+///
+/// Returns the errors of [`application_handlers`].
 pub fn default_browser()
 -> Result<Option<day_spec::applications::Application>, day_spec::applications::ApplicationError> {
     application_handlers(&day_spec::applications::HandlerQuery::Scheme(
@@ -3450,13 +3487,18 @@ pub fn default_browser()
 
 /// Open a URL or file URL in a chosen application. Await on the UI executor. Success means
 /// the OS accepted the open request; tab/window presentation belongs to the receiving app.
+///
+/// # Errors
+///
+/// Returns the platform's `ApplicationError`, or `LaunchFailed` when the request was dropped
+/// without an answer.
 pub async fn open_url_with_application(
     url: &str,
     application: &str,
 ) -> Result<(), day_spec::applications::ApplicationError> {
     let (send, receive) = day_async::oneshot();
     with_tree(|t| {
-        t.open_url_with_application(url, application, Box::new(move |result| send.send(result)))
+        t.open_url_with_application(url, application, Box::new(move |result| send.send(result)));
     });
     receive
         .await
@@ -3480,7 +3522,7 @@ pub fn invalidate_size(node: RNode) {
 /// while the backend draws the window synchronously, and that draw can re-enter Day through a
 /// native callback, e.g. a lazy list's `viewForRow`/`connect_bind`/`cellForRow` firing during
 /// `cacheDisplayInRect`. And platform style callbacks can fire before `install_tree`, e.g.
-/// GTK's StyleManager emits a `dark` notify while `startup` applies a forced `DAY_THEME`
+/// GTK's `StyleManager` emits a `dark` notify while `startup` applies a forced `DAY_THEME`
 /// scheme, before `activate` mounts the tree; a panic there unwinds into a C signal trampoline
 /// and aborts the process. Such callbacks use this and skip their work; the next real
 /// layout (or the signal's first post-mount read) catches up.
@@ -3513,7 +3555,7 @@ pub(crate) fn with_tree_if_free<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Opt
 /// this answers `false` for. [`is_mounted`] cannot tell the two apart without panicking.
 pub(crate) fn tree_absent() -> bool {
     // Bitmap handles can outlive the entire core TLS root at process/thread exit.
-    TREE.try_with(|t| t.try_borrow().map(|o| o.is_none()).unwrap_or(false))
+    TREE.try_with(|t| t.try_borrow().is_ok_and(|o| o.is_none()))
         .unwrap_or(true)
 }
 
@@ -3523,6 +3565,7 @@ pub(crate) fn request_pump() {
     PUMP_PENDING.with(|c| c.set(true));
 }
 
+#[must_use]
 pub fn has_tree() -> bool {
     // Native resize/layout callbacks can ask while a Toolkit call already borrows the tree.
     // A busy tree is installed, not absent; this presence probe must not borrow it again.
@@ -3578,8 +3621,9 @@ pub fn enqueue_events(evs: impl IntoIterator<Item = (NodeId, Event)>) {
 }
 
 /// The current pump generation (see `PUMP_GEN`). Read by the recorder's nav coalescing.
+#[must_use]
 pub fn pump_generation() -> u64 {
-    PUMP_GEN.with(|g| g.get())
+    PUMP_GEN.with(std::cell::Cell::get)
 }
 
 /// Install (or clear, with `None`) an observer that sees every event day-core dispatches, in queue
@@ -3600,6 +3644,7 @@ pub fn set_event_observer(observer: Option<Box<EventObserver>>) {
 /// event observer to label a tap/input with the id an app would target in a dayscript step.
 /// Borrow-safe: returns `None` rather than panicking if the tree is momentarily borrowed by a
 /// re-entrant backend call.
+#[must_use]
 pub fn id_of(node: NodeId) -> Option<String> {
     try_with_tree(|t| t.node_id(id_to_rnode(node))).flatten()
 }
@@ -3607,6 +3652,7 @@ pub fn id_of(node: NodeId) -> Option<String> {
 /// A human-readable label for a node, for annotating a recorded script (§14.6): the accessibility
 /// label if one is set (`.a11y(label = …)`, the localized string the screen reader speaks),
 /// otherwise the control's own visible text. `None` when the node carries neither.
+#[must_use]
 pub fn label_of(node: NodeId) -> Option<String> {
     try_with_tree(|t| {
         let rnode = id_to_rnode(node);
@@ -3631,17 +3677,17 @@ pub fn label_of(node: NodeId) -> Option<String> {
 /// single backend-agnostic boundary, log it (the message carries the offending effect's source
 /// location), and reset the runtime so the app keeps running (degraded) rather than crashing.
 pub fn pump_events() {
-    // Native mutations in a handler can enqueue focus, value, or dismissal
-    // events. Finish that handler before dispatching them: nested dispatch can
-    // dispose the signals still used by its remaining binding writes.
-    if PUMP_ACTIVE.with(|active| active.replace(true)) {
-        return;
-    }
     struct PumpGuard;
     impl Drop for PumpGuard {
         fn drop(&mut self) {
             PUMP_ACTIVE.with(|active| active.set(false));
         }
+    }
+    // Native mutations in a handler can enqueue focus, value, or dismissal
+    // events. Finish that handler before dispatching them: nested dispatch can
+    // dispose the signals still used by its remaining binding writes.
+    if PUMP_ACTIVE.with(|active| active.replace(true)) {
+        return;
     }
     let _guard = PumpGuard;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -3768,8 +3814,9 @@ fn pump_events_inner() {
 /// The node that currently has the keyboard, as the platform last reported it. Keys follow
 /// focus (docs/menus.md), so this is where a synthetic key has to land for a scripted run to
 /// exercise the same route a real one does. `None` when nothing focusable holds it.
+#[must_use]
 pub fn focused_node() -> Option<RNode> {
-    FOCUSED.with(|f| f.get())
+    FOCUSED.with(std::cell::Cell::get)
 }
 
 /// Mirror a focus event into the node's dayscript probe (`assert_focused` reads it).
@@ -3784,6 +3831,10 @@ fn dispatch_focus_probe(id: NodeId, ev: &Event) {
 /// and offset targets (`ScrollTarget::Id` ignores it and reveals the named element in its own
 /// nearest scroll). Animated on-screen; dayscript uses the unanimated variant for determinism.
 /// Call with no tree borrow held.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature; callers build the target at the call site"
+)]
 pub fn scroll_to(node: RNode, target: ScrollTarget) {
     with_tree(|t| {
         t.scroll_to_target(node, &target, true);
@@ -3880,21 +3931,27 @@ mod thread_exit_tests {
     impl Toolkit for Probe {
         type Handle = ();
         fn realize(&mut self, _: PieceKind, _: &dyn Any, _: NodeId) -> Self::Handle {}
-        fn release(&mut self, _: Self::Handle) {}
-        fn insert(&mut self, _: &Self::Handle, _: &Self::Handle, _: usize) {}
-        fn remove(&mut self, _: &Self::Handle, _: &Self::Handle) {
+        fn release(&mut self, (): Self::Handle) {}
+        fn insert(&mut self, (): &Self::Handle, (): &Self::Handle, _: usize) {}
+        fn remove(&mut self, (): &Self::Handle, (): &Self::Handle) {
             panic!("test probe has no attached children to remove");
         }
-        fn move_child(&mut self, _: &Self::Handle, _: &Self::Handle, _: usize) {}
-        fn measure(&mut self, _: &Self::Handle, _: PieceKind, _: Proposal) -> Size {
+        fn move_child(&mut self, (): &Self::Handle, (): &Self::Handle, _: usize) {}
+        fn measure(&mut self, (): &Self::Handle, _: PieceKind, _: Proposal) -> Size {
             Size::new(0.0, 0.0)
         }
-        fn set_frame(&mut self, _: &Self::Handle, _: Rect, _: Option<&AnimSpec>) {}
-        fn set_input_traits(&mut self, _: &Self::Handle, _: &InputTraits) -> Option<Self::Handle> {
+        fn set_frame(&mut self, (): &Self::Handle, _: Rect, _: Option<&AnimSpec>) {}
+        fn set_input_traits(&mut self, (): &Self::Handle, _: &InputTraits) -> Option<Self::Handle> {
             None
         }
         fn set_event_sink(&mut self, _: EventSink) {}
-        fn update(&mut self, _: &Self::Handle, _: &'static str, _: &dyn Any, _: Option<&AnimSpec>) {
+        fn update(
+            &mut self,
+            (): &Self::Handle,
+            _: &'static str,
+            _: &dyn Any,
+            _: Option<&AnimSpec>,
+        ) {
         }
     }
 
@@ -3904,7 +3961,7 @@ mod thread_exit_tests {
     }
 
     /// The tree owns the toolkit's native widgets, and dropping those at thread exit runs the
-    /// toolkit's callbacks against thread-locals that are already gone (a GtkListBox being
+    /// toolkit's callbacks against thread-locals that are already gone (a `GtkListBox` being
     /// emptied calls its header func; a panic there cannot unwind through C and aborts the
     /// process on the way out of a clean exit). So a thread's end must leak the tree.
     #[test]
@@ -3964,7 +4021,7 @@ mod thread_exit_tests {
 
     /// A posted closure that arrives while the tree is borrowed (a backend pumping its native
     /// loop from inside a tree method) must wait for the safe point rather than re-enter
-    /// `with_tree` on the borrowed tree: the "RefCell already borrowed" the web view demo hit
+    /// `with_tree` on the borrowed tree: the "`RefCell` already borrowed" the web view demo hit
     /// opening Browser Settings on WinUI while a second tab's poll kept posts in flight.
     #[test]
     fn a_post_during_a_tree_borrow_runs_at_the_safe_point() {

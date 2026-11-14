@@ -40,6 +40,10 @@ fn native_type(mime: &str) -> objc2::rc::Retained<NSString> {
     })
 }
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "shares its signature with the other platforms' arms, which can fail"
+)]
 pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
     use objc2_foundation::{NSArray, NSDictionary};
     let keys: Vec<_> = content.0.iter().map(|r| native_type(&r.mime)).collect();

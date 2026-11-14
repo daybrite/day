@@ -29,7 +29,7 @@ unsafe fn value(dict: CFDictionaryRef, key: &str) -> Option<CFTypeRef> {
     let k = CFString::new(key);
     let mut out: *const c_void = std::ptr::null();
     let present = unsafe {
-        CFDictionaryGetValueIfPresent(dict, k.as_concrete_TypeRef() as *const c_void, &mut out)
+        CFDictionaryGetValueIfPresent(dict, k.as_concrete_TypeRef().cast::<c_void>(), &raw mut out)
     };
     (present != 0 && !out.is_null()).then_some(out as CFTypeRef)
 }
@@ -41,7 +41,7 @@ unsafe fn i64_value(dict: CFDictionaryRef, key: &str) -> Option<i64> {
         CFNumberGetValue(
             v as CFNumberRef,
             kCFNumberSInt64Type,
-            &mut n as *mut i64 as *mut c_void,
+            (&raw mut n).cast::<c_void>(),
         )
     };
     ok.then_some(n)
@@ -53,7 +53,7 @@ unsafe fn string_value(dict: CFDictionaryRef, key: &str) -> Option<String> {
     let ok = unsafe {
         CFStringGetCString(
             v as CFStringRef,
-            buf.as_mut_ptr() as *mut c_char,
+            buf.as_mut_ptr().cast::<c_char>(),
             buf.len() as isize,
             kCFStringEncodingUTF8,
         )
@@ -61,7 +61,7 @@ unsafe fn string_value(dict: CFDictionaryRef, key: &str) -> Option<String> {
     if ok == 0 {
         return None;
     }
-    let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr() as *const c_char) };
+    let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr().cast::<c_char>()) };
     Some(cstr.to_string_lossy().into_owned())
 }
 

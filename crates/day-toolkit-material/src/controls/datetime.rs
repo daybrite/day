@@ -44,6 +44,10 @@ mod date_renderer {
         })
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut Material, h: &AHandle, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
         let days = d.to_epoch_days();
@@ -58,6 +62,10 @@ mod date_renderer {
 mod time_renderer {
     use super::*;
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+    )]
     fn make(_backend: &mut Material, p: &TimeProps, id: NodeId) -> AHandle {
         // `seconds` is a documented no-op: neither Material nor the framework clock edits seconds.
         crate::realize("time_picker", |env| {
@@ -70,6 +78,10 @@ mod time_renderer {
         })
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut Material, h: &AHandle, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
         let secs = t.seconds_of_day();

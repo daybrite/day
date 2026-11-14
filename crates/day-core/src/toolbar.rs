@@ -72,6 +72,7 @@ struct Contribution {
 #[derive(Clone)]
 pub struct DocumentWindow(Rc<Cell<RNode>>);
 impl DocumentWindow {
+    #[must_use]
     pub fn new(root: RNode) -> Self {
         Self(Rc::new(Cell::new(root)))
     }
@@ -178,7 +179,7 @@ pub fn with_page_in<R>(
             active,
             column,
             window,
-        })
+        });
     });
     let _restore = Restore;
     f()
@@ -204,26 +205,28 @@ pub fn current_page_window() -> RNode {
 }
 
 /// The predicate for the page being built, if it has one.
+#[must_use]
 pub fn current_page_gate() -> Option<Rc<dyn Fn() -> bool>> {
     PAGE_STACK.with(|s| s.borrow().last().and_then(|f| f.active.clone()))
 }
 
 /// Which column the page being built is; [`day_spec::ToolbarColumn::Window`] at the window root.
+#[must_use]
 pub fn current_page_column() -> day_spec::ToolbarColumn {
     PAGE_STACK.with(|s| {
         s.borrow()
             .last()
-            .map(|f| f.column)
-            .unwrap_or(day_spec::ToolbarColumn::Window)
+            .map_or(day_spec::ToolbarColumn::Window, |f| f.column)
     })
 }
 
 /// The window being built, else the primary root. Shared with the ambient environment lookup, which scopes
 /// the same way for the same reason: an app's one `size_class()` call inside a shared
 /// `build_shell` must mean "this window".
+#[must_use]
 pub fn window_being_built() -> RNode {
     BUILDING
-        .with(|b| b.get())
+        .with(std::cell::Cell::get)
         .unwrap_or_else(|| with_tree(|t| t.root_node()))
 }
 
@@ -233,6 +236,7 @@ pub fn window_being_built() -> RNode {
 /// Captured once, at registration. A derived contribution re-runs long after its build, when
 /// neither stack says anything, so reading this later would send its items to the primary
 /// window's chrome.
+#[must_use]
 pub fn current_chrome() -> Chrome {
     match PAGE_STACK.with(|s| s.borrow().last().map(|f| f.page)) {
         Some(page) => Chrome::Page(page),
@@ -297,6 +301,7 @@ pub(crate) fn resolve_slot(id: u64) -> u64 {
 
 /// Add one piece's items to `chrome` and return the token that owns them. The caller withdraws
 /// them with [`unregister_contribution`], normally from its own scope cleanup.
+#[must_use]
 pub fn register_contribution(chrome: Chrome, items: Vec<ToolbarItem>) -> u64 {
     register_contribution_gated(chrome, items, None)
 }
@@ -304,6 +309,7 @@ pub fn register_contribution(chrome: Chrome, items: Vec<ToolbarItem>) -> u64 {
 /// [`register_contribution`] for a page, with the predicate that says whether that page is on
 /// screen. The caller also re-reads it inside an effect, which is what re-composes the bar when
 /// a pane collapses or the destination changes.
+#[must_use]
 pub fn register_contribution_gated(
     chrome: Chrome,
     items: Vec<ToolbarItem>,
@@ -376,8 +382,8 @@ pub fn relabel_contribution(token: u64, texts: &[(String, Option<String>)]) {
         return;
     };
     for (item, (label, tooltip)) in items.iter_mut().zip(texts) {
-        item.label = label.clone();
-        item.tooltip = tooltip.clone();
+        item.label.clone_from(label);
+        item.tooltip.clone_from(tooltip);
     }
     update_contribution(token, items);
 }
@@ -523,10 +529,6 @@ fn recompose_windows() {
 // recording DELIVERED first: nested diffs against the old baseline insert an item twice,
 // which raises an Objective-C exception in NSToolbar.
 fn recompose_serially(mut apply: impl FnMut()) {
-    if RECOMPOSING.with(|busy| busy.replace(true)) {
-        RECOMPOSE_AGAIN.with(|again| again.set(true));
-        return;
-    }
     struct Reset;
     impl Drop for Reset {
         fn drop(&mut self) {
@@ -534,11 +536,15 @@ fn recompose_serially(mut apply: impl FnMut()) {
             RECOMPOSE_AGAIN.with(|again| again.set(false));
         }
     }
+    if RECOMPOSING.with(|busy| busy.replace(true)) {
+        RECOMPOSE_AGAIN.with(|again| again.set(true));
+        return;
+    }
     let _reset = Reset;
     loop {
         RECOMPOSE_AGAIN.with(|again| again.set(false));
         apply();
-        if !RECOMPOSE_AGAIN.with(|again| again.get()) {
+        if !RECOMPOSE_AGAIN.with(std::cell::Cell::get) {
             break;
         }
     }
@@ -548,7 +554,7 @@ fn recompose_windows_inner() {
     RECOMPOSE_PENDING.with(|p| p.set(false));
     let roots: Vec<RNode> = {
         let mut v: Vec<RNode> =
-            CONTRIBUTIONS.with(|m| m.borrow().values().map(|c| c.window()).collect());
+            CONTRIBUTIONS.with(|m| m.borrow().values().map(Contribution::window).collect());
         // A window whose last contribution left still has a bar to take down.
         v.extend(MODELS.with(|m| {
             m.borrow()
@@ -568,7 +574,7 @@ fn recompose_windows_inner() {
         MODELS.with(|m| {
             let mut m = m.borrow_mut();
             match m.iter_mut().find(|(c, _)| *c == Chrome::Window(root)) {
-                Some(entry) => entry.1 = items.clone(),
+                Some(entry) => entry.1.clone_from(&items),
                 None => m.push((Chrome::Window(root), items.clone())),
             }
         });
@@ -760,7 +766,7 @@ fn value_patches(was: &ToolbarItem, now: &ToolbarItem) -> Vec<ToolbarPatch> {
             out.push(ToolbarPatch::Selected {
                 item: item.clone(),
                 index: *b,
-            })
+            });
         }
         _ => {}
     }
@@ -807,7 +813,7 @@ fn slot_model(root: RNode, mut items: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
                     t.remove(slot);
                 }
             }
-        })
+        });
     });
     items
 }
@@ -864,6 +870,10 @@ pub fn patch_toolbar(patch: ToolbarPatch) {
 
 /// [`patch_toolbar`] against an explicit chrome. Also updates the retained model, so a later
 /// full replace does not resurrect the stale value.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "public signature; callers build the patch at the call site"
+)]
 pub fn patch_chrome(chrome: Chrome, patch: ToolbarPatch) {
     // The contribution that owns the item keeps its own copy, so a later re-compose rebuilds
     // from the current value rather than the one the item was declared with.
@@ -930,6 +940,7 @@ fn shape_of(item: &ToolbarItem) -> ToolbarItem {
 /// Every live item, across every chrome. dayscript's `toolbar:` step walks it to resolve an
 /// item's dispatch id, and an app has one bar per window at a time, so a duplicate id across two
 /// chromes would be an app bug rather than an ambiguity to resolve here.
+#[must_use]
 pub fn toolbar_model() -> Vec<ToolbarItem> {
     MODELS.with(|m| m.borrow().iter().flat_map(|(_, i)| i.clone()).collect())
 }
@@ -939,6 +950,7 @@ pub fn toolbar_model() -> Vec<ToolbarItem> {
 /// the toolkit has no pane to toggle there. The item's action makes this call, and dayscript's
 /// `toolbar:` step presses the item like any other, so a walkthrough drives the same path a
 /// click does (docs/toolbars.md).
+#[must_use]
 pub fn toggle_sidebar(host: RNode) -> bool {
     with_tree(|t| t.toggle_sidebar(host))
 }
@@ -967,7 +979,7 @@ pub(crate) fn forget_window(root: RNode) {
     forget_closures(&gone);
     MODELS.with(|m| {
         m.borrow_mut()
-            .retain(|(c, _)| !matches!(c, Chrome::Window(r) if *r == root))
+            .retain(|(c, _)| !matches!(c, Chrome::Window(r) if *r == root));
     });
     DELIVERED.with(|d| {
         d.borrow_mut().remove(&root);
@@ -981,7 +993,7 @@ pub(crate) fn forget_window(root: RNode) {
                 }
                 *r != root
             });
-        })
+        });
     });
 }
 
@@ -1000,6 +1012,7 @@ pub fn reset_toolbars() {
 
 /// Focus the active window's search control, revealing a collapsed desktop search item.
 /// Returns false when the active window has no toolbar search contribution.
+#[must_use]
 pub fn focus_toolbar_search() -> bool {
     let root = crate::windows::focused_root();
     let has = MODELS.with(|models| {
@@ -1092,7 +1105,7 @@ mod tests {
     #[test]
     fn identical_bars_need_no_edit() {
         let bar = vec![item("a", "A"), item("b", "B")];
-        assert!(check(&bar, &bar).is_empty());
+        assert_eq!(check(&bar, &bar), [] as [day_spec::ToolbarOp; 0]);
     }
 
     #[test]
@@ -1134,7 +1147,7 @@ mod tests {
         on.kind = K::Toggle { on: true };
         on.enabled = false;
         let (ops, patches) = diff_bar(std::slice::from_ref(&toggled), std::slice::from_ref(&on));
-        assert!(ops.is_empty());
+        assert_eq!(ops, [] as [day_spec::ToolbarOp; 0]);
         assert_eq!(patches.len(), 2);
         check(&[item("x", "Old")], &[item("x", "New")]);
     }
@@ -1145,6 +1158,6 @@ mod tests {
             longest_increasing(&[Some(2), None, Some(0), Some(1), Some(3)]),
             vec![2, 3, 4]
         );
-        assert!(longest_increasing(&[None, None]).is_empty());
+        assert_eq!(longest_increasing(&[None, None]), [] as [usize; 0]);
     }
 }

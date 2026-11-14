@@ -95,6 +95,7 @@ pub enum Availability {
 
 /// What a person is asked to do, and how the dialog may let them do it.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[must_use]
 pub struct Prompt {
     reason: String,
     fallback_title: Option<String>,
@@ -144,21 +145,25 @@ impl Prompt {
     }
 
     /// The reason shown in the dialog.
+    #[must_use]
     pub fn reason(&self) -> &str {
         &self.reason
     }
 
     /// The fallback button's label, when one was given.
+    #[must_use]
     pub fn fallback_title_text(&self) -> Option<&str> {
         self.fallback_title.as_deref()
     }
 
     /// Whether the device credential may pass the prompt.
+    #[must_use]
     pub fn allows_device_credential(&self) -> bool {
         self.device_credential
     }
 
     /// The challenge bytes, empty unless [`Prompt::challenge`] set them.
+    #[must_use]
     pub fn challenge_bytes(&self) -> &[u8] {
         &self.challenge
     }
@@ -266,17 +271,20 @@ impl std::error::Error for BiometricError {}
 /// What this target's implementation promises: `Native` where the platform has a prompt an app
 /// may show, `Unsupported` where it has none (desktop Linux, the web). This is API presence, not a
 /// live hardware probe; [`availability`] is the probe.
+#[must_use]
 pub fn support() -> Support {
     imp::support()
 }
 
 /// Whether a prompt can succeed right now, asked of the platform.
+#[must_use]
 pub fn availability() -> Availability {
     imp::availability()
 }
 
 /// The kind of sensor the device offers. [`Biometry::None`] where there is none or the platform
 /// reports `Unsupported`.
+#[must_use]
 pub fn biometry() -> Biometry {
     imp::biometry()
 }
@@ -311,6 +319,11 @@ pub fn authenticate(
 
 /// [`authenticate`] as a future. Dropping it before the answer arrives keeps the dialog on screen
 /// (the person still has to settle it) but discards the answer; call [`cancel`] to dismiss it.
+///
+/// # Errors
+///
+/// The future resolves to the [`BiometricError`] that [`authenticate`] reports, or to
+/// [`BiometricError::SystemCancelled`] when the prompt goes away without an answer.
 pub fn authenticate_future(
     prompt: Prompt,
 ) -> impl std::future::Future<Output = Result<Verified, BiometricError>> + Send {
@@ -397,7 +410,7 @@ mod tests {
         let d = Prompt::new("x");
         assert!(d.allows_device_credential());
         assert!(d.fallback_title_text().is_none());
-        assert!(d.challenge_bytes().is_empty());
+        assert_eq!(d.challenge_bytes(), []);
     }
 
     /// An empty reason never reaches the platform: Apple aborts on one, the others show a blank
@@ -468,7 +481,7 @@ mod tests {
             },
         ];
         for e in all {
-            assert!(!e.to_string().is_empty());
+            assert_ne!(e.to_string(), "");
         }
     }
 }

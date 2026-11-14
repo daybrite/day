@@ -33,6 +33,7 @@ pub const INSPECTOR_WIDTH: f64 = 280.0;
 /// `panel` is a builder rather than a piece because the panel can be re-homed: on a compact
 /// window the composed form presents it inside a fullscreen sheet instead of a side pane, and
 /// each home builds it fresh in its own scope.
+#[must_use]
 pub struct Inspector<V: Binding<bool>> {
     visible: V,
     width: f64,
@@ -332,9 +333,7 @@ impl day_core::Layout for SplitLayout {
     fn measure(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], p: Proposal) -> Size {
         // The split fills what it is offered; unconstrained, it is as big as its content.
         let content = children.first().copied();
-        let natural = content
-            .map(|c| cx.measure_child(c, p))
-            .unwrap_or(Size::ZERO);
+        let natural = content.map_or(Size::ZERO, |c| cx.measure_child(c, p));
         Size::new(
             p.width.unwrap_or(natural.width),
             p.height.unwrap_or(natural.height),
@@ -560,7 +559,7 @@ pub(crate) mod conformance {
                 d.tap("toggle").await?;
                 d.assert_text("panel", "Properties").await?;
                 d.wait_idle().await?;
-                let heights = HALF_HEIGHTS.with(|h| h.clone());
+                let heights = HALF_HEIGHTS.with(std::clone::Clone::clone);
                 crate::nav::conformance::check_half(&d, "inspector half sheet panel", &heights)
                     .await?;
                 d.assert_text("content", "Content").await?;

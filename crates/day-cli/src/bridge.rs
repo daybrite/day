@@ -16,6 +16,7 @@
 //! `[package.metadata.day.macos]` shims.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::meta::Project;
@@ -255,10 +256,11 @@ pub fn write_arkts(harmony: &Path, staged: &Staged) -> Result<(), String> {
         crate::pieces::write_if_changed(&path, contents)?;
         expected.push(path);
         let stem = file.trim_end_matches(".ets");
-        imports.push_str(&format!(
-            "import {{ register as register{i} }} from './{stem}';\n"
-        ));
-        calls.push_str(&format!("  parts.push(register{i}());\n"));
+        let _ = writeln!(
+            imports,
+            "import {{ register as register{i} }} from './{stem}';"
+        );
+        let _ = writeln!(calls, "  parts.push(register{i}());");
     }
     let aggregator = root.join("DayBridges.ets");
     // Merged by hand: ArkTS restricts `Object.assign` (arkts-limited-stdlib), and an object
@@ -328,9 +330,7 @@ pub fn apply_staged(cmd: &mut std::process::Command, project: &Project, target_n
 /// check is a guard against a silent failure, not a claim to know every Gradle setup.
 pub fn android_compiles_kotlin(project: &Project) -> bool {
     let gradle = crate::native_host::android_dir(project).join("app/build.gradle.kts");
-    std::fs::read_to_string(gradle)
-        .map(|t| gradle_compiles_kotlin(&t))
-        .unwrap_or(false)
+    std::fs::read_to_string(gradle).is_ok_and(|t| gradle_compiles_kotlin(&t))
 }
 
 fn gradle_compiles_kotlin(gradle: &str) -> bool {
@@ -423,8 +423,7 @@ fn links(lib: &str) -> bool {
         .arg("-o")
         .arg(dir.join("probe"))
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(true);
+        .map_or(true, |o| o.status.success());
     let _ = std::fs::remove_dir_all(&dir);
     ok
 }
@@ -515,9 +514,9 @@ mod tests {
     #[test]
     fn a_host_building_for_openharmony_cannot_resolve_hms_kits() {
         use super::builds_for_openharmony_only as only;
-        assert!(only(r#"{app: {products: [{runtimeOS: 'OpenHarmony'}]}}"#).unwrap());
+        assert!(only(r"{app: {products: [{runtimeOS: 'OpenHarmony'}]}}").unwrap());
         assert!(
-            !only(r#"{app: {products: [{runtimeOS: 'OpenHarmony'}, {runtimeOS: 'HarmonyOS'}]}}"#)
+            !only(r"{app: {products: [{runtimeOS: 'OpenHarmony'}, {runtimeOS: 'HarmonyOS'}]}}")
                 .unwrap()
         );
         assert!(!only("{app: {products: [{}]}}").unwrap());
@@ -527,7 +526,7 @@ mod tests {
                 .unwrap()
         );
         assert!(only(r#"{note: "runtimeOS: 'HarmonyOS'", app: {products: [{runtimeOS: 'OpenHarmony'}]}, products: [{runtimeOS: 'HarmonyOS'}]}"#).unwrap());
-        assert!(!only(r#"{products: [{runtimeOS: 'OpenHarmony'}]}"#).unwrap());
+        assert!(!only(r"{products: [{runtimeOS: 'OpenHarmony'}]}").unwrap());
         assert!(only("{app: {products: [").is_err());
     }
 
@@ -540,7 +539,7 @@ mod tests {
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
             src.join("lib.rs"),
-            r###"
+            r##"
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" { fn hello_native() -> Result<(), day_bridge::Error>; }
@@ -553,7 +552,7 @@ day_bridge::bridge! {
     #[day_bridge::impl(rust, platforms = [other])]
     fn hello_native() -> Result<(), day_bridge::Error> { Err(day_bridge::Error::Unsupported) }
 }
-"###,
+"##,
         )
         .unwrap();
 

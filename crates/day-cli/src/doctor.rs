@@ -213,7 +213,10 @@ fn have_wasm_cc() -> Option<String> {
 /// missing).
 fn which(bin: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    let names: Vec<String> = if cfg!(windows) && !bin.ends_with(".exe") {
+    let has_exe = Path::new(bin)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"));
+    let names: Vec<String> = if cfg!(windows) && !has_exe {
         vec![bin.to_string(), format!("{bin}.exe")]
     } else {
         vec![bin.to_string()]
@@ -278,7 +281,7 @@ fn core_group() -> Group {
     }
 }
 
-/// Diagnose the selected toolchain (including DEVELOPER_DIR), not an unused installation.
+/// Diagnose the selected toolchain (including `DEVELOPER_DIR`), not an unused installation.
 fn xcode_probe() -> Probe {
     let installed = run_line("xcodebuild", &["-version"]);
     let fix = format!(
@@ -1309,7 +1312,7 @@ pub fn run(
                 known
                     .iter()
                     .filter(|k| **k != "core")
-                    .cloned()
+                    .copied()
                     .collect::<Vec<_>>()
                     .join(", ")
             )));
@@ -1375,18 +1378,17 @@ pub fn run(
                 let mut parts = cmd.split_whitespace();
                 let bin = parts.next().unwrap_or_default();
                 let args: Vec<&str> = parts.collect();
-                match run_line(bin, &args) {
-                    Some(d) => eprintln!("  {SUCCESS}✓{SUCCESS:#} {:<14} {d}", e.target.toolkit),
-                    None => {
-                        eprintln!(
-                            "  {ERROR}✗{ERROR:#} {:<14} `{cmd}` failed — see {}'s setup docs",
-                            e.target.toolkit, e.crate_name
-                        );
-                        if focused {
-                            total.errors += 1;
-                        } else {
-                            total.warnings += 1;
-                        }
+                if let Some(d) = run_line(bin, &args) {
+                    eprintln!("  {SUCCESS}✓{SUCCESS:#} {:<14} {d}", e.target.toolkit);
+                } else {
+                    eprintln!(
+                        "  {ERROR}✗{ERROR:#} {:<14} `{cmd}` failed — see {}'s setup docs",
+                        e.target.toolkit, e.crate_name
+                    );
+                    if focused {
+                        total.errors += 1;
+                    } else {
+                        total.warnings += 1;
                     }
                 }
             }
@@ -1542,7 +1544,10 @@ mod tests {
         t.file("12/readme.txt", b"x"); // no SDK component: not a level
         t.file("default/toolchains/restool", b"x"); // not numeric
         assert_eq!(crate::ohos::sdk_api_levels(&t.0), [18, 20]);
-        assert!(crate::ohos::sdk_api_levels(&t.0.join("missing")).is_empty());
+        assert_eq!(
+            crate::ohos::sdk_api_levels(&t.0.join("missing")),
+            [] as [u32; 0]
+        );
     }
 
     #[test]

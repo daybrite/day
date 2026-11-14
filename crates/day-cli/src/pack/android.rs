@@ -252,12 +252,11 @@ fn write_signing_properties(project: &Project, path: &Path) -> Result<SignTier, 
         }
         None => None,
     };
-    let (store_file, store_pass, key_alias, key_pass, tier) = match release {
-        Some((keystore, store_pass, key_alias, key_pass)) => {
+    let (store_file, store_pass, key_alias, key_pass, tier) =
+        if let Some((keystore, store_pass, key_alias, key_pass)) = release {
             status("Signing", "release keystore (signing.android)");
             (keystore, store_pass, key_alias, key_pass, SignTier::Release)
-        }
-        None => {
+        } else {
             let keystore = dev_keystore(project).map_err(PackError::Other)?;
             status(
                 "Signing",
@@ -270,8 +269,7 @@ fn write_signing_properties(project: &Project, path: &Path) -> Result<SignTier, 
                 DEV_KEYSTORE_PASS.into(),
                 SignTier::DevSigned,
             )
-        }
-    };
+        };
     // Gradle's Properties loader treats '\' as an escape, so normalize to forward slashes (valid
     // on Windows for java.io.File too).
     let content = format!(
@@ -314,7 +312,7 @@ fn dev_keystore(project: &Project) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// The built apk: ops::build returns the conventional path, but an unsigned release build is named
+/// The built apk: `ops::build` returns the conventional path, but an unsigned release build is named
 /// `app-release-unsigned.apk`; fall back to any .apk in the outputs dir.
 fn find_output(
     conventional: &Path,
@@ -354,8 +352,7 @@ fn verify_apk(project: &Project, apk: &Path) {
         .args(["verify", "--print-certs"])
         .arg(apk)
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .is_ok_and(|o| o.status.success());
     if ok {
         status("Verified", "apksigner verify passed");
     } else {
@@ -368,8 +365,7 @@ fn verify_apk(project: &Project, apk: &Path) {
             .args(["-c", "-P", "16", "-v", "4"])
             .arg(apk)
             .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+            .is_ok_and(|o| o.status.success());
         if !ok {
             status(
                 "Warning",

@@ -26,31 +26,33 @@ const H_REFERENCE: &str = "M 54.9316 0 L 57.666 0 L 30.5664 -70.459 L 28.0762 -7
 
 /// Wrap a standalone glyph SVG into `(template_svg, contents_json)`, the two files of a
 /// `.symbolset` bundle (`<name>.svg` + `Contents.json`).
+///
+/// # Errors
+///
+/// Returns a message when `glyph_svg` does not parse, has no usable `viewBox` or
+/// `width`/`height`, has a zero-sized box, or lacks an `<svg>` root element.
 pub fn wrap_symbolset(glyph_svg: &str, name: &str) -> Result<(String, String), String> {
     let doc = roxmltree::Document::parse(glyph_svg).map_err(|e| format!("glyph parse: {e}"))?;
     let root = doc.root_element();
     // The glyph's coordinate box: viewBox, else width/height at origin.
-    let (vbx, vby, vbw, vbh) = match root.attribute("viewBox") {
-        Some(vb) => {
-            let v: Vec<f32> = vb
-                .split([' ', ','])
-                .filter(|s| !s.is_empty())
-                .filter_map(|s| s.parse().ok())
-                .collect();
-            if v.len() != 4 {
-                return Err("glyph viewBox is not 4 numbers".into());
-            }
-            (v[0], v[1], v[2], v[3])
+    let (vbx, vby, vbw, vbh) = if let Some(vb) = root.attribute("viewBox") {
+        let v: Vec<f32> = vb
+            .split([' ', ','])
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse().ok())
+            .collect();
+        if v.len() != 4 {
+            return Err("glyph viewBox is not 4 numbers".into());
         }
-        None => {
-            let dim = |a: &str| {
-                root.attribute(a)
-                    .and_then(|s| s.trim_end_matches("px").parse::<f32>().ok())
-            };
-            match (dim("width"), dim("height")) {
-                (Some(w), Some(h)) => (0.0, 0.0, w, h),
-                _ => return Err("glyph has neither viewBox nor width/height".into()),
-            }
+        (v[0], v[1], v[2], v[3])
+    } else {
+        let dim = |a: &str| {
+            root.attribute(a)
+                .and_then(|s| s.trim_end_matches("px").parse::<f32>().ok())
+        };
+        match (dim("width"), dim("height")) {
+            (Some(w), Some(h)) => (0.0, 0.0, w, h),
+            _ => return Err("glyph has neither viewBox nor width/height".into()),
         }
     };
     if vbw <= 0.0 || vbh <= 0.0 {

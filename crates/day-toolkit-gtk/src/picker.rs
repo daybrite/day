@@ -38,7 +38,7 @@ fn key(w: &gtk4::Widget) -> usize {
 }
 
 fn make_menu(p: &PickerProps, id: NodeId, suppress: Rc<Cell<bool>>) -> gtk4::DropDown {
-    let refs: Vec<&str> = p.options.iter().map(|s| s.as_str()).collect();
+    let refs: Vec<&str> = p.options.iter().map(std::string::String::as_str).collect();
     let dd = gtk4::DropDown::new(Some(gtk4::StringList::new(&refs)), gtk4::Expression::NONE);
     dd.set_selected(p.selected as u32);
     dd.connect_selected_notify(move |d| {
@@ -48,7 +48,7 @@ fn make_menu(p: &PickerProps, id: NodeId, suppress: Rc<Cell<bool>>) -> gtk4::Dro
             }
             let sel = d.selected();
             if sel != gtk4::INVALID_LIST_POSITION {
-                crate::emit(id, Event::SelectionChanged(sel as i64));
+                crate::emit(id, Event::SelectionChanged(i64::from(sel)));
             }
         });
     });
@@ -235,7 +235,7 @@ fn set_options(h: &gtk4::Widget, opts: &[String]) {
             st.suppress.set(true);
             if let Some(dd) = &st.dropdown {
                 let want = dd.selected();
-                let refs: Vec<&str> = opts.iter().map(|s| s.as_str()).collect();
+                let refs: Vec<&str> = opts.iter().map(std::string::String::as_str).collect();
                 dd.set_model(Some(&gtk4::StringList::new(&refs)));
                 if !opts.is_empty() {
                     dd.set_selected(want.min(opts.len() as u32 - 1));
@@ -244,41 +244,43 @@ fn set_options(h: &gtk4::Widget, opts: &[String]) {
                 let segmented = !st.toggles.is_empty();
                 let parent = h.clone().downcast::<gtk4::Box>().ok();
                 let active = if segmented {
-                    st.toggles.iter().position(|t| t.is_active())
+                    st.toggles
+                        .iter()
+                        .position(gtk4::prelude::ToggleButtonExt::is_active)
                 } else {
-                    st.checks.iter().position(|c| c.is_active())
+                    st.checks
+                        .iter()
+                        .position(gtk4::prelude::CheckButtonExt::is_active)
                 }
                 .unwrap_or(0);
                 for (i, o) in opts.iter().enumerate() {
                     if segmented {
-                        match st.toggles.get(i) {
-                            Some(t) => t.set_label(o),
-                            None => {
-                                let t = gtk4::ToggleButton::with_label(o);
-                                if let Some(first) = st.toggles.first() {
-                                    t.set_group(Some(first));
-                                }
-                                wire_toggle(&t, node, i, st.suppress.clone());
-                                if let Some(bx) = &parent {
-                                    bx.append(&t);
-                                }
-                                st.toggles.push(t);
+                        if let Some(t) = st.toggles.get(i) {
+                            t.set_label(o);
+                        } else {
+                            let t = gtk4::ToggleButton::with_label(o);
+                            if let Some(first) = st.toggles.first() {
+                                t.set_group(Some(first));
                             }
+                            wire_toggle(&t, node, i, st.suppress.clone());
+                            if let Some(bx) = &parent {
+                                bx.append(&t);
+                            }
+                            st.toggles.push(t);
                         }
                     } else {
-                        match st.checks.get(i) {
-                            Some(c) => c.set_label(Some(o)),
-                            None => {
-                                let c = gtk4::CheckButton::with_label(o);
-                                if let Some(first) = st.checks.first() {
-                                    c.set_group(Some(first));
-                                }
-                                wire_check(&c, node, i, st.suppress.clone());
-                                if let Some(bx) = &parent {
-                                    bx.append(&c);
-                                }
-                                st.checks.push(c);
+                        if let Some(c) = st.checks.get(i) {
+                            c.set_label(Some(o));
+                        } else {
+                            let c = gtk4::CheckButton::with_label(o);
+                            if let Some(first) = st.checks.first() {
+                                c.set_group(Some(first));
                             }
+                            wire_check(&c, node, i, st.suppress.clone());
+                            if let Some(bx) = &parent {
+                                bx.append(&c);
+                            }
+                            st.checks.push(c);
                         }
                     }
                 }
@@ -306,6 +308,10 @@ fn set_options(h: &gtk4::Widget, opts: &[String]) {
 /// The label of the option a picker shows as selected, for `read_native`: the dropdown's
 /// selected string, or the active segmented/inline button's label. `None` when `h` is not a
 /// picker root; `Some(None)` for a picker with no selection showing.
+#[expect(
+    clippy::option_option,
+    reason = "outer `None` is a widget that is no picker root; the inner value is the picker's optional selection"
+)]
 pub(crate) fn selected_text(h: &gtk4::Widget) -> Option<Option<String>> {
     STATE.with(|m| {
         m.with(key(h), |st| {
@@ -317,13 +323,13 @@ pub(crate) fn selected_text(h: &gtk4::Widget) -> Option<Option<String>> {
                 st.toggles
                     .iter()
                     .find(|t| t.is_active())
-                    .and_then(|t| t.label())
+                    .and_then(gtk4::prelude::ButtonExt::label)
                     .map(|l| l.to_string())
             } else {
                 st.checks
                     .iter()
                     .find(|c| c.is_active())
-                    .and_then(|c| c.label())
+                    .and_then(gtk4::prelude::CheckButtonExt::label)
                     .map(|l| l.to_string())
             }
         })
@@ -333,7 +339,7 @@ pub(crate) fn selected_text(h: &gtk4::Widget) -> Option<Option<String>> {
 fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
     let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-    Size::new((nat_w as f64).max(60.0), (nat_h as f64).max(22.0))
+    Size::new(f64::from(nat_w).max(60.0), f64::from(nat_h).max(22.0))
 }
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts

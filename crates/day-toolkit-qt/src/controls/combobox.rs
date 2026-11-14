@@ -73,7 +73,7 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &ComboPatch) {
 fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_qt_size_hint(h.0, &mut w, &mut hh) };
+    unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     // Grow to the proposed width; natural height from the combo's size hint.
     let width = p.width.unwrap_or(w).max(120.0);
     Size::new(width, hh.max(24.0))

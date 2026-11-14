@@ -204,7 +204,7 @@ pub fn animate(node: Handle, anim: Option<&AnimSpec>, apply: impl FnOnce() + 'st
             userData: raw.cast(),
         };
         let rc = match api.animateTo {
-            Some(f) => f(ctx, option, &mut update, &mut done),
+            Some(f) => f(ctx, option, &raw mut update, &raw mut done),
             None => -1,
         };
         if rc != 0 {

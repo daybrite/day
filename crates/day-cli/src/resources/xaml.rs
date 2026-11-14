@@ -14,6 +14,10 @@
 use super::ResourceSet;
 use crate::meta::Project;
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "keeps the signature every toolkit's `stage` shares, so the caller dispatches uniformly"
+)]
 pub fn stage(_project: &Project, _set: &ResourceSet) -> Result<(), String> {
     Ok(())
 }

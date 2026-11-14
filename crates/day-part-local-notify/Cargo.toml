@@ -109,3 +109,6 @@ uses = ["notifications"]
 
 [build-dependencies]
 day-build = { workspace = true }
+
+[lints]
+workspace = true

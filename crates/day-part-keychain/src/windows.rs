@@ -70,13 +70,13 @@ fn protect(plain: &[u8]) -> Result<Vec<u8>, KeychainError> {
     // buffer that `take_blob` frees. No description, entropy, reserved pointer or prompt struct.
     unsafe {
         CryptProtectData(
-            &input,
+            &raw const input,
             None,
             None,
             None,
             None,
             CRYPTPROTECT_UI_FORBIDDEN,
-            &mut output,
+            &raw mut output,
         )
     }
     .map_err(platform_error)?;
@@ -92,13 +92,13 @@ fn unprotect(blob: &[u8]) -> Result<Vec<u8>, KeychainError> {
     // SAFETY: as in `protect`; the description out-parameter is declined (None).
     let result = unsafe {
         CryptUnprotectData(
-            &input,
+            &raw const input,
             None,
             None,
             None,
             None,
             CRYPTPROTECT_UI_FORBIDDEN,
-            &mut output,
+            &raw mut output,
         )
     };
     match result {
@@ -109,6 +109,10 @@ fn unprotect(blob: &[u8]) -> Result<Vec<u8>, KeychainError> {
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "used as a `map_err` adapter, which hands the error over by value"
+)]
 fn platform_error(e: windows::core::Error) -> KeychainError {
     // ERROR_NO_SUCH_LOGON_SESSION (1312): a network logon with no credential set.
     if e.code().0 & 0xFFFF == 1312 {
@@ -194,6 +198,10 @@ pub fn get(key: &str) -> Result<Vec<u8>, KeychainError> {
     unprotect(&item.payload)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the signature mirrors this part's other platform implementations"
+)]
 pub fn get_with_presence(key: String, reason: String, on_done: OnDone) {
     let item = match store_dir().and_then(|dir| record::read(&dir, &key)) {
         Ok(item) => item,

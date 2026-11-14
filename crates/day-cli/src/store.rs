@@ -41,6 +41,7 @@
 //! document for the app's website and for anything else that publishes it.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::cli::CliError;
@@ -326,7 +327,7 @@ pub struct Source<'a> {
     pub read_ref: &'a dyn Fn(&str) -> Result<String, String>,
 }
 
-impl<'a> Source<'a> {
+impl Source<'_> {
     /// A `-ref` path is project-relative and stays inside the project: a test resource lives in
     /// the repository, never at a path one machine happens to have.
     pub fn check_ref(path: &str) -> Result<(), String> {
@@ -578,7 +579,11 @@ impl Metadata {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.base.is_empty() && self.locales.values().all(|l| l.is_empty())
+        self.base.is_empty()
+            && self
+                .locales
+                .values()
+                .all(std::collections::BTreeMap::is_empty)
     }
 }
 
@@ -654,32 +659,29 @@ impl Screenshots {
         })?;
         let mut out = Screenshots::default();
         for (key, value) in table {
-            match value {
-                serde_json::Value::Object(_) => {
-                    let inner = value.as_object().unwrap_or(&serde_json::Map::new()).clone();
-                    let mut lists = ShotLists::default();
-                    for (kind, value) in &inner {
-                        if value.is_object() {
-                            return Err(format!(
-                                "{at}.{key}.{kind}: a locale table holds lists per device kind, not further tables"
-                            ));
-                        }
-                        let shots = parse_shots(value, &format!("{at}.{key}.{kind}"))?;
-                        if kind == "default" {
-                            lists.default = Some(shots);
-                        } else {
-                            lists.kinds.insert(kind.clone(), shots);
-                        }
+            if let serde_json::Value::Object(_) = value {
+                let inner = value.as_object().unwrap_or(&serde_json::Map::new()).clone();
+                let mut lists = ShotLists::default();
+                for (kind, value) in &inner {
+                    if value.is_object() {
+                        return Err(format!(
+                            "{at}.{key}.{kind}: a locale table holds lists per device kind, not further tables"
+                        ));
                     }
-                    out.locales.insert(key.clone(), lists);
-                }
-                _ => {
-                    let shots = parse_shots(value, &format!("{at}.{key}"))?;
-                    if key == "default" {
-                        out.all.default = Some(shots);
+                    let shots = parse_shots(value, &format!("{at}.{key}.{kind}"))?;
+                    if kind == "default" {
+                        lists.default = Some(shots);
                     } else {
-                        out.all.kinds.insert(key.clone(), shots);
+                        lists.kinds.insert(kind.clone(), shots);
                     }
+                }
+                out.locales.insert(key.clone(), lists);
+            } else {
+                let shots = parse_shots(value, &format!("{at}.{key}"))?;
+                if key == "default" {
+                    out.all.default = Some(shots);
+                } else {
+                    out.all.kinds.insert(key.clone(), shots);
                 }
             }
         }
@@ -713,7 +715,7 @@ impl Screenshots {
     fn lists(&self) -> impl Iterator<Item = &Vec<ListingShot>> {
         self.all
             .lists()
-            .chain(self.locales.values().flat_map(|l| l.lists()))
+            .chain(self.locales.values().flat_map(ShotLists::lists))
     }
 
     fn kinds(&self) -> impl Iterator<Item = &String> {
@@ -834,11 +836,11 @@ impl Storefront {
                         value,
                         "storefront.submission-info",
                         &mut out.problems,
-                    )?
+                    )?;
                 }
                 "metadata" => {
                     out.metadata
-                        .parse(value, "storefront.metadata", src, &mut out.problems)?
+                        .parse(value, "storefront.metadata", src, &mut out.problems)?;
                 }
                 "screenshots" => {
                     return Err("storefront.screenshots: screenshots are declared per target, `[storefront.<target>.screenshots]`".into());
@@ -863,7 +865,7 @@ impl Storefront {
                                     value,
                                     &format!("{at}.submission-info"),
                                     &mut out.problems,
-                                )?
+                                )?;
                             }
                             "metadata" => te.metadata.parse(
                                 value,
@@ -873,7 +875,7 @@ impl Storefront {
                             )?,
                             "screenshots" => {
                                 te.screenshots =
-                                    Screenshots::parse(value, &format!("{at}.screenshots"))?
+                                    Screenshots::parse(value, &format!("{at}.screenshots"))?;
                             }
                             store => {
                                 let at = format!("{at}.{store}");
@@ -888,7 +890,7 @@ impl Storefront {
                                                 value,
                                                 &format!("{at}.submission-info"),
                                                 &mut out.problems,
-                                            )?
+                                            )?;
                                         }
                                         "metadata" => se.metadata.parse(
                                             value,
@@ -900,7 +902,7 @@ impl Storefront {
                                             se.screenshots = Screenshots::parse(
                                                 value,
                                                 &format!("{at}.screenshots"),
-                                            )?
+                                            )?;
                                         }
                                         other => out.problems.push(format!(
                                             "[{at}] {other}: unknown key; a store takes \
@@ -1094,7 +1096,6 @@ impl Storefront {
 
     /// Every declared text, with the level and locale it was declared at.
     pub fn texts(&self) -> Vec<Declared<'_>> {
-        let mut out = Vec::new();
         fn collect<'a>(
             out: &mut Vec<Declared<'a>>,
             target: Option<&'a str>,
@@ -1122,6 +1123,7 @@ impl Storefront {
                 }
             }
         }
+        let mut out = Vec::new();
         collect(&mut out, None, None, &self.metadata);
         for (target, te) in &self.targets {
             collect(&mut out, Some(target.as_str()), None, &te.metadata);
@@ -1327,6 +1329,10 @@ pub fn parse_document(text: &str, yaml: bool) -> Result<serde_json::Value, Strin
 }
 
 /// Whether a storefront file name is the YAML form.
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "storefront files are found by their exact lowercase names"
+)]
 fn is_yaml(name: &str) -> bool {
     name.ends_with(".yaml") || name.ends_with(".yml")
 }
@@ -1762,7 +1768,7 @@ impl ScreenshotSource {
                     .ok_or("an index entry with no path")?;
                 let dir = index.parent().unwrap_or(Path::new("."));
                 let site = dir.parent().unwrap_or(Path::new(".")).join(rel);
-                let tree = dir.join(rel.split_once('/').map(|(_, r)| r).unwrap_or(rel));
+                let tree = dir.join(rel.split_once('/').map_or(rel, |(_, r)| r));
                 let path = if site.exists() { site } else { tree };
                 std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
             }
@@ -1841,9 +1847,7 @@ fn listing_shots(
                         e["width"].as_u64().unwrap_or(0) as u32,
                         e["height"].as_u64().unwrap_or(0) as u32,
                     );
-                    let scale = rule_for(&rule_kinds, kind)
-                        .map(|(_, r)| r.scale_for(w, h))
-                        .unwrap_or(1);
+                    let scale = rule_for(&rule_kinds, kind).map_or(1, |(_, r)| r.scale_for(w, h));
                     chosen.push(StoreShot {
                         position: i as u32 + 1,
                         device: kind.clone(),
@@ -2053,7 +2057,7 @@ impl StoreRules {
         })
     }
 
-    /// The rules in force: `explicit` (the `--rules` flag), else the file DAY_STORE_RULES names
+    /// The rules in force: `explicit` (the `--rules` flag), else the file `DAY_STORE_RULES` names
     /// (how a CI workflow hands the CLI its own copy), else the project's `store/rules.toml`,
     /// else the CLI's own.
     pub fn load(project: &Project, explicit: Option<&Path>) -> Result<StoreRules, String> {
@@ -2447,9 +2451,9 @@ fn apple_appfile(id: &str, app: &SubmissionInfo) -> String {
     let mut s = String::from(
         "# Generated by `day store stage` — edit store/ in the project, not this file.\n",
     );
-    s.push_str(&format!("app_identifier({id:?})\n"));
+    let _ = writeln!(s, "app_identifier({id:?})");
     if let Some(e) = &app.contact_email {
-        s.push_str(&format!("apple_id({e:?})\n"));
+        let _ = writeln!(s, "apple_id({e:?})");
     }
     s.push_str(
         "# Credentials come from the environment (App Store Connect API key):\n\
@@ -2728,7 +2732,7 @@ fn play_fastfile(_project: &Project, with_screenshots: bool) -> String {
 }
 
 fn play_fastfile_text() -> String {
-    r##"# Generated by `day store stage` — edit store/ in the project, not this file.
+    r#"# Generated by `day store stage` — edit store/ in the project, not this file.
 #
 # No metrics: fastlane reports usage to its own servers unless a Fastfile opts out, and a lane
 # that publishes an app is not a place to send anything anywhere but the store.
@@ -2794,7 +2798,7 @@ platform :android do
     )
   end
 end
-"##
+"#
     .to_string()
 }
 
@@ -2839,8 +2843,7 @@ pub fn lint(project: &Project, listing: &Listing, rules: &StoreRules) -> Vec<Pro
     // flavored run has to point at the files it actually read.
     let store = dir(project)
         .strip_prefix(&project.root)
-        .map(|rel| rel.display().to_string())
-        .unwrap_or_else(|_| "store".to_string());
+        .map_or_else(|_| "store".to_string(), |rel| rel.display().to_string());
     let targets = &project.manifest.app.targets;
     let declared = &listing.app;
     let app_file = format!(
@@ -3212,7 +3215,7 @@ fn toml_table(name: &str, fields: &BTreeMap<Field, String>) -> String {
     let mut s = format!("\n[{name}]\n");
     for f in FIELDS {
         if let Some(v) = fields.get(f) {
-            s.push_str(&format!("{} = {}\n", f.key(), toml_value(*f, v)));
+            let _ = writeln!(s, "{} = {}", f.key(), toml_value(*f, v));
         }
     }
     s
@@ -3574,11 +3577,10 @@ pub fn storefront_json(project: &Project, listing: &Listing) -> serde_json::Valu
                 }),
             );
         }
-        let screenshots = app
-            .targets
-            .get(&target)
-            .map(|te| screenshots_json(&te.screenshots))
-            .unwrap_or_else(|| serde_json::json!({}));
+        let screenshots = app.targets.get(&target).map_or_else(
+            || serde_json::json!({}),
+            |te| screenshots_json(&te.screenshots),
+        );
         targets.insert(
             target.clone(),
             serde_json::json!({
@@ -3715,7 +3717,7 @@ pub fn remove_locale(project_root: &Path, tag: &str) -> Result<Vec<String>, Stri
         let mentions = |v: &serde_json::Value| -> bool {
             v.get("metadata")
                 .and_then(|m| m.get(tag))
-                .is_some_and(|t| t.is_object())
+                .is_some_and(serde_json::Value::is_object)
         };
         let root_v = doc.get("storefront").cloned().unwrap_or_default();
         let inline = mentions(&root_v)
@@ -3738,8 +3740,7 @@ pub fn remove_locale(project_root: &Path, tag: &str) -> Result<Vec<String>, Stri
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("store/{main}: {e}"))?;
     let removed = doc
         .get_mut("storefront")
-        .map(|sf| drop_metadata_locale(sf, tag, 0))
-        .unwrap_or(0);
+        .map_or(0, |sf| drop_metadata_locale(sf, tag, 0));
     if removed > 0 {
         std::fs::write(&path, doc.to_string()).map_err(|e| format!("{}: {e}", path.display()))?;
         done.push(format!(
@@ -3920,7 +3921,7 @@ fn screenshots_cmd(
             &format!(
                 "{} ({}): {summary}",
                 t.name,
-                rules.store_for(t.name).map(|(k, _)| k).unwrap_or("?")
+                rules.store_for(t.name).map_or("?", |(k, _)| k)
             ),
         );
         for p in screenshot_problems(&index, t, &rules) {
@@ -4154,7 +4155,7 @@ mod tests {
     }
 
     /// An approved App Store version goes live on its own unless the listing says
-    /// `apple-release = "manual"`, which staging hands the lanes as DAY_ASC_MANUAL_RELEASE in the
+    /// `apple-release = "manual"`, which staging hands the lanes as `DAY_ASC_MANUAL_RELEASE` in the
     /// tree's env file; the Fastfile itself reads that switch and is the same text either way.
     /// Any other value in the key is refused by name.
     #[test]
@@ -4511,7 +4512,7 @@ mod tests {
             "theme": null, "locale": "en", "width": 1320, "height": 2868,
         }));
         let index_path = tree.join("gallery.json");
-        std::fs::write(&index_path, index(&["en", "fr"], entries).to_string()).expect("index");
+        std::fs::write(&index_path, index(&["en", "fr"], &entries).to_string()).expect("index");
         let index = index_path;
         let source = ScreenshotSource::parse(index.to_str().expect("utf-8"));
 
@@ -4603,11 +4604,11 @@ mod tests {
     /// An index whose `listings` are derived from a test-only `store` position on each entry:
     /// per platform and device kind, the shots in position order, in the entry's theme. What
     /// `day screenshot index` writes from `store/storefront.toml`, built here from the captures.
-    fn index(locales: &[&str], entries: Vec<serde_json::Value>) -> serde_json::Value {
+    fn index(locales: &[&str], entries: &[serde_json::Value]) -> serde_json::Value {
         // (platform, kind) → (position, shot, theme), the shape the derived listing needs.
         #[allow(clippy::type_complexity)]
         let mut per: BTreeMap<(String, String), Vec<(u64, String, String)>> = BTreeMap::new();
-        for e in &entries {
+        for e in entries {
             let Some(pos) = e["store"].as_u64() else {
                 continue;
             };
@@ -4657,7 +4658,7 @@ mod tests {
 
         let good = index(
             &["en", "fr"],
-            vec![
+            &[
                 marked("ios", "iphone", "en", "home", 1320, 2868),
                 marked("ios", "iphone", "fr", "home", 1320, 2868),
                 marked("ios", "ipad", "en", "home", 2752, 2064),
@@ -4677,12 +4678,12 @@ mod tests {
         // The 20:9 `medium_phone` profile is within the API's 2.3:1; a taller one is not.
         let tall = index(
             &["en"],
-            vec![marked("android", "phone", "en", "home", 1080, 2400)],
+            &[marked("android", "phone", "en", "home", 1080, 2400)],
         );
         assert_eq!(ok(android, &tall), Vec::<String>::new());
         let taller = index(
             &["en"],
-            vec![marked("android", "phone", "en", "home", 1080, 2500)],
+            &[marked("android", "phone", "en", "home", 1080, 2500)],
         );
         let problems = ok(android, &taller);
         assert_eq!(problems.len(), 1, "{problems:?}");
@@ -4692,7 +4693,7 @@ mod tests {
         // rules without `upscale` refuse it and say why.
         let halved = index(
             &["en"],
-            vec![
+            &[
                 marked("android", "phone", "en", "home", 1080, 1920),
                 marked("android", "tablet", "en", "home", 1280, 800),
             ],
@@ -4727,7 +4728,7 @@ mod tests {
         // What the runner tablet captures instead.
         let seven = index(
             &["en"],
-            vec![
+            &[
                 marked("android", "phone", "en", "home", 1080, 1920),
                 marked("android", "tablet", "en", "home", 1920, 1200),
             ],
@@ -4737,7 +4738,7 @@ mod tests {
         // An iPhone capture from a profile that is not a 6.9" one.
         let small = index(
             &["en"],
-            vec![
+            &[
                 marked("ios", "iphone", "en", "home", 1179, 2556),
                 marked("ios", "ipad", "en", "home", 2752, 2064),
             ],
@@ -4749,7 +4750,7 @@ mod tests {
         // Marks on the iPhone only: the iPad is required too.
         let no_ipad = index(
             &["en"],
-            vec![marked("ios", "iphone", "en", "home", 1320, 2868)],
+            &[marked("ios", "iphone", "en", "home", 1320, 2868)],
         );
         let problems = ok(ios, &no_ipad);
         assert_eq!(problems.len(), 1, "{problems:?}");
@@ -4762,7 +4763,7 @@ mod tests {
         // not know is not asked for.
         let partial = index(
             &["en", "fr", "kl"],
-            vec![
+            &[
                 marked("ios", "iphone", "en", "home", 1320, 2868),
                 marked("ios", "ipad", "en", "home", 2752, 2064),
                 marked("ios", "ipad", "fr", "home", 2752, 2064),
@@ -4784,12 +4785,12 @@ mod tests {
             })
             .collect();
         many.push(marked("android", "tablet", "en", "home", 2560, 1600));
-        let problems = ok(android, &index(&["en"], many));
+        let problems = ok(android, &index(&["en"], &many));
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("9 phone screenshots") && problems[0].contains("at most 8"));
 
         // Nothing declared at all, and a device slug the store has no kind for.
-        let none = index(&["en"], vec![]);
+        let none = index(&["en"], &[]);
         let problems = ok(android, &none);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
@@ -4798,7 +4799,7 @@ mod tests {
         );
         let odd = index(
             &["en"],
-            vec![
+            &[
                 marked("android", "phone", "en", "home", 1080, 1920),
                 marked("android", "watch", "en", "home", 400, 400),
             ],
@@ -4814,7 +4815,7 @@ mod tests {
         dark.as_object_mut().expect("entry").remove("store");
         let themed = index(
             &["en"],
-            vec![
+            &[
                 marked("android", "phone", "en", "home", 1080, 1920),
                 dark.clone(),
             ],
@@ -4823,7 +4824,7 @@ mod tests {
         dark["store"] = serde_json::json!(1);
         let mut light = marked("android", "phone", "en", "home", 1080, 1920);
         light.as_object_mut().expect("entry").remove("store");
-        let themed_dark = index(&["en"], vec![light, dark]);
+        let themed_dark = index(&["en"], &[light, dark]);
         assert_eq!(
             ok(android, &themed_dark).len(),
             1,
@@ -5072,7 +5073,7 @@ storefront:
         let (from_toml, from_yaml) = both(FULL_TOML, FULL_YAML);
         assert_eq!(resolved(&from_toml), resolved(&from_yaml));
         for s in [&from_toml, &from_yaml] {
-            assert!(s.legacy_keys.is_empty());
+            assert_eq!(s.legacy_keys, [] as [std::string::String; 0]);
             // Submission info: store over target over shared, key by key.
             let apple = s.submission("ios-uikit", "apple-app-store");
             assert_eq!(apple.apple_category.as_deref(), Some("DEVELOPER_TOOLS"));
@@ -5340,7 +5341,7 @@ ipad = ["g"]
 [storefront.t.s.screenshots.ar]
 default = ["h"]
 "#;
-        let yaml_src = r#"
+        let yaml_src = r"
 storefront:
   t:
     screenshots:
@@ -5353,7 +5354,7 @@ storefront:
         ipad: [f]
         fr: { ipad: [g] }
         ar: { default: [h] }
-"#;
+";
         let (a, b) = both(toml_src, yaml_src);
         assert_eq!(resolved(&a), resolved(&b));
         for s in [&a, &b] {
@@ -5419,14 +5420,14 @@ review-notes = "target"
 [storefront.t.s.submission-info]
 review-notes = "store"
 "#;
-        let yaml_src = r#"
+        let yaml_src = r"
 storefront:
   submission-info: { copyright: shared, contact-email: shared@x, review-notes: shared }
   t:
     submission-info: { contact-email: target@x, review-notes: target }
     s:
       submission-info: { review-notes: store }
-"#;
+";
         let (a, b) = both(toml_src, yaml_src);
         assert_eq!(resolved(&a), resolved(&b));
         for s in [&a, &b] {
@@ -5729,7 +5730,7 @@ storefront:
         let read_ref = move |p: &str| -> Result<String, String> {
             files
                 .get(p)
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
                 .ok_or_else(|| "No such file or directory".to_string())
         };
         let src = Source {
@@ -6002,7 +6003,10 @@ storefront:
         std::fs::create_dir_all(tmp.join("resource/locales/de")).expect("de");
         let lines = add_locale(&tmp, "de").expect("add");
         assert_eq!(lines.len(), 1, "{lines:?}");
-        assert!(add_locale(&tmp, "de").expect("again").is_empty());
+        assert_eq!(
+            add_locale(&tmp, "de").expect("again"),
+            [] as [std::string::String; 0]
+        );
         let listing = read(&project).expect("reads");
         assert_eq!(listing.locales(), ["en", "de", "fr"]);
         assert_eq!(
@@ -6382,7 +6386,7 @@ storefront:
             }));
         }
         let index_path = tree.join("gallery.json");
-        std::fs::write(&index_path, index(&["en"], entries).to_string()).expect("index");
+        std::fs::write(&index_path, index(&["en"], &entries).to_string()).expect("index");
         let source = ScreenshotSource::parse(index_path.to_str().expect("utf-8"));
         let rules = StoreRules::parse(DEFAULT_RULES).expect("rules");
         let android = crate::targets::find("android-material").expect("android");

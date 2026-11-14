@@ -25,6 +25,7 @@
 //! Same construction as the crate's other macros: a token walk, with neither syn nor quote.
 
 use proc_macro::{Delimiter, Spacing, TokenStream, TokenTree};
+use std::fmt::Write as _;
 
 /// One builder method of the impl block, as the pieces the generated items need.
 struct Method {
@@ -154,34 +155,38 @@ fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream, String> {
 
     let mut out = String::new();
     // The trait.
-    out.push_str(&format!(
-        "#[doc = \"Builder methods of [`{}`], reachable through a [`Decorated`] (docs/api-style.md \\\"Typed builders and erasure\\\"): generic modifiers and typed ones chain in any order.\"]\n",
+    let _ = writeln!(
+        out,
+        "#[doc = \"Builder methods of [`{}`], reachable through a [`Decorated`] (docs/api-style.md \\\"Typed builders and erasure\\\"): generic modifiers and typed ones chain in any order.\"]",
         first_ident(&self_ty)
-    ));
-    out.push_str(&format!(
-        "pub trait {}{}: Sized {{\n",
+    );
+    let _ = writeln!(
+        out,
+        "pub trait {}{}: Sized {{",
         spec.name, trait_generics_decl
-    ));
+    );
     for m in &methods {
-        out.push_str(&format!(
-            "{}fn {}{}(self{}) -> Self {};\n",
+        let _ = writeln!(
+            out,
+            "{}fn {}{}(self{}) -> Self {};",
             m.attrs,
             m.name,
             m.generics,
             params_src(&m.params),
             m.where_clause
-        ));
+        );
     }
     out.push_str("}\n");
     // The impl for the piece: each method forwards to the inherent one. `Self::name` resolves
     // to the inherent method, since inherent items take precedence over trait items.
-    out.push_str(&format!(
-        "impl{} {} for {} {} {{\n",
-        impl_generics_src, trait_path, self_ty_src, impl_where_src
-    ));
+    let _ = writeln!(
+        out,
+        "impl{impl_generics_src} {trait_path} for {self_ty_src} {impl_where_src} {{"
+    );
     for m in &methods {
-        out.push_str(&format!(
-            "{}fn {}{}(self{}) -> Self {} {{ Self::{}(self{}) }}\n",
+        let _ = writeln!(
+            out,
+            "{}fn {}{}(self{}) -> Self {} {{ Self::{}(self{}) }}",
             cfg_only(&m.attrs),
             m.name,
             m.generics,
@@ -189,7 +194,7 @@ fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream, String> {
             m.where_clause,
             m.name,
             args_src(&m.args)
-        ));
+        );
     }
     out.push_str("}\n");
     // The impl for `Decorated`: through `map_inner`, so the modifier chain stays flat.
@@ -198,13 +203,14 @@ fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream, String> {
         g.push(format!("DecoratedInner: {trait_path} + Piece"));
         format!("<{}>", g.join(", "))
     };
-    out.push_str(&format!(
-        "impl{} {} for Decorated<DecoratedInner> {{\n",
-        decorated_generics, trait_path
-    ));
+    let _ = writeln!(
+        out,
+        "impl{decorated_generics} {trait_path} for Decorated<DecoratedInner> {{"
+    );
     for m in &methods {
-        out.push_str(&format!(
-            "{}fn {}{}(self{}) -> Self {} {{ self.map_inner(|inner| inner.{}({})) }}\n",
+        let _ = writeln!(
+            out,
+            "{}fn {}{}(self{}) -> Self {} {{ self.map_inner(|inner| inner.{}({})) }}",
             cfg_only(&m.attrs),
             m.name,
             m.generics,
@@ -212,7 +218,7 @@ fn expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream, String> {
             m.where_clause,
             m.name,
             m.args.join(", ")
-        ));
+        );
     }
     out.push_str("}\n");
 
@@ -266,7 +272,7 @@ fn parse_methods(body: TokenStream) -> Result<Vec<Method>, String> {
                     "doc" | "cfg" | "allow" | "cfg_attr"
                 )
             {
-                attrs.push_str(&format!("#[{}]\n", g.stream()));
+                let _ = writeln!(attrs, "#[{}]", g.stream());
             }
             i += 2;
         }
@@ -498,11 +504,17 @@ fn first_ident(tokens: &[TokenTree]) -> String {
 }
 
 fn params_src(params: &[String]) -> String {
-    params.iter().map(|p| format!(", {p}")).collect()
+    params.iter().fold(String::new(), |mut out, p| {
+        let _ = write!(out, ", {p}");
+        out
+    })
 }
 
 fn args_src(args: &[String]) -> String {
-    args.iter().map(|a| format!(", {a}")).collect()
+    args.iter().fold(String::new(), |mut out, a| {
+        let _ = write!(out, ", {a}");
+        out
+    })
 }
 
 /// Only the `#[cfg]` attributes of a method, for the generated impls (docs stay on the trait).
@@ -510,6 +522,8 @@ fn cfg_only(attrs: &str) -> String {
     attrs
         .lines()
         .filter(|l| l.starts_with("#[cfg"))
-        .map(|l| format!("{l}\n"))
-        .collect()
+        .fold(String::new(), |mut out, l| {
+            let _ = writeln!(out, "{l}");
+            out
+        })
 }

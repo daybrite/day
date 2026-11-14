@@ -12,6 +12,10 @@
 
 // Node handles are opaque runtime tokens (see node.rs), never dereferenced here.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
+#![expect(
+    clippy::needless_pass_by_value,
+    reason = "`#[napi]` exports receive their arguments from ArkTS by value, and the macro repeats a per-function attribute on its generated wrapper"
+)]
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -108,12 +112,12 @@ unsafe extern "C" {
 
 fn remember(env: &Env) {
     ENV.with(|e| e.set(env.raw()));
-    let _ = crate::main_thread::init(env);
+    let _ = crate::main_thread::init(*env);
 }
 
 /// The environment, once any export has run.
 pub fn env() -> Option<Env> {
-    let raw = ENV.with(|e| e.get());
+    let raw = ENV.with(std::cell::Cell::get);
     (!raw.is_null()).then(|| Env::from_raw(raw))
 }
 
@@ -125,7 +129,7 @@ impl Scope {
     pub fn open(env: &Env) -> Scope {
         let mut scope = ptr::null_mut();
         // SAFETY: a live env.
-        unsafe { sys::napi_open_handle_scope(env.raw(), &mut scope) };
+        unsafe { sys::napi_open_handle_scope(env.raw(), &raw mut scope) };
         Scope(env.raw(), scope)
     }
 }
@@ -176,7 +180,7 @@ where
 }
 
 /// The bridge record, for `bridge::call_here`.
-pub(crate) fn bridges<'env>(env: &'env Env) -> Option<Object<'env>> {
+pub(crate) fn bridges(env: &Env) -> Option<Object<'_>> {
     BRIDGES.with(|b| b.borrow().as_ref().and_then(|r| r.get_value(env).ok()))
 }
 
@@ -188,7 +192,7 @@ pub fn register_textarea_key(env: Env, callback: Registered<FnArgs<(i32,)>>) {
     store(|t| &t.TEXTAREA_KEY, callback);
 }
 
-/// Dispatch native Enter to a TextArea by its native unique ID (not a Day NodeId).
+/// Dispatch native Enter to a `TextArea` by its native unique ID (not a Day `NodeId`).
 /// Missing custom/older hosts report false; callers must not replace the text as a fallback
 /// because doing so would bypass the editor's undo and composition handling.
 pub(crate) fn textarea_enter(id: i32) -> bool {
@@ -198,7 +202,7 @@ pub(crate) fn textarea_enter(id: i32) -> bool {
         |env, value| {
             let mut handled = false;
             // SAFETY: the live callback result is read inside its handle scope.
-            unsafe { sys::napi_get_value_bool(env.raw(), value.raw(), &mut handled) };
+            unsafe { sys::napi_get_value_bool(env.raw(), value.raw(), &raw mut handled) };
             handled
         },
     )
@@ -210,7 +214,11 @@ pub fn register_cover_layer(env: Env, content: Unknown, callback: Registered<FnA
     remember(&env);
     let mut handle: ArkUI_NodeContentHandle = ptr::null_mut();
     unsafe {
-        OH_ArkUI_GetNodeContentFromNapiValue(env.raw().cast(), content.raw().cast(), &mut handle)
+        OH_ArkUI_GetNodeContentFromNapiValue(
+            env.raw().cast(),
+            content.raw().cast(),
+            &raw mut handle,
+        )
     };
     store(|t| &t.COVER_LAYER, callback);
     crate::cover_layer_init(handle);
@@ -245,7 +253,11 @@ pub fn start(env: Env, content: Unknown, width_vp: f64, height_vp: f64, density:
     let mut handle: ArkUI_NodeContentHandle = ptr::null_mut();
     // SAFETY: the value is the host's NodeContent; the opaque napi types are the same pointers.
     unsafe {
-        OH_ArkUI_GetNodeContentFromNapiValue(env.raw().cast(), content.raw().cast(), &mut handle)
+        OH_ArkUI_GetNodeContentFromNapiValue(
+            env.raw().cast(),
+            content.raw().cast(),
+            &raw mut handle,
+        )
     };
     node::set_density(density);
     crate::events::install();
@@ -447,7 +459,7 @@ pub fn register_open_url(env: Env, callback: FunctionRef<FnArgs<(String,)>, Unkn
 pub fn register_status_bar(env: Env, callback: FunctionRef<FnArgs<(bool,)>, Unknown<'static>>) {
     remember(&env);
     store(|t| &t.STATUS_BAR, callback);
-    if STATUS_BAR_HIDDEN.with(|h| h.get()) {
+    if STATUS_BAR_HIDDEN.with(std::cell::Cell::get) {
         set_status_bar_hidden(true);
     }
 }
@@ -498,7 +510,11 @@ pub fn window_start(env: Env, content: Unknown, node: f64, width_vp: f64, height
     let mut handle: ArkUI_NodeContentHandle = ptr::null_mut();
     // SAFETY: the value is the page's NodeContent.
     unsafe {
-        OH_ArkUI_GetNodeContentFromNapiValue(env.raw().cast(), content.raw().cast(), &mut handle)
+        OH_ArkUI_GetNodeContentFromNapiValue(
+            env.raw().cast(),
+            content.raw().cast(),
+            &raw mut handle,
+        )
     };
     crate::window_start(node as u64, handle, width_vp, height_vp)
 }
@@ -520,7 +536,7 @@ pub fn window_focused(node: f64, active: f64) {
 }
 
 /// `lifecycle(phase)`: an app lifecycle phase from the entry ability, in `day_spec::Lifecycle`
-/// order (docs/lifecycle.md): 2 DidBecomeActive … 7 WillTerminate.
+/// order (docs/lifecycle.md): 2 `DidBecomeActive` … 7 `WillTerminate`.
 #[napi(js_name = "lifecycle")]
 pub fn lifecycle(phase: f64) {
     crate::lifecycle(phase as i32);
@@ -779,7 +795,7 @@ pub fn has_window_control() -> bool {
 /// Whether privacy mode can be set: the control is registered and the app holds
 /// `ohos.permission.PRIVACY_WINDOW` (drives `Cap::ContentProtection`).
 pub fn can_protect_content() -> bool {
-    has_window_control() && PRIVACY_GRANTED.with(|p| p.get())
+    has_window_control() && PRIVACY_GRANTED.with(std::cell::Cell::get)
 }
 
 /// Ask the host to set `op` on the window of day node `node` (0 = the primary). True when the
@@ -794,7 +810,7 @@ pub fn window_control(node: u64, op: WindowOp, on: bool) -> bool {
 }
 
 /// Push one Day page into the ArkTS Navigation: ask the registered push callback for a fresh
-/// NodeContent (it also pushes the NavDestination) and mount the page's node into it. 0 on
+/// `NodeContent` (it also pushes the `NavDestination`) and mount the page's node into it. 0 on
 /// success.
 pub fn nav_push(owner: u64, page: Handle, key: u64, title: &str, pushed: bool) -> i32 {
     let mounted = call(
@@ -807,7 +823,7 @@ pub fn nav_push(owner: u64, page: Handle, key: u64, title: &str, pushed: bool) -
                 OH_ArkUI_GetNodeContentFromNapiValue(
                     env.raw().cast(),
                     ret.raw().cast(),
-                    &mut content,
+                    &raw mut content,
                 )
             };
             if content.is_null() {
@@ -832,7 +848,7 @@ pub fn nav_push(owner: u64, page: Handle, key: u64, title: &str, pushed: bool) -
     if mounted == Some(true) { 0 } else { -1 }
 }
 
-/// Pop the top NavDestination (a Day-initiated route change).
+/// Pop the top `NavDestination` (a Day-initiated route change).
 pub fn nav_pop(owner: u64) {
     call(|t| &t.NAV_POP, FnArgs::from((owner as f64,)), |_, _| ());
 }
@@ -895,7 +911,7 @@ pub fn nav_set_page_search(owner: u64, page: i64, prompt: &str, text: &str, focu
     );
 }
 
-/// Unmount a page's node from its still-LIVE NodeContent (a Day-initiated pop detaches before
+/// Unmount a page's node from its still-LIVE `NodeContent` (a Day-initiated pop detaches before
 /// the destination's teardown) and release the slot.
 pub fn nav_remove(key: u64, page: Handle) {
     let Some((content, keep)) = NAV_CONTENTS.with(|c| c.borrow_mut().remove(&key)) else {
@@ -908,7 +924,7 @@ pub fn nav_remove(key: u64, page: Handle) {
     }
 }
 
-/// Release a slot whose NavDestination already disappeared: the destination tore its content
+/// Release a slot whose `NavDestination` already disappeared: the destination tore its content
 /// down, so touching the nodes again would use freed memory; just drop the bookkeeping and the
 /// keep-alive reference.
 pub fn nav_forget(key: u64) {
@@ -920,7 +936,7 @@ pub fn nav_forget(key: u64) {
     }
 }
 
-/// Build a piece's ArkTS component and return its FrameNode as a node Day can mount. Null when
+/// Build a piece's ArkTS component and return its `FrameNode` as a node Day can mount. Null when
 /// nothing is registered or the factory declined the kind.
 pub fn piece_make(kind: &str, id: u64, props: &str) -> Handle {
     call(
@@ -932,7 +948,7 @@ pub fn piece_make(kind: &str, id: u64, props: &str) -> Handle {
             // untouched, hence the explicit null above.
             // SAFETY: the value is a FrameNode or undefined.
             unsafe {
-                OH_ArkUI_GetNodeHandleFromNapiValue(env.raw().cast(), ret.raw().cast(), &mut n)
+                OH_ArkUI_GetNodeHandleFromNapiValue(env.raw().cast(), ret.raw().cast(), &raw mut n)
             };
             n
         },
@@ -949,7 +965,7 @@ pub fn piece_update(id: u64, cmd: &str, arg: &str) {
     );
 }
 
-/// Release the ArkTS BuilderNode behind a piece node.
+/// Release the ArkTS `BuilderNode` behind a piece node.
 pub fn piece_dispose(id: u64) {
     call(|t| &t.PIECE_DISPOSE, FnArgs::from((id as f64,)), |_, _| ());
 }

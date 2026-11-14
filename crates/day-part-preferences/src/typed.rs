@@ -76,7 +76,7 @@ pub trait Store: 'static {
     fn remove(&self, key: &str) -> bool;
 }
 
-/// The platform store through day-part-preferences (docs/prefs.md): NSUserDefaults, SharedPreferences,
+/// The platform store through day-part-preferences (docs/prefs.md): `NSUserDefaults`, `SharedPreferences`,
 /// a per-app config file, localStorage.
 pub struct NativeStore;
 
@@ -125,6 +125,7 @@ day_core::tls_group! {
 /// in-memory value stays what the user chose for this run; it will not survive a relaunch,
 /// which is what an app watching this signal can say. A key leaves the list when its own next
 /// write lands; another key's success never clears it.
+#[must_use]
 pub fn persistence_failures() -> Signal<Vec<String>> {
     PERSIST_FAILURES.with(|c| {
         *c.get_or_init(|| day_reactive::Scope::detached().enter(|| Signal::new(Vec::new())))
@@ -184,6 +185,7 @@ fn with_store<R>(f: impl FnOnce(&dyn Store) -> R) -> R {
 /// The signal behind it is created on the UI thread on first use, seeded from the store (or
 /// the default when the key is absent or unparsable), and lives for the process. `Pref` is
 /// `Copy`, so a row or a closure takes it by value.
+#[must_use]
 pub struct Pref<T: PrefValue> {
     key: &'static str,
     default: fn() -> T,
@@ -192,6 +194,10 @@ pub struct Pref<T: PrefValue> {
     env: Option<&'static str>,
 }
 
+#[expect(
+    clippy::expl_impl_clone_on_copy,
+    reason = "a derive would bound `T: Copy`, and a `Pref<String>` is `Copy` too"
+)]
 impl<T: PrefValue> Clone for Pref<T> {
     fn clone(&self) -> Self {
         *self
@@ -218,20 +224,24 @@ impl<T: PrefValue> Pref<T> {
         self
     }
     /// The store key.
+    #[must_use]
     pub fn key(&self) -> &'static str {
         self.key
     }
     /// The default value.
+    #[must_use]
     pub fn default(&self) -> T {
         (self.default)()
     }
     /// Whether the env-wins variable is set for this run.
+    #[must_use]
     pub fn env_forced(&self) -> bool {
         self.env
             .is_some_and(|v| std::env::var_os(v).is_some_and(|s| !s.is_empty()))
     }
     /// The signal behind the pref: hand it to a control or a binding. Created and seeded on
     /// first call.
+    #[must_use]
     pub fn signal(&self) -> Signal<T> {
         let key = self.key;
         if let Some(sig) = SIGNALS.with(|m| {
@@ -274,10 +284,12 @@ impl<T: PrefValue> Pref<T> {
         sig
     }
     /// Tracked read: subscribes the running computation.
+    #[must_use]
     pub fn get(&self) -> T {
         self.signal().get()
     }
     /// Untracked read.
+    #[must_use]
     pub fn get_untracked(&self) -> T {
         self.signal().get_untracked()
     }
@@ -294,6 +306,7 @@ impl<T: PrefValue> Pref<T> {
         remove_checked(self.key);
     }
     /// Whether the current value equals the default.
+    #[must_use]
     pub fn is_default(&self) -> bool {
         self.get_untracked() == (self.default)()
     }
@@ -339,7 +352,10 @@ mod persistence_tests {
         });
         // Seeded from the stale stored value, so `reset` has something to remove.
         assert_eq!(STUCK.get_untracked(), 7);
-        assert!(persistence_failures().get_untracked().is_empty());
+        assert_eq!(
+            persistence_failures().get_untracked(),
+            [] as [std::string::String; 0]
+        );
         // Resetting to the default: the removal is refused, and that is reported even though
         // the value is now the default (nothing for the signal watcher to write).
         STUCK.reset();
@@ -373,6 +389,9 @@ mod persistence_tests {
         );
         STUCK.set(2);
         day_reactive::flush_sync();
-        assert!(persistence_failures().get_untracked().is_empty());
+        assert_eq!(
+            persistence_failures().get_untracked(),
+            [] as [std::string::String; 0]
+        );
     }
 }

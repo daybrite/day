@@ -143,9 +143,8 @@ mod native {
                         table.setFrameSize(NSSize::new(table.frame().size.width, 280.));
                         table
                     }));
-                    let table = match result {
-                        Ok(table) => table,
-                        Err(_) => std::process::exit(1),
+                    let Ok(table) = result else {
+                        std::process::exit(1)
                     };
                     day_core::sleep(200).await;
                     // Exercise a long viewport history. Native retirement must remove pooled
@@ -183,9 +182,8 @@ mod native {
                         native_drop(&table, 30, 33);
                         origin
                     }));
-                    let origin = match result {
-                        Ok(origin) => origin,
-                        Err(_) => std::process::exit(1),
+                    let Ok(origin) = result else {
+                        std::process::exit(1)
                     };
                     day_core::sleep(200).await;
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -239,13 +237,13 @@ mod native {
                             rows.update(|r| {
                                 let v = r.remove(from);
                                 r.insert(to, v);
-                            })
+                            });
                         }))
                         .row_height(RowHeight::Uniform(44.))
                         .height(280.)
                         .grow(Dimension::Width)
                         .id(day_core::id!(fixture_list)),
-                        label(move || format!("{} fixture rows", rows.with(|r| r.len()))),
+                        label(move || format!("{} fixture rows", rows.with(std::vec::Vec::len))),
                     ))
                     .spacing(10.)
                     .padding(20.),

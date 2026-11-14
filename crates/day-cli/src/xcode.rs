@@ -510,7 +510,7 @@ pub fn ios_deployment_targets(root: &Path) -> Vec<String> {
         })
         .filter_map(|(_, value)| match value {
             BuildSetting::String(v) => Some(v.clone()),
-            _ => None,
+            BuildSetting::Array(_) => None,
         })
         .collect()
 }
@@ -678,7 +678,10 @@ mod tests {
             assert_eq!(std::fs::read_to_string(&shim).unwrap(), CLI_SHIM);
             let file = dir.join("project.xcproj");
             let document = open(&file).unwrap();
-            assert!(validate_host(document.project(), platform).is_empty());
+            assert_eq!(
+                validate_host(document.project(), platform),
+                [] as [std::string::String; 0]
+            );
             assert_eq!(
                 document.value()["build-settings"]["DAY_BIN"]
                     .as_str()
@@ -798,7 +801,10 @@ mod tests {
         for platform in ["macos", "ios"] {
             let file = fixture.host(platform);
             let document = open(&file).unwrap();
-            assert!(validate_host(document.project(), platform).is_empty());
+            assert_eq!(
+                validate_host(document.project(), platform),
+                [] as [std::string::String; 0]
+            );
             assert_eq!(
                 scheme_identity(&file).unwrap(),
                 ("Runner".into(), "DayApp.app".into())
@@ -871,7 +877,10 @@ mod tests {
         assert_eq!(regions(&fixture.0).unwrap(), ["en"]);
         edit_region(&fixture.0, "zh-CN", true).unwrap();
         assert_eq!(regions(&fixture.0).unwrap(), ["en", "zh-CN"]);
-        assert!(edit_region(&fixture.0, "zh-CN", true).unwrap().is_empty());
+        assert_eq!(
+            edit_region(&fixture.0, "zh-CN", true).unwrap(),
+            [] as [std::string::String; 0]
+        );
         for platform in ["ios", "macos"] {
             let doc = open(&path(&fixture.0, platform)).unwrap();
             assert!(doc.source().starts_with("// synthetic fixture comment"));

@@ -17,8 +17,9 @@ day_reactive::tls_slots! {
 }
 
 /// The ambient animation set by the innermost enclosing [`with_animation`], if any.
+#[must_use]
 pub fn current_anim() -> Option<AnimSpec> {
-    CURRENT_ANIM.with(|c| c.get())
+    CURRENT_ANIM.with(std::cell::Cell::get)
 }
 
 /// Restores the previous ambient animation on drop (panic-safe).

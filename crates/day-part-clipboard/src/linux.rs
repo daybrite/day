@@ -33,7 +33,7 @@ fn pipe_in(cmd: &str, args: &[&str], text: &str) -> bool {
         let _ = child.wait();
         return false;
     }
-    child.wait().map(|s| s.success()).unwrap_or(false)
+    child.wait().is_ok_and(|s| s.success())
 }
 
 /// Run `cmd args…` and capture stdout. None when the tool is missing, fails, or the clipboard is

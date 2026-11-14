@@ -134,6 +134,7 @@ pub fn set_launch_options(options: &WindowOptions) {
 
 /// What the app handed `launch` (title, app name, version), for surfaces that describe the
 /// app (an About page). `None` before launch.
+#[must_use]
 pub fn launch_options() -> Option<WindowOptions> {
     LAUNCH_OPTIONS.with(|o| o.borrow().clone())
 }
@@ -174,10 +175,11 @@ impl WindowHandle {
                         f();
                     }
                 }),
-            )
+            );
         });
     }
     /// Native order of this window's tab group. Empty where unsupported.
+    #[must_use]
     pub fn tab_order(&self) -> Vec<NodeId> {
         with_tree(|t| t.window_tab_order(self.root))
     }
@@ -256,7 +258,7 @@ impl WindowHandle {
                 Some(r) => match &mut r.tier {
                     Tier::Native { .. } => true,
                     Tier::PendingNative { title: t, .. } => {
-                        *t = title.to_string();
+                        t.clone_from(title);
                         false
                     }
                     Tier::Cover { .. } => false,
@@ -265,17 +267,19 @@ impl WindowHandle {
             }
         });
         if live {
-            let title = title.to_string();
+            let title = title.clone();
             with_tree(|t| t.set_native_window_title(root, &title));
         }
     }
 
     /// A frame source tied to this window, usable outside a piece build.
+    #[must_use]
     pub fn frame_clock(&self) -> crate::frame::FrameClock {
         crate::frame::FrameClock::for_root(self.root)
     }
 
     /// Whether the window is still open (its record exists; a `Pending` open counts).
+    #[must_use]
     pub fn is_open(&self) -> bool {
         let root = self.root;
         WINDOWS.with(|w| w.borrow().iter().any(|r| r.root == root))
@@ -300,6 +304,7 @@ impl WindowHandle {
     /// (a fullscreen the browser refuses outside a user gesture) reads back as the state the
     /// window kept. Probe `Cap::WindowStates` and `Cap::WindowFullscreen` before offering the
     /// controls. A cover-tier window (`Cap::MultiWindow` = `Unsupported`) stays `Normal`.
+    #[must_use]
     pub fn state(&self) -> Signal<WindowState> {
         let root = self.root;
         WINDOWS
@@ -314,6 +319,7 @@ impl WindowHandle {
     /// this keeps answering for this window when a binding re-runs later.
     ///
     /// [`WindowChrome::Overlay`]: day_spec::WindowChrome::Overlay
+    #[must_use]
     pub fn safe_area(&self) -> day_geometry::Insets {
         crate::ambient::window_safe_area(self.root)
     }
@@ -328,18 +334,19 @@ impl WindowHandle {
     /// messages. On iOS the content is covered while the screen is recorded or mirrored, but a
     /// screenshot still captures it.
     pub fn set_content_protected(&self, protected: bool) {
-        self.apply(WindowChange::ContentProtected(protected));
+        self.apply(&WindowChange::ContentProtected(protected));
     }
 
     /// Move and/or resize the window (docs/windows.md "Window properties"): `origin` is the outer
     /// frame's top-left corner on the desktop (`Cap::WindowPosition`), `size` the content size
     /// (`Cap::WindowGeometry`). `None` leaves that part alone.
     pub fn set_frame(&self, origin: Option<Point>, size: Option<Size>) {
-        self.apply(WindowChange::Frame { origin, size });
+        self.apply(&WindowChange::Frame { origin, size });
     }
 
     /// The window's outer frame on the desktop, in points, where the platform says
     /// (`None` on a phone, under Wayland, and for a cover-tier window).
+    #[must_use]
     pub fn frame(&self) -> Option<Rect> {
         if !self.is_native() {
             return None;
@@ -350,70 +357,70 @@ impl WindowHandle {
 
     /// The content sizes the user can resize the window between (`Cap::WindowGeometry`).
     pub fn set_limits(&self, min: Option<Size>, max: Option<Size>) {
-        self.apply(WindowChange::Limits { min, max });
+        self.apply(&WindowChange::Limits { min, max });
     }
 
     /// Whether the user can resize the window (`Cap::WindowGeometry`).
     pub fn set_resizable(&self, resizable: bool) {
-        self.apply(WindowChange::Resizable(resizable));
+        self.apply(&WindowChange::Resizable(resizable));
     }
 
     /// Keep the window above other apps' windows, or let it stack normally (`Cap::WindowLevel`).
     pub fn set_level(&self, level: WindowLevel) {
-        self.apply(WindowChange::Level(level));
+        self.apply(&WindowChange::Level(level));
     }
 
     /// Show the window on every virtual desktop / Space (`Cap::WindowLevel`).
     pub fn set_on_all_workspaces(&self, on: bool) {
-        self.apply(WindowChange::OnAllWorkspaces(on));
+        self.apply(&WindowChange::OnAllWorkspaces(on));
     }
 
     /// Leave the window out of the taskbar and the window switcher (`Cap::WindowLevel`).
     pub fn set_skip_taskbar(&self, skip: bool) {
-        self.apply(WindowChange::SkipTaskbar(skip));
+        self.apply(&WindowChange::SkipTaskbar(skip));
     }
 
     /// Offer or withhold the window's minimize control (`Cap::WindowStates`).
     pub fn set_minimizable(&self, on: bool) {
-        self.apply(WindowChange::Minimizable(on));
+        self.apply(&WindowChange::Minimizable(on));
     }
 
     /// Offer or withhold the window's maximize / zoom control (`Cap::WindowStates`).
     pub fn set_maximizable(&self, on: bool) {
-        self.apply(WindowChange::Maximizable(on));
+        self.apply(&WindowChange::Maximizable(on));
     }
 
     /// Offer or withhold the window's close control (`Cap::WindowStates`). The app can still
     /// close it with [`close`](Self::close).
     pub fn set_closable(&self, on: bool) {
-        self.apply(WindowChange::Closable(on));
+        self.apply(&WindowChange::Closable(on));
     }
 
     /// Hide the window without closing it, or show it again (`Cap::WindowStates`): a palette
     /// that comes and goes, a window a status item toggles.
     pub fn set_visible(&self, visible: bool) {
-        self.apply(WindowChange::Visible(visible));
+        self.apply(&WindowChange::Visible(visible));
     }
 
     /// Give this window its own light (`Some(false)`) or dark (`Some(true)`) appearance, or
     /// follow the app's again (`None`). `Cap::WindowAppearance`; where unsupported the app-wide
     /// `day::set_appearance` still applies.
     pub fn set_appearance(&self, dark: Option<bool>) {
-        self.apply(WindowChange::Appearance(dark));
+        self.apply(&WindowChange::Appearance(dark));
     }
 
     /// Ask for the user's attention: a Dock bounce, a flashing taskbar button
     /// (`Cap::RequestAttention`). The platform does nothing while the app is already in front.
     pub fn request_attention(&self, attention: Attention) {
-        self.apply(WindowChange::RequestAttention(attention));
+        self.apply(&WindowChange::RequestAttention(attention));
     }
 
     /// Hand one change to the toolkit, for a window that has a native side. A cover-tier window
     /// lives inside the primary one and has nothing of its own to change.
-    fn apply(&self, change: WindowChange) {
+    fn apply(&self, change: &WindowChange) {
         if self.is_native() {
             let root = self.root;
-            with_tree(|t| t.apply_window(root, &change));
+            with_tree(|t| t.apply_window(root, change));
         }
     }
 
@@ -485,7 +492,7 @@ pub fn open_window<P: Piece>(
                     let piece = build();
                     let mut cx = BuildCx::new(root);
                     let _ = piece.build(&mut cx);
-                })
+                });
             });
             with_tree(|t| {
                 t.mark_layout_dirty();
@@ -501,8 +508,7 @@ pub fn open_window<P: Piece>(
                 let fitted = with_tree(|t| {
                     t.first_child(root)
                         .and_then(|c| t.node_frame(c))
-                        .map(|f| f.origin.y + f.size.height)
-                        .unwrap_or(0.0)
+                        .map_or(0.0, |f| f.origin.y + f.size.height)
                 });
                 // Never grow past what the caller asked for: `size` is the ceiling, so a panel
                 // with more content than fits scrolls rather than running off the screen.
@@ -540,6 +546,7 @@ pub fn open_window<P: Piece>(
 /// The open window registered under `key`, if any (the dayscript `screenshot` step's
 /// `window:` target resolves here). Native windows being closed are excluded; a dismissing
 /// fallback cover remains available so reopening its key can reverse the transition.
+#[must_use]
 pub fn window_by_key(key: &str) -> Option<WindowHandle> {
     WINDOWS.with(|w| {
         w.borrow()
@@ -554,6 +561,7 @@ pub fn window_by_key(key: &str) -> Option<WindowHandle> {
 
 /// The most recently focused open secondary window, if any. `None` ⇒ the primary window
 /// is key (or no secondary window exists).
+#[must_use]
 pub fn focused_window() -> Option<WindowHandle> {
     WINDOWS.with(|w| {
         w.borrow()
@@ -565,9 +573,7 @@ pub fn focused_window() -> Option<WindowHandle> {
 }
 
 pub(crate) fn focused_root() -> RNode {
-    focused_window()
-        .map(|w| w.root)
-        .unwrap_or_else(|| with_tree(|t| t.root_node()))
+    focused_window().map_or_else(|| with_tree(|t| t.root_node()), |w| w.root)
 }
 
 /// The scope owning the content of the window that currently has focus: the scope an
@@ -578,15 +584,16 @@ pub(crate) fn focused_root() -> RNode {
 /// primary is key (on AppKit the primary's delegate carries no node and never emits
 /// `WindowFocused` at all, so that IS the primary's steady state). `None` only before boot
 /// and after the last window is gone.
+#[must_use]
 pub fn focused_scope() -> Option<Scope> {
-    focus_revision().get();
+    let _ = focus_revision().get();
     WINDOWS.with(|w| {
         let windows = w.borrow();
         // A dismissing window is no longer the command target, even while its content stays
         // registered until native confirmation. GTK dialogs animate their close just as
         // cover sheets do; resolving through Settings during that gap loses document state.
         let focused = windows.iter().find(|r| r.focused && !r.closing());
-        let initial = INITIAL_WINDOW.with(|c| c.get());
+        let initial = INITIAL_WINDOW.with(std::cell::Cell::get);
         focused
             .or_else(|| windows.iter().find(|r| Some(r.root) == initial))
             .map(|r| r.content_scope.unwrap_or(r.scope))
@@ -600,10 +607,10 @@ pub fn focused_scope() -> Option<Scope> {
 /// fires during the presentation (a focus change, a redraw) resolves to the window it belongs
 /// to rather than to a sheet that never had one (docs/state.md).
 pub(crate) fn focused_scope_chain() -> Vec<Scope> {
-    focus_revision().get();
+    let _ = focus_revision().get();
     WINDOWS.with(|w| {
         let windows = w.borrow();
-        let initial = INITIAL_WINDOW.with(|c| c.get());
+        let initial = INITIAL_WINDOW.with(std::cell::Cell::get);
         let primary = || {
             windows
                 .iter()
@@ -625,6 +632,7 @@ pub(crate) fn focused_scope_chain() -> Vec<Scope> {
 }
 
 /// The tree root of the window registered under `key`: day-script's snapshot target.
+#[must_use]
 pub fn window_root_by_key(key: &str) -> Option<RNode> {
     WINDOWS.with(|w| {
         w.borrow()
@@ -682,7 +690,7 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
                 let piece = build();
                 let mut cx = BuildCx::new(root);
                 let _ = piece.build(&mut cx);
-            })
+            });
         });
     }
     with_tree(|t| {
@@ -724,7 +732,7 @@ fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier
             state,
             reported,
             remember: None,
-        })
+        });
     });
     focus_revision().update(|n| *n += 1);
 }
@@ -830,7 +838,7 @@ fn state_rail(root: RNode, scope: Scope) -> (Signal<WindowState>, Rc<Cell<Window
             move || state.get(),
             move |s| {
                 if *s != rep.get() {
-                    WindowHandle { root }.apply(WindowChange::State(*s));
+                    WindowHandle { root }.apply(&WindowChange::State(*s));
                 }
             },
         );
@@ -897,6 +905,7 @@ fn wire_window_events(root: RNode) {
 
 /// How many non-closing primary windows keep the app alive (docs/windows.md close policy).
 /// This includes the initial window while it remains registered and open.
+#[must_use]
 pub fn primary_window_count() -> usize {
     WINDOWS.with(|w| {
         w.borrow()
@@ -1016,7 +1025,7 @@ fn teardown(root: RNode) {
     // after the callbacks so a handler that opens a replacement window is counted.
     if record.role == WindowRole::Primary
         && !app_has_primary_window()
-        && !QUITTING.with(|q| q.get())
+        && !QUITTING.with(std::cell::Cell::get)
     {
         quit_after_last_primary();
     }
@@ -1051,13 +1060,13 @@ fn revive_if_dismissing(root: RNode) {
                 dismiss_disabled: false,
             }),
             false,
-        )
+        );
     });
 }
 
 /// The fallback tier: present window content modally in the primary window. Preferences
 /// prefer a sheet on regular-width windows and remain fullscreen on compact windows.
-/// NavBack dismisses; `Event::CoverHidden` confirms (docs/cover.md).
+/// `NavBack` dismisses; `Event::CoverHidden` confirms (docs/cover.md).
 fn open_as_cover(
     key: Option<&str>,
     kind: WindowKind,
@@ -1146,7 +1155,7 @@ fn open_as_cover(
             } else {
                 let _ = piece.build(&mut cx);
             }
-        })
+        });
     });
     with_tree(|t| {
         t.patch(
@@ -1211,11 +1220,11 @@ pub fn register_preferences_with<P: Piece>(
     build: impl Fn() -> P + 'static,
 ) {
     PREFS.with(|p| *p.borrow_mut() = Some((Rc::new(move || AnyPiece::new(build())), options)));
-    if PREFS_ACTION.with(|c| c.get()) == 0 {
+    if PREFS_ACTION.with(std::cell::Cell::get) == 0 {
         PREFS_ACTION.with(|c| {
             c.set(crate::menu::register_menu_action(Rc::new(|| {
                 open_preferences();
-            })))
+            })));
         });
     }
     // Self-heal for registration after `app_menu`: re-forward the retained model so the
@@ -1252,11 +1261,11 @@ pub const ABOUT_KEY: &str = "day.about";
 /// ([`register_about_window`]) register the same way.
 pub fn register_about(open: impl Fn() + 'static) {
     ABOUT.with(|a| *a.borrow_mut() = Some(Rc::new(open)));
-    if ABOUT_ACTION.with(|c| c.get()) == 0 {
+    if ABOUT_ACTION.with(std::cell::Cell::get) == 0 {
         ABOUT_ACTION.with(|c| {
             c.set(crate::menu::register_menu_action(Rc::new(|| {
                 open_about();
-            })))
+            })));
         });
     }
     crate::menu::reinstall_app_menu();
@@ -1290,8 +1299,9 @@ pub fn open_about() -> bool {
 
 /// The dispatch id of the About menu action (0 = unregistered). Backends wire their stock
 /// About item to it; `MenuRole::About` lowering and the injection pass use it.
+#[must_use]
 pub fn about_action_id() -> u64 {
-    ABOUT_ACTION.with(|c| c.get())
+    ABOUT_ACTION.with(std::cell::Cell::get)
 }
 
 /// Declare the updater's Check for Updates… command (docs/settings.md): the item appears
@@ -1299,11 +1309,11 @@ pub fn about_action_id() -> u64 {
 /// items lower to it. Registered by an update provider, not by the app.
 pub fn register_check_for_updates(check: impl Fn() + 'static) {
     UPDATES.with(|u| *u.borrow_mut() = Some(Rc::new(check)));
-    if UPDATES_ACTION.with(|c| c.get()) == 0 {
+    if UPDATES_ACTION.with(std::cell::Cell::get) == 0 {
         UPDATES_ACTION.with(|c| {
             c.set(crate::menu::register_menu_action(Rc::new(|| {
                 check_for_updates();
-            })))
+            })));
         });
     }
     crate::menu::reinstall_app_menu();
@@ -1319,8 +1329,9 @@ pub fn check_for_updates() -> bool {
 }
 
 /// The dispatch id of the Check for Updates… action (0 = unregistered).
+#[must_use]
 pub fn check_for_updates_action_id() -> u64 {
-    UPDATES_ACTION.with(|c| c.get())
+    UPDATES_ACTION.with(std::cell::Cell::get)
 }
 
 /// Register the builder behind File ▸ New Window and the macOS tab-bar "+" (docs/windows.md):
@@ -1328,11 +1339,11 @@ pub fn check_for_updates_action_id() -> u64 {
 /// item lowers to this action; without a registration it lowers disabled.
 pub fn register_new_window<P: Piece>(build: impl Fn() -> P + 'static) {
     NEW_WINDOW.with(|p| *p.borrow_mut() = Some(Rc::new(move || AnyPiece::new(build()))));
-    if NEW_WINDOW_ACTION.with(|c| c.get()) == 0 {
+    if NEW_WINDOW_ACTION.with(std::cell::Cell::get) == 0 {
         NEW_WINDOW_ACTION.with(|c| {
             c.set(crate::menu::register_menu_action(Rc::new(|| {
                 open_new_window();
-            })))
+            })));
         });
     }
     crate::menu::reinstall_app_menu();
@@ -1390,6 +1401,7 @@ pub fn register_new_window_for<P: Piece>(group: &str, build: impl Fn() -> P + 's
 /// Open another window of tab group `group` (the backend's `newWindowForTab:` path for a window
 /// whose tabbing names a group). Uses the group's registered builder, else the app's New Window
 /// builder; `None` when neither exists.
+#[must_use]
 pub fn open_new_window_for_group(group: &str) -> Option<WindowHandle> {
     let action = TAB_NEW.with(|g| {
         g.borrow()
@@ -1483,22 +1495,26 @@ pub fn window_title(f: impl Fn() -> String + 'static) {
 
 /// The dispatch id of the auto Preferences menu action (0 = unregistered). Backends use it
 /// to wire their default-menu Settings item; the injection pass uses it for `app_menu`.
+#[must_use]
 pub fn preferences_action_id() -> u64 {
-    PREFS_ACTION.with(|c| c.get())
+    PREFS_ACTION.with(std::cell::Cell::get)
 }
 
 /// The dispatch id of the New Window action (0 = unregistered), used by `MenuRole::NewWindow`
 /// lowering and the backends' tab-bar "+" wiring.
+#[must_use]
 pub fn new_window_action_id() -> u64 {
-    NEW_WINDOW_ACTION.with(|c| c.get())
+    NEW_WINDOW_ACTION.with(std::cell::Cell::get)
 }
 
 /// Test/diagnostic surface: the number of open secondary windows.
+#[must_use]
 pub fn open_window_count() -> usize {
     WINDOWS.with(|w| w.borrow().len())
 }
 
 /// The `WindowKind` of the open window at `root`, for backends and tests.
+#[must_use]
 pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
     WINDOWS.with(|w| {
         w.borrow()
@@ -1564,6 +1580,7 @@ pub fn adopt_initial_window(root: RNode, scope: Scope) {
 /// The displays attached now (docs/windows.md "Monitors"). A toolkit that cannot list them
 /// (`Cap::Monitors` unsupported) answers with one display the size of the primary window, so a
 /// placement computed from the answer stays on screen.
+#[must_use]
 pub fn monitors() -> Vec<day_spec::Monitor> {
     let listed = with_tree(|t| t.monitors());
     if !listed.is_empty() {
@@ -1587,8 +1604,9 @@ pub fn monitors() -> Vec<day_spec::Monitor> {
 
 /// A handle to the app's first window, once adopted. `None` before boot completes, and after
 /// that window closes; it is an ordinary window and can be closed like any other.
+#[must_use]
 pub fn initial_window() -> Option<WindowHandle> {
-    let root = INITIAL_WINDOW.with(|c| c.get())?;
+    let root = INITIAL_WINDOW.with(std::cell::Cell::get)?;
     WINDOWS.with(|w| {
         w.borrow()
             .iter()
@@ -1598,11 +1616,13 @@ pub fn initial_window() -> Option<WindowHandle> {
 }
 
 /// The window root's spec-boundary id (backends key their per-window maps by it).
+#[must_use]
 pub fn window_node_id(handle: &WindowHandle) -> NodeId {
     rnode_to_id(handle.root)
 }
 
 /// Whether this backend can group actual OS windows as tabs.
+#[must_use]
 pub fn native_window_tabs() -> bool {
     with_tree(|t| t.native_window_tabs())
 }
@@ -1614,6 +1634,7 @@ pub fn group_windows(windows: &[WindowHandle]) {
 
 /// Native close delegate hook. Queue document code outside the toolkit callback.
 /// Returns false when the owner will decide whether to close.
+#[must_use]
 pub fn native_close_requested(id: NodeId) -> bool {
     let handler = WINDOWS.with(|w| {
         w.borrow()

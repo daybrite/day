@@ -74,7 +74,7 @@ impl<'a> Scanner<'a> {
     fn number(&mut self) -> Result<f64, ParseError> {
         self.skip_ws();
         let start = self.i;
-        if matches!(self.peek(), Some(b'+') | Some(b'-')) {
+        if matches!(self.peek(), Some(b'+' | b'-')) {
             self.i += 1;
         }
         let mut seen_digit = false;
@@ -94,10 +94,10 @@ impl<'a> Scanner<'a> {
         }
         // Exponent, but only when it is actually followed by digits: `1e` is a number then a
         // stray letter, not a malformed exponent.
-        if matches!(self.peek(), Some(b'e') | Some(b'E')) {
+        if matches!(self.peek(), Some(b'e' | b'E')) {
             let save = self.i;
             self.i += 1;
-            if matches!(self.peek(), Some(b'+') | Some(b'-')) {
+            if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.i += 1;
             }
             if matches!(self.peek(), Some(c) if c.is_ascii_digit()) {
@@ -297,8 +297,8 @@ fn arc_to_cubics(
     let coef = sign * (num / den).max(0.0).sqrt();
     let cxp = coef * (rx * y1p) / ry;
     let cyp = coef * -(ry * x1p) / rx;
-    let cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) / 2.0;
-    let cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) / 2.0;
+    let cx = cos_phi * cxp - sin_phi * cyp + f64::midpoint(x1, x2);
+    let cy = sin_phi * cxp + cos_phi * cyp + f64::midpoint(y1, y2);
 
     let angle = |ux: f64, uy: f64, vx: f64, vy: f64| {
         let dot = ux * vx + uy * vy;
@@ -434,9 +434,8 @@ mod tests {
             other => panic!("expected a cubic, got {other:?}"),
         }
         // The sweep passes below the axis for sweep-flag 1 in SVG's y-down space.
-        let mid = match segs[1] {
-            Seg::Cubic(_, y1, _, _, _, _) => y1,
-            _ => unreachable!(),
+        let Seg::Cubic(_, mid, _, _, _, _) = segs[1] else {
+            unreachable!()
         };
         assert!(mid < 0.0, "sweep 1 curves to negative y: {mid}");
     }

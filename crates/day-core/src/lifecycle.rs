@@ -123,6 +123,7 @@ fn format_exit_summary(
 /// physical footprint on Apple platforms, the resident set from `/proc` on Linux and its
 /// relatives, the working set on Windows, the linear memory on wasm. `None` where none is
 /// readable, which the exit line reports as unknown.
+#[must_use]
 pub fn resident_memory() -> Option<u64> {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
@@ -166,7 +167,7 @@ pub fn resident_memory() -> Option<u64> {
                 mach_task_self(),
                 TASK_VM_INFO,
                 info.as_mut_ptr(),
-                &mut count,
+                &raw mut count,
             )
         };
         if ok != 0 {
@@ -182,9 +183,6 @@ pub fn resident_memory() -> Option<u64> {
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_env = "ohos"))]
     {
-        // /proc/self/statm: size resident shared text lib data dt, in pages.
-        let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
-        let resident: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
         unsafe extern "C" {
             fn sysconf(name: i32) -> i64;
         }
@@ -192,6 +190,9 @@ pub fn resident_memory() -> Option<u64> {
         const SC_PAGESIZE: i32 = 40;
         #[cfg(not(target_os = "android"))]
         const SC_PAGESIZE: i32 = 30;
+        // /proc/self/statm: size resident shared text lib data dt, in pages.
+        let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+        let resident: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
         // SAFETY: sysconf reads a system constant and has no preconditions.
         let page = unsafe { sysconf(SC_PAGESIZE) };
         return Some(resident * u64::try_from(page).unwrap_or(4096));
@@ -331,6 +332,7 @@ fn dispatch_handlers(phase: Lifecycle) {
 /// `if day::lifecycle_supported(Lifecycle::DidEnterBackground) { on_lifecycle(...) }`.
 ///
 /// Returns the universal answer (`phase.is_universal()`) if called before the backend is up.
+#[must_use]
 pub fn lifecycle_supported(phase: Lifecycle) -> bool {
     if crate::tree::has_tree() {
         crate::with_tree(|t| t.supports_lifecycle(phase))
@@ -440,7 +442,7 @@ mod tests {
             panic!("boom in a lifecycle handler")
         });
         on_lifecycle(Lifecycle::WillResignActive, || {
-            RAN.with(|c| c.set(c.get() + 1))
+            RAN.with(|c| c.set(c.get() + 1));
         });
 
         // Returns normally (containment) rather than unwinding, and the sibling still ran.

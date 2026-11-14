@@ -29,9 +29,13 @@ use windows::core::PCWSTR;
 
 use super::{LOOPS, RATE, VOICES};
 
-/// `NTDDI_WIN10`: the XAudio2 behavior Windows 10 shipped with.
+/// `NTDDI_WIN10`: the `XAudio2` behavior Windows 10 shipped with.
 const NTDDI_WIN10: u32 = 0x0A00_0000;
 
+#[expect(
+    clippy::struct_field_names,
+    reason = "the field is the XAudio2 source voice this record keeps state for"
+)]
 struct Voice {
     voice: IXAudio2SourceVoice,
     /// The clip it was last given, alive while the voice may still read it.
@@ -44,7 +48,7 @@ struct Voice {
 fn drained(voice: &IXAudio2SourceVoice) -> bool {
     let mut state = XAUDIO2_VOICE_STATE::default();
     // SAFETY: querying a voice this module owns into a local.
-    unsafe { voice.GetState(&mut state, XAUDIO2_VOICE_NOSAMPLESPLAYED) };
+    unsafe { voice.GetState(&raw mut state, XAUDIO2_VOICE_NOSAMPLESPLAYED) };
     state.BuffersQueued == 0
 }
 
@@ -84,13 +88,18 @@ impl Engine {
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             let mut xaudio: Option<IXAudio2> = None;
-            XAudio2CreateWithVersionInfo(&mut xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR, NTDDI_WIN10)
-                .ok()?;
+            XAudio2CreateWithVersionInfo(
+                &raw mut xaudio,
+                0,
+                XAUDIO2_DEFAULT_PROCESSOR,
+                NTDDI_WIN10,
+            )
+            .ok()?;
             let xaudio = xaudio?;
             let mut master: Option<IXAudio2MasteringVoice> = None;
             xaudio
                 .CreateMasteringVoice(
-                    &mut master,
+                    &raw mut master,
                     0,
                     0,
                     0,
@@ -115,8 +124,8 @@ impl Engine {
                 let mut voice: Option<IXAudio2SourceVoice> = None;
                 xaudio
                     .CreateSourceVoice(
-                        &mut voice,
-                        &format,
+                        &raw mut voice,
+                        &raw const format,
                         0,
                         XAUDIO2_DEFAULT_FREQ_RATIO,
                         None::<&IXAudio2VoiceCallback>,
@@ -136,8 +145,8 @@ impl Engine {
                 let mut voice: Option<IXAudio2SourceVoice> = None;
                 xaudio
                     .CreateSourceVoice(
-                        &mut voice,
-                        &format,
+                        &raw mut voice,
+                        &raw const format,
                         0,
                         XAUDIO2_DEFAULT_FREQ_RATIO,
                         None::<&IXAudio2VoiceCallback>,
@@ -192,22 +201,21 @@ impl Engine {
         let Ok(bytes) = u32::try_from(clip.len() * 2) else {
             return;
         };
-        let slot = match self.voices.iter().position(Voice::idle) {
-            Some(i) => i,
-            None => {
-                let Some((i, busiest)) = self
-                    .voices
-                    .iter()
-                    .enumerate()
-                    .min_by_key(|(_, v)| (v.priority, v.started))
-                else {
-                    return;
-                };
-                if busiest.priority > priority {
-                    return;
-                }
-                i
+        let slot = if let Some(i) = self.voices.iter().position(Voice::idle) {
+            i
+        } else {
+            let Some((i, busiest)) = self
+                .voices
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, v)| (v.priority, v.started))
+            else {
+                return;
+            };
+            if busiest.priority > priority {
+                return;
             }
+            i
         };
         let voice = &mut self.voices[slot];
         let buffer = XAUDIO2_BUFFER {
@@ -221,7 +229,11 @@ impl Engine {
         unsafe {
             let _ = voice.voice.Stop(0, 0);
             let _ = voice.voice.FlushSourceBuffers();
-            if voice.voice.SubmitSourceBuffer(&buffer, None).is_err() {
+            if voice
+                .voice
+                .SubmitSourceBuffer(&raw const buffer, None)
+                .is_err()
+            {
                 return;
             }
             let _ = voice.voice.SetVolume(volume, 0);
@@ -257,7 +269,7 @@ impl Engine {
         unsafe {
             let _ = v.voice.Stop(0, 0);
             let _ = v.voice.FlushSourceBuffers();
-            if v.voice.SubmitSourceBuffer(&buffer, None).is_err() {
+            if v.voice.SubmitSourceBuffer(&raw const buffer, None).is_err() {
                 return;
             }
             let _ = v.voice.SetVolume(volume, 0);
@@ -337,7 +349,7 @@ impl Drop for Engine {
 }
 
 fn with_engine(f: impl FnOnce(&mut Engine)) {
-    if FAILED.with(|f| f.get()) {
+    if FAILED.with(std::cell::Cell::get) {
         return;
     }
     ENGINE.with(|e| {

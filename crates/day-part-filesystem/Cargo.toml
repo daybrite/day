@@ -21,3 +21,6 @@ license.workspace = true
 day-async = { workspace = true }
 # `storage::data_dir()`: the one per-app data directory every Day crate resolves.
 day-spec = { workspace = true }
+
+[lints]
+workspace = true

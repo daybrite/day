@@ -46,6 +46,10 @@ fn make(backend: &mut Dom, p: &ColorProps, _id: NodeId) -> DomHandle {
     h
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+)]
 fn update(backend: &mut Dom, h: &DomHandle, patch: &ColorPatch) {
     let ColorPatch::SetColor(c) = patch;
     // Assigning `value` does not fire `input`, so there is no echo to guard against here.
@@ -61,6 +65,10 @@ fn opaque_hex(c: Color) -> String {
 
 /// The swatch is a fixed-size control the browser draws; take what the layout proposes, with the
 /// same modest default the other arms report as their intrinsic size.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+)]
 fn measure(_backend: &mut Dom, _h: &DomHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(56.0), p.height.unwrap_or(28.0))
 }

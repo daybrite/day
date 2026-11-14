@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day_pieces::pullrefresh: pull-to-refresh for any Day scrollable, modeled on SwiftUI's
+//! `day_pieces::pullrefresh`: pull-to-refresh for any Day scrollable, modeled on SwiftUI's
 //! `refreshable(action:)` (DESIGN.md §15; docs/extending.md).
 //!
 //! ```ignore
@@ -42,6 +42,7 @@ pub use day_spec::controls::pullrefresh::*;
 /// How pull-to-refresh is realized on the compiled backend: `Native` (a real platform refresh
 /// control drives the gesture and indicator) or `Emulated` (composition overlay; gesture where the
 /// toolkit exposes overscroll). Never `Unsupported`: the emulated tier always works.
+#[must_use]
 pub fn support() -> day_spec::Support {
     let support = day_core::capability(day_spec::Cap::PullRefresh);
     if support == day_spec::Support::Unsupported {
@@ -52,6 +53,7 @@ pub fn support() -> day_spec::Support {
 }
 
 /// A scrollable wrapped with pull-to-refresh. Build with [`pull_to_refresh`].
+#[must_use]
 pub struct PullRefresh<P: Piece> {
     refreshing: Signal<bool>,
     child: P,
@@ -80,7 +82,7 @@ impl<P: Piece> PullRefresh<P> {
 
 /// The begin path shared by every entry point: flip the signal (if not already refreshing) and run
 /// the app's `on_refresh` exactly once per begin.
-fn begin(refreshing: Signal<bool>, on_refresh: &Option<Rc<dyn Fn()>>) {
+fn begin(refreshing: Signal<bool>, on_refresh: Option<&Rc<dyn Fn()>>) {
     if !refreshing.get_untracked() {
         refreshing.set(true);
         if let Some(f) = on_refresh {
@@ -93,8 +95,7 @@ fn begin(refreshing: Signal<bool>, on_refresh: &Option<Rc<dyn Fn()>>) {
 /// `toggle:` step arrives as `Event::ToggleChanged` (synthetic begin/end on every backend).
 fn wire(cx: &mut BuildCx, node: RNode, refreshing: Signal<bool>, on_refresh: Option<Rc<dyn Fn()>>) {
     cx.on(node, move |ev| match ev {
-        Event::Custom { .. } => begin(refreshing, &on_refresh),
-        Event::ToggleChanged(true) => begin(refreshing, &on_refresh),
+        Event::Custom { .. } | Event::ToggleChanged(true) => begin(refreshing, on_refresh.as_ref()),
         Event::ToggleChanged(false) => refreshing.set(false),
         _ => {}
     });
@@ -272,6 +273,7 @@ pub mod conformance {
 }
 
 /// Whether a user pull gesture can begin a refresh on this toolkit.
+#[must_use]
 pub fn gesture_support() -> day_spec::Support {
     day_core::capability(day_spec::Cap::PullRefreshGesture)
 }

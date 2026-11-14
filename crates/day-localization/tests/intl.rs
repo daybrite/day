@@ -3,7 +3,7 @@
 
 //! icu4x-backed formatting + collation (docs/localization.md "Formatted values"/"Sorting").
 //! These run under bare `cargo` (full compiled data, no thinning pipeline involved) and pin the
-//! locale per assertion via `format_in`, so they are independent of DAY_LOCALE and each other.
+//! locale per assertion via `format_in`, so they are independent of `DAY_LOCALE` and each other.
 
 use day_localization::{FArg, compare_in, format_in, install};
 
@@ -64,11 +64,11 @@ fn dt(locale: &str, key: &str, v: &str) -> String {
 fn plain_interpolations_localize() {
     install_fixture();
     // The set_formatter hook covers plain `{ $n }` as well as explicit NUMBER() calls.
-    assert_eq!(num("en", "plain", 1234567.891), "1,234,567.891");
-    assert_eq!(num("de", "plain", 1234567.891), "1.234.567,891");
+    assert_eq!(num("en", "plain", 1_234_567.891), "1,234,567.891");
+    assert_eq!(num("de", "plain", 1_234_567.891), "1.234.567,891");
     // fr groups with narrow no-break space (U+202F).
     assert_eq!(
-        num("fr", "plain", 1234567.891),
+        num("fr", "plain", 1_234_567.891),
         "1\u{202f}234\u{202f}567,891"
     );
 }
@@ -76,8 +76,8 @@ fn plain_interpolations_localize() {
 #[test]
 fn number_function_formats() {
     install_fixture();
-    assert_eq!(num("en", "num", 1234567.891), "1,234,567.891");
-    assert_eq!(num("de", "num", 1234567.891), "1.234.567,891");
+    assert_eq!(num("en", "num", 1_234_567.891), "1,234,567.891");
+    assert_eq!(num("de", "num", 1_234_567.891), "1.234.567,891");
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn fraction_digit_options() {
 #[test]
 fn grouping_can_be_disabled() {
     install_fixture();
-    assert_eq!(num("en", "nogroup", 1234567.0), "1234567");
+    assert_eq!(num("en", "nogroup", 1_234_567.0), "1234567");
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn extension_locales_resolve_bundles() {
     // A collation-extension locale still finds its translations (bundle lookup strips -u-…).
     assert_eq!(num("zh-CN-u-co-stroke", "plain", 5.0), "5");
     // Region fallback: no ar bundle is registered under "ar", but ar-EG is exact.
-    assert!(!num("ar-EG", "plain", 5.0).is_empty());
+    assert_ne!(num("ar-EG", "plain", 5.0), "");
 }
 
 #[test]

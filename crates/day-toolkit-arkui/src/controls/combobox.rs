@@ -37,6 +37,10 @@ fn make(_backend: &mut ArkUi, p: &ComboProps, id: NodeId) -> AHandle {
     piece::make(KIND, id, &props)
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &ComboPatch) {
     match patch {
         ComboPatch::Items(items) => piece::update(h, "items", &joined(items)),
@@ -45,6 +49,10 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &ComboPatch) {
 }
 
 /// The proposed width, at a text field's 40 vp height.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn measure(_backend: &mut ArkUi, _h: &AHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(200.0), 40.0)
 }

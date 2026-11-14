@@ -26,7 +26,7 @@ fn native(mime: &str) -> Retained<NSString> {
     unsafe {
         Retained::from_raw(UTTypeCreatePreferredIdentifierForTag(
             kUTTagClassMIMEType,
-            (&*s as *const NSString).cast(),
+            (&raw const *s).cast(),
             std::ptr::null(),
         ))
     }
@@ -38,7 +38,7 @@ fn mime(uti: &NSString) -> Option<String> {
     }
     unsafe {
         Retained::from_raw(UTTypeCopyPreferredTagWithClass(
-            (uti as *const NSString).cast(),
+            std::ptr::from_ref::<NSString>(uti).cast(),
             kUTTagClassMIMEType,
         ))
     }
@@ -50,7 +50,7 @@ day_core::tls_group! {
     static PRESSES: SideTable<NSPoint> = SideTable::new();
 }
 fn key(view: &NSView) -> usize {
-    view as *const NSView as usize
+    std::ptr::from_ref::<NSView>(view) as usize
 }
 pub fn source(view: &NSView, source: Source) {
     SOURCES.with(|t| t.insert(key(view), source));
@@ -197,7 +197,7 @@ pub fn receive(view: &NSView, info: &ProtocolObject<dyn objc2_app_kit::NSDraggin
         let mut items = Vec::new();
         let mut total = 0usize;
         if let Some(native_items) = pb.pasteboardItems() {
-            for item in native_items.iter() {
+            for item in &native_items {
                 for ty in &target.types {
                     let bytes = if ty == "text/uri-list" {
                         // Resolve each item's own URL so mixed or unreadable items cannot

@@ -120,11 +120,13 @@ impl Path {
     }
 
     /// One step down. Cheap: the parent is already interned by whoever handed it over.
+    #[must_use]
     pub fn under(parent: NodeId, part: u64) -> Path {
         Path { parent, part }
     }
 
     /// The path's components, outermost first, resolved through the interner.
+    #[must_use]
     pub fn components(self) -> Vec<u64> {
         let mut out: Vec<u64> = self.chain().iter().map(|p| p.part).collect();
         out.reverse();
@@ -156,6 +158,7 @@ impl Path {
 /// Hand-assigned indices are a hazard: two fields given the same number share a trigger, and the
 /// symptom is a wakeup that fires too often, invisible until someone profiles it. A name is
 /// already unique within a struct, so the compiler's own uniqueness rule becomes the path's.
+#[must_use]
 pub const fn field_id(name: &str) -> u64 {
     let bytes = name.as_bytes();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -349,31 +352,28 @@ fn intern(p: Path) -> NodeId {
         if let Some(id) = i.lookup.get(&p) {
             return *id;
         }
-        let id = match i.free.pop() {
-            Some(idx) => {
-                let s = &mut i.slots[idx as usize];
-                s.path = p;
-                s.alive = true;
-                s.pinned = false;
-                s.children = 0;
-                s.triggers = 0;
-                NodeId {
-                    idx,
-                    generation: s.generation,
-                }
+        let id = if let Some(idx) = i.free.pop() {
+            let s = &mut i.slots[idx as usize];
+            s.path = p;
+            s.alive = true;
+            s.pinned = false;
+            s.children = 0;
+            s.triggers = 0;
+            NodeId {
+                idx,
+                generation: s.generation,
             }
-            None => {
-                let idx = i.slots.len() as u32;
-                i.slots.push(Slot {
-                    path: p,
-                    generation: 0,
-                    alive: true,
-                    pinned: false,
-                    children: 0,
-                    triggers: 0,
-                });
-                NodeId { idx, generation: 0 }
-            }
+        } else {
+            let idx = i.slots.len() as u32;
+            i.slots.push(Slot {
+                path: p,
+                generation: 0,
+                alive: true,
+                pinned: false,
+                children: 0,
+                triggers: 0,
+            });
+            NodeId { idx, generation: 0 }
         };
         i.lookup.insert(p, id);
         if p.parent != ROOT
@@ -407,6 +407,7 @@ fn pin(id: NodeId) {
 
 /// How many interior nodes are currently interned (the sentinel excluded): the cost of
 /// observation's second table, assertable in a test.
+#[must_use]
 pub fn interned_nodes() -> usize {
     NODES.with(|n| n.borrow().slots.iter().filter(|s| s.alive).count() - 1)
 }
@@ -497,6 +498,7 @@ fn release(p: Path, watcher: day_reactive::RunId) {
 }
 
 /// How many paths currently have a trigger: the cost of observation, assertable in a test.
+#[must_use]
 pub fn observed_paths() -> usize {
     TRIGGERS.with(|t| t.borrow().len())
 }
@@ -544,11 +546,13 @@ pub struct Change {
 
 impl Change {
     /// The value before the write, if captured and of type `T`.
+    #[must_use]
     pub fn prior_as<T: 'static>(&self) -> Option<&T> {
         self.prior.as_deref().and_then(|v| v.downcast_ref())
     }
 
     /// The value after the write, if captured and of type `T`.
+    #[must_use]
     pub fn value_as<T: 'static>(&self) -> Option<&T> {
         self.value.as_deref().and_then(|v| v.downcast_ref())
     }
@@ -562,12 +566,13 @@ impl fmt::Debug for Change {
             .field("op", &self.op)
             .field("prior", &self.prior.as_ref().map(|_| ".."))
             .field("value", &self.value.as_ref().map(|_| ".."))
+            .field("author", &self.author)
             .finish()
     }
 }
 
 fn values_wanted() -> bool {
-    WANT_VALUES.with(|w| w.get()) || WANT_VALUES_STANDING.with(|w| w.get() > 0)
+    WANT_VALUES.with(std::cell::Cell::get) || WANT_VALUES_STANDING.with(|w| w.get() > 0)
 }
 
 /// Whether any change consumer currently captures prior/new values: a scoped
@@ -575,6 +580,7 @@ fn values_wanted() -> bool {
 /// (the persistence container) asks this to decide whether a delete must materialize its row
 /// first: a value-free delete cannot be inverted, and capturing costs nothing when nobody
 /// records.
+#[must_use]
 pub fn record_capture_active() -> bool {
     values_wanted()
 }
@@ -589,7 +595,7 @@ pub fn want_values_standing(on: bool) {
 }
 
 fn previewing() -> bool {
-    PREVIEW_WRITE.with(|p| p.get())
+    PREVIEW_WRITE.with(std::cell::Cell::get)
 }
 
 /// Run `f` with changes stamped as `author`: how an undo replay or an importer signs its
@@ -606,7 +612,7 @@ pub fn with_author<R>(author: &'static str, f: impl FnOnce() -> R) -> R {
 }
 
 fn current_author() -> Option<&'static str> {
-    CURRENT_AUTHOR.with(|a| a.get())
+    CURRENT_AUTHOR.with(std::cell::Cell::get)
 }
 
 /// Record every change announced inside `f`. What the tests read, and the persistence layer's
@@ -834,11 +840,20 @@ impl<T: 'static> Store<T> {
         }
     }
 
+    /// Read the whole value without subscribing the caller to changes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
     pub fn with_untracked<R>(self, f: impl FnOnce(&T) -> R) -> R {
         f(&self.inner.data.read().expect("store poisoned"))
     }
 
     /// Mutate the whole value; announces a store-wide change (every reader wakes).
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
     pub fn update(self, label: &'static str, f: impl FnOnce(&mut T)) {
         {
             let mut g = self.inner.data.write().expect("store poisoned");
@@ -857,12 +872,14 @@ impl<T: 'static> Store<T> {
     }
 
     /// Bumped on every write; a cheap way for tests to ask "did anything change".
+    #[must_use]
     pub fn version(self) -> u64 {
         self.inner.version.load(Ordering::Relaxed)
     }
 
     /// This store's root id, the first component of every path under it. A persistence
     /// container keys its table map on it.
+    #[must_use]
     pub fn store_id(self) -> u64 {
         self.root_id
     }
@@ -870,6 +887,11 @@ impl<T: 'static> Store<T> {
     /// Announce everything background transactions committed, returning how many paths were
     /// queued. An app posts this to the main loop after a worker commits; a test calls it
     /// directly and asserts what it woke.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's pending-announcement queue.
+    #[must_use]
     pub fn pump(self) -> usize {
         let drained: TxPaths = {
             let mut q = self.inner.pending.lock().expect("queue poisoned");
@@ -923,6 +945,11 @@ impl<T: Send + Sync + 'static> Store<T> {
     /// Open a write transaction: the way a background thread edits. Holding it holds the
     /// store's write lock, so a reader never sees half of one; dropping it commits and queues
     /// the announcements for [`Store::pump`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
+    #[must_use]
     pub fn transact(self) -> Tx<T> {
         Tx {
             store: self,
@@ -941,6 +968,10 @@ pub struct Tx<T: Send + Sync + 'static> {
 }
 
 impl<T: Send + Sync + 'static> Tx<T> {
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "the guard is taken in Drop alone, so the `expect` cannot fail on a live Tx"
+    )]
     pub fn data(&mut self) -> &mut T {
         // A Tx is only reachable while uncommitted: the guard is taken in Drop alone.
         self.guard.as_mut().expect("transaction already committed")
@@ -1006,6 +1037,7 @@ pub enum Key {
 impl Key {
     /// The key's path handle: identity for `U64`, interned (once, then a read-locked lookup)
     /// for the wide forms. Callable from any thread; the interner is process-global.
+    #[must_use]
     pub fn handle(&self) -> u64 {
         match self {
             Key::U64(k) => *k,
@@ -1017,6 +1049,11 @@ impl Key {
 
     /// The key a handle names: identity below the wide floor, the interner's record above
     /// it. `None` only for a wide handle nothing ever interned (a forged value).
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the key interner's lock.
+    #[must_use]
     pub fn of_handle(handle: u64) -> Option<Key> {
         if handle < WIDE_BASE {
             return Some(Key::U64(handle));
@@ -1034,6 +1071,7 @@ impl Key {
             })
     }
 
+    #[must_use]
     pub fn as_u64(&self) -> Option<u64> {
         match self {
             Key::U64(k) => Some(*k),
@@ -1041,6 +1079,7 @@ impl Key {
         }
     }
 
+    #[must_use]
     pub fn as_uuid(&self) -> Option<uuid::Uuid> {
         match self {
             Key::Uuid(u) => Some(uuid::Uuid::from_u128(*u)),
@@ -1048,6 +1087,7 @@ impl Key {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Key::Str(s) => Some(s),
@@ -1111,6 +1151,11 @@ fn intern_wide(k: WideKey) -> u64 {
 
 /// How many wide keys the process has interned: the cost of wide-key identity itself,
 /// assertable in a test. Entries are retained for the process's lifetime.
+///
+/// # Panics
+///
+/// Panics if a thread panicked while holding the key interner's lock.
+#[must_use]
 pub fn interned_keys() -> usize {
     wide_keys()
         .read()
@@ -1127,21 +1172,34 @@ pub trait AsKey {
     fn as_key(&self) -> Key;
 }
 
+fn int_key(k: u64) -> Key {
+    debug_assert!(
+        k < WIDE_BASE,
+        "u64 keys reserve the top bit for interned handles (got {k:#x})"
+    );
+    Key::U64(k)
+}
+
 macro_rules! int_key {
     ($($t:ty),*) => {$(
         impl AsKey for $t {
             fn as_key(&self) -> Key {
-                let k = *self as u64;
-                debug_assert!(
-                    k < WIDE_BASE,
-                    "u64 keys reserve the top bit for interned handles (got {k:#x})"
-                );
-                Key::U64(k)
+                int_key(*self as u64)
             }
         }
     )*};
 }
-int_key!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+macro_rules! lossless_int_key {
+    ($($t:ty),*) => {$(
+        impl AsKey for $t {
+            fn as_key(&self) -> Key {
+                int_key(u64::from(*self))
+            }
+        }
+    )*};
+}
+lossless_int_key!(u8, u16, u32);
+int_key!(u64, usize, i8, i16, i32, i64, isize);
 
 impl AsKey for String {
     fn as_key(&self) -> Key {
@@ -1219,20 +1277,27 @@ impl<M: ?Sized> fmt::Debug for ModelId<M> {
 
 impl<M: ?Sized> ModelId<M> {
     /// The id for `key`, interning it if wide.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public signature; callers pass key literals and owned keys by value"
+    )]
     pub fn of(key: impl AsKey) -> Self {
         Self::from_handle(key.as_key().handle())
     }
     /// Wrap an existing path handle (from [`Store::keys`], a slot token, a change record).
+    #[must_use]
     pub const fn from_handle(handle: u64) -> Self {
         ModelId {
             handle,
             _m: PhantomData,
         }
     }
+    #[must_use]
     pub fn handle(self) -> u64 {
         self.handle
     }
     /// The real key: identity for integer handles, the interner's record for wide ones.
+    #[must_use]
     pub fn key(self) -> Key {
         Key::of_handle(self.handle).unwrap_or(Key::U64(self.handle))
     }
@@ -1346,6 +1411,7 @@ impl<T: Identified> Default for Keyed<T> {
 }
 
 impl<T: Identified> Keyed<T> {
+    #[must_use]
     pub fn new(items: Vec<T>) -> Self {
         let mut k = Keyed {
             items,
@@ -1374,6 +1440,7 @@ impl<T: Identified> Keyed<T> {
         }
     }
 
+    #[must_use]
     pub fn get(&self, key: u64) -> Option<&T> {
         self.index.get(&key).and_then(|i| self.items.get(*i))
     }
@@ -1385,18 +1452,22 @@ impl<T: Identified> Keyed<T> {
         }
     }
 
+    #[must_use]
     pub fn keys(&self) -> Vec<u64> {
-        self.items.iter().map(|t| t.handle()).collect()
+        self.items.iter().map(Identified::handle).collect()
     }
 
+    #[must_use]
     pub fn items(&self) -> &[T] {
         &self.items
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -1404,11 +1475,12 @@ impl<T: Identified> Keyed<T> {
     /// The next free integer key: one past the largest in use (1 for an empty collection), or
     /// the lowest unused key from 1 once that would reach the top bit integer keys reserve
     /// (see [`AsKey`]). Interned keys (`Uuid`, `Str`, `Pair`) are not counted.
+    #[must_use]
     pub fn next_key(&self) -> u64 {
         let used = || {
             self.items
                 .iter()
-                .map(|t| t.handle())
+                .map(Identified::handle)
                 .filter(|h| (1..WIDE_BASE).contains(h))
         };
         match used().max() {
@@ -1500,9 +1572,10 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
 
     /// Tracked read of the collection's shape (which keys, in what order): what a list widget
     /// wants. A field write does not wake it; an insert, a removal or a reorder does.
+    #[must_use]
     pub fn keys(self) -> Vec<u64> {
         track(Path::under(self.node, STRUCTURE));
-        self.with_untracked(|k| k.keys().to_vec())
+        self.with_untracked(|k| k.keys().clone())
     }
 
     /// [`Store::keys`], typed — the same tracked read, as [`ModelId`]s.
@@ -1515,6 +1588,10 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// The affected key and the operation are announced alongside the shape path, because a
     /// persistence layer has to choose between an INSERT and a DELETE and cannot infer it from
     /// "the shape changed", while the UI, which only re-reads `keys()`, ignores both.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
     pub fn restructure(
         self,
         label: &'static str,
@@ -1581,7 +1658,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     {
         let key = item.handle();
         self.restructure("push", Op::Insert, ModelId::from_handle(key), |k| {
-            k.push(item)
+            k.push(item);
         });
     }
 
@@ -1611,19 +1688,20 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
             if from == to || to >= k.len() {
                 return None;
             }
-            k.items().get(from).map(|item| item.handle())
+            k.items().get(from).map(Identified::handle)
         });
         let Some(key) = key else { return false };
         self.restructure("move", Op::Move, ModelId::from_handle(key), |k| {
-            k.move_item(from, to)
+            k.move_item(from, to);
         });
         true
     }
 
     /// The next free integer key: one past the largest in use, for a model keyed by a `u64`
     /// field. Untracked. See [`Keyed::next_key`].
+    #[must_use]
     pub fn next_key(self) -> u64 {
-        self.with_untracked(|k| k.next_key())
+        self.with_untracked(Keyed::next_key)
     }
 
     /// Feed one row's new value from outside the app's own editing (another connection's
@@ -1635,6 +1713,10 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// author tag; wrap the call in [`with_author`] so consumers can tell the merge from the
     /// user's own edits. Returns false, announcing nothing, when the row is absent: an absent
     /// row is an insert, which is [`Store::restructure`]'s job.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
     pub fn merge_row(self, key: impl Into<ModelId<T>>, value: T, changed: &[&'static str]) -> bool
     where
         T: Clone,
@@ -1669,6 +1751,10 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// values through this; it is public because any framework-level maintenance faces the
     /// same need. Returns false, announcing nothing, when the row is absent or when
     /// `label`/`V` name no field of `T` (the [`ApplyField`] downcast refused).
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
     pub fn write_field<V: Clone + 'static>(
         self,
         key: impl Into<ModelId<T>>,
@@ -1716,6 +1802,10 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// rows are the database's own contents arriving, not edits), and no trigger wakes: a
     /// faulting read populates before anything binds, so there is nobody to wake yet. The
     /// version still bumps, so version-watching tests see the population.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
     pub fn populate(self, rows: Vec<T>) {
         {
             let mut g = self.inner.data.write().expect("store poisoned");
@@ -1734,6 +1824,10 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// The row is not deleted anywhere; it stops being resident, and a later fault
     /// brings it back. Callers guard with [`Store::is_observed`]: evicting a row something is
     /// bound to would flip that binding to its `Default` with no wakeup to correct it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
     pub fn depopulate(self, key: impl Into<ModelId<T>>) -> bool {
         let key = key.into().handle();
         let removed = {
@@ -1749,6 +1843,11 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// [`Store::depopulate`], batched: One retain and one reindex for the whole set, where
     /// per-key removal would rebuild the key map per row, the difference between an eviction
     /// pass costing O(cache) and O(cache × evicted). Returns how many rows left.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a thread panicked while holding the store's lock.
+    #[must_use]
     pub fn depopulate_many(self, keys: &[u64]) -> usize {
         if keys.is_empty() {
             return 0;
@@ -1774,7 +1873,11 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     #[doc(hidden)]
     pub fn dispose_contents(self) {
         let old = {
-            let mut data = self.inner.data.write().unwrap_or_else(|e| e.into_inner());
+            let mut data = self
+                .inner
+                .data
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             std::mem::replace(&mut *data, Keyed::new(Vec::new()))
         };
         // User row destructors may re-enter other code. Do not run them under the data lock.
@@ -1807,12 +1910,14 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
 
 impl<T: Identified + 'static> Elem<T> {
     /// The path handle this element addresses: the raw form of [`Elem::model_id`].
+    #[must_use]
     pub fn key(self) -> u64 {
         self.key
     }
 
     /// The element's typed id. (Named to stay clear of the `id` field accessor an inherent
     /// `id()` would shadow on every model that has one.)
+    #[must_use]
     pub fn model_id(self) -> ModelId<T> {
         ModelId::from_handle(self.key)
     }
@@ -1820,6 +1925,7 @@ impl<T: Identified + 'static> Elem<T> {
     /// Whether the row is (still) present. Tracked, so a guard re-runs when the row is deleted
     /// or comes back. This is the deletion story: reads of a gone row return the field's
     /// `Default`, and this is the one signal a page needs to degrade instead.
+    #[must_use]
     pub fn exists(self) -> bool {
         track(self.path());
         self.with_value_untracked(|v| v.is_some())
@@ -2188,6 +2294,10 @@ pub struct Numeric<M> {
     inner: M,
 }
 
+#[expect(
+    clippy::expl_impl_clone_on_copy,
+    reason = "a derive would widen `Clone` to non-`Copy` bindings; this keeps the public bounds"
+)]
 impl<M: Copy> Clone for Numeric<M> {
     fn clone(&self) -> Self {
         *self
@@ -2426,6 +2536,7 @@ impl Drop for UndoGroup {
 
 impl UndoStack {
     /// A stack holding at most `levels` units: the bound on what history keeps in RAM.
+    #[must_use]
     pub fn new(levels: usize) -> UndoStack {
         let (can_undo, can_redo, undo_label, redo_label) =
             day_reactive::Scope::detached().enter(|| {
@@ -2572,7 +2683,7 @@ impl UndoStack {
             .inner
             .group_label
             .take()
-            .unwrap_or_else(|| changes.first().map(|c| c.label).unwrap_or(""));
+            .unwrap_or_else(|| changes.first().map_or("", |c| c.label));
         // The unit's transient UI state is the state at seal, the end of the turn (or group),
         // after any selection writes the same event made. Selection changes between units are
         // not captured anywhere: they are not history.
@@ -2615,6 +2726,7 @@ impl UndoStack {
 
     /// Preserve history before an atomic persistence operation. Failed commits must restore
     /// both the database/cache and this checkpoint, including an existing redo branch.
+    #[must_use]
     pub fn checkpoint(&self) -> UndoCheckpoint {
         UndoCheckpoint {
             undo: self.inner.undo.borrow().clone(),
@@ -2630,17 +2742,21 @@ impl UndoStack {
         self.refresh();
     }
 
+    #[must_use]
     pub fn can_undo(&self) -> day_reactive::Signal<bool> {
         self.inner.can_undo
     }
+    #[must_use]
     pub fn can_redo(&self) -> day_reactive::Signal<bool> {
         self.inner.can_redo
     }
     /// The next undo unit's display label ("Name", or whatever the resolver makes of it),
     /// empty when there is nothing to undo. What a menu title interpolates.
+    #[must_use]
     pub fn undo_label(&self) -> day_reactive::Signal<String> {
         self.inner.undo_label
     }
+    #[must_use]
     pub fn redo_label(&self) -> day_reactive::Signal<String> {
         self.inner.redo_label
     }
@@ -2679,16 +2795,15 @@ impl UndoStack {
         });
     }
 
-    /// Restore the snapshot history just landed on. `landed` is the top unit's snapshot slot:
-    /// `Some(None)` is a unit that recorded nothing (restore nothing), outer `None` the empty
-    /// stack, whose state is the base. Every borrow is released before the restore closure
-    /// runs: it is app code.
-    fn restore_context(&self, landed: Option<Option<Rc<dyn Any>>>) {
+    /// Restore the snapshot history just landed on: the top unit's snapshot slot. A unit that
+    /// recorded nothing restores nothing; the empty stack restores the base. Every borrow is
+    /// released before the restore closure runs: it is app code.
+    fn restore_context(&self) {
         let (target, restore) = {
             let hook = self.inner.context.borrow();
             let Some(h) = hook.as_ref() else { return };
-            let target = match landed {
-                Some(ctx) => ctx,
+            let target = match self.inner.undo.borrow().back() {
+                Some(unit) => unit.context.clone(),
                 None => Some(h.base.clone()),
             };
             (target, h.restore.clone())
@@ -2720,8 +2835,7 @@ impl UndoStack {
         // History landed on the previous unit's point: restore its transient state (base
         // when the stack just emptied). After the replay flag drops: restores write plain
         // signals, never watched stores.
-        let landed = self.inner.undo.borrow().back().map(|u| u.context.clone());
-        self.restore_context(landed);
+        self.restore_context();
         self.refresh();
         true
     }
@@ -2745,8 +2859,7 @@ impl UndoStack {
         self.inner.replaying.set(Replay::No);
         self.inner.undo.borrow_mut().push_back(unit);
         // History landed back on the redone unit: restore its own transient state.
-        let landed = self.inner.undo.borrow().back().map(|u| u.context.clone());
-        self.restore_context(landed);
+        self.restore_context();
         self.refresh();
         true
     }

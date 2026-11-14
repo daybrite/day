@@ -11,6 +11,7 @@ use crate::{format_decimal_in, format_percent_in};
 /// accepted. Grouped input must match the locale's grouping. Percent input may omit its sign:
 /// `40` and `40%` both mean `0.4`. Scientific notation, currency and units are not accepted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use]
 pub struct NumberFormat {
     percent: bool,
     fraction_digits: usize,
@@ -40,11 +41,13 @@ impl NumberFormat {
     }
 
     /// Format using the current locale, tracking locale changes in reactive closures.
+    #[must_use]
     pub fn format(self, value: f64) -> String {
         self.format_in(&crate::locale().get(), value)
     }
 
     /// Format in an explicit locale without subscribing to locale changes.
+    #[must_use]
     pub fn format_in(self, locale: &str, value: f64) -> String {
         if self.percent {
             format_percent_in(locale, value, self.fraction_digits)
@@ -54,16 +57,18 @@ impl NumberFormat {
     }
 
     /// Parse a complete edit in the current locale. Invalid or unfinished edits return `None`.
+    #[must_use]
     pub fn parse(self, text: &str) -> Option<f64> {
         self.parse_in(&crate::locale().get(), text)
     }
 
     /// Parse in an explicit locale. Grouping is validated rather than silently discarded.
+    #[must_use]
     pub fn parse_in(self, locale: &str, text: &str) -> Option<f64> {
         // Use the same ICU data as display, including Unicode numbering-system extensions.
         let digits: Vec<char> = (0..10)
             .map(|i| {
-                format_decimal_in(locale, i as f64, 0)
+                format_decimal_in(locale, f64::from(i), 0)
                     .chars()
                     .find(|c| !bidi(*c))
                     .unwrap_or('0')
@@ -72,7 +77,7 @@ impl NumberFormat {
         let decimal = format_decimal_in(locale, 1.1, 1)
             .chars()
             .find(|c| !bidi(*c) && !digits.contains(c))?;
-        let group = format_decimal_in(locale, 123456789.0, 0)
+        let group = format_decimal_in(locale, 123_456_789.0, 0)
             .chars()
             .find(|c| !bidi(*c) && !digits.contains(c));
         let cleaned: String = text.chars().filter(|c| !bidi(*c)).collect();
@@ -180,7 +185,7 @@ mod tests {
                 NumberFormat::decimal(),
                 NumberFormat::percent().fraction_digits(2),
             ] {
-                for value in [0.0, 0.4, -12.5, 1234567.25] {
+                for value in [0.0, 0.4, -12.5, 1_234_567.25] {
                     let text = format.format_in(locale, value);
                     assert_eq!(
                         format.parse_in(locale, &text),
@@ -199,7 +204,7 @@ mod tests {
         assert_eq!(decimal.parse_in("fr", "1 234,5"), Some(1234.5));
         assert_eq!(decimal.parse_in("ar-EG", "١٢٫٥"), Some(12.5));
         assert_eq!(decimal.parse_in("ar-EG", "12٫5"), Some(12.5));
-        assert_eq!(decimal.parse_in("hi-IN", "12,34,567.5"), Some(1234567.5));
+        assert_eq!(decimal.parse_in("hi-IN", "12,34,567.5"), Some(1_234_567.5));
         assert_eq!(decimal.parse_in("en", ".5"), Some(0.5));
         for text in [
             "",

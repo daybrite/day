@@ -15,3 +15,6 @@ license.workspace = true
 # compiles everywhere; off unix, `Connection::session()` returns `Error::Unsupported`.
 
 [dependencies]
+
+[lints]
+workspace = true

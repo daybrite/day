@@ -70,6 +70,12 @@ fn check_path(path: &str) -> Result<(), FsError> {
 
 /// Read a file's bytes. Blocking; [`FsError::Unsupported`] on web, so use [`read_async`] or
 /// [`read_future`] there (they work everywhere).
+///
+/// # Errors
+///
+/// [`FsError::BadPath`] for a path outside the relative-path rules, [`FsError::NotFound`] when
+/// it does not exist, [`FsError::Unsupported`] on web or without a data directory, and
+/// [`FsError::Io`] for anything else the platform reports.
 pub fn read(path: &str) -> Result<Vec<u8>, FsError> {
     check_path(path)?;
     imp::read(path)
@@ -80,6 +86,12 @@ pub fn read(path: &str) -> Result<Vec<u8>, FsError> {
 /// readers fetch individual entries without loading the whole file. Opening and reading
 /// are blocking; use a worker when called from UI code. Not available on web, whose
 /// storage API currently supplies owned buffers through [`read_future`].
+///
+/// # Errors
+///
+/// [`FsError::BadPath`] for a path outside the relative-path rules, [`FsError::NotFound`] when
+/// it does not exist, [`FsError::Unsupported`] without a data directory, and [`FsError::Io`]
+/// for anything else the platform reports.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn open_read(path: &str) -> Result<std::fs::File, FsError> {
     check_path(path)?;
@@ -88,6 +100,11 @@ pub fn open_read(path: &str) -> Result<std::fs::File, FsError> {
 
 /// Write `bytes` to `path` (create or truncate), creating missing parent directories. Blocking;
 /// [`FsError::Unsupported`] on web.
+///
+/// # Errors
+///
+/// [`FsError::BadPath`] for a path outside the relative-path rules, [`FsError::Unsupported`] on
+/// web or without a data directory, and [`FsError::Io`] for anything else the platform reports.
 pub fn write(path: &str, bytes: &[u8]) -> Result<(), FsError> {
     check_path(path)?;
     imp::write(path, bytes)
@@ -95,6 +112,12 @@ pub fn write(path: &str, bytes: &[u8]) -> Result<(), FsError> {
 
 /// Remove a file (or an empty directory). Blocking; [`FsError::Unsupported`] on web. Removing a
 /// missing path is [`FsError::NotFound`].
+///
+/// # Errors
+///
+/// [`FsError::BadPath`] for a path outside the relative-path rules, [`FsError::NotFound`] when
+/// it does not exist, [`FsError::Unsupported`] on web or without a data directory, and
+/// [`FsError::Io`] for anything else the platform reports.
 pub fn remove(path: &str) -> Result<(), FsError> {
     check_path(path)?;
     imp::remove(path)
@@ -102,6 +125,12 @@ pub fn remove(path: &str) -> Result<(), FsError> {
 
 /// List the entry names directly under `dir` (`""` = the storage root), sorted. Directories are
 /// listed with a trailing `/`. Blocking; [`FsError::Unsupported`] on web.
+///
+/// # Errors
+///
+/// [`FsError::BadPath`] for a path outside the relative-path rules, [`FsError::Unsupported`] on
+/// web or without a data directory, and [`FsError::Io`] for anything else the platform reports.
+/// A directory that was never written lists as empty.
 pub fn list(dir: &str) -> Result<Vec<String>, FsError> {
     if !dir.is_empty() {
         check_path(dir)?;
@@ -217,6 +246,7 @@ macro_rules! future_over {
 }
 
 /// [`read_async`] as a `Future`.
+#[must_use]
 pub fn read_future(path: &str) -> FsFuture<BytesResult> {
     future_over!(shared, {
         let s = shared.clone();
@@ -225,6 +255,7 @@ pub fn read_future(path: &str) -> FsFuture<BytesResult> {
 }
 
 /// [`write_async`] as a `Future`.
+#[must_use]
 pub fn write_future(path: &str, bytes: Vec<u8>) -> FsFuture<UnitResult> {
     future_over!(shared, {
         let s = shared.clone();
@@ -233,6 +264,7 @@ pub fn write_future(path: &str, bytes: Vec<u8>) -> FsFuture<UnitResult> {
 }
 
 /// [`remove_async`] as a `Future`.
+#[must_use]
 pub fn remove_future(path: &str) -> FsFuture<UnitResult> {
     future_over!(shared, {
         let s = shared.clone();
@@ -241,6 +273,7 @@ pub fn remove_future(path: &str) -> FsFuture<UnitResult> {
 }
 
 /// [`list_async`] as a `Future`.
+#[must_use]
 pub fn list_future(dir: &str) -> FsFuture<ListResult> {
     future_over!(shared, {
         let s = shared.clone();
@@ -253,6 +286,10 @@ pub fn list_future(dir: &str) -> FsFuture<ListResult> {
 /// on Apple platforms, `%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` on Linux, each followed by
 /// the app id). This part's own files live in its `day-fs/` subdirectory; other parts that keep
 /// files, such as a download manager's journal, take a sibling. The web has no such directory.
+///
+/// # Errors
+///
+/// [`FsError::Unsupported`] when the platform names no data directory for this app.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn data_dir() -> Result<std::path::PathBuf, FsError> {
     imp::data_dir()
@@ -264,6 +301,10 @@ pub fn data_dir() -> Result<std::path::PathBuf, FsError> {
 /// elsewhere. For an app that opens a store another application keeps there, the way a CLI companion of a desktop app reads that app's database. `DAY_DATA_DIR`
 /// does not redirect it: a host that names the app's own directory says nothing about where
 /// other applications keep theirs.
+///
+/// # Errors
+///
+/// [`FsError::Unsupported`] when the environment names no such directory.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn platform_data_dir() -> Result<std::path::PathBuf, FsError> {
     imp::platform_data_dir()

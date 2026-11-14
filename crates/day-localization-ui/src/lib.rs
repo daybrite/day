@@ -33,6 +33,7 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
 
 /// A localized text source: `label(tr("greeting").arg("name", name))` (§12.2).
 #[derive(Clone)]
+#[must_use]
 pub struct LocalizedText {
     key: String,
     catalog: Option<&'static Catalog>,
@@ -90,6 +91,7 @@ impl LocalizedText {
     }
 
     /// Tracked format: reads the locale signal + any signal args.
+    #[must_use]
     pub fn format(&self) -> String {
         match self.catalog {
             Some(catalog) => format_catalog(catalog, &locale().get(), &self.key, &self.args),

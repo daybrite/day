@@ -138,7 +138,7 @@ unsafe fn position(n: Handle, drag: *mut ArkUI_DragEvent) -> Point {
     let mut origin = ArkUI_IntOffset { x: 0, y: 0 };
     // SAFETY: a live node and drag event.
     unsafe {
-        OH_ArkUI_NodeUtils_GetPositionWithTranslateInWindow(n, &mut origin);
+        OH_ArkUI_NodeUtils_GetPositionWithTranslateInWindow(n, &raw mut origin);
         let d = node::density();
         Point::new(
             (f64::from(OH_ArkUI_DragEvent_GetTouchPointXToWindow(drag)) - f64::from(origin.x)) / d,
@@ -304,12 +304,13 @@ unsafe fn drag_types(drag: *mut ArkUI_DragEvent) -> Option<Vec<String>> {
     let mut count = 0i32;
     // SAFETY: the buffers are sized as the API requires and outlive the call.
     unsafe {
-        OH_ArkUI_DragEvent_GetDataTypeCount(drag, &mut count);
+        OH_ArkUI_DragEvent_GetDataTypeCount(drag, &raw mut count);
         if !(0..=256).contains(&count) {
             return None;
         }
         let mut buffers: Vec<Vec<c_char>> = (0..count).map(|_| vec![0; 256]).collect();
-        let mut names: Vec<*mut c_char> = buffers.iter_mut().map(|b| b.as_mut_ptr()).collect();
+        let mut names: Vec<*mut c_char> =
+            buffers.iter_mut().map(std::vec::Vec::as_mut_ptr).collect();
         if OH_ArkUI_DragEvent_GetDataTypes(drag, names.as_mut_ptr(), count, 256) != 0 {
             return None;
         }
@@ -324,7 +325,7 @@ unsafe fn drag_types(drag: *mut ArkUI_DragEvent) -> Option<Vec<String>> {
 
 /// A hover (enter/move) or a drop on a target.
 fn hover_or_drop(n: Handle, drag: *mut ArkUI_DragEvent, at: Point, is_drop: bool) {
-    let local = ACTIVE.with(|a| a.get()) != 0;
+    let local = ACTIVE.with(std::cell::Cell::get) != 0;
     // SAFETY: a live drag event.
     let Some(types) = (unsafe { drag_types(drag) }) else {
         return;
@@ -381,7 +382,7 @@ unsafe fn read_offer(drag: *mut ArkUI_DragEvent) -> Option<Offer> {
         let mut offer = None;
         if OH_ArkUI_DragEvent_GetUdmfData(drag, data) == 0 {
             let mut count = 0u32;
-            let records = OH_UdmfData_GetRecords(data, &mut count);
+            let records = OH_UdmfData_GetRecords(data, &raw mut count);
             let mut reps: Vec<Representation> = Vec::new();
             let mut total = 0usize;
             if !records.is_null() && count <= 256 {
@@ -389,7 +390,12 @@ unsafe fn read_offer(drag: *mut ArkUI_DragEvent) -> Option<Offer> {
                     let record = *records.add(i);
                     let mut p: *mut u8 = ptr::null_mut();
                     let mut len = 0u32;
-                    if OH_UdmfRecord_GetGeneralEntry(record, BUNDLE.as_ptr(), &mut p, &mut len) == 0
+                    if OH_UdmfRecord_GetGeneralEntry(
+                        record,
+                        BUNDLE.as_ptr(),
+                        &raw mut p,
+                        &raw mut len,
+                    ) == 0
                         && !p.is_null()
                         && len as usize <= LIMIT
                     {
@@ -397,7 +403,7 @@ unsafe fn read_offer(drag: *mut ArkUI_DragEvent) -> Option<Offer> {
                         break;
                     }
                     let mut num = 0u32;
-                    let types = OH_UdmfRecord_GetTypes(record, &mut num);
+                    let types = OH_UdmfRecord_GetTypes(record, &raw mut num);
                     if types.is_null() || num > 32 {
                         continue;
                     }
@@ -421,7 +427,12 @@ unsafe fn read_offer(drag: *mut ArkUI_DragEvent) -> Option<Offer> {
                                 }
                                 OH_UdsFileUri_Destroy(f);
                             }
-                        } else if OH_UdmfRecord_GetGeneralEntry(record, ty, &mut p, &mut len) == 0
+                        } else if OH_UdmfRecord_GetGeneralEntry(
+                            record,
+                            ty,
+                            &raw mut p,
+                            &raw mut len,
+                        ) == 0
                             && !p.is_null()
                             && len as usize <= LIMIT
                         {

@@ -1,0 +1,15 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+# Clippy configuration for the workspace lint policy in Cargo.toml (`[workspace.lints.clippy]`).
+
+# Product, platform and framework names that `doc_markdown` would otherwise ask to be set as code.
+# A type or function name still takes backticks; these are proper nouns in prose.
+doc-valid-idents = [
+    "..",
+    "AppImage", "AppImages", "AppIndicator", "AppKit", "ArkTS", "ArkUI", "AutoFill",
+    "CoreDevice", "CoreLocation", "CoreMotion", "CycloneDX", "DevEco", "ETag", "ExtensionKit",
+    "HarmonyOS", "HiDPI", "ImageIO", "IOKit", "JetBrains", "LocalAuthentication",
+    "MarketplaceKit", "NuGet", "ObjC", "OkHttp", "OKLab", "OpenHarmony", "SpringBoard",
+    "SwiftPM", "SwiftUI", "SystemUI", "UIKit", "VoiceOver", "WebSockets", "WebView2",
+    "WinHTTP", "WinRT", "WinUI",
+]

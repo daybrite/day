@@ -46,6 +46,7 @@ impl Styles {
 /// Anything unrecognized is text: an unclosed `**`, a stray `_` inside a word, a `[` with no
 /// `](…)` after it. Markdown's own rule, and the one that keeps a half-typed string in a live
 /// editor from flickering between readings.
+#[must_use]
 pub fn parse(md: &str, base: Font) -> (String, Vec<TextRun>) {
     let mut p = Parser {
         src: md.as_bytes(),
@@ -306,7 +307,7 @@ mod tests {
     fn plain_text_produces_no_runs() {
         let (t, r) = render("nothing to see");
         assert_eq!(t, "nothing to see");
-        assert!(r.is_empty());
+        assert_eq!(r, [] as [TextRun; 0]);
     }
 
     #[test]
@@ -379,7 +380,7 @@ mod tests {
     fn backslash_escapes_a_marker() {
         let (t, r) = render(r"\*not italic\*");
         assert_eq!(t, "*not italic*");
-        assert!(r.is_empty());
+        assert_eq!(r, [] as [TextRun; 0]);
     }
 
     #[test]

@@ -105,6 +105,34 @@ keywords = ["design", "graphics", "gui", "toolkit", "ui"]
 categories = ["gui", "command-line-utilities"]
 rust-version = "1.89"
 
+# Lint policy for every member (each inherits it with `[lints] workspace = true`). Clippy's
+# `pedantic` group is on for the whole workspace, and CI treats every warning as an error
+# (`-D warnings`), so a finding blocks the change that introduced it. An exception is a named
+# lint below with its reason, or an `#[expect(clippy::…, reason = "…")]` at the one site.
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Day converts between float layout units and the integer pixel, index and FFI types of eight
+# native toolkits. `as` is the only operator for float-to-integer, and these four lints cannot
+# tell that from a narrowing integer cast, so they would need an exception at nearly every site.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# Function length and short or similar names are style limits this codebase does not follow:
+# geometry is written in `x`/`y`/`w`/`h`, and a backend's realize and patch arms stay in one place.
+many_single_char_names = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+# A backend module imports the whole spec vocabulary, and which names it uses differs with the
+# backend feature and target, so an explicit list is unused or incomplete under some of them.
+wildcard_imports = "allow"
+# Option structs and backend calls mirror native toolkit flags, which are booleans.
+fn_params_excessive_bools = "allow"
+struct_excessive_bools = "allow"
+# Asks for `#[must_use]` on nearly every function that returns a value, including ones called
+# for their effect. Builders are still covered by `return_self_not_must_use`.
+must_use_candidate = "allow"
+
 [workspace.dependencies]
 # Internal dependencies use paths and accept every stable 0.x release on crates.io.
 # Release bumps preserve these requirements; Cargo.lock records the tested versions.

@@ -35,8 +35,8 @@ impl CivilDate {
     fn of(d: DayDate) -> Self {
         CivilDate {
             year: d.year,
-            month: d.month as i32,
-            day: d.day as i32,
+            month: i32::from(d.month),
+            day: i32::from(d.day),
         }
     }
     /// The filler for an absent min/max, which the `has_*` flag tells the shim to ignore.
@@ -74,7 +74,7 @@ unsafe extern "C" {
 fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(120.0), hh.max(32.0))
 }
 
@@ -102,11 +102,11 @@ mod date_renderer {
     fn make(_backend: &mut Xaml, p: &DateProps, id: NodeId) -> WinHandle {
         WinHandle(unsafe {
             day_datetime_xaml_date_new(
-                (p.style == Style::Inline) as c_int,
+                c_int::from(p.style == Style::Inline),
                 CivilDate::of(p.date),
-                p.min.is_some() as c_int,
+                c_int::from(p.min.is_some()),
                 p.min.map_or(CivilDate::UNSET, CivilDate::of),
-                p.max.is_some() as c_int,
+                c_int::from(p.max.is_some()),
                 p.max.map_or(CivilDate::UNSET, CivilDate::of),
                 id.0,
                 on_date,

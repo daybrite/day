@@ -748,7 +748,7 @@ mod tests {
         assert_eq!(got, PathBuf::from("/xdg/cache/day"));
     }
 
-    /// A relative XDG_CACHE_HOME is ignored by `env_abs` before it ever reaches the resolver, so
+    /// A relative `XDG_CACHE_HOME` is ignored by `env_abs` before it ever reaches the resolver, so
     /// the fallback still lands somewhere absolute.
     #[test]
     fn the_fallback_is_under_the_home_directory() {
@@ -964,8 +964,11 @@ mod tests {
     /// it as one stops the checkout updating after its first build and warns on every run after.
     #[test]
     fn a_rewritten_lock_is_not_a_local_edit() {
-        assert!(edited_paths(b" M Cargo.lock\n").is_empty());
-        assert!(edited_paths(b"").is_empty());
+        assert_eq!(
+            edited_paths(b" M Cargo.lock\n"),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(edited_paths(b""), [] as [std::string::String; 0]);
         // Anything else still counts, alongside the lock or on its own.
         assert_eq!(edited_paths(b" M src/lib.rs\n"), ["src/lib.rs"]);
         assert_eq!(

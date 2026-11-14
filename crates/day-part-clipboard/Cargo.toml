@@ -48,3 +48,6 @@ day-build = { workspace = true }
 [package.metadata.day.android]
 java = ["platform/android/java"]
 manifest-components = ["platform/android/components.xml"]
+
+[lints]
+workspace = true

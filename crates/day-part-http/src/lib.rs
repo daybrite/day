@@ -15,7 +15,7 @@
 //! Why native stacks instead of a Rust HTTP crate: the request inherits the system configuration
 //! (proxies + PAC, per-network VPN routing, Low Data Mode via [`Request::allow_constrained`],
 //! enterprise/MDM certificate stores), and the binary carries no TLS library of its own. macOS
-//! and iOS use URLSession, Android OkHttp through a Java bridge arm, Windows WinHTTP, Linux the
+//! and iOS use `URLSession`, Android OkHttp through a Java bridge arm, Windows WinHTTP, Linux the
 //! system's libcurl (opened at run time), HarmonyOS the Network Kit through an ArkTS arm, and the
 //! web the browser's `fetch` and `WebSocket` through a JavaScript arm, where only the asynchronous
 //! entry points exist and the blocking calls return [`HttpError::Unsupported`]. [`tier`] reports
@@ -29,7 +29,7 @@
 //! transfer metrics and WebSockets. [`capabilities`] reports what the platform offers.
 //!
 //! **Threading.** [`fetch`] blocks the calling thread; run it on your own thread, never the UI
-//! thread. [`fetch_async`]'s completion runs on the transport's own thread (URLSession's delegate
+//! thread. [`fetch_async`]'s completion runs on the transport's own thread (`URLSession`'s delegate
 //! queue, OkHttp's reader pool, the libcurl driver, WinHTTP's callbacks, the HarmonyOS JS thread,
 //! or the browser's only thread); deliver results into the UI by capturing
 //! a [`day_reactive::Signal::setter`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.setter)-style
@@ -110,6 +110,7 @@ pub enum Method {
 
 impl Method {
     /// The RFC 9110 token (`"GET"`, …).
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Method::Get => "GET",
@@ -131,6 +132,7 @@ impl Method {
     }
 
     /// The method a token names, ASCII case-insensitive.
+    #[must_use]
     pub fn parse(token: &str) -> Option<Method> {
         [
             Method::Get,
@@ -157,6 +159,7 @@ impl Method {
 /// A request under construction. Build with [`Request::get`] (and friends), then [`fetch`] or a
 /// [`Client`].
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct Request {
     pub(crate) method: Method,
     pub(crate) url: String,
@@ -211,16 +214,19 @@ impl Request {
     }
 
     /// The method.
+    #[must_use]
     pub fn method(&self) -> Method {
         self.method
     }
 
     /// The URL, as given.
+    #[must_use]
     pub fn url(&self) -> &str {
         &self.url
     }
 
     /// The request headers, in the order they were added.
+    #[must_use]
     pub fn headers(&self) -> &[(String, String)] {
         &self.headers
     }
@@ -352,6 +358,7 @@ pub struct Response {
 
 impl Response {
     /// A response from its parts, with no URL and no metrics.
+    #[must_use]
     pub fn new(status: u16, headers: Vec<(String, String)>, body: Vec<u8>) -> Response {
         Response {
             status,
@@ -373,11 +380,13 @@ impl Response {
     }
 
     /// The body as (lossily-decoded) UTF-8 text.
+    #[must_use]
     pub fn text(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(&self.body)
     }
 
     /// The first header with this name (ASCII case-insensitive).
+    #[must_use]
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -447,7 +456,7 @@ impl std::error::Error for HttpError {}
 /// How requests are realized on the compiled target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tier {
-    /// The platform's own networking stack (URLSession, OkHttp, WinHTTP, libcurl, the Network
+    /// The platform's own networking stack (`URLSession`, OkHttp, WinHTTP, libcurl, the Network
     /// Kit, the browser's fetch): system proxy + PAC, VPN routing, platform TLS + certificate
     /// stores. On the web this tier is async-only; the blocking entry points return
     /// [`HttpError::Unsupported`] (docs/http.md).
@@ -459,6 +468,7 @@ pub enum Tier {
 
 impl Tier {
     /// A short display label (`"native"` / `"unavailable"`).
+    #[must_use]
     pub fn label(self) -> &'static str {
         match self {
             Tier::NativeStack => "native",
@@ -468,6 +478,7 @@ impl Tier {
 }
 
 /// How this target realizes requests (fixed at compile time).
+#[must_use]
 pub fn tier() -> Tier {
     // libcurl loads at run time, so Linux knows its tier only then.
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
@@ -481,6 +492,7 @@ pub fn tier() -> Tier {
 }
 
 /// What a [`Client`] on this platform can do.
+#[must_use]
 pub fn capabilities() -> Capabilities {
     platform_capabilities()
 }
@@ -512,12 +524,22 @@ fn stateless() -> &'static Client {
 /// Fetch through the shared stateless client with a strict limit on buffered response bytes.
 /// Checks both Content-Length and streamed chunks; exceeding the limit cancels the transfer.
 /// The returned future also cancels on drop. Available on every backend, including the web.
+///
+/// # Errors
+///
+/// [`HttpError::BodyTooLarge`] when the advertised or received body exceeds `max_bytes`, and
+/// otherwise the [`HttpError`] the request or its body stream fails with.
 pub async fn fetch_limited_future(req: Request, max_bytes: usize) -> Result<Response, HttpError> {
     stateless().fetch_limited_future(req, max_bytes).await
 }
 
 /// Shared-client bounded download with progress on the future's polling thread.
 /// See [`Client::fetch_limited_with_progress_future`].
+///
+/// # Errors
+///
+/// [`HttpError::BodyTooLarge`] when the advertised or received body exceeds `max_bytes`, and
+/// otherwise the [`HttpError`] the request or its body stream fails with.
 pub async fn fetch_limited_with_progress_future(
     req: Request,
     max_bytes: usize,
@@ -563,6 +585,11 @@ fn streamed_through(
 /// Run it on your own thread; calling this on the UI thread stalls the app (docs/http.md).
 /// On the web (web-dom) blocking is impossible on the single browser thread: this returns
 /// [`HttpError::Unsupported`] there; use [`fetch_async`] or [`fetch_future`].
+///
+/// # Errors
+///
+/// The [`HttpError`] the request fails with, or [`HttpError::Unsupported`] where the calling
+/// thread cannot block: the web, and the JS thread on HarmonyOS.
 pub fn fetch(req: &Request) -> Result<Response, HttpError> {
     // The browser has one thread and no blocking waits.
     #[cfg(target_arch = "wasm32")]
@@ -590,12 +617,17 @@ pub fn fetch_async(
     req: Request,
     on_done: impl FnOnce(Result<Response, HttpError>) + Send + 'static,
 ) {
-    let _ = start_cancellable(req, Box::new(on_done));
+    drop(start_cancellable(req, Box::new(on_done)));
 }
 
 /// Download the response body straight to `dest` (create/truncate), never buffering it in memory.
 /// Blocking, like [`fetch`]. On error a partial `dest` is removed best-effort; atomicity is not
 /// promised.
+///
+/// # Errors
+///
+/// [`HttpError::Io`] when `dest` cannot be created or written, [`HttpError::Unsupported`] on the
+/// web, and otherwise the [`HttpError`] the request fails with.
 pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> {
     // The browser has one thread and no filesystem for this.
     #[cfg(target_arch = "wasm32")]
@@ -634,6 +666,7 @@ pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> 
 ///
 /// Await it inside `day::task` (or any executor; the future is `Send`-agnostic plumbing over
 /// [`fetch_async`]'s completion): `day::task(async move { let r = fetch_future(req).await; … })`.
+#[must_use]
 pub fn fetch_future(req: Request) -> FetchFuture {
     let shared = Arc::new(Mutex::new(FutureState {
         result: None,
@@ -647,7 +680,7 @@ pub fn fetch_future(req: Request) -> FetchFuture {
     );
     FetchFuture {
         shared,
-        cancel,
+        cancel: Some(cancel),
         done: false,
     }
 }
@@ -739,8 +772,8 @@ type CancelFn = Box<dyn FnOnce() + Send>;
 
 /// Start the request through the shared stateless client; returns the closure that cancels it. The
 /// completion runs on the thread the platform reports on.
-fn start_cancellable(req: Request, on_done: Completion) -> Option<CancelFn> {
-    Some(stateless().fetch_cancellable(req, on_done))
+fn start_cancellable(req: Request, on_done: Completion) -> CancelFn {
+    stateless().fetch_cancellable(req, on_done)
 }
 
 /// [`fetch_to_file`] without blocking; `on_done` runs on an unspecified background thread.
@@ -771,12 +804,22 @@ pub trait StreamSink {
     }
     /// One body chunk, in arrival order. Returning `Err` aborts the transfer and becomes
     /// [`fetch_streamed`]'s result (return `Io("cancelled")` for user cancellation).
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`HttpError`] the sink chooses to stop the transfer with.
     fn chunk(&mut self, data: &[u8]) -> Result<(), HttpError>;
 }
 
 /// Perform the request, streaming the body into `sink` chunk by chunk; nothing is buffered
 /// beyond one chunk. Blocking, like [`fetch`]. `bytes_written` counts the bytes handed to the
 /// sink.
+///
+/// # Errors
+///
+/// The [`HttpError`] the request fails with, the error `sink` returned from
+/// [`StreamSink::chunk`], [`HttpError::Io`]`("aborted")` when [`StreamSink::head`] returned
+/// `false`, or [`HttpError::Unsupported`] where the calling thread cannot block.
 pub fn fetch_streamed(req: &Request, sink: &mut dyn StreamSink) -> Result<Download, HttpError> {
     // The browser has one thread and no blocking waits.
     #[cfg(target_arch = "wasm32")]

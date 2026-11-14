@@ -129,6 +129,10 @@ pub fn get(key: &str) -> Result<Vec<u8>, KeychainError> {
     read(key).map_err(bridge_error).and_then(unwrap_payload)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every platform arm of `imp` shares this signature, including arms not built on this host"
+)]
 pub fn get_with_presence(key: String, reason: String, on_done: OnDone) {
     // Either channel alone is a complete answer (docs/bridge.md "Callbacks"): an arm that fails
     // to start has already fired the callback with its error, so the return is not read.

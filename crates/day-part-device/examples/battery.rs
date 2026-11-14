@@ -11,7 +11,7 @@ fn main() {
             "battery: {:?}, level {:?} ({}), charging: {}",
             b.state,
             b.level,
-            b.percent().map(|p| format!("{p}%")).unwrap_or("?".into()),
+            b.percent().map_or("?".into(), |p| format!("{p}%")),
             b.is_charging()
         ),
         None => println!("no battery API (or no battery) on this platform"),

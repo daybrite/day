@@ -44,7 +44,7 @@ fn key(w: &gtk4::Widget) -> usize {
 }
 
 fn glib_date(d: DayDate) -> Option<gtk4::glib::DateTime> {
-    gtk4::glib::DateTime::from_local(d.year, d.month as i32, d.day as i32, 0, 0, 0.0).ok()
+    gtk4::glib::DateTime::from_local(d.year, i32::from(d.month), i32::from(d.day), 0, 0, 0.0).ok()
 }
 
 fn calendar_date(c: &gtk4::Calendar) -> Option<DayDate> {
@@ -52,12 +52,11 @@ fn calendar_date(c: &gtk4::Calendar) -> Option<DayDate> {
     DayDate::new(dt.year(), dt.month() as u8, dt.day_of_month() as u8)
 }
 
-/// The compact button's label: the locale's date format (g_date_time_format "%x"), ISO fallback.
+/// The compact button's label: the locale's date format (`g_date_time_format` "%x"), ISO fallback.
 fn date_label(d: DayDate) -> String {
     glib_date(d)
         .and_then(|dt| dt.format("%x").ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| d.to_string())
+        .map_or_else(|| d.to_string(), |s| s.to_string())
 }
 
 fn select_suppressed(c: &gtk4::Calendar, suppress: &Rc<Cell<bool>>, d: DayDate) {
@@ -71,7 +70,7 @@ fn select_suppressed(c: &gtk4::Calendar, suppress: &Rc<Cell<bool>>, d: DayDate) 
 fn measure_widget(h: &gtk4::Widget) -> Size {
     let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-    Size::new((nat_w as f64).max(60.0), (nat_h as f64).max(22.0))
+    Size::new(f64::from(nat_w).max(60.0), f64::from(nat_h).max(22.0))
 }
 
 mod date_renderer {
@@ -125,6 +124,10 @@ mod date_renderer {
         root
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
         DATES.with(|m| {
@@ -178,6 +181,10 @@ mod time_renderer {
             + st.second.as_ref().map_or(0, |s| s.value() as i64)
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+    )]
     fn make(_backend: &mut Gtk, p: &TimeProps, id: NodeId) -> gtk4::Widget {
         // Both styles compose the same linked spin buttons, GNOME's time-setting idiom
         // (GTK has no clock widget at all); `Inline` vs `Compact` only matters where an
@@ -187,9 +194,9 @@ mod time_renderer {
         bx.add_css_class("linked");
         bx.set_halign(gtk4::Align::Start);
         let t = p.time;
-        let hour = spin(23.0, t.hour as f64);
-        let minute = spin(59.0, t.minute as f64);
-        let second = p.seconds.then(|| spin(59.0, t.second as f64));
+        let hour = spin(23.0, f64::from(t.hour));
+        let minute = spin(59.0, f64::from(t.minute));
+        let second = p.seconds.then(|| spin(59.0, f64::from(t.second)));
         bx.append(&hour);
         bx.append(&gtk4::Label::new(Some(":")));
         bx.append(&minute);
@@ -229,6 +236,10 @@ mod time_renderer {
         root
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
         TIMES.with(|m| {
@@ -237,10 +248,10 @@ mod time_renderer {
                 return;
             };
             st.suppress.set(true);
-            st.hour.set_value(t.hour as f64);
-            st.minute.set_value(t.minute as f64);
+            st.hour.set_value(f64::from(t.hour));
+            st.minute.set_value(f64::from(t.minute));
             if let Some(s) = &st.second {
-                s.set_value(t.second as f64);
+                s.set_value(f64::from(t.second));
             }
             st.suppress.set(false);
         });

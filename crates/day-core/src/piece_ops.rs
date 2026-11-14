@@ -29,6 +29,7 @@ pub fn register_piece_operation(kind: PieceKind, name: &'static str, handler: Pi
 /// operation is absent. A true result means the handler accepted responsibility for completion.
 /// The registry and tree are not borrowed while the handler runs, so it may update the tree
 /// or register another operation.
+#[must_use]
 pub fn piece_operation(node: RNode, name: &str, input: &str, done: PieceOperationDone) -> bool {
     let Some(kind) = tree::with_tree(|t| t.node_kind(node)) else {
         return false;

@@ -29,6 +29,7 @@ pub mod winappsdk;
 /// Overrides: `DAY_WINDOWS_KITS_ROOT` (the `…\Windows Kits\10` directory itself), then the
 /// MS-standard `WindowsSdkDir` (set by Visual Studio developer shells). Fallbacks derive from
 /// `%ProgramFiles(x86)%` / `%ProgramFiles%`, the env vars, not literal `C:\` paths.
+#[must_use]
 pub fn windows_kits_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Ok(v) = std::env::var("DAY_WINDOWS_KITS_ROOT") {
@@ -51,6 +52,7 @@ pub fn windows_kits_roots() -> Vec<PathBuf> {
 ///
 /// Overrides: `DAY_CPPWINRT` (the exact cppwinrt include dir, highest priority), then the
 /// roots from [`windows_kits_roots`]. Validated by `winrt/base.h`.
+#[must_use]
 pub fn cppwinrt_include() -> Option<PathBuf> {
     if let Ok(v) = std::env::var("DAY_CPPWINRT") {
         let p = PathBuf::from(v);
@@ -79,6 +81,7 @@ pub fn cppwinrt_include() -> Option<PathBuf> {
 
 /// [`cppwinrt_include`] for build scripts: also emits the `rerun-if-env-changed` lines so an
 /// override change re-runs the script.
+#[must_use]
 pub fn cppwinrt_include_for_build_script() -> Option<PathBuf> {
     for var in ["DAY_CPPWINRT", "DAY_WINDOWS_KITS_ROOT", "WindowsSdkDir"] {
         println!("cargo:rerun-if-env-changed={var}");
@@ -90,6 +93,7 @@ pub fn cppwinrt_include_for_build_script() -> Option<PathBuf> {
 ///
 /// Overrides: `DAY_WINDOWS_KIT` (a bin directory containing the tool), then the tool on `PATH`,
 /// then `bin\<version>\<arch>` under each [`windows_kits_roots`] root.
+#[must_use]
 pub fn windows_kit_tool(tool: &str) -> Option<PathBuf> {
     if let Ok(root) = std::env::var("DAY_WINDOWS_KIT") {
         let p = PathBuf::from(root).join(tool);
@@ -161,9 +165,10 @@ pub fn makensis() -> Option<PathBuf> {
     // environment captured when the job started, so `choco install` in one step leaves the next
     // step's PATH untouched. Probing the location directly is what makes the install usable in
     // the same job.
-    let choco = std::env::var("ChocolateyInstall")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(r"C:\ProgramData\chocolatey"));
+    let choco = std::env::var("ChocolateyInstall").map_or_else(
+        |_| PathBuf::from(r"C:\ProgramData\chocolatey"),
+        PathBuf::from,
+    );
     let shim = choco.join("bin").join("makensis.exe");
     if shim.is_file() {
         return Some(shim);
@@ -198,6 +203,7 @@ pub fn makensis() -> Option<PathBuf> {
 /// there, the location Android Studio records for its SDK (see [`android_studio_sdk_setting`]),
 /// so an SDK moved elsewhere from Studio's settings is still found. The default is returned when
 /// neither exists, for the diagnostics to name.
+#[must_use]
 pub fn android_sdk_dir() -> PathBuf {
     if let Ok(v) = std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT")) {
         return PathBuf::from(v);
@@ -240,6 +246,7 @@ fn home_dir() -> PathBuf {
 /// into `/opt`, `/usr/local` or the home directory, JetBrains Toolbox, and the Flathub build.
 /// `ANDROID_STUDIO_HOME` names one explicitly and comes first. A result is a directory holding
 /// Studio's own layout (`bin/` and the bundled `jbr/`), or a macOS bundle's `Contents/`.
+#[must_use]
 pub fn android_studio_homes() -> Vec<PathBuf> {
     let home = home_dir();
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -285,6 +292,7 @@ pub fn android_studio_homes() -> Vec<PathBuf> {
 /// The JDK Android Studio bundles (its JetBrains Runtime), from the first installation that has
 /// one. It is the JDK Studio itself runs Gradle with, so the Android build is known to work on it,
 /// whatever other Java the machine has.
+#[must_use]
 pub fn android_studio_jbr() -> Option<PathBuf> {
     let java = if cfg!(windows) { "java.exe" } else { "java" };
     android_studio_homes().into_iter().find_map(|studio| {
@@ -306,8 +314,7 @@ pub fn android_studio_sdk_setting() -> Option<PathBuf> {
         PathBuf::from(std::env::var("APPDATA").ok()?).join("Google")
     } else {
         std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join(".config"))
+            .map_or_else(|_| home.join(".config"), PathBuf::from)
             .join("Google")
     };
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(&config)
@@ -344,6 +351,7 @@ fn parse_studio_sdk_path(xml: &str, home: &Path) -> Option<PathBuf> {
 
 /// The `sdkmanager` of the SDK's command-line tools, if they are installed. Android Studio
 /// installs them into the SDK (SDK Tools ▸ Android SDK Command-line Tools), not onto PATH.
+#[must_use]
 pub fn android_sdkmanager() -> Option<PathBuf> {
     let name = if cfg!(windows) {
         "sdkmanager.bat"
@@ -372,6 +380,7 @@ pub fn android_sdkmanager() -> Option<PathBuf> {
 /// returns "not found", and code that reads `adb devices` to see whether a device exists then
 /// concludes there is none. A CI boot waited out its full ten minutes reporting "adb sees it: no"
 /// while the emulator sat there fully booted, because the question was never asked.
+#[must_use]
 pub fn adb_bin() -> String {
     let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
     let in_sdk = android_sdk_dir().join("platform-tools").join(exe);
@@ -391,6 +400,7 @@ pub fn adb_bin() -> String {
 /// `/usr/libexec/java_home -v 17+` registry (the newest install ≥ 17), then a Homebrew `openjdk`
 /// keg, the unversioned latest first, then pinned 17+ kegs (both Apple-Silicon and Intel
 /// prefixes). Callers export the result as `JAVA_HOME` for the Gradle child process.
+#[must_use]
 pub fn jdk_home() -> Option<PathBuf> {
     if let Ok(v) = std::env::var("JAVA_HOME") {
         return Some(PathBuf::from(v));
@@ -498,12 +508,12 @@ pub fn wasm_cc() -> WasmCc {
     candidates
         .into_iter()
         .find(|c| c.is_file() && emits_wasm32(c))
-        .map(WasmCc::Fallback)
-        .unwrap_or(WasmCc::Missing)
+        .map_or(WasmCc::Missing, WasmCc::Fallback)
 }
 
 /// Whether the clang-style driver at `cc` can emit wasm32 objects (`--print-targets` lists a
 /// `wasm32` row). Apple's Xcode clang is the notable no.
+#[must_use]
 pub fn emits_wasm32(cc: &Path) -> bool {
     std::process::Command::new(cc)
         .arg("--print-targets")
@@ -528,6 +538,11 @@ pub fn emits_wasm32(cc: &Path) -> bool {
 /// Overrides: `RUSTUP_HOME` (standard; default `~/.rustup`). Among installed toolchains a
 /// `stable-*` one is preferred, then the lexicographically first, which is deterministic where
 /// the old first-directory-wins behavior depended on filesystem order.
+///
+/// # Errors
+///
+/// Returns an error when neither `RUSTUP_HOME` nor `HOME` is set, or the rustup home has no
+/// installed toolchain.
 pub fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
     let rustup_home = std::env::var("RUSTUP_HOME")
         .map(PathBuf::from)
@@ -566,6 +581,7 @@ fn on_path(tool: &str) -> Option<PathBuf> {
 
 /// True when `dir` looks like a usable directory (exists and is a dir); a small helper for
 /// callers validating overrides.
+#[must_use]
 pub fn is_dir(dir: &Path) -> bool {
     dir.is_dir()
 }

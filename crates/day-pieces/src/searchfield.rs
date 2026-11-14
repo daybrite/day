@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Core search input with a toolkit-owned native renderer: NSSearchField, UISearchTextField,
-//! GtkSearchEntry, a Qt search field, Android search input, XAML AutoSuggestBox, or DOM search input.
+//! Core search input with a toolkit-owned native renderer: `NSSearchField`, `UISearchTextField`,
+//! `GtkSearchEntry`, a Qt search field, Android search input, XAML `AutoSuggestBox`, or DOM search input.
 //!
 //! It is bound **two-way** to a `Signal<String>`, the same pattern as the core picker: a native
 //! edit dispatches an `Event::TextChanged` back to Rust which `set`s the signal, and an external
@@ -27,6 +27,7 @@ use std::rc::Rc;
 pub use day_spec::controls::searchfield::*;
 
 /// A native search field bound two-way to `query`. Set a prompt with `.placeholder(_)`.
+#[must_use]
 pub struct SearchField<S: Binding<String>> {
     query: S,
     placeholder: Option<TextSource>,
@@ -80,7 +81,7 @@ impl<S: Binding<String>> Piece for SearchField<S> {
                 let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
                 if !from_native {
                     with_tree(|tr| {
-                        tr.patch(node, Box::new(SearchPatch::SetText(t.clone())), false)
+                        tr.patch(node, Box::new(SearchPatch::SetText(t.clone())), false);
                     });
                 }
             },
@@ -141,6 +142,7 @@ pub mod conformance {
 }
 
 /// Whether the selected toolkit implements this control.
+#[must_use]
 pub fn support() -> day_spec::Support {
     day_core::capability(day_spec::Cap::SearchField)
 }

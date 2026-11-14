@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 //! The Linux session-bus pieces Qt does not provide (docs/status-item.md, docs/deep-links.md):
-//! badge count and progress through the Unity LauncherEntry signal, and single-instance
-//! forwarding, which GTK gets from GApplication and Qt has no equivalent for.
+//! badge count and progress through the Unity `LauncherEntry` signal, and single-instance
+//! forwarding, which GTK gets from `GApplication` and Qt has no equivalent for.
 use std::cell::{Cell, RefCell};
 
 use day_platform_linux::dbus::Connection;
@@ -31,7 +31,9 @@ fn send(props: LauncherProps) {
     };
     CONN.with(|c| {
         let mut c = c.borrow_mut();
-        if c.as_ref().is_none_or(|conn| conn.is_closed()) {
+        if c.as_ref()
+            .is_none_or(day_platform_linux::dbus::Connection::is_closed)
+        {
             *c = Connection::session().ok();
         }
         if let Some(conn) = c.as_ref() {
@@ -47,7 +49,7 @@ fn send(props: LauncherProps) {
 /// no indeterminate or paused bar, so indeterminate shows none and paused shows its value.
 pub(crate) fn set_progress(progress: day_spec::AppProgress) {
     use day_spec::AppProgress as P;
-    let mut props = PROPS.with(|p| p.get());
+    let mut props = PROPS.with(std::cell::Cell::get);
     (props.progress, props.urgent) = match progress {
         P::None | P::Indeterminate => (None, None),
         P::Value(v) | P::Paused(v) => (Some(v), None),
@@ -58,7 +60,7 @@ pub(crate) fn set_progress(progress: day_spec::AppProgress) {
 
 /// `AppBadge`: only a count exists in the protocol; text and a dot are not substituted.
 pub(crate) fn set_badge(badge: &day_spec::AppBadge) {
-    let mut props = PROPS.with(|p| p.get());
+    let mut props = PROPS.with(std::cell::Cell::get);
     props.count = match badge {
         day_spec::AppBadge::None | day_spec::AppBadge::Count(0) => None,
         day_spec::AppBadge::Count(n) => Some(i64::from(*n)),
@@ -80,7 +82,7 @@ pub(crate) fn claim_instance() -> Option<day_platform_linux::dbus::instance::Cla
         crate::Qt::post(Box::new(move || {
             log::debug!("qt: launch forwarded by a second instance: {forwarded:?}");
             day_core::forward_launch_args(forwarded);
-        }))
+        }));
     }) {
         Ok(c) => Some(c),
         Err(Claimed::Forwarded) => {

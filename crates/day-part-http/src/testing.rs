@@ -61,19 +61,24 @@ struct Shared {
 
 impl std::fmt::Debug for Server {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Server").field("addr", &self.addr).finish()
+        f.debug_struct("Server")
+            .field("addr", &self.addr)
+            .finish_non_exhaustive()
     }
 }
 
 impl Server {
     /// Bind a free loopback port and start serving.
+    ///
+    /// # Errors
+    ///
+    /// The I/O error when the loopback port cannot be bound or the accept thread cannot start.
     pub fn start() -> io::Result<Server> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
         let seed = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         let shared = Arc::new(Shared {
             stop: AtomicBool::new(false),
             nonce: hex(&sha256(format!("{addr}:{seed}").as_bytes())[..12]),
@@ -103,21 +108,25 @@ impl Server {
     }
 
     /// The port the server listens on.
+    #[must_use]
     pub fn port(&self) -> u16 {
         self.addr.port()
     }
 
     /// An `http://` URL for `path` on this server.
+    #[must_use]
     pub fn url(&self, path: &str) -> String {
         format!("http://{}/{}", self.addr, path.trim_start_matches('/'))
     }
 
     /// A `ws://` URL for `path` on this server.
+    #[must_use]
     pub fn ws_url(&self, path: &str) -> String {
         format!("ws://{}/{}", self.addr, path.trim_start_matches('/'))
     }
 
     /// How many requests reached `path`, query excluded.
+    #[must_use]
     pub fn hits(&self, path: &str) -> u64 {
         let key = format!("/{}", path.trim_start_matches('/'));
         lock(&self.shared.hits).get(&key).copied().unwrap_or(0)
@@ -133,7 +142,7 @@ impl Drop for Server {
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct Incoming {
@@ -335,16 +344,20 @@ fn write_head(
     len: Option<u64>,
     keep: bool,
 ) -> io::Result<()> {
+    use std::fmt::Write as _;
     let mut head = format!("HTTP/1.1 {status} {}\r\n", reason(status));
-    head.push_str(&format!(
+    let _ = write!(
+        head,
         "Date: {}\r\nServer: day-part-http test server\r\n",
         httpdate::fmt_http_date(SystemTime::now())
-    ));
+    );
     for (k, v) in headers {
-        head.push_str(&format!("{k}: {v}\r\n"));
+        let _ = write!(head, "{k}: {v}\r\n");
     }
     match len {
-        Some(n) => head.push_str(&format!("Content-Length: {n}\r\n")),
+        Some(n) => {
+            let _ = write!(head, "Content-Length: {n}\r\n");
+        }
         None => head.push_str("Transfer-Encoding: chunked\r\n"),
     }
     if !keep {
@@ -380,6 +393,7 @@ fn route(
     shared: &Shared,
     keep: bool,
 ) -> io::Result<()> {
+    use std::fmt::Write as _;
     let segments: Vec<&str> = request.path.trim_start_matches('/').split('/').collect();
     if request.path == "/upload" {
         let mut hasher = Sha256::new();
@@ -406,7 +420,7 @@ fn route(
         ["headers"] => {
             let mut lines = String::new();
             for (k, v) in &request.headers {
-                lines.push_str(&format!("{k}: {v}\n"));
+                let _ = writeln!(lines, "{k}: {v}");
             }
             respond(out, request, 200, &[text()], lines.as_bytes(), keep)
         }
@@ -513,7 +527,7 @@ fn route(
             let answer = request.header("cookie").unwrap_or("none").to_string();
             respond(out, request, 200, &[text()], answer.as_bytes(), keep)
         }
-        ["cookies", "set"] | ["cookies", "delete"] => {
+        ["cookies", "set" | "delete"] => {
             let delete = segments[1] == "delete";
             let mut headers: Vec<(&str, String)> = request
                 .query
@@ -603,6 +617,7 @@ fn route(
 }
 
 /// The byte at `offset` in every `/bytes` body.
+#[must_use]
 pub fn pattern_byte(offset: u64) -> u8 {
     (offset.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 56) as u8
 }
@@ -614,6 +629,7 @@ fn fill_pattern(start: u64, buf: &mut [u8]) {
 }
 
 /// The hex SHA-256 of the first `len` pattern bytes.
+#[must_use]
 pub fn pattern_sha256(len: u64) -> String {
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; 64 << 10];
@@ -706,6 +722,7 @@ fn websocket(
     mut out: TcpStream,
     request: &Incoming,
 ) -> io::Result<()> {
+    use std::fmt::Write as _;
     if request.path != "/ws/echo" {
         return respond(&mut out, request, 404, &[text()], b"not found", false);
     }
@@ -723,7 +740,7 @@ fn websocket(
         .map(str::trim)
         .filter(|p| !p.is_empty())
     {
-        head.push_str(&format!("Sec-WebSocket-Protocol: {protocol}\r\n"));
+        let _ = write!(head, "Sec-WebSocket-Protocol: {protocol}\r\n");
     }
     head.push_str("\r\n");
     out.write_all(head.as_bytes())?;

@@ -7,7 +7,7 @@
 //! The version lives in Cargo.toml (Day.toml derives it, never restates it), either the app's own
 //! `[package] version` or, for an app inside a workspace, the `[workspace.package] version` it
 //! inherits. The build number is Day.toml's `[app] build`, the monotonic versionCode /
-//! CFBundleVersion the stores require to grow with every upload, so any new version takes the next
+//! `CFBundleVersion` the stores require to grow with every upload, so any new version takes the next
 //! build number unless `--build-set` names one. Both files are edited with `toml_edit`, so their
 //! comments and layout survive.
 //!
@@ -116,7 +116,7 @@ struct VersionSource {
     table: &'static [&'static str],
 }
 
-pub fn run(project: &Project, req: Request) -> Result<i32, CliError> {
+pub fn run(project: &Project, req: &Request) -> Result<i32, CliError> {
     let commit = req.commit || req.message.is_some() || req.tag || req.push;
     let tag = req.tag || req.push;
     if req.bump.is_none() && req.set_version.is_none() && req.set_build.is_none() {
@@ -264,7 +264,7 @@ fn version_source(root: &Path) -> Result<VersionSource, String> {
     }
     let inherited = version
         .get("workspace")
-        .and_then(|w| w.as_bool())
+        .and_then(toml_edit::Item::as_bool)
         .unwrap_or(false);
     if !inherited {
         return Err(format!(

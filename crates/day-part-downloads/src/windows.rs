@@ -8,6 +8,7 @@
 //! four times a second while any are running. Events reach the manager from a second thread, so
 //! a watch callback may call back into the manager without waiting on the worker.
 
+use std::fmt::Write as _;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, mpsc};
@@ -97,14 +98,20 @@ pub(crate) fn available() -> bool {
     worker().is_some()
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the signature mirrors this part's other platform implementations"
+)]
 pub(crate) fn start(job: SystemJob<'_>, events: SystemEvents) -> Result<(), DownloadError> {
     // BITS takes custom headers as one CRLF-separated block.
-    let headers: String = job
+    let headers = job
         .request
         .headers()
         .iter()
-        .map(|(name, value)| format!("{name}: {value}\r\n"))
-        .collect();
+        .fold(String::new(), |mut block, (name, value)| {
+            let _ = write!(block, "{name}: {value}\r\n");
+            block
+        });
     let answer = ask(|reply| Command::Start {
         reference: job.reference.map(str::to_string),
         url: job.request.url().to_string(),
@@ -147,6 +154,10 @@ pub(crate) fn cancel(dir: &Path, id: u64, reference: Option<&str>) {
 }
 
 /// The worker: COM, the BITS manager, and the jobs it follows.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the worker thread owns its channel ends for as long as it runs"
+)]
 fn run(inbox: mpsc::Receiver<Command>, ready: mpsc::Sender<bool>) {
     // SAFETY: initializes COM on this new thread, which owns every BITS object this module makes.
     let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
@@ -155,14 +166,14 @@ fn run(inbox: mpsc::Receiver<Command>, ready: mpsc::Sender<bool>) {
         return;
     }
     // SAFETY: COM is initialized on this thread, and the class id is BITS's own manager.
-    let manager: IBackgroundCopyManager =
-        match unsafe { CoCreateInstance(&BackgroundCopyManager, None, CLSCTX_LOCAL_SERVER) } {
-            Ok(manager) => manager,
-            Err(_) => {
-                let _ = ready.send(false);
-                return;
-            }
-        };
+    let manager: IBackgroundCopyManager = if let Ok(manager) =
+        unsafe { CoCreateInstance(&BackgroundCopyManager, None, CLSCTX_LOCAL_SERVER) }
+    {
+        manager
+    } else {
+        let _ = ready.send(false);
+        return;
+    };
     let (deliver, deliveries) = mpsc::channel::<(SystemEvents, SystemEvent)>();
     let delivering = std::thread::Builder::new()
         .name("day-downloads-bits-events".into())
@@ -289,8 +300,8 @@ fn create(
         manager.CreateJob(
             PCWSTR(title.as_ptr()),
             BG_JOB_TYPE_DOWNLOAD,
-            &mut id,
-            &mut created,
+            &raw mut id,
+            &raw mut created,
         )
     }
     .map_err(com)?;
@@ -338,7 +349,7 @@ fn job_of(
     let id = parse_reference(reference)
         .ok_or_else(|| DownloadError::Io(format!("{reference} is not a BITS job id")))?;
     // SAFETY: a valid GUID the call reads.
-    unsafe { manager.GetJob(&id) }
+    unsafe { manager.GetJob(&raw const id) }
         .map_err(|_| DownloadError::Io("the system no longer has this download".into()))
 }
 
@@ -360,7 +371,7 @@ fn step(followed: &mut Followed, deliver: &Deliveries) -> bool {
     };
     let mut progress = BG_JOB_PROGRESS::default();
     // SAFETY: a job this thread holds and an out-parameter valid for writes.
-    if unsafe { followed.job.GetProgress(&mut progress) }.is_ok() {
+    if unsafe { followed.job.GetProgress(&raw mut progress) }.is_ok() {
         // An unknown size reads as all ones.
         let total = (progress.BytesTotal != u64::MAX).then_some(progress.BytesTotal);
         let now = (progress.BytesTransferred, total);
@@ -415,7 +426,7 @@ fn job_error(job: &IBackgroundCopyJob, transient: bool) -> (DownloadError, bool)
     let mut context = BG_ERROR_CONTEXT::default();
     let mut code = HRESULT(0);
     // SAFETY: two out-parameters valid for writes.
-    if unsafe { error.GetError(&mut context, &mut code) }.is_err() {
+    if unsafe { error.GetError(&raw mut context, &raw mut code) }.is_err() {
         return unknown();
     }
     let hresult = code.0 as u32;
@@ -441,6 +452,10 @@ fn description(error: &IBackgroundCopyError) -> Option<String> {
     message.map(|m| m.trim().to_string())
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "used as a `map_err` adapter, which hands the error over by value"
+)]
 fn com(error: windows::core::Error) -> DownloadError {
     DownloadError::Io(format!("BITS: {error}"))
 }

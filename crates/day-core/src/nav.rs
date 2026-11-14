@@ -132,6 +132,7 @@ day_reactive::tls_slots! {
 /// If an absolute navigation left unconsumed segments, the new surface consumes as many leading
 /// ones as it accepts; this is how `navigate("mail/inbox/msg-42")` reaches a stack that only
 /// mounts once the "mail" switch has taken effect.
+#[must_use]
 pub fn register_nav(ctrl: NavController) -> NavToken {
     let token = NEXT_TOKEN.with(|c| {
         let t = c.get();
@@ -175,6 +176,7 @@ pub fn register_nav(ctrl: NavController) -> NavToken {
 /// app's section of the same name, however early it registered. When it accepts the first
 /// segment of an absolute path, the remaining segments go to its own `enter`.
 /// [`unregister_nav`] removes it.
+#[must_use]
 pub fn register_nav_fallback(ctrl: NavController) -> NavToken {
     let token = NEXT_TOKEN.with(|c| {
         let t = c.get();
@@ -195,6 +197,7 @@ fn active_fallbacks() -> Vec<Rc<NavController>> {
 /// Install an app-level Back handler ([`BackHandler`]). Returns its token, which
 /// [`unregister_nav`] removes it with. Arms the platform's system back when the handler is
 /// enabled ([`sync_system_back`]).
+#[must_use]
 pub fn register_back_handler(handler: BackHandler) -> NavToken {
     let token = NEXT_TOKEN.with(|c| {
         let t = c.get();
@@ -296,7 +299,7 @@ fn run_back_handler() -> bool {
 /// part of), the update waits for the next safe point.
 pub fn sync_system_back() {
     let want = any_back_handler_wants();
-    if BACK_ARMED.with(|a| a.get()) == want || crate::tree::tree_absent() {
+    if BACK_ARMED.with(std::cell::Cell::get) == want || crate::tree::tree_absent() {
         return;
     }
     match crate::tree::with_tree_if_free(|t| t.set_system_back(want)) {
@@ -385,6 +388,7 @@ pub fn parse_route(route: &str) -> (Vec<String>, Vec<(String, String)>) {
 
 /// Assemble a route string from segments and params, the inverse of [`parse_route`].
 /// Reserved characters (`/`, `?`, `&`, `=`, `%`) in segments and params are percent-encoded.
+#[must_use]
 pub fn encode_route(segments: &[String], params: &[(String, String)]) -> String {
     let mut out = segments
         .iter()
@@ -427,10 +431,13 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn percent_encode(s: &str) -> String {
+    use std::fmt::Write as _;
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
-            b'/' | b'?' | b'&' | b'=' | b'%' => out.push_str(&format!("%{b:02X}")),
+            b'/' | b'?' | b'&' | b'=' | b'%' => {
+                let _ = write!(out, "%{b:02X}");
+            }
             _ => out.push(b as char),
         }
     }
@@ -441,11 +448,13 @@ fn percent_encode(s: &str) -> String {
 /// inside a destination builder: `route_param("id")`. They describe the navigation in flight;
 /// a push you perform by writing a path signal directly carries its data in your own state
 /// instead (docs/navigation.md).
+#[must_use]
 pub fn route_params() -> Rc<Vec<(String, String)>> {
     PARAMS.with(|p| p.borrow().clone())
 }
 
 /// The value of one query param of the most recent [`navigate`] (`None` = not present).
+#[must_use]
 pub fn route_param(name: &str) -> Option<String> {
     route_params()
         .iter()
@@ -476,7 +485,9 @@ static REQUESTED_ROUTE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new
 fn requested_slot() -> std::sync::MutexGuard<'static, Option<String>> {
     // A panic while holding this lock would otherwise wedge every later navigation; the buffer is
     // one Option<String>, so recovering the value is always safe.
-    REQUESTED_ROUTE.lock().unwrap_or_else(|e| e.into_inner())
+    REQUESTED_ROUTE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Ask the app to navigate, from anywhere, at any time.
@@ -517,6 +528,7 @@ pub(crate) fn apply_route_request(route: &str) {
 
 /// Whether a launch deep link is pending (`DAY_DEEPLINK` or a platform hint). A nav surface's
 /// `.restore` reads this so a deep link wins over restored state (docs/navigation.md).
+#[must_use]
 pub fn has_launch_deeplink() -> bool {
     launch_deeplink().is_some()
 }
@@ -545,19 +557,20 @@ pub fn set_nav_store(store: Rc<dyn NavStore>) {
 
 /// Whether a [`NavStore`] is installed. `day::launch` installs the preferences store when the
 /// app has not installed one of its own.
+#[must_use]
 pub fn has_nav_store() -> bool {
     NAV_STORE.with(|s| s.borrow().is_some())
 }
 
 /// Read a `.restore` key through the installed [`NavStore`] (`None` if none is installed or the
 /// key was never saved).
+#[must_use]
 pub fn nav_store_load(key: &str) -> Option<String> {
-    match NAV_STORE.with(|s| s.borrow().clone()) {
-        Some(st) => st.load(key),
-        None => {
-            warn_no_nav_store(key);
-            None
-        }
+    if let Some(st) = NAV_STORE.with(|s| s.borrow().clone()) {
+        st.load(key)
+    } else {
+        warn_no_nav_store(key);
+        None
     }
 }
 
@@ -618,6 +631,7 @@ pub(crate) fn launch_deeplink() -> Option<String> {
 /// * A trailing `?name=value&…` carries [`route_params`] to the destination builders.
 ///
 /// False = no mounted surface recognized the (first) segment.
+#[must_use]
 pub fn navigate(route: &str) -> bool {
     let (segments, params) = parse_route(route);
     PENDING.with(|p| p.borrow_mut().clear());
@@ -693,7 +707,7 @@ fn navigate_absolute(segments: &[String]) -> bool {
     // cascade consume it as they register, then anchor at the outermost surface that accepts
     // the first segment.
     PENDING.with(|p| *p.borrow_mut() = segments[1..].to_vec());
-    for c in controllers.iter() {
+    for c in &controllers {
         if (c.push)(first) {
             // Tabs may have already mounted the destination's nested surfaces. They will not
             // register again on selection, so deliver the remaining segments here as well.
@@ -769,7 +783,7 @@ pub fn nav_back() -> bool {
 }
 
 /// A navigation observer (§14.6): called with the new full route each time it changes, from any
-/// source: imperative `navigate`/`nav_back`, a nav_link or sidebar row (which navigate from an
+/// source: imperative `navigate`/`nav_back`, a `nav_link` or sidebar row (which navigate from an
 /// event handler, bypassing the event observer), a stack push, or a native back gesture. `""` is
 /// the root. Installed by the recorder in day-script; day-core only fires it.
 pub type NavObserver = dyn Fn(&str, Option<&str>);
@@ -818,7 +832,7 @@ pub(crate) fn maybe_notify_route_change() {
         if *r == now {
             false
         } else {
-            *r = now.clone();
+            (*r).clone_from(&now);
             true
         }
     });
@@ -837,6 +851,7 @@ pub(crate) fn maybe_notify_route_change() {
 /// `/`-joined (docs/navigation.md). `None` = no surface mounted; `Some("")` = everything at
 /// its root. Round-trips through [`navigate`], so persisting navigation state is
 /// `save(current_route())` on the way out and `navigate(&saved)` on the way back in.
+#[must_use]
 pub fn current_route() -> Option<String> {
     let controllers: Vec<Rc<NavController>> =
         NAV_STACK.with(|s| s.borrow().iter().map(|(_, c)| c.clone()).collect());
@@ -937,7 +952,7 @@ mod tests {
         clear_controllers();
         let log: Rc<RefCell<Vec<String>>> = Rc::default();
         let cover = register_nav_fallback(recording(&["settings", "search"], &log, "cover"));
-        register_nav(recording(&["home", "settings"], &log, "app"));
+        let _ = register_nav(recording(&["home", "settings"], &log, "app"));
 
         assert!(navigate("settings/search"));
         assert!(navigate("settings"));
@@ -961,8 +976,8 @@ mod tests {
     fn a_fallback_takes_the_whole_path() {
         clear_controllers();
         let log: Rc<RefCell<Vec<String>>> = Rc::default();
-        register_nav(recording(&["home"], &log, "app"));
-        register_nav_fallback(recording(&["settings", "search"], &log, "cover"));
+        let _ = register_nav(recording(&["home"], &log, "app"));
+        let _ = register_nav_fallback(recording(&["settings", "search"], &log, "cover"));
 
         assert!(navigate("settings/search"));
         assert_eq!(*log.borrow(), ["cover push settings", "cover enter search"]);
@@ -976,7 +991,9 @@ mod tests {
     static ROUTE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn route_test<T>(f: impl FnOnce() -> T) -> T {
-        let _guard = ROUTE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ROUTE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let _ = take_requested_route();
         let out = f();
         let _ = take_requested_route();

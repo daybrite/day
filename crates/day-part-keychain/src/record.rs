@@ -99,6 +99,10 @@ fn locked() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "passed to `map_err`, which hands the error over by value"
+)]
 fn io_error(e: std::io::Error) -> KeychainError {
     KeychainError::Platform(e.to_string())
 }
@@ -198,7 +202,7 @@ mod tests {
         assert_eq!(r.protection, Protection::UserPresence);
         assert_eq!(r.payload, vec![1, 2, 3]);
         let empty = decode(&encode("k", Protection::WhenUnlocked, &[])).expect("decodes");
-        assert!(empty.payload.is_empty());
+        assert_eq!(empty.payload, [] as [u8; 0]);
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! over TCP (adb-forwarded on Android), executes the YAML flow, saves screenshots, prints
 //! per-step results, and returns exit code 5 on assertion failure.
 
+use std::fmt::Write as _;
 use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ pub struct ScriptRun {
     /// verdict and re-running would only spend the time again.
     pub retryable_failed: usize,
     pub screenshots: Vec<PathBuf>,
-    /// The run's report files (script_report.rs), one per script, when reports are on.
+    /// The run's report files (`script_report.rs`), one per script, when reports are on.
     pub reports: Vec<PathBuf>,
 }
 
@@ -159,11 +160,11 @@ fn parse_flow_text(text: &str, project_root: &Path) -> Result<Script, String> {
 fn apply_resize(target: &crate::targets::Target, step: &serde_json::Value) -> Result<(), String> {
     let restore = step
         .get("restore")
-        .and_then(|v| v.as_bool())
+        .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     let dims = (
-        step.get("width").and_then(|v| v.as_f64()),
-        step.get("height").and_then(|v| v.as_f64()),
+        step.get("width").and_then(serde_json::Value::as_f64),
+        step.get("height").and_then(serde_json::Value::as_f64),
     );
     let (w, h) = match (restore, dims) {
         (true, _) => (0.0, 0.0),
@@ -356,7 +357,7 @@ pub(crate) fn connect_window_secs(kind: TargetKind) -> u64 {
 
 /// Outwait both the engine's implicit retries and its last UI-thread dispatch. The engine may
 /// begin that dispatch just before the retry deadline. Its default dispatch allowance is 30 s
-/// (day-script's DEFAULT_MAIN_TIMEOUT_SECS), even for a step with a 5 s implicit wait: the old
+/// (day-script's `DEFAULT_MAIN_TIMEOUT_SECS`), even for a step with a 5 s implicit wait: the old
 /// 20 s socket timeout disconnected a healthy engine before it could answer a slow startup.
 pub(crate) fn read_window(window_secs: u64, budget_secs: f64) -> Duration {
     reply_window(
@@ -679,8 +680,7 @@ fn device_screenshot(target: &Target, path: &Path, ready: bool) -> Result<(), St
                 .args(["simctl", "io", &udid, "screenshot"])
                 .arg(path)
                 .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
+                .is_ok_and(|s| s.success());
             if ok {
                 Ok(())
             } else {
@@ -719,8 +719,7 @@ fn device_screenshot(target: &Target, path: &Path, ready: bool) -> Result<(), St
                     .args(["-window", "root", "-silent"])
                     .arg(path)
                     .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false);
+                    .is_ok_and(|s| s.success());
                 if ok {
                     return Ok(());
                 }
@@ -801,7 +800,7 @@ fn device_screenshot(target: &Target, path: &Path, ready: bool) -> Result<(), St
 
 /// Reach the in-app dayscript engine from the host: device targets need a TCP forward
 /// (adb / hdc); desktop and the iOS simulator answer on loopback directly.
-/// Public entry points for `day drive` (drive.rs): the same primitives run_scripts uses.
+/// Public entry points for `day drive` (drive.rs): the same primitives `run_scripts` uses.
 pub(crate) fn b64decode_public(s: &str) -> Vec<u8> {
     day_script_b64::b64decode(s)
 }
@@ -884,7 +883,13 @@ pub fn run_scripts(
         restore_native_dialogs,
         &reports,
     );
-    reports.finish(result.as_ref().err().map(|e| e.to_string()).as_deref());
+    reports.finish(
+        result
+            .as_ref()
+            .err()
+            .map(std::string::ToString::to_string)
+            .as_deref(),
+    );
     let result = result.map(|mut run| {
         run.reports = reports.paths();
         run
@@ -919,6 +924,7 @@ fn run_scripts_inner(
     restore_native_dialogs: bool,
     reports: &crate::script_report::Reports,
 ) -> Result<ScriptRun, ScriptError> {
+    use sha2::Digest;
     forward_engine(target.kind, port);
     let default_locale = crate::store::default_locale(&crate::store::app_locales(project));
     let window_secs = connect_window_secs(target.kind);
@@ -1025,7 +1031,6 @@ fn run_scripts_inner(
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
     // Set by a passing `expect_exit`: nothing is left to hand over.
     let mut app_exited = false;
-    use sha2::Digest;
     // Validate all applicable element references against the compiled app before any
     // walkthrough step mutates it. Offline source discovery is not the denominator.
     let catalog_line = format!(
@@ -1068,8 +1073,10 @@ fn run_scripts_inner(
         reports.catalog(
             &sha2::Sha256::digest(token.as_bytes())
                 .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>(),
+                .fold(String::new(), |mut out, byte| {
+                    let _ = write!(out, "{byte:02x}");
+                    out
+                }),
             &catalog,
         );
         let mut expected_exit = false;
@@ -1275,14 +1282,17 @@ fn run_scripts_inner(
             if tempo == Tempo::Fast
                 && app_fast
                 && op == "pause"
-                && step.get("animation").and_then(|v| v.as_bool()) == Some(true)
+                && step.get("animation").and_then(serde_json::Value::as_bool) == Some(true)
             {
                 op = "wait_idle".into();
                 step = serde_json::json!({"op": "wait_idle"});
             }
             // `pause` sleeps runner-side (the engine must not block the UI thread).
             if op == "pause" {
-                let secs = step.get("secs").and_then(|v| v.as_f64()).unwrap_or(0.5);
+                let secs = step
+                    .get("secs")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(0.5);
                 // Sleeping runner-side means a pause touches nothing, so a dead app used to go
                 // unnoticed for the whole tail of a walkthrough: every remaining `pause` and every
                 // step this target skips reported ✓ against a process that was already gone, and
@@ -1316,7 +1326,10 @@ fn run_scripts_inner(
             // here the connection is supposed to drop. Probe until it does (success) or the
             // window elapses (the app survived: failure). Never sent to the engine.
             if op == "expect_exit" {
-                let within = step.get("within").and_then(|v| v.as_f64()).unwrap_or(15.0);
+                let within = step
+                    .get("within")
+                    .and_then(serde_json::Value::as_f64)
+                    .unwrap_or(15.0);
                 let deadline = std::time::Instant::now() + Duration::from_secs_f64(within);
                 let probe = Request {
                     token: token.into(),
@@ -1333,15 +1346,11 @@ fn run_scripts_inner(
                     }
                     let mut reply = String::new();
                     match reader.read_line(&mut reply) {
-                        Ok(0) => {
+                        Ok(0) | Err(_) => {
                             exited = true;
                             break;
                         }
                         Ok(_) => std::thread::sleep(Duration::from_millis(250)),
-                        Err(_) => {
-                            exited = true;
-                            break;
-                        }
                     }
                 }
                 if exited {
@@ -1750,12 +1759,10 @@ fn write_gallery(root: &Path) {
                     .to_string_lossy()
                     .into_owned();
                 let inner = dirs(&d);
-                let has_png = std::fs::read_dir(&d)
-                    .map(|rd| {
-                        rd.flatten()
-                            .any(|e| e.path().extension().is_some_and(|x| x == "png"))
-                    })
-                    .unwrap_or(false);
+                let has_png = std::fs::read_dir(&d).is_ok_and(|rd| {
+                    rd.flatten()
+                        .any(|e| e.path().extension().is_some_and(|x| x == "png"))
+                });
                 if !inner.is_empty() && !has_png {
                     inner
                         .into_iter()
@@ -1790,23 +1797,25 @@ fn write_gallery(root: &Path) {
             if pngs.is_empty() {
                 continue;
             }
-            body.push_str(&format!(
+            let _ = write!(
+                body,
                 "<section><h2>{} <span class=\"v\">{}</span></h2><div class=\"grid\">",
                 esc(&tname),
                 esc(&vname)
-            ));
+            );
             for png in &pngs {
                 let name = png
                     .file_stem()
                     .unwrap_or_default()
                     .to_string_lossy()
                     .into_owned();
-                let rel = format!("{}/{}/{}.png", tname, vname, name);
-                body.push_str(&format!(
+                let rel = format!("{tname}/{vname}/{name}.png");
+                let _ = write!(
+                    body,
                     "<a href=\"{rel}\"><figure><img loading=\"lazy\" src=\"{rel}\" alt=\"{n}\"><figcaption>{n}</figcaption></figure></a>",
                     rel = esc(&rel),
                     n = esc(&name)
-                ));
+                );
                 shots += 1;
             }
             body.push_str("</div></section>");
@@ -1858,8 +1867,7 @@ fn sample_stalled_app(project: &Project, target: &Target, dir: &Path) {
         .args([pid.as_str(), "2", "-mayDie", "-file"])
         .arg(&file)
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .is_ok_and(|o| o.status.success());
     let text = match std::fs::read_to_string(&file) {
         Ok(text) if ran => text,
         _ => {
@@ -1924,8 +1932,7 @@ fn await_exit(pattern: &str, budget: Duration) -> bool {
         let alive = Command::new("pgrep")
             .args(["-f", pattern])
             .output()
-            .map(|o| !o.stdout.is_empty())
-            .unwrap_or(false);
+            .is_ok_and(|o| !o.stdout.is_empty());
         if !alive {
             return true;
         }
@@ -2019,8 +2026,7 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
         }
         TargetKind::HarmonyOs => {
             let key = crate::ops::selected_ohos_key()
-                .map(str::to_owned)
-                .unwrap_or_else(crate::ohos::ohos_target);
+                .map_or_else(crate::ohos::ohos_target, str::to_owned);
             crate::ohos::stop_hilog(&key);
             let _ = crate::ops::status_within(
                 crate::ohos::hdc_for(&key).args([
@@ -2114,10 +2120,7 @@ pub fn make_token() -> String {
     format!(
         "{:x}-{:x}",
         std::process::id(),
-        std::time::UNIX_EPOCH
-            .elapsed()
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
+        std::time::UNIX_EPOCH.elapsed().map_or(0, |d| d.as_millis())
     )
 }
 
@@ -2688,7 +2691,7 @@ mod gate_tests {
         assert_eq!(run.steps_total, 3);
         assert_eq!(run.steps_failed, 1);
         assert_eq!(run.retryable_failed, 0);
-        assert!(run.screenshots.is_empty());
+        assert_eq!(run.screenshots, [] as [std::path::PathBuf; 0]);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2791,7 +2794,10 @@ mod gate_tests {
                 "    +   2 main  (in Showcase)",
             ]
         );
-        assert!(super::main_thread_frames("no graph here").is_empty());
+        assert_eq!(
+            super::main_thread_frames("no graph here"),
+            [] as [std::string::String; 0]
+        );
     }
 
     /// Coverage-enabled flows preserve the step failures that the launch retry policy consumes.
@@ -3166,7 +3172,7 @@ mod day_script_b64 {
                 *chunk.get(1).unwrap_or(&0),
                 *chunk.get(2).unwrap_or(&0),
             ];
-            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
             out.push(B64[(n >> 18) as usize & 63] as char);
             out.push(B64[(n >> 12) as usize & 63] as char);
             out.push(if chunk.len() > 1 {
@@ -3191,6 +3197,10 @@ mod day_script_b64 {
             if chunk.len() < 4 {
                 break;
             }
+            #[expect(
+                clippy::naive_bytecount,
+                reason = "the chunk is four bytes; a byte-counting dependency would buy nothing"
+            )]
             let pad = chunk.iter().filter(|&&c| c == b'=').count();
             let n = (val(chunk[0]) << 18)
                 | (val(chunk[1]) << 12)
@@ -3325,7 +3335,7 @@ fn print_test_report(report: &serde_json::Value) -> usize {
     for t in tests {
         let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
         let verdict = t.get("verdict").and_then(|v| v.as_str()).unwrap_or("?");
-        let ms = t.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+        let ms = t.get("ms").and_then(serde_json::Value::as_u64).unwrap_or(0);
         let dots = ".".repeat(40usize.saturating_sub(name.len()));
         match verdict {
             "pass" => {
@@ -3412,8 +3422,7 @@ fn write_conformance_report(
         "run": env("GITHUB_RUN_ID"),
         "at": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
+            .map_or(0, |d| d.as_secs()),
         "tests": tests,
         // The toolkit's own capability answers during the run, which the CI evidence job
         // holds against docs/coverage-matrix.md (scripts/ci/conformance-claims.py).

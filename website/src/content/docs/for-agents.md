@@ -273,6 +273,12 @@ day drive -t <target> --steps-json …  # drive a running app (see below)
 day mcp-server                        # serve all of the above as MCP tools (stdio)
 ```
 
+A scaffolded project's `Cargo.toml` turns on Clippy's `pedantic` group, and its CI treats every
+warning as an error. Run `cargo clippy --all-targets -- -D warnings` before finishing a change
+and fix each finding in the code. Where a lint is wrong for one site, use
+`#[expect(clippy::<lint>, reason = "…")]` on the narrowest item; do not add `#[allow(...)]` or
+edit the `[lints.clippy]` table.
+
 ## Verifying your work (dayscript)
 
 Assert a *running* app with a cross-platform YAML script; Pieces are addressed by their [`.id`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id), routes by

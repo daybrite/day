@@ -20,7 +20,7 @@
 //!   and Day.toml's overlays. Written only when the bytes change.
 //! * **Project generation** ([`project::apply`]): one target per extension in the Xcode 27 JSON5
 //!   project, its sources a synchronized folder (`platform/<os>/<Name>/`), embedded by the
-//!   Runner target into `PlugIns/` (NSExtension) or `Extensions/` (ExtensionKit).
+//!   Runner target into `PlugIns/` (`NSExtension`) or `Extensions/` (ExtensionKit).
 //! * **Signing** (`mobile.rs`, `sign.rs`, `pack/`): every embedded extension is signed before
 //!   the app, with its own entitlements and, on a device or for distribution, its own profile.
 //!
@@ -92,7 +92,7 @@ impl Os {
 /// `Info.plist` dictionary that names the extension point, and where the app embeds it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Family {
-    /// An NSExtension app extension: `NSExtension` in its `Info.plist`, embedded in `PlugIns/`.
+    /// An `NSExtension` app extension: `NSExtension` in its `Info.plist`, embedded in `PlugIns/`.
     Classic,
     /// An ExtensionKit extension: `EXAppExtensionAttributes`, embedded in `Extensions/`.
     ExtensionKit,
@@ -622,7 +622,7 @@ pub struct ExtensionDecl {
     #[serde(default)]
     pub point: Option<String>,
     /// For `kind = "custom"`: the point is an ExtensionKit one (`EXAppExtensionAttributes`,
-    /// embedded in `Extensions/`) rather than an NSExtension one.
+    /// embedded in `Extensions/`) rather than an `NSExtension` one.
     #[serde(default)]
     pub extensionkit: Option<bool>,
     /// `ios`, `macos`, or both. Default: every Apple platform the app targets that the kind has.
@@ -995,12 +995,10 @@ fn resolve_one(
             )
         }
     };
-    let sources = decl
-        .sources
-        .as_ref()
-        .and_then(|s| s.get(os))
-        .map(|s| s.trim_end_matches('/').to_string())
-        .unwrap_or_else(|| format!("platform/{}/{name}", os.key()));
+    let sources = decl.sources.as_ref().and_then(|s| s.get(os)).map_or_else(
+        || format!("platform/{}/{name}", os.key()),
+        |s| s.trim_end_matches('/').to_string(),
+    );
     if Path::new(&sources).is_absolute() || sources.split('/').any(|c| c == "..") {
         return Err(format!(
             "extension {name:?}: sources {sources:?} must be a folder inside the project"
@@ -1133,7 +1131,7 @@ pub(crate) fn deep_merge(base: &mut ::plist::Dictionary, over: &::plist::Diction
     for (k, v) in over {
         match (base.get_mut(k), v) {
             (Some(::plist::Value::Dictionary(b)), ::plist::Value::Dictionary(o)) => {
-                deep_merge(b, o)
+                deep_merge(b, o);
             }
             _ => {
                 base.insert(k.clone(), v.clone());
@@ -1727,14 +1725,14 @@ fn app_group_findings(project: &Project, r: &Resolved) -> Vec<crate::lint::Findi
             .ok()
             .flatten()
             .and_then(|e| ::plist::Value::from_file(&e.path).ok())
-            .and_then(|v| v.into_dictionary())
+            .and_then(plist::Value::into_dictionary)
             .map(|d| groups_of(&d))
             .unwrap_or_default(),
         Os::Macos => crate::sandbox::entitlements(project, crate::cli::Profile::Debug)
             .ok()
             .flatten()
             .and_then(|p| ::plist::Value::from_file(&p).ok())
-            .and_then(|v| v.into_dictionary())
+            .and_then(plist::Value::into_dictionary)
             .map(|d| groups_of(&d))
             .unwrap_or_default(),
     };

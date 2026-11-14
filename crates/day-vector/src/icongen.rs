@@ -34,6 +34,7 @@ const CENTER: f32 = EDGE / 2.0;
 
 /// Hash an arbitrary string (an app id, a pet name) into a seed with FNV-1a 64, hand-rolled so
 /// the mapping is stable across Rust versions (std's hashers are randomly keyed).
+#[must_use]
 pub fn seed_from_str(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in s.as_bytes() {
@@ -492,8 +493,8 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
                 // A third beat on the same diagonal adds rhythm, and it ties the pair together.
                 shapes.push(Shape {
                     kind: Kind::Circle {
-                        cx: (mx + ox) / 2.0,
-                        cy: (my + oy) / 2.0,
+                        cx: f32::midpoint(mx, ox),
+                        cy: f32::midpoint(my, oy),
                         r: rng.range(30.0, 44.0),
                     },
                     fill: p.ink.clone(),
@@ -572,6 +573,7 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
 
 /// Generate the master SVG for `seed`. Deterministic: the same seed always yields the same
 /// bytes (the `day new` app-id contract).
+#[must_use]
 pub fn generate(seed: u64) -> String {
     let mut rng = Rng(seed);
     let p = palette(&mut rng);

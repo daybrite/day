@@ -5,6 +5,7 @@
 use crate::meta::Project;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::fmt::Write as _;
 use std::path::Path;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -183,7 +184,7 @@ pub fn android(project: &Project) -> Option<String> {
     if !project.manifest.share_target.is_empty() {
         s.push_str("<intent-filter><action android:name=\"android.intent.action.SEND\"/><category android:name=\"android.intent.category.DEFAULT\"/>");
         for mime in &project.manifest.share_target {
-            s.push_str(&format!("<data android:mimeType=\"{}\"/>", xml(mime)));
+            let _ = write!(s, "<data android:mimeType=\"{}\"/>", xml(mime));
         }
         s.push_str("</intent-filter>\n");
     }
@@ -200,7 +201,11 @@ pub fn android(project: &Project) -> Option<String> {
             ""
         };
         for mime in &t.mime_types {
-            s.push_str(&format!("<intent-filter><action android:name=\"android.intent.action.VIEW\"/>{edit}<category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"content\"/><data android:scheme=\"file\"/><data android:scheme=\"http\"/><data android:scheme=\"https\"/><data android:mimeType=\"{}\"/></intent-filter>\n",xml(mime)));
+            let _ = writeln!(
+                s,
+                "<intent-filter><action android:name=\"android.intent.action.VIEW\"/>{edit}<category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"content\"/><data android:scheme=\"file\"/><data android:scheme=\"http\"/><data android:scheme=\"https\"/><data android:mimeType=\"{}\"/></intent-filter>",
+                xml(mime)
+            );
         }
     }
     s.push_str("</activity>");
@@ -250,32 +255,34 @@ fn document_keys(
     let previous: Vec<String> = d
         .get("DayManagedDocumentTypes")
         .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_string().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_else(|| {
-            d.get("CFBundleDocumentTypes")
-                .and_then(|v| v.as_array())
-                .into_iter()
-                .flatten()
-                .filter(|v| {
-                    v.as_dictionary()
-                        .and_then(|d| d.get("CFBundleTypeName"))
-                        .and_then(|v| v.as_string())
-                        .is_some_and(|s| s.starts_with("day.document."))
-                })
-                .flat_map(|v| {
-                    v.as_dictionary()
-                        .and_then(|d| d.get("LSItemContentTypes"))
-                        .and_then(|v| v.as_array())
-                        .into_iter()
-                        .flatten()
-                })
-                .filter_map(|v| v.as_string().map(str::to_owned))
-                .collect()
-        });
+        .map_or_else(
+            || {
+                d.get("CFBundleDocumentTypes")
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter(|v| {
+                        v.as_dictionary()
+                            .and_then(|d| d.get("CFBundleTypeName"))
+                            .and_then(|v| v.as_string())
+                            .is_some_and(|s| s.starts_with("day.document."))
+                    })
+                    .flat_map(|v| {
+                        v.as_dictionary()
+                            .and_then(|d| d.get("LSItemContentTypes"))
+                            .and_then(|v| v.as_array())
+                            .into_iter()
+                            .flatten()
+                    })
+                    .filter_map(|v| v.as_string().map(str::to_owned))
+                    .collect()
+            },
+            |a| {
+                a.iter()
+                    .filter_map(|v| v.as_string().map(str::to_owned))
+                    .collect()
+            },
+        );
     let mut docs: Vec<_> = d
         .get("CFBundleDocumentTypes")
         .and_then(|v| v.as_array())
@@ -426,7 +433,7 @@ pub fn linux_entry(entry: String, types: &[FileType]) -> String {
     for t in types {
         for mime in &t.mime_types {
             s.push_str(mime);
-            s.push(';')
+            s.push(';');
         }
     }
     s.push('\n');
@@ -440,13 +447,14 @@ pub fn linux_mime_package(types: &[FileType], descriptions: &[String]) -> Option
     let mut body = String::new();
     for (i, t) in types.iter().enumerate().filter(|(_, t)| t.exported) {
         for mime in &t.mime_types {
-            body.push_str(&format!("  <mime-type type=\"{}\">\n", xml(mime)));
-            body.push_str(&format!(
-                "    <comment>{}</comment>\n",
+            let _ = writeln!(body, "  <mime-type type=\"{}\">", xml(mime));
+            let _ = writeln!(
+                body,
+                "    <comment>{}</comment>",
                 xml(descriptions.get(i).map(String::as_str).unwrap_or_default())
-            ));
+            );
             for ext in &t.extensions {
-                body.push_str(&format!("    <glob pattern=\"*.{}\"/>\n", xml(ext)));
+                let _ = writeln!(body, "    <glob pattern=\"*.{}\"/>", xml(ext));
             }
             let parent = if t.conforms_to.iter().any(|c| c == "public.json") {
                 "application/json"
@@ -461,7 +469,7 @@ pub fn linux_mime_package(types: &[FileType], descriptions: &[String]) -> Option
             } else {
                 "application/octet-stream"
             };
-            body.push_str(&format!("    <sub-class-of type=\"{parent}\"/>\n"));
+            let _ = writeln!(body, "    <sub-class-of type=\"{parent}\"/>");
             body.push_str("  </mime-type>\n");
         }
     }
@@ -479,9 +487,13 @@ pub fn windows_manifest(manifest: String, types: &[FileType], descriptions: &[St
     let mut s = String::from("<Extensions>");
     for (i, t) in types.iter().enumerate() {
         let name = descriptions.get(i).map(String::as_str).unwrap_or_default();
-        s.push_str(&format!("<uap:Extension Category=\"windows.fileTypeAssociation\"><uap3:FileTypeAssociation Name=\"daydocument{i}\"><uap:DisplayName>{}</uap:DisplayName><uap:SupportedFileTypes>", xml(name)));
+        let _ = write!(
+            s,
+            "<uap:Extension Category=\"windows.fileTypeAssociation\"><uap3:FileTypeAssociation Name=\"daydocument{i}\"><uap:DisplayName>{}</uap:DisplayName><uap:SupportedFileTypes>",
+            xml(name)
+        );
         for e in &t.extensions {
-            s.push_str(&format!("<uap:FileType>.{}</uap:FileType>", xml(e)))
+            let _ = write!(s, "<uap:FileType>.{}</uap:FileType>", xml(e));
         }
         s.push_str("</uap:SupportedFileTypes><uap2:SupportedVerbs><uap3:Verb Id=\"open\" Parameters=\"--day-open-file &quot;%1&quot;\">Open</uap3:Verb></uap2:SupportedVerbs></uap3:FileTypeAssociation></uap:Extension>");
     }
@@ -534,11 +546,11 @@ pub fn nsis(
     id: &str,
     exe: &str,
 ) -> String {
-    if types.is_empty() {
-        return script;
-    }
     fn quote(s: &str) -> String {
         s.replace('$', "$$").replace('"', "$\\\"")
+    }
+    if types.is_empty() {
+        return script;
     }
     let id = quote(id);
     let exe = quote(exe);
@@ -547,30 +559,40 @@ pub fn nsis(
     for (i, t) in types.iter().enumerate() {
         let prog = format!("{id}.document.{i}");
         let name = quote(descriptions.get(i).map(String::as_str).unwrap_or_default());
-        install.push_str(&format!(
-            "  WriteRegStr HKCU \"Software\\Classes\\{prog}\" \"\" \"{name}\"\n  WriteRegStr HKCU \"Software\\Classes\\{prog}\\DefaultIcon\" \"\" '$\\\"$INSTDIR\\{exe}.exe$\\\",0'\n"
-        ));
-        install.push_str(&format!(r#"  WriteRegStr HKCU "Software\Classes\{prog}\shell\open\command" "" '$\"$INSTDIR\{exe}.exe$\" --day-open-file $\"%1$\"'
-"#));
+        let _ = writeln!(
+            install,
+            "  WriteRegStr HKCU \"Software\\Classes\\{prog}\" \"\" \"{name}\"\n  WriteRegStr HKCU \"Software\\Classes\\{prog}\\DefaultIcon\" \"\" '$\\\"$INSTDIR\\{exe}.exe$\\\",0'"
+        );
+        let _ = writeln!(
+            install,
+            r#"  WriteRegStr HKCU "Software\Classes\{prog}\shell\open\command" "" '$\"$INSTDIR\{exe}.exe$\" --day-open-file $\"%1$\"'"#
+        );
         for ext in &t.extensions {
-            install.push_str(&format!("  WriteRegStr HKCU \"Software\\Classes\\.{ext}\\OpenWithProgids\" \"{prog}\" \"\"\n"));
-            uninstall.push_str(&format!(
-                "  DeleteRegValue HKCU \"Software\\Classes\\.{ext}\\OpenWithProgids\" \"{prog}\"\n"
-            ));
+            let _ = writeln!(
+                install,
+                "  WriteRegStr HKCU \"Software\\Classes\\.{ext}\\OpenWithProgids\" \"{prog}\" \"\""
+            );
+            let _ = writeln!(
+                uninstall,
+                "  DeleteRegValue HKCU \"Software\\Classes\\.{ext}\\OpenWithProgids\" \"{prog}\""
+            );
             if t.rank == Rank::Owner {
                 // Take the extension's default, keeping whatever held it before.
-                install.push_str(&format!(
-                    "  ReadRegStr $0 HKCU \"Software\\Classes\\.{ext}\" \"\"\n  StrCmp $0 \"{prog}\" +2 0\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\" \"$0\"\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"\" \"{prog}\"\n"
-                ));
+                let _ = writeln!(
+                    install,
+                    "  ReadRegStr $0 HKCU \"Software\\Classes\\.{ext}\" \"\"\n  StrCmp $0 \"{prog}\" +2 0\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\" \"$0\"\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"\" \"{prog}\""
+                );
                 // Hand it back on uninstall, but only if the app still holds it.
-                uninstall.push_str(&format!(
-                    "  ReadRegStr $0 HKCU \"Software\\Classes\\.{ext}\" \"\"\n  StrCmp $0 \"{prog}\" 0 +4\n  ReadRegStr $1 HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\"\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"\" \"$1\"\n  DeleteRegValue HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\"\n"
-                ));
+                let _ = writeln!(
+                    uninstall,
+                    "  ReadRegStr $0 HKCU \"Software\\Classes\\.{ext}\" \"\"\n  StrCmp $0 \"{prog}\" 0 +4\n  ReadRegStr $1 HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\"\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"\" \"$1\"\n  DeleteRegValue HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\""
+                );
             }
         }
-        uninstall.push_str(&format!(
-            "  DeleteRegKey HKCU \"Software\\Classes\\{prog}\"\n"
-        ));
+        let _ = writeln!(
+            uninstall,
+            "  DeleteRegKey HKCU \"Software\\Classes\\{prog}\""
+        );
     }
     for out in [&mut install, &mut uninstall] {
         out.push_str("  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'\n");
@@ -687,9 +709,17 @@ pub fn windows_registry(types: &[FileType], id: &str, binary: &Path) -> String {
     for (i, t) in types.iter().enumerate() {
         let prog = format!("{id}.document.{i}");
         let command = format!("\"{}\" --day-open-file \"%1\"", binary.display());
-        out.push_str(&format!("\r\n[HKEY_CURRENT_USER\\Software\\Classes\\{prog}\\shell\\open\\command]\r\n@=\"{}\"\r\n",q(&command)));
+        let _ = writeln!(
+            out,
+            "\r\n[HKEY_CURRENT_USER\\Software\\Classes\\{prog}\\shell\\open\\command]\r\n@=\"{}\"\r",
+            q(&command)
+        );
         for ext in &t.extensions {
-            out.push_str(&format!("\r\n[HKEY_CURRENT_USER\\Software\\Classes\\.{ext}\\OpenWithProgids]\r\n\"{}\"=\"\"\r\n",q(&prog)));
+            let _ = writeln!(
+                out,
+                "\r\n[HKEY_CURRENT_USER\\Software\\Classes\\.{ext}\\OpenWithProgids]\r\n\"{}\"=\"\"\r",
+                q(&prog)
+            );
         }
     }
     out
@@ -779,7 +809,11 @@ mod tests {
         assert!(!script.contains("DayPreviousDefault"));
         assert!(script.contains("DeleteRegValue"));
         assert!(!script.contains("DeleteRegKey HKCU \"Software\\Classes\\.epub\""));
-        let module=harmony_module(r#"{module:{abilities:[{name:'EntryAbility',skills:[{actions:['existing.action']}]}]}}"#,&types).unwrap();
+        let module = harmony_module(
+            r"{module:{abilities:[{name:'EntryAbility',skills:[{actions:['existing.action']}]}]}}",
+            &types,
+        )
+        .unwrap();
         assert!(module.contains("existing.action"));
         assert!(module.contains("FileOpen"));
         assert!(module.contains("application/epub+zip"));

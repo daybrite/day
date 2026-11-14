@@ -18,6 +18,11 @@ pub struct IdCatalog {
     pub declarations: Vec<IdDeclaration>,
 }
 impl IdCatalog {
+    /// Check the catalog's schema version and that each family is declared once.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the schema version is not 1 or two declarations share a family.
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
             return Err("unsupported element registry version".into());
@@ -30,6 +35,12 @@ impl IdCatalog {
         }
         Ok(())
     }
+    /// Find the declaration that the element ID `id` belongs to.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the ID's family is not declared, the ID is keyed where the declaration
+    /// is static (or the reverse), or its key is not canonical percent-encoded UTF-8.
     pub fn resolve(&self, id: &str) -> Result<&IdDeclaration, String> {
         let mut split = None;
         let mut chars = id.char_indices().peekable();
@@ -109,6 +120,11 @@ pub struct IdEvidence {
 impl crate::Step {
     /// Element references only: model row keys, routes, strings and screenshot names are
     /// intentionally excluded. Secondary geometry references are validated, not credited.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the step does not serialize as JSON, which no [`Step`](crate::Step) can cause.
+    #[must_use]
     pub fn element_references(&self) -> Vec<String> {
         let value = serde_json::to_value(self).expect("serializable step");
         let mut ids = Vec::new();
@@ -122,8 +138,9 @@ impl crate::Step {
         }
         ids
     }
+    #[must_use]
     pub fn evidence_class(&self) -> Option<EvidenceClass> {
-        use EvidenceClass::*;
+        use EvidenceClass::{Assertion, Interaction, Negative, Observed};
         match self {
             Self::WaitFor { .. } => Some(Observed),
             Self::AssertMissing { .. } | Self::AssertHidden { .. } => Some(Negative),

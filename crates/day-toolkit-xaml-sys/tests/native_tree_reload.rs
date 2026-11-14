@@ -44,7 +44,7 @@ fn main() {
             }
             day_xaml_tree_end(state.tree);
             let token = 101 + state.reloads as u64 % 8;
-            day_xaml_tree_select(state.tree, &token, 1);
+            day_xaml_tree_select(state.tree, &raw const token, 1);
             state.reloads += 1;
             if state.reloads == RELOADS {
                 day_xaml_quit();
@@ -67,7 +67,7 @@ fn main() {
             560,
             300,
             300,
-            &chrome,
+            &raw const chrome,
         );
         assert!(!window.is_null(), "WinUI window initialization failed");
         let root = day_xaml_window_root(window);
@@ -77,7 +77,7 @@ fn main() {
         day_xaml_set_geometry(tree, 0, 0, 600, 500);
         day_xaml_window_show(window);
         let mut state = Box::new(State { tree, reloads: 0 });
-        day_xaml_post_delayed(100, reload, (&mut *state as *mut State).cast());
+        day_xaml_post_delayed(100, reload, (&raw mut *state).cast());
         day_xaml_run(window);
         assert_eq!(
             state.reloads, RELOADS,

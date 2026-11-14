@@ -52,12 +52,13 @@ pub enum Haptic {
 /// Play a haptic through the platform's native API. Fire-and-forget: no return value, never panics,
 /// and a no-op on platforms/hardware without a haptic engine (see [`is_supported`]).
 pub fn play(h: Haptic) {
-    imp::play(h)
+    imp::play(h);
 }
 
 /// Whether this platform has a haptic engine wired up. `true` on iOS/macOS/Android/HarmonyOS (even
 /// on a Simulator or a device that happens to lack the hardware; this reports API availability,
 /// not a live hardware probe), `false` on every other target, where [`play`] is a no-op.
+#[must_use]
 pub fn is_supported() -> bool {
     imp::is_supported()
 }

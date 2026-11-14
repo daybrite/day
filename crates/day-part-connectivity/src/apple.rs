@@ -24,6 +24,10 @@ const FLAG_IS_WWAN: u32 = 1 << 18; // kSCNetworkReachabilityFlagsIsWWAN (API_UNA
 /// BSD `sockaddr_in`, declared locally to avoid a libc dependency. Zeroed address = 0.0.0.0,
 /// the conventional "default route" reachability target.
 #[repr(C)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the fields keep the names of BSD's `struct sockaddr_in`"
+)]
 struct SockaddrIn {
     sin_len: u8,
     sin_family: u8, // AF_INET = 2
@@ -55,12 +59,12 @@ pub fn status() -> Option<NetworkStatus> {
         sin_zero: [0; 8],
     };
     unsafe {
-        let target = SCNetworkReachabilityCreateWithAddress(std::ptr::null(), &zero);
+        let target = SCNetworkReachabilityCreateWithAddress(std::ptr::null(), &raw const zero);
         if target.is_null() {
             return None;
         }
         let mut flags: u32 = 0;
-        let ok = SCNetworkReachabilityGetFlags(target, &mut flags);
+        let ok = SCNetworkReachabilityGetFlags(target, &raw mut flags);
         CFRelease(target);
         (ok != 0).then(|| interpret(flags))
     }

@@ -92,3 +92,6 @@ day-mock = { workspace = true, optional = true }
 [dev-dependencies]
 # The mock toolkit boots a tree for the facade's own wiring tests (install_edit_commands).
 day-mock = { path = "../day-mock" }
+
+[lints]
+workspace = true

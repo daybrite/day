@@ -97,6 +97,7 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
 
 /// The first candidate the running icon theme actually has. Setting a name the theme lacks
 /// paints GTK's broken-image glyph, which is worse than the item's own text.
+#[must_use]
 pub fn icon_name_for(s: Symbol) -> Option<&'static str> {
     icon_name(s)
 }
@@ -177,7 +178,7 @@ fn leading(item: &ToolbarItem) -> bool {
 
 /// Release a widget Day took off the bar one main-loop turn later, not here.
 ///
-/// A button dressed by `set_icon_name` holds a themed GIcon, and GTK resolves that to a
+/// A button dressed by `set_icon_name` holds a themed `GIcon`, and GTK resolves that to a
 /// paintable LAZILY — inside the frame clock's CSS validation (`gtk_image_css_changed` →
 /// `gtk_icon_helper_ensure_paintable` → `gtk_icon_theme_lookup_icon`), which runs after the
 /// removal returns. Finalizing the button inline leaves that pass walking an object the toolkit
@@ -214,6 +215,7 @@ pub(crate) fn register_header(window: &impl IsA<gtk4::Window>, header: &adw::Hea
 }
 
 /// The header bar of the window `h` lives in.
+#[must_use]
 pub fn header_of(h: &Handle) -> Option<(gtk4::Window, adw::HeaderBar)> {
     let root = h.root()?;
     let window = root.downcast::<gtk4::Window>().ok()?;
@@ -224,7 +226,7 @@ pub fn header_of(h: &Handle) -> Option<(gtk4::Window, adw::HeaderBar)> {
 impl Gtk {
     /// Edit this window's header-bar items (docs/toolbars.md): each op adds or takes away one
     /// widget, and nothing else on the bar moves.
-    pub(crate) fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
+    pub(crate) fn edit_toolbar(h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
         let Some((window, header)) = header_of(h) else {
             return false;
         };
@@ -288,14 +290,14 @@ impl Gtk {
         });
         if empty {
             BARS.with(|b| {
-                b.remove(key);
+                let _ = b.remove(key);
             });
         }
         true
     }
 
     /// Apply a targeted change to one live item.
-    pub(crate) fn patch_toolbar(&mut self, h: &Handle, patch: &ToolbarPatch) {
+    pub(crate) fn patch_toolbar(h: &Handle, patch: &ToolbarPatch) {
         let Some((window, _)) = header_of(h) else {
             return;
         };

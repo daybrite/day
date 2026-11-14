@@ -41,7 +41,7 @@ pub(crate) fn cover_presented(cover: usize, window: &NSWindow) {
     if COVER_WINDOWS.with(|c| c.contains(cover)) {
         return;
     }
-    let key = window as *const NSWindow as usize;
+    let key = std::ptr::from_ref::<NSWindow>(window) as usize;
     COVER_COUNTS.with(|c| {
         let count = c.with(key, |n| *n).unwrap_or(0);
         c.insert(key, count + 1);
@@ -52,7 +52,7 @@ pub(crate) fn cover_presented(cover: usize, window: &NSWindow) {
 
 pub(crate) fn cover_dismissed(cover: usize) {
     COVER_WINDOWS.with(|c| {
-        c.remove(cover);
+        let _ = c.remove(cover);
     });
 }
 
@@ -66,6 +66,7 @@ fn sf_symbol(s: Symbol) -> &'static str {
 /// staged vector (as a template image) for a bundled one. Public as [`crate::toolbar_image`]
 /// for the piece renderers that build their own `NSToolbar` on a Day window (the settings
 /// panel's preference tabs), so their items resolve icons exactly as Day's toolbar does.
+#[must_use]
 pub fn image_for(icon: &Icon, label: &str, mtm: MainThreadMarker) -> Option<Retained<NSImage>> {
     match icon {
         Icon::Symbol(s) => {
@@ -87,10 +88,10 @@ pub fn image_for(icon: &Icon, label: &str, mtm: MainThreadMarker) -> Option<Reta
         // toolbar button reading "Star" where a star belonged. NSImage renders the SVG at whatever
         // size the bar asks for, which is the better result anyway.
         Icon::Image(name) => {
+            use objc2::AllocAnyThread as _;
             let _ = mtm;
             let path = day_spec::resource::resolve_vector_svg(name)
                 .or_else(|| day_spec::resource::resolve_image_file(name))?;
-            use objc2::AllocAnyThread as _;
             let img = unsafe {
                 NSImage::initWithContentsOfFile(
                     NSImage::alloc(),
@@ -146,8 +147,7 @@ define_class!(
                     KIND_TOGGLE => {
                         let on = sender
                             .downcast_ref::<NSButton>()
-                            .map(|b| b.state() == NSControlStateValueOn)
-                            .unwrap_or(false);
+                            .is_some_and(|b| b.state() == NSControlStateValueOn);
                         emit(
                             day_spec::WINDOW_NODE,
                             Event::ToolbarChanged {
@@ -159,8 +159,7 @@ define_class!(
                     KIND_SEGMENTED => {
                         let index = sender
                             .downcast_ref::<objc2_app_kit::NSSegmentedControl>()
-                            .map(|c| unsafe { c.selectedSegment() })
-                            .unwrap_or(0);
+                            .map_or(0, |c| unsafe { c.selectedSegment() });
                         if index >= 0 {
                             emit(
                                 day_spec::WINDOW_NODE,
@@ -175,7 +174,7 @@ define_class!(
                     // toolbar button and its menu-bar twin.
                     _ => emit(day_spec::WINDOW_NODE, Event::MenuAction(ivars.action)),
                 }
-            })
+            });
         }
     }
 );
@@ -323,7 +322,7 @@ struct WinToolbar {
     toolbar: Retained<NSToolbar>,
     /// The toolbar holds its delegate weakly, and each item holds its target weakly, so both
     /// must be owned here for the window's lifetime.
-    _delegate: Retained<BarDelegate>,
+    delegate: Retained<BarDelegate>,
     /// The window's whole bar, as Day's edits and patches left it (docs/toolbars.md).
     mirror: day_spec::ToolbarMirror,
     targets: HashMap<String, Retained<ItemTarget>>,
@@ -421,7 +420,8 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
         })
         .unwrap_or_default()
     });
-    let refs: Vec<&NSToolbarItemIdentifier> = names.iter().map(|n| n.as_ref()).collect();
+    let refs: Vec<&NSToolbarItemIdentifier> =
+        names.iter().map(std::convert::AsRef::as_ref).collect();
     NSArray::from_slice(&refs)
 }
 
@@ -480,7 +480,7 @@ fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
     }
 }
 
-/// Build the NSToolbarItem for `ident`. AppKit asks for a fresh item each time (including when
+/// Build the `NSToolbarItem` for `ident`. AppKit asks for a fresh item each time (including when
 /// it builds the overflow menu), so nothing here is cached.
 fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<NSToolbarItem>> {
     // The content-list divider's tracking separator. AppKit builds the sidebar's from its own
@@ -688,7 +688,7 @@ pub(crate) fn window_of(h: &Handle) -> Option<Retained<NSWindow>> {
 
 impl AppKit {
     /// Edit this window's toolbar (docs/toolbars.md). Each op adds or takes away one item;
-    /// every NSToolbarItem no op names stays exactly as it is, so a search field being typed
+    /// every `NSToolbarItem` no op names stays exactly as it is, so a search field being typed
     /// into keeps its field editor while the page commands around it change.
     pub(crate) fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
         let Some(window) = window_of(h) else {
@@ -720,7 +720,7 @@ impl AppKit {
                     key,
                     WinToolbar {
                         toolbar,
-                        _delegate: delegate,
+                        delegate,
                         mirror: day_spec::ToolbarMirror::default(),
                         targets: HashMap::new(),
                     },
@@ -771,11 +771,11 @@ impl AppKit {
             // No commands at all now: the bar comes off the window.
             window.setToolbar(None);
             BARS.with(|b| {
-                b.remove(key);
+                let _ = b.remove(key);
             });
         } else if fresh {
             // A new bar asks its delegate for its items as it is attached.
-            let delegate = BARS.with(|b| b.with(key, |w| w._delegate.clone()));
+            let delegate = BARS.with(|b| b.with(key, |w| w.delegate.clone()));
             if let Some(delegate) = delegate {
                 toolbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
             }
@@ -806,7 +806,7 @@ impl AppKit {
     }
 
     /// Apply a targeted change to one live item.
-    pub(crate) fn patch_toolbar(&mut self, h: &Handle, patch: &ToolbarPatch) {
+    pub(crate) fn patch_toolbar(h: &Handle, patch: &ToolbarPatch) {
         let Some(window) = window_of(h) else { return };
         let key = Retained::as_ptr(&window) as usize;
         // Keep the model in step, so an item rebuilt later (the overflow menu asks for fresh
@@ -826,7 +826,7 @@ impl AppKit {
             return;
         };
         let target_id = patch.item().to_string();
-        for bar_item in toolbar.items().iter() {
+        for bar_item in &toolbar.items() {
             if bar_item.itemIdentifier().to_string() != target_id {
                 continue;
             }

@@ -109,7 +109,7 @@ fn make(backend: &mut AppKit, p: &ComboProps, id: NodeId) -> Retained<NSView> {
     let ns: Retained<NSView> = Retained::from(<NSComboBox as AsRef<NSView>>::as_ref(&combo));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((ns.as_ref() as *const NSView) as usize, target)
+            .insert(std::ptr::from_ref::<NSView>(ns.as_ref()) as usize, target)
     });
     ns
 }
@@ -144,7 +144,7 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     TARGETS.with(|m| {
         m.borrow_mut()
-            .remove(&((h.as_ref() as *const NSView) as usize));
+            .remove(&(std::ptr::from_ref::<NSView>(h.as_ref()) as usize));
     });
 }
 

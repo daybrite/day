@@ -106,3 +106,6 @@ harness = false
 [[test]]
 name = "native_text_field_select"
 harness = false
+
+[lints]
+workspace = true

@@ -91,6 +91,7 @@ fn iso(fields: DateFields, (y, m, d): (i32, u8, u8), (hh, mm, ss): (u8, u8, u8))
 /// Write the instant `epoch_seconds` (seconds since 1970-01-01T00:00:00Z, read as UTC civil
 /// time, the convention of the Fluent `DATETIME()` builtin and of chart time axes) in `locale`,
 /// showing `fields` (untracked).
+#[must_use]
 pub fn format_date_in(locale: &str, epoch_seconds: f64, fields: DateFields) -> String {
     if !epoch_seconds.is_finite() {
         return format!("{epoch_seconds}");
@@ -121,6 +122,7 @@ pub fn format_date_in(locale: &str, epoch_seconds: f64, fields: DateFields) -> S
 
 /// [`format_date_in`] in the current locale (tracked, like [`crate::format_decimal`]), so a label
 /// inside a reactive closure re-renders when the locale switches.
+#[must_use]
 pub fn format_date(epoch_seconds: f64, fields: DateFields) -> String {
     let locale = crate::locale().get();
     format_date_in(&locale, epoch_seconds, fields)

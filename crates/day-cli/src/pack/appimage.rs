@@ -11,8 +11,8 @@
 //! Releases ship both, and the one-line launcher (daybrite/actions) reaches for the AppImage.
 //!
 //! Day does not implement the bundling: `linuxdeploy` walks the binary's `DT_NEEDED` closure and
-//! copies it in, its `gtk`/`qt` plugin adds the parts a plain `ldd` walk misses (GdkPixbuf
-//! loaders, GIO modules, GSettings schemas; Qt's platform plugins), and `--output appimage` seals
+//! copies it in, its `gtk`/`qt` plugin adds the parts a plain `ldd` walk misses (`GdkPixbuf`
+//! loaders, GIO modules, `GSettings` schemas; Qt's platform plugins), and `--output appimage` seals
 //! the result. Reimplementing that here would be reimplementing it badly: the failure modes are
 //! all in the parts an `ldd` closure does not see.
 //!

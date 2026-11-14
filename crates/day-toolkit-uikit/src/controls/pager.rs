@@ -30,7 +30,9 @@ impl State {
         forward: bool,
     ) -> Option<Retained<UIViewController>> {
         let pages = self.pages.borrow();
-        let slot = pages.iter().position(|p| std::ptr::eq(&**p, page))?;
+        let slot = pages
+            .iter()
+            .position(|p| std::ptr::eq(&raw const **p, page))?;
         let config = self.config.borrow();
         let pos = config.order.iter().position(|s| *s == slot)?;
         let pos = if forward {
@@ -93,7 +95,7 @@ define_class!(
         fn finish(&self, controller: &UIPageViewController, _: bool, _: &NSArray<UIViewController>, completed: bool) {
             if let Some(state) = self.ivars().state.upgrade() {
                 if completed && let Some(pages) = controller.viewControllers() && let Some(page) = pages.firstObject()
-                    && let Some(slot) = state.pages.borrow().iter().position(|p| std::ptr::eq(&**p, &*page)) {
+                    && let Some(slot) = state.pages.borrow().iter().position(|p| std::ptr::eq(&raw const **p, &raw const *page)) {
                     state.current.set(slot);
                 }
                 state.finished.set(state.serial.get());
@@ -129,7 +131,7 @@ define_class!(
         #[unsafe(method(didAddSubview:))]
         fn added(&self, child: &UIView) {
             let state = &self.ivars().state;
-            if state.controller.view().is_some_and(|v| std::ptr::eq(&*v,child)) { return; }
+            if state.controller.view().is_some_and(|v| std::ptr::eq(&raw const *v,child)) { return; }
             if state.pages.borrow().len() >= state.capacity { return; }
             let controller = UIViewController::new(self.mtm());
             child.removeFromSuperview(); controller.setView(Some(child));

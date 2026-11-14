@@ -33,7 +33,7 @@ unsafe extern "C" {
 extern "C" fn on_select(id: u64, idx: c_int) {
     // Contained: a panic unwinding into the C++ shim frame is UB (day-spec's ffi_guard).
     day_spec::ffi_guard::contain((), || {
-        crate::emit(NodeId(id), Event::SelectionChanged(idx as i64))
+        crate::emit(NodeId(id), Event::SelectionChanged(i64::from(idx)));
     });
 }
 
@@ -73,7 +73,7 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &PickerPatch) {
         PickerPatch::Selected(i) => unsafe { day_picker_set_selected(h.0, *i as c_int) },
         PickerPatch::Options(opts) => unsafe { day_picker_set_options(h.0, joined(opts).as_ptr()) },
         PickerPatch::Enabled(on) => unsafe {
-            crate::ffi::day_qt_set_enabled(h.0, c_int::from(*on))
+            crate::ffi::day_qt_set_enabled(h.0, c_int::from(*on));
         },
     }
 }
@@ -81,7 +81,7 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &PickerPatch) {
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_qt_size_hint(h.0, &mut w, &mut hh) };
+    unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(60.0), hh.max(22.0))
 }
 
@@ -98,28 +98,32 @@ pub(crate) fn realize_any(
     }
 }
 
-pub(crate) fn update_any(b: &mut crate::Qt, h: &crate::Handle, patch: &dyn std::any::Any) {
+pub(crate) fn update_any(b: &mut crate::Qt, h: crate::Handle, patch: &dyn std::any::Any) {
     if let Some(p) = patch.downcast_ref::<PickerPatch>() {
-        update(b, h, p);
+        update(b, &h, p);
     }
 }
 
 pub(crate) fn measure_any(
     b: &mut crate::Qt,
-    h: &crate::Handle,
+    h: crate::Handle,
     p: day_spec::Proposal,
 ) -> day_spec::Size {
-    measure(b, h, p)
+    measure(b, &h, p)
 }
 
 /// The option a picker shows, for `read_native`: the combo's text, or the checked segment's or
 /// radio's title without its `&` mnemonic markers. `None` when `w` is not a picker (the outer
 /// `Option`), or when nothing is selected (the inner one).
+#[expect(
+    clippy::option_option,
+    reason = "outer `None` is a widget that is no picker; the inner value is the picker's optional selection"
+)]
 pub(crate) fn selected_text(w: *mut c_void) -> Option<Option<String>> {
     let mut out: *mut c_char = std::ptr::null_mut();
     // SAFETY: `w` is a live QWidget Day realized; the shim checks it is a DayPicker and writes a
     // heap string (or NULL) to `out`, released below with the matching `free`.
-    let kind = unsafe { day_picker_selected_text(w, &mut out) };
+    let kind = unsafe { day_picker_selected_text(w, &raw mut out) };
     if kind < 0 {
         return None;
     }

@@ -46,6 +46,7 @@ pub fn when<P: Piece>(
 }
 
 /// A conditional subtree, optionally with an else arm. Built by [`when`].
+#[must_use]
 pub struct When {
     cond: Rc<dyn Fn() -> bool>,
     then: Rc<dyn Fn() -> AnyPiece>,
@@ -168,6 +169,7 @@ impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
     /// `label(move || slot.get())`, not eagerly. A recycling [`list()`] rebinds one physical row to
     /// many items, and only bindings that read the slot reactively update on rebind; an eager
     /// `let name = slot.get()` freezes the row at its first item.
+    #[must_use]
     pub fn get(self) -> T {
         self.sig.get()
     }
@@ -182,6 +184,7 @@ impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
     }
     /// Tracked identity read, so reactive ids and row actions follow cell recycling.
     /// Read inside a closure, just like [`get`](Self::get).
+    #[must_use]
     pub fn key(self) -> K {
         self.key.get()
     }
@@ -351,6 +354,7 @@ impl<T: Clone + 'static> Loaded<T> {
     /// The value, tracked: inside a label or a binding this follows a reload's new value.
     /// While the state is between values (loading again, or failed) the last ready value is
     /// returned, so the arm never sees a hole.
+    #[must_use]
     pub fn get(&self) -> T {
         if let day_reactive::Load::Ready(v) = (self.source)() {
             *self.last.borrow_mut() = v.clone();
@@ -397,6 +401,7 @@ where
 }
 
 /// The piece [`load`] builds.
+#[must_use]
 pub struct LoadPiece<T: 'static> {
     source: Rc<dyn Fn() -> day_reactive::Load<T>>,
     ready: Rc<dyn Fn(Loaded<T>) -> AnyPiece>,
@@ -494,6 +499,7 @@ pub fn adaptive<C: PieceSeq>(children: C) -> Adaptive<C> {
 }
 
 /// The piece [`adaptive`] builds.
+#[must_use]
 pub struct Adaptive<C: PieceSeq> {
     children: C,
     spacing: f64,
@@ -553,7 +559,7 @@ impl Layout for AdaptiveLayout {
         self.stack().measure(cx, children, p)
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
-        self.stack().place(cx, children, bounds)
+        self.stack().place(cx, children, bounds);
     }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
         self.stack().baseline(cx, children, size)
@@ -708,7 +714,7 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> RowConn for ItemsConn<T, K> 
         let its = (self.f)();
         let toks: Vec<u64> = its.iter().map(|t| key_token(&(self.key_of)(t))).collect();
         *self.snapshot.borrow_mut() = its;
-        *self.tokens.borrow_mut() = toks.clone();
+        (*self.tokens.borrow_mut()).clone_from(&toks);
         toks
     }
     fn len(&self) -> usize {
@@ -772,6 +778,10 @@ struct EachRow<S: 'static> {
 
 /// Reactive keyed collection (§5.4): keyed diff, per-key child scopes, slot rebinds for
 /// surviving rows, debug key-uniqueness assertion. Takes any [`RowSource`].
+///
+/// # Panics
+///
+/// In debug builds, panics when two rows of one update share a key.
 pub fn each<S, P>(source: S, build_row: impl Fn(S::Slot) -> P + 'static) -> impl Piece
 where
     S: RowSource + 'static,
@@ -880,6 +890,7 @@ fn key_token<K: Hash>(k: &K) -> u64 {
 /// A native recycling list: the platform widget owns scrolling + cell reuse; Day builds each
 /// visible row once and *rebinds* it as cells recycle. Takes any [`RowSource`]; shares the row
 /// contract with [`each`], so migrating a collection between them is a one-word change.
+#[must_use]
 pub struct List<S: RowSource> {
     source: Option<S>,
     build_row: Rc<dyn Fn(S::Slot) -> AnyPiece>,
@@ -953,6 +964,7 @@ impl ItemIcon {
 }
 
 /// A list row's standard content, built by [`list_item`] (docs/list.md "List items").
+#[must_use]
 pub struct ListItem {
     title: TextSource,
     subtitle: Option<TextSource>,
@@ -1159,6 +1171,7 @@ type SwipeProvider = Rc<dyn Fn(usize) -> Vec<SwipeAction>>;
 /// One button in a row's swipe-action offer (docs/list.md): what the platform reveals as the
 /// user drags a row aside, built by [`swipe_action`]. Holds the label, the styling hints the
 /// backend maps onto its own affordance, and the handler the activation runs.
+#[must_use]
 pub struct SwipeAction {
     label: TextSource,
     destructive: bool,
@@ -1220,6 +1233,7 @@ impl SwipeAction {
 /// lift, Android's `ItemTouchHelper`) where the backend supports it (probe `Cap::ListReorder`;
 /// docs/list.md has the matrix).
 #[derive(Clone)]
+#[must_use]
 pub struct Reorder {
     moved: Rc<dyn Fn(usize, usize)>,
     guard: Option<Rc<dyn Fn(usize, usize) -> ReorderVerdict>>,
@@ -1266,6 +1280,7 @@ impl Reorder {
 /// (probe `Cap::ListDelete`). The desktop toolkits answer `Unsupported`, so a list that must be
 /// editable everywhere pairs this with an explicit control (a menu item or a button).
 #[derive(Clone)]
+#[must_use]
 pub struct Delete {
     deleted: Rc<dyn Fn(usize)>,
     label: Option<TextSource>,
@@ -1995,7 +2010,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
         if let Some(trigger) = self.scroll_to_end {
             watch(
                 move || trigger.track(),
-                move |_: &(), _| list_scroll_to_end(node),
+                move |(): &(), _| list_scroll_to_end(node),
             );
         }
 
@@ -2549,8 +2564,7 @@ impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> TreeConn for BranchesCo
             .borrow()
             .children
             .get(&parent)
-            .map(|v| v.len())
-            .unwrap_or(0)
+            .map_or(0, std::vec::Vec::len)
     }
     fn child_token(&self, parent: Option<u64>, index: usize) -> u64 {
         self.shape
@@ -2602,6 +2616,7 @@ impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> TreeConn for BranchesCo
 /// re-parent, an optional guard consulted while the drag is live, and whether the gesture is
 /// offered right now. A tree is movable exactly when it carries one of these
 /// (`tree(..).movable(Move::new(f))`). The [`list()`] counterpart is [`Reorder`].
+#[must_use]
 pub struct Move<K: 'static> {
     moved: TreeMoveFn<K>,
     guard: Option<TreeGuardFn<K>>,
@@ -2638,6 +2653,7 @@ impl<K: 'static> Move<K> {
     }
 }
 
+#[must_use]
 pub struct TreePiece<S: NodeSource> {
     source: Option<S>,
     build_row: Rc<dyn Fn(S::Slot) -> AnyPiece>,
@@ -2719,7 +2735,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
     }
     /// Render a two-level source as sections. Root branches are headings and cannot be
     /// selected; root leaves remain ordinary rows. Children must be leaves. This enables
-    /// native ExpandableListView on Android, where arbitrary-depth trees are composed.
+    /// native `ExpandableListView` on Android, where arbitrary-depth trees are composed.
     pub fn section_headers(mut self) -> Self {
         self.section_headers = true;
         self
@@ -2823,6 +2839,23 @@ impl<S: NodeSource + 'static> TreePiece<S> {
     /// `expand:`/`tree_move:` steps drive the composed tree exactly as they drive a native
     /// one (`attach_tree` is the no-op default off the native path; nothing pulls cells).
     fn build_composed(mut self, cx: &mut BuildCx) -> RNode {
+        // The visible rows, in display order: a refresh (the tracked shape read) plus a DFS
+        // that descends only into expanded rows. This is the list's row set.
+        fn visible<C: TreeConn + ?Sized>(
+            conn: &C,
+            is_open: &dyn Fn(u64) -> bool,
+            parent: Option<u64>,
+            depth: u16,
+            out: &mut Vec<(u64, u16)>,
+        ) {
+            for i in 0..conn.children_len(parent) {
+                let t = conn.child_token(parent, i);
+                out.push((t, depth));
+                if is_open(t) {
+                    visible(conn, is_open, Some(t), depth + 1, out);
+                }
+            }
+        }
         /// Disclosure column width, and the default per-depth indent where the platform
         /// offers no native step to inherit.
         const CHEVRON_W: f64 = 18.0;
@@ -2883,28 +2916,11 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         let expandable_of: Rc<dyn Fn(u64) -> bool> = {
             let (conn, f) = (conn.clone(), self.expandable.clone());
             Rc::new(move |tok| match &f {
-                Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or(false),
+                Some(f) => conn.key_of(tok).is_some_and(|k| f(&k)),
                 None => conn.children_len(Some(tok)) > 0,
             })
         };
 
-        // The visible rows, in display order: a refresh (the tracked shape read) plus a DFS
-        // that descends only into expanded rows. This is the list's row set.
-        fn visible<C: TreeConn + ?Sized>(
-            conn: &C,
-            is_open: &dyn Fn(u64) -> bool,
-            parent: Option<u64>,
-            depth: u16,
-            out: &mut Vec<(u64, u16)>,
-        ) {
-            for i in 0..conn.children_len(parent) {
-                let t = conn.child_token(parent, i);
-                out.push((t, depth));
-                if is_open(t) {
-                    visible(conn, is_open, Some(t), depth + 1, out);
-                }
-            }
-        }
         let flatten: Rc<dyn Fn() -> Vec<(u64, u16)>> = {
             let (conn, is_open) = (conn.clone(), is_open.clone());
             Rc::new(move || {
@@ -2931,7 +2947,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                     // A stale mid-reload pull: an empty row instead of a panic.
                     return AnyPiece::new(crate::spacer());
                 };
-                let depth = Rc::new(std::cell::Cell::new(depth0 as f64));
+                let depth = Rc::new(std::cell::Cell::new(f64::from(depth0)));
                 let chevron = {
                     let (is_open, expandable_of) = (is_open.clone(), expandable_of.clone());
                     let (set_open, is_open_tap) = (set_open.clone(), is_open.clone());
@@ -2979,7 +2995,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                             move || slot.get(),
                             move |(tok, d), _| {
                                 conn.rebind(&user_slot, *tok);
-                                depth.set(*d as f64);
+                                depth.set(f64::from(*d));
                                 set_ids(*tok);
                             },
                         );
@@ -3020,7 +3036,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
             build_row,
         )
         .row_height(self.row_height)
-        .apply_if(self.multi_select, |l| l.multi_select())
+        .apply_if(self.multi_select, ListBuilder::multi_select)
         .scroll_to_row(scroll_sig);
         // A composed list may report a heading click. Reapply the last destination
         // selection even when the app's signal did not change, so headers never stay lit.
@@ -3129,11 +3145,9 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                 let (conn, row_id) = (conn.clone(), self.row_id.clone());
                 Box::new(move |id| {
                     let rid = row_id.as_ref()?;
-                    conn.tokens_now().into_iter().find(|t| {
-                        conn.key_of(*t)
-                            .map(|k| rid(&k).as_str() == id)
-                            .unwrap_or(false)
-                    })
+                    conn.tokens_now()
+                        .into_iter()
+                        .find(|t| conn.key_of(*t).is_some_and(|k| rid(&k).as_str() == id))
                 })
             },
             row_menu: None,
@@ -3329,7 +3343,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
         let expandable_of: Rc<dyn Fn(u64) -> bool> = {
             let (conn, f) = (conn.clone(), self.expandable.clone());
             Rc::new(move |tok| match &f {
-                Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or(false),
+                Some(f) => conn.key_of(tok).is_some_and(|k| f(&k)),
                 None => conn.children_len(Some(tok)) > 0,
             })
         };
@@ -3360,41 +3374,39 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                     let Some(key) = conn_ev.key_of(*token) else {
                         return;
                     };
-                    let was = expanded_sig
-                        .map(|sig| day_reactive::untrack(|| sig.with(|s| s.contains(&key))))
-                        .unwrap_or_else(|| open.borrow().contains(token));
+                    let was = expanded_sig.map_or_else(
+                        || open.borrow().contains(token),
+                        |sig| day_reactive::untrack(|| sig.with(|s| s.contains(&key))),
+                    );
                     if was == *expanded {
                         return;
                     }
-                    match &expanded_sig {
+                    if let Some(sig) = &expanded_sig {
                         // The app's set follows the disclosure, and the expansion watch
                         // derives the patch. The record does not move here: for a native
                         // click the patch is a redundant no-op, and for a synthetic event
                         // (the dayscript `expand:` step) it is the very thing that discloses
                         // the row; pre-moving the record swallowed it.
-                        Some(sig) => {
-                            if let Some(key) = conn_ev.key_of(*token) {
-                                sig.update(|set| {
-                                    if *expanded {
-                                        set.insert(key.clone());
-                                    } else {
-                                        set.remove(&key);
-                                    }
-                                });
-                            }
+                        if let Some(key) = conn_ev.key_of(*token) {
+                            sig.update(|set| {
+                                if *expanded {
+                                    set.insert(key.clone());
+                                } else {
+                                    set.remove(&key);
+                                }
+                            });
                         }
+                    } else {
                         // No app signal: this record IS the expansion state.
                         // The native tree is told too: a no-op after a native click, and for a
                         // synthetic event (the dayscript `expand:` step) the disclosure itself,
                         // which recording alone never showed.
-                        None => {
-                            if *expanded {
-                                open.borrow_mut().insert(*token);
-                            } else {
-                                open.borrow_mut().remove(token);
-                            }
-                            day_core::tree_set_expanded(node, *token, *expanded);
+                        if *expanded {
+                            open.borrow_mut().insert(*token);
+                        } else {
+                            open.borrow_mut().remove(token);
                         }
+                        day_core::tree_set_expanded(node, *token, *expanded);
                     }
                     if let Some(f) = &changed {
                         f(key, *expanded);
@@ -3483,11 +3495,9 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                 let (conn, row_id) = (conn.clone(), self.row_id.clone());
                 Box::new(move |id| {
                     let rid = row_id.as_ref()?;
-                    conn.tokens_now().into_iter().find(|t| {
-                        conn.key_of(*t)
-                            .map(|k| rid(&k).as_str() == id)
-                            .unwrap_or(false)
-                    })
+                    conn.tokens_now()
+                        .into_iter()
+                        .find(|t| conn.key_of(*t).is_some_and(|k| rid(&k).as_str() == id))
                 })
             },
             row_menu: self.row_menu.clone().map(|f| {
@@ -3646,7 +3656,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                 move || conn2.refresh(),
                 move |shape: &Vec<(u64, Option<u64>)>, _| {
                     let unchanged = !conn3.values_flow_by_reload() && *last.borrow() == *shape;
-                    *last.borrow_mut() = shape.clone();
+                    (*last.borrow_mut()).clone_from(shape);
                     if unchanged {
                         return;
                     }
@@ -3804,7 +3814,7 @@ pub(crate) mod conformance {
     }
 
     fn names(list: &[&str]) -> Signal<Vec<String>> {
-        Signal::new(list.iter().map(|s| s.to_string()).collect())
+        Signal::new(list.iter().map(std::string::ToString::to_string).collect())
     }
 
     /// A list item realizes as the platform's own row content (docs/list.md "List items"),
@@ -4159,7 +4169,7 @@ pub(crate) mod conformance {
                             rows.update(|v| {
                                 let item = v.remove(from);
                                 v.insert(to.min(v.len()), item);
-                            })
+                            });
                         }))
                         .id(day_core::id!(list))
                         .height(200.0),
@@ -4185,7 +4195,7 @@ pub(crate) mod conformance {
                         .deletable(Delete::new(move |at| {
                             rows.update(|v| {
                                 v.remove(at);
-                            })
+                            });
                         }))
                         .id(day_core::id!(list))
                         .height(200.0),
@@ -4270,7 +4280,7 @@ pub(crate) mod conformance {
 
     /// The most rows a five-row viewport may have alive once the host has settled: its own
     /// pool and nothing visited earlier. The pools measured: AppKit 5, Qt 21 (the viewport plus
-    /// two overscans), the mock 20, Android and UIKit a few dozen, and GtkListView 205: it
+    /// two overscans), the mock 20, Android and UIKit a few dozen, and `GtkListView` 205: it
     /// keeps up to 200 spare items by design (`GTK_LIST_VIEW_MAX_LIST_ITEMS`) and rebinds them.
     /// A leak grows with every row visited instead, and the cases visit many more rows than
     /// this, so the bound stays tight against it.
@@ -4613,7 +4623,7 @@ pub(crate) mod conformance {
                     button("restore")
                         .id(day_core::id!(restore))
                         .action(move || {
-                            open.set(std::collections::HashSet::from(["Fruit".to_owned()]))
+                            open.set(std::collections::HashSet::from(["Fruit".to_owned()]));
                         }),
                     button("filter")
                         .id(day_core::id!(filter))
@@ -4673,7 +4683,7 @@ pub(crate) mod conformance {
                                 if let Some(n) = v.iter_mut().find(|n| n.0 == key) {
                                     n.1 = parent;
                                 }
-                            })
+                            });
                         }))
                         .id(day_core::id!(tree))
                         .height(240.0),

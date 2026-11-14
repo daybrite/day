@@ -31,3 +31,6 @@ gtk = ["dep:day-toolkit-gtk", "dep:gtk4"]
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
 backends = ["appkit", "gtk"]
+
+[lints]
+workspace = true

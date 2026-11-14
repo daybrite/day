@@ -179,7 +179,7 @@ unsafe extern "C" {
     /// Make a label's text user-selectable (the `.selectable()` modifier). No-op on non-labels.
     pub fn day_qt_label_set_selectable(w: *mut c_void, on: c_int);
     /// `QFontDatabase::addApplicationFont` — returns the font id (>= 0) or -1 on failure.
-    /// Requires a constructed QApplication.
+    /// Requires a constructed `QApplication`.
     pub fn day_qt_register_font(path: *const c_char) -> c_int;
     pub fn day_qt_label_height_for_width(w: *mut c_void, width: c_int) -> c_int;
 
@@ -193,7 +193,7 @@ unsafe extern "C" {
     );
     pub fn day_qt_button_set_title(w: *mut c_void, title: *const c_char);
     pub fn day_qt_button_set_style(w: *mut c_void, kind: c_int, argb: u32, fg_argb: u32);
-    /// `ButtonProps::selected`: a checked QPushButton, restored after each click.
+    /// `ButtonProps::selected`: a checked `QPushButton`, restored after each click.
     pub fn day_qt_button_set_selected(w: *mut c_void, on: c_int);
 
     pub fn day_qt_checkbox_new(on: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
@@ -223,12 +223,12 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, *const c_char, c_int, c_int) -> c_int,
     );
     /// Select characters (Unicode scalar values) `start..end`, held to the text, caret at
-    /// `end`. No-op on a widget that is not a QLineEdit.
+    /// `end`. No-op on a widget that is not a `QLineEdit`.
     pub fn day_qt_lineedit_select(w: *mut c_void, start: c_int, end: c_int);
     /// How a line edit takes its text (`Toolkit::set_input_traits`): password echo, read-only,
     /// and the input-method hints for `purpose` (0 text, 1 name, 2 email, 3 url, 4 phone,
     /// 5 number, 6 decimal, 7 username, 8 password, 9 new password, 10 one-time code). Every
-    /// member is applied on every call. No-op on a widget that is not a QLineEdit.
+    /// member is applied on every call. No-op on a widget that is not a `QLineEdit`.
     pub fn day_qt_lineedit_set_traits(
         w: *mut c_void,
         secure: c_int,
@@ -253,9 +253,9 @@ unsafe extern "C" {
     );
     pub fn day_qt_tabs_move_page(tabs: *mut c_void, page: *mut c_void, index: c_int);
     pub fn day_qt_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
-    /// The first QTabWidget above `w`, or null — how a nav menu finds the suite drawing its rows.
+    /// The first `QTabWidget` above `w`, or null — how a nav menu finds the suite drawing its rows.
     pub fn day_qt_enclosing_tabs(w: *mut c_void) -> *mut c_void;
-    /// The suite's sidebar page, whose rows became the bar: kept under the QTabWidget for the
+    /// The suite's sidebar page, whose rows became the bar: kept under the `QTabWidget` for the
     /// menu's parent chain, never a tab, so tab i is destination i.
     pub fn day_qt_tabs_park(tabs: *mut c_void, page: *mut c_void);
     pub fn day_qt_tabs_add_page(
@@ -354,8 +354,8 @@ unsafe extern "C" {
     /// Explicit role, spoken value and hidden flag, served by the shim's own accessible
     /// interface (docs/accessibility.md). `role` follows `day_spec::Role` declaration order
     /// (shim.cpp carries the same table): 0 none (the widget's own role stays), 1 Button,
-    /// 2 Toggle, 3 Slider, 4 TextInput, 5 Heading with `level`, 6 Image, 7 Meter, 8 Group,
-    /// 9 Tree, 10 TreeItem, 11 Tab, 12 TabList. `value` NULL = none. Once hidden, a widget
+    /// 2 Toggle, 3 Slider, 4 `TextInput`, 5 Heading with `level`, 6 Image, 7 Meter, 8 Group,
+    /// 9 Tree, 10 `TreeItem`, 11 Tab, 12 `TabList`. `value` NULL = none. Once hidden, a widget
     /// stays hidden. `selected` -1 = unset, else the selected state.
     pub fn day_qt_set_a11y_traits(
         w: *mut c_void,
@@ -448,7 +448,7 @@ unsafe extern "C" {
     // App icon (§18.2): Dock icon on macOS, taskbar icon on Linux/Windows.
     pub fn day_qt_set_app_icon(path: *const c_char);
     /// A heap `QIcon` resolved like a toolbar item's icon (`theme|outline.svg`, a vector path,
-    /// or a QStyle standard pixmap), for a piece shim that draws icons of its own.
+    /// or a `QStyle` standard pixmap), for a piece shim that draws icons of its own.
     pub fn day_qt_icon_new(spec: *const c_char, standard_pixmap: c_int, px: c_int) -> *mut c_void;
     pub fn day_qt_icon_delete(icon: *mut c_void);
 
@@ -565,7 +565,7 @@ unsafe extern "C" {
     /// `leading` nonzero puts the panel pane first (docs/inspector.md `.edge`).
     pub fn day_qt_inspector_new(panel_width: c_double, leading: c_int) -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
-    /// A two-pane QSplitter (docs/split.md), stacked when `vertical`, each pane at least
+    /// A two-pane `QSplitter` (docs/split.md), stacked when `vertical`, each pane at least
     /// `min_pane` along the axis.
     pub fn day_qt_split_new(vertical: c_int, min_pane: c_double) -> *mut c_void;
     pub fn day_qt_split_set_orientation(w: *mut c_void, vertical: c_int, min_pane: c_double);
@@ -585,8 +585,8 @@ unsafe extern "C" {
     pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char, scale: f64) -> c_int;
 
     // Canvas fonts (docs/fonts.md).
-    /// The QFontDatabase families and styles in Day's font-list text format; a heap string to
-    /// release with [`day_qt_string_free`]. Requires a constructed QApplication.
+    /// The `QFontDatabase` families and styles in Day's font-list text format; a heap string to
+    /// release with [`day_qt_string_free`]. Requires a constructed `QApplication`.
     pub fn day_qt_font_families() -> *mut c_char;
     /// Release a string returned by [`day_qt_font_families`]. Safe to call with null.
     pub fn day_qt_string_free(p: *mut c_char);
@@ -722,14 +722,14 @@ unsafe extern "C" {
     );
     pub fn day_qt_set_context_menu(widget: *mut c_void, menu: *mut c_void);
     /// Summon-time context menus (docs/menus.md): `cb` receives (node, x, y) in widget
-    /// coordinates and returns a fresh QMenu* (null = show nothing this time).
+    /// coordinates and returns a fresh `QMenu`* (null = show nothing this time).
     pub fn day_qt_context_menu_fn(
         widget: *mut c_void,
         node: u64,
         cb: extern "C" fn(u64, c_double, c_double) -> *mut c_void,
     );
-    /// Menu buttons (docs/menus.md "Menu buttons"): the QPushButton `widget`'s click calls
-    /// `cb(key, 0, 0)` for a fresh QMenu* (null = show nothing this time) and pops it under the
+    /// Menu buttons (docs/menus.md "Menu buttons"): the `QPushButton` `widget`'s click calls
+    /// `cb(key, 0, 0)` for a fresh `QMenu`* (null = show nothing this time) and pops it under the
     /// button instead of reporting the press.
     pub fn day_qt_button_menu_fn(
         widget: *mut c_void,
@@ -739,7 +739,7 @@ unsafe extern "C" {
     /// The modifier keys held right now (docs/menus.md): shift 1, primary 2, alt 4. A query,
     /// not a callback — Qt exposes the live keyboard state directly.
     pub fn day_qt_modifiers() -> c_int;
-    /// Per-row context menus for the nav list (docs/menus.md): a parallel array of QMenu*
+    /// Per-row context menus for the nav list (docs/menus.md): a parallel array of `QMenu`*
     /// (null = no menu for that row); the shim maps a custom-context request to its row.
     pub fn day_qt_navlist_set_row_menus(w: *mut c_void, menus: *const *mut c_void, n: i32);
 }

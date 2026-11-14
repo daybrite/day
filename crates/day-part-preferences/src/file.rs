@@ -38,19 +38,25 @@ fn store_file() -> String {
 static LOCK: Mutex<()> = Mutex::new(());
 
 pub fn set(key: &str, value: &str) -> bool {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut map = load();
     map.insert(key.to_string(), value.to_string());
     save(&map)
 }
 
 pub fn get(key: &str) -> Option<String> {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     load().remove(key)
 }
 
 pub fn remove(key: &str) -> bool {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut map = load();
     if map.remove(key).is_none() {
         return false;
@@ -59,7 +65,9 @@ pub fn remove(key: &str) -> bool {
 }
 
 pub fn contains(key: &str) -> bool {
-    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     load().contains_key(key)
 }
 

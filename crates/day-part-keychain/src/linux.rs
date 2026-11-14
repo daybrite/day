@@ -4,7 +4,7 @@
 //! Desktop Linux (GTK and Qt alike): the Secret Service, through libsecret.
 //!
 //! `org.freedesktop.secrets` on the session bus is the one store a desktop Linux app can rely on:
-//! GNOME Keyring, KDE's ksecretd (KDE Frameworks 5.97 and later) and KeePassXC all serve it.
+//! GNOME Keyring, KDE's ksecretd (KDE Frameworks 5.97 and later) and `KeePassXC` all serve it.
 //! libsecret is its client library, and it is loaded at run time rather than linked, the way
 //! day-part-sound loads libpulse: a linked library is a `DT_NEEDED` entry, and an app should start
 //! on a machine without libsecret and report `Unsupported` there (docs/bridge.md "Linking").
@@ -125,7 +125,7 @@ type ListFreeFull = unsafe extern "C" fn(*mut GList, *const c_void);
 type ErrorFree = unsafe extern "C" fn(*mut GError);
 type ObjectUnref = unsafe extern "C" fn(*mut c_void);
 
-/// Every entry point this arm uses, resolved once. libsecret pulls GLib and GObject in as its
+/// Every entry point this arm uses, resolved once. libsecret pulls `GLib` and `GObject` in as its
 /// own dependencies, so their symbols come from the same process once it is loaded; they are
 /// looked up through their own libraries so the intent is plain.
 struct Lib {
@@ -337,7 +337,7 @@ fn service_reachable(lib: &Lib) -> bool {
     // SAFETY: `secret_service_get_sync` with no flags returns a cached proxy (not ours to
     // unref beyond the reference it hands back) or null with an error, freed below.
     unsafe {
-        let service = (lib.service_get_sync)(0, std::ptr::null_mut(), &mut error);
+        let service = (lib.service_get_sync)(0, std::ptr::null_mut(), &raw mut error);
         if service.is_null() {
             if !error.is_null() {
                 (lib.error_free)(error);
@@ -393,7 +393,7 @@ pub fn set(key: &str, secret: &[u8], protection: Protection) -> Result<(), Keych
             label.as_ptr(),
             password.as_ptr(),
             std::ptr::null_mut(),
-            &mut error,
+            &raw mut error,
         )
     };
     // The base64 copy is a secret too; wipe it as the CString is dropped.
@@ -412,7 +412,7 @@ fn lookup(lib: &'static Lib, key: &str) -> Result<Vec<u8>, KeychainError> {
     // SAFETY: the table is live for the call; the returned string is ours to free with
     // `secret_password_free`, which wipes it first.
     unsafe {
-        let text = (lib.lookupv_sync)(schema(), attrs.table, std::ptr::null_mut(), &mut error);
+        let text = (lib.lookupv_sync)(schema(), attrs.table, std::ptr::null_mut(), &raw mut error);
         if text.is_null() {
             return Err(if error.is_null() {
                 KeychainError::NotFound
@@ -457,7 +457,7 @@ pub fn remove(key: &str) -> Result<(), KeychainError> {
     let mut error: *mut GError = std::ptr::null_mut();
     // SAFETY: the table is live for the call.
     let cleared =
-        unsafe { (lib.clearv_sync)(schema(), attrs.table, std::ptr::null_mut(), &mut error) };
+        unsafe { (lib.clearv_sync)(schema(), attrs.table, std::ptr::null_mut(), &raw mut error) };
     if cleared != 0 {
         return Ok(());
     }
@@ -487,7 +487,7 @@ pub fn entries() -> Result<Vec<Entry>, KeychainError> {
             attrs.table,
             SEARCH_ALL,
             std::ptr::null_mut(),
-            &mut error,
+            &raw mut error,
         );
         if list.is_null() {
             return if error.is_null() {

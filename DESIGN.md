@@ -4262,7 +4262,8 @@ Two package kinds share the mechanism:
   note under [§15.2](#152-package-layout-and-aggregation). (A timezone part — the wall clock, also on wasm,
   plus IANA zone facts from jiff's bundled tzdb — shipped here until 2026-09; its one consumer,
   Day-Time, now carries that module itself, since a pure-Rust dependency with no platform arm
-  needs no part.)
+  needs no part. The wall clock itself is `day::now_epoch_secs()` / `now_epoch_millis()`, from
+  day-spec, on every target including wasm.)
 
   The keychain's `backend()` identifies its selected storage implementation independently of
   runtime availability: Linux reports `secret-service` even without a reachable session service,
@@ -5697,6 +5698,7 @@ fieldnotes/
   Day-<flavor>.toml          # optional, one per build flavor (§16.6, docs/flavors.md):
                              #   `day build --flavor <flavor>` layers it over Day.toml
   Cargo.toml                 # normal cargo project; `cargo build`/`test`/`clippy` work standalone
+                             #   (`[lints.clippy]` turns on `pedantic`, as the framework does, §20)
   build.rs                   # day_build::prebuild_project() → typed res:: constants (§18.5)
   README.md
   AGENTS.md                  # instructions for coding agents (day drive, day mcp-server, conventions)
@@ -6495,6 +6497,11 @@ triggers retain their existing behavior.
    Platform-specific lint commands remain in the backend
    jobs. Run the host script before declaring Rust changes complete; builds and tests alone
    do not establish lint cleanliness.
+   The lint policy is the root manifest's `[workspace.lints]` table, which every member
+   inherits: Clippy's `pedantic` group, less a short list of named lints that each carry their
+   reason, with `clippy.toml` holding the product names `doc_markdown` accepts as prose. The
+   jobs deny warnings, so a pedantic finding fails the same way a compiler warning does. A
+   site-level exception is `#[expect(clippy::<lint>, reason = "…")]`, never `#[allow]`.
    Clippy is a required status but NOT in
    the combos' `needs:`, so a lint error blocks merge without suppressing the platform
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
@@ -6520,7 +6527,12 @@ triggers retain their existing behavior.
    rebuild, and launch steps meet the path a user's own folder names produce (2026-09).
 3. **Framework checks** — `toolkit (<backend>)` lints the showcase against one backend crate's
    feature and scaffolds a piece/part/app for it, also under a directory with a space in its name
-   (the shared cargo target directory included, so build scripts see one too). Feature unification is why it exists — a
+   (the shared cargo target directory included, so build scripts see one too). That lint covers
+   the app: Clippy checks workspace members only, and in the showcase's checkout the backend is
+   a path dependency, compiled but not linted. So each backend job also runs
+   `scripts/ci/toolkit-clippy.sh <backend>` in this workspace, which lints the backend crate,
+   its platform crate, the tweaks and the facade under that backend's feature for the target
+   the backend builds for (2026-11; until then no job ran Clippy on a backend crate). Feature unification is why it exists — a
    `--workspace` clippy would link several backends into one binary and trip the
    one-backend-per-binary guard ([§3](#3-crate-architecture)). It used to run INSIDE the
    per-combo jobs, which made every build job framework-shaped and unusable as an app pipeline;

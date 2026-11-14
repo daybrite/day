@@ -52,7 +52,7 @@ fn uuid_keys_address_elements_and_stay_granular() {
     assert_eq!(store.elem(handle).title().peek(), "alpha");
 
     // One field write announces one field of one row, the same precision as integer keys.
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         store.elem(a).title().write("edited".into());
     });
     assert_eq!(changes.len(), 1);
@@ -122,7 +122,7 @@ fn two_stores_with_the_same_key_stay_isolated() {
     let a = Store::new(Keyed::new(vec![card(u, "in a")]));
     let b = Store::new(Keyed::new(vec![card(u, "in b")]));
 
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         a.elem(u).title().write("edited in a".into());
     });
     assert_eq!(changes.len(), 1);
@@ -202,7 +202,7 @@ fn a_worker_thread_interns_the_same_handles() {
     .expect("worker");
     assert_eq!(done, main_handle, "same key, same handle, either thread");
 
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         assert_eq!(store.pump(), 1);
     });
     assert_eq!(changes.len(), 1);
@@ -284,7 +284,7 @@ fn next_key_counts_up_and_fills_a_gap_below_the_top_bit() {
 #[test]
 fn push_remove_and_move_row_announce_structure() {
     let store = Store::new(Keyed::new(vec![task(1), task(2), task(3)]));
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         assert!(store.move_row(2, 0));
         assert!(store.remove(2));
         store.push(task(4));
@@ -294,7 +294,7 @@ fn push_remove_and_move_row_announce_structure() {
     assert!(ops.contains(&Op::Move) && ops.contains(&Op::Delete) && ops.contains(&Op::Insert));
 
     // Rejected edits announce nothing.
-    let (_, changes) = day_model::record_changes(|| {
+    let ((), changes) = day_model::record_changes(|| {
         assert!(!store.remove(99));
         assert!(!store.move_row(1, 1));
         assert!(!store.move_row(0, 3));

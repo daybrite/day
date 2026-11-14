@@ -146,7 +146,7 @@ pub fn enable_long_press(node: Handle, id: u64) {
                 .push(LongPress {
                     id,
                     recognizer: gesture,
-                })
+                });
         });
     }
 }
@@ -333,32 +333,28 @@ unsafe fn attach_two_finger(
             dispose(gesture);
             return;
         }
-        let group = match existing {
-            Some(group) => {
-                if let Some(remove) = api.removeGestureFromNode {
-                    remove(node, group.as_ptr());
+        let group = if let Some(group) = existing {
+            if let Some(remove) = api.removeGestureFromNode {
+                remove(node, group.as_ptr());
+            }
+            group
+        } else {
+            let Some(group) = NonNull::new(create_group(ArkUI_GroupGestureMode::PARALLEL_GROUP))
+            else {
+                // No group: the gesture alone, its target already set.
+                if add(
+                    node,
+                    gesture,
+                    ArkUI_GesturePriority::NORMAL,
+                    ArkUI_GestureMask::NORMAL_GESTURE_MASK,
+                ) != 0
+                {
+                    dispose(gesture);
                 }
-                group
-            }
-            None => {
-                let Some(group) =
-                    NonNull::new(create_group(ArkUI_GroupGestureMode::PARALLEL_GROUP))
-                else {
-                    // No group: the gesture alone, its target already set.
-                    if add(
-                        node,
-                        gesture,
-                        ArkUI_GesturePriority::NORMAL,
-                        ArkUI_GestureMask::NORMAL_GESTURE_MASK,
-                    ) != 0
-                    {
-                        dispose(gesture);
-                    }
-                    return;
-                };
-                TWO_FINGER.with(|m| m.borrow_mut().insert(node as usize, group));
-                group
-            }
+                return;
+            };
+            TWO_FINGER.with(|m| m.borrow_mut().insert(node as usize, group));
+            group
         };
         if add_child(group.as_ptr(), gesture) != 0 {
             dispose(gesture);

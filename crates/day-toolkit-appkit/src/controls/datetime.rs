@@ -75,7 +75,7 @@ fn date_at_epoch_seconds(secs: i64) -> Retained<NSDate> {
     NSDate::dateWithTimeIntervalSince1970(secs as f64)
 }
 
-/// A shared NSDatePicker skeleton pinned to Gregorian GMT (user locale kept for display).
+/// A shared `NSDatePicker` skeleton pinned to Gregorian GMT (user locale kept for display).
 fn make_picker(
     mtm: MainThreadMarker,
     style: Style,
@@ -105,7 +105,7 @@ fn make_picker(
     let view: Retained<NSView> = Retained::from(<NSDatePicker as AsRef<NSView>>::as_ref(&p));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((view.as_ref() as *const NSView) as usize, target)
+            .insert(std::ptr::from_ref::<NSView>(view.as_ref()) as usize, target)
     });
     (p, view)
 }
@@ -129,7 +129,7 @@ fn measure_picker(h: &Retained<NSView>) -> Size {
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     TARGETS.with(|m| {
         m.borrow_mut()
-            .remove(&((h.as_ref() as *const NSView) as usize));
+            .remove(&(std::ptr::from_ref::<NSView>(h.as_ref()) as usize));
     });
 }
 
@@ -154,6 +154,10 @@ mod date_renderer {
         view
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
         if let Some(p) = h.downcast_ref::<NSDatePicker>() {
@@ -173,6 +177,10 @@ mod date_renderer {
 mod time_renderer {
     use super::*;
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+    )]
     fn make(backend: &mut AppKit, p: &TimeProps, id: NodeId) -> Retained<NSView> {
         let (picker, view) = make_picker(
             backend.mtm(),
@@ -189,6 +197,10 @@ mod time_renderer {
         view
     }
 
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    )]
     fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
         if let Some(p) = h.downcast_ref::<NSDatePicker>() {

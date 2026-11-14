@@ -33,7 +33,7 @@ fn seed() -> Keyed<Item> {
         .map(|n| Item {
             id: n,
             name: format!("row {n}"),
-            count: n as i64,
+            count: i64::from(n),
             done: false,
         })
         .collect::<Vec<_>>();
@@ -210,7 +210,10 @@ fn a_coarse_reader_still_wakes() {
     boot(move || {
         label(move || {
             s.set(s.get() + 1);
-            format!("{} rows", store.with(|v| v.map(|k| k.len()).unwrap_or(0)))
+            format!(
+                "{} rows",
+                store.with(|v| v.map_or(0, day_model::Keyed::len))
+            )
         })
         .any()
     });

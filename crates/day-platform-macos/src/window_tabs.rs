@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! AppKit window grouping for toolkits hosted by NSWindow. The delegate proxy forwards
+//! AppKit window grouping for toolkits hosted by `NSWindow`. The delegate proxy forwards
 //! all toolkit-owned behavior; Day handles only document add/close requests.
 #![cfg(target_os = "macos")]
 
@@ -45,7 +45,7 @@ define_class!(
         #[unsafe(method(newWindowForTab:))]
         fn new_tab(&self, _sender: Option<&AnyObject>) {
             day_spec::ffi_guard::contain((), || {
-                day_core::windows::open_new_window_for_group(&self.ivars().group);
+                let _ = day_core::windows::open_new_window_for_group(&self.ivars().group);
             });
         }
     }
@@ -83,7 +83,7 @@ define_class!(
                     }
                 }
                 let id = self.ivars().id;
-                let delegate = self as *const Self as usize;
+                let delegate = std::ptr::from_ref::<Self>(self) as usize;
                 day_reactive::on_main(move || {
                     let current = WINDOWS.with(|w| w.borrow().iter().any(|e| {
                         e.id == id && Retained::as_ptr(&e.delegate) as usize == delegate
@@ -106,7 +106,7 @@ define_class!(
         #[unsafe(method(newWindowForTab:))]
         fn new_tab(&self, _sender: Option<&AnyObject>) {
             day_spec::ffi_guard::contain((), || {
-                day_core::windows::open_new_window_for_group(self.ivars());
+                let _ = day_core::windows::open_new_window_for_group(self.ivars());
             });
         }
     }
@@ -119,9 +119,9 @@ struct Entry {
 }
 thread_local! { static WINDOWS: RefCell<Vec<Entry>> = const { RefCell::new(Vec::new()) }; }
 
-/// Register a toolkit's NSWindow after realization.
+/// Register a toolkit's `NSWindow` after realization.
 /// # Safety
-/// `raw` must be a live NSWindow on the main thread. The original delegate remains retained.
+/// `raw` must be a live `NSWindow` on the main thread. The original delegate remains retained.
 pub unsafe fn register(raw: *mut c_void, id: NodeId, group: &str) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
@@ -133,7 +133,7 @@ pub unsafe fn register(raw: *mut c_void, id: NodeId, group: &str) {
     if WINDOWS.with(|w| {
         w.borrow()
             .iter()
-            .any(|e| e.id == id && std::ptr::eq(&*e.window, &*window))
+            .any(|e| e.id == id && std::ptr::eq(&raw const *e.window, &raw const *window))
     }) {
         return;
     }
@@ -170,19 +170,19 @@ pub unsafe fn register(raw: *mut c_void, id: NodeId, group: &str) {
             window,
             delegate,
             controller,
-        })
+        });
     });
 }
 /// # Safety
-/// `view` must be a live NSView on the main thread.
+/// `view` must be a live `NSView` on the main thread.
 pub unsafe fn window_from_view(view: *mut c_void) -> *mut c_void {
     // SAFETY: the caller guarantees a live NSView; as_ref handles null.
     let Some(view) = (unsafe { view.cast::<NSView>().as_ref() }) else {
         return std::ptr::null_mut();
     };
-    view.window()
-        .map(|w| Retained::as_ptr(&w).cast_mut().cast())
-        .unwrap_or(std::ptr::null_mut())
+    view.window().map_or(std::ptr::null_mut(), |w| {
+        Retained::as_ptr(&w).cast_mut().cast()
+    })
 }
 /// Restore the toolkit delegate before releasing Day's ownership.
 pub fn unregister(id: NodeId) {
@@ -235,6 +235,7 @@ pub fn group(ids: &[NodeId]) {
     }
 }
 /// Return known window IDs in native tab-group order.
+#[must_use]
 pub fn order(id: NodeId) -> Vec<NodeId> {
     let window = WINDOWS.with(|w| {
         w.borrow()
@@ -252,7 +253,7 @@ pub fn order(id: NodeId) -> Vec<NodeId> {
             .filter_map(|window| {
                 w.borrow()
                     .iter()
-                    .find(|e| std::ptr::eq(&*e.window, &*window))
+                    .find(|e| std::ptr::eq(&raw const *e.window, &raw const *window))
                     .map(|e| e.id)
             })
             .collect()

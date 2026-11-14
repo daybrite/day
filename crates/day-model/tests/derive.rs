@@ -55,7 +55,7 @@ fn seed() -> Keyed<Item> {
             .map(|n| Item {
                 id: n,
                 name: format!("row {n}"),
-                count: n as i64,
+                count: i64::from(n),
                 address: Address {
                     city: format!("city {n}"),
                     postcode: "SW1".into(),
@@ -181,7 +181,7 @@ fn a_structural_change_wakes_the_list_but_not_a_field_reader() {
             id: 99,
             name: "new".into(),
             ..Default::default()
-        })
+        });
     });
     flush_sync();
     assert_eq!(list_runs.get(), bl + 1);
@@ -206,6 +206,10 @@ day_macros::observable_impls! {
 }
 
 #[test]
+#[expect(
+    clippy::redundant_closure_for_method_calls,
+    reason = "the method path is ambiguous between `Option<&T>` and `Option<&mut T>` here"
+)]
 fn a_described_struct_gets_what_the_derive_gives() {
     assert_eq!(Described::OBSERVED_FIELDS, ["id", "title"]);
     let store = Store::new(Keyed::new(vec![Described {
@@ -235,6 +239,10 @@ pub struct Track {
 }
 
 #[test]
+#[expect(
+    clippy::redundant_closure_for_method_calls,
+    reason = "the method path is ambiguous between `Option<&T>` and `Option<&mut T>` here"
+)]
 fn model_attributes_are_tolerated_and_id_is_the_key() {
     assert_eq!(Track::OBSERVED_FIELDS, ["id", "title", "plays"]);
     let store = Store::new(Keyed::new(vec![Track {

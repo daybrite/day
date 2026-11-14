@@ -68,7 +68,7 @@ impl LoopVoice {
 }
 
 struct Engine {
-    engine: Retained<AVAudioEngine>,
+    inner: Retained<AVAudioEngine>,
     format: Retained<AVAudioFormat>,
     voices: Vec<Voice>,
     loops: Vec<LoopVoice>,
@@ -103,7 +103,7 @@ impl Engine {
             let engine = AVAudioEngine::new();
             let format = AVAudioFormat::initStandardFormatWithSampleRate_channels(
                 AVAudioFormat::alloc(),
-                RATE as f64,
+                f64::from(RATE),
                 1,
             )?;
             let mixer = engine.mainMixerNode();
@@ -136,7 +136,7 @@ impl Engine {
                 return None;
             }
             Some(Engine {
-                engine,
+                inner: engine,
                 format,
                 voices,
                 loops,
@@ -168,7 +168,7 @@ impl Engine {
             std::ptr::copy_nonoverlapping(samples.as_ptr(), (*channels).as_ptr(), samples.len());
             buffer
         };
-        let length = Duration::from_secs_f64(samples.len() as f64 / RATE as f64);
+        let length = Duration::from_secs_f64(samples.len() as f64 / f64::from(RATE));
         self.clips.insert(
             path.to_owned(),
             Clip {
@@ -184,11 +184,11 @@ impl Engine {
     fn running(&mut self) -> bool {
         // SAFETY: querying and starting the engine this module owns.
         unsafe {
-            if self.engine.isRunning() {
+            if self.inner.isRunning() {
                 return true;
             }
-            self.engine.prepare();
-            if self.engine.startAndReturnError().is_err() {
+            self.inner.prepare();
+            if self.inner.startAndReturnError().is_err() {
                 return false;
             }
         }
@@ -208,22 +208,21 @@ impl Engine {
             return;
         };
         let now = Instant::now();
-        let slot = match self.voices.iter().position(|v| v.until <= now) {
-            Some(i) => i,
-            None => {
-                let Some((i, busiest)) = self
-                    .voices
-                    .iter()
-                    .enumerate()
-                    .min_by_key(|(_, v)| (v.priority, v.started))
-                else {
-                    return;
-                };
-                if busiest.priority > priority {
-                    return;
-                }
-                i
+        let slot = if let Some(i) = self.voices.iter().position(|v| v.until <= now) {
+            i
+        } else {
+            let Some((i, busiest)) = self
+                .voices
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, v)| (v.priority, v.started))
+            else {
+                return;
+            };
+            if busiest.priority > priority {
+                return;
             }
+            i
         };
         let voice = &mut self.voices[slot];
         // SAFETY: the node belongs to this engine and the buffer is in the node's connection
@@ -302,7 +301,7 @@ impl Engine {
 }
 
 fn with_engine(f: impl FnOnce(&mut Engine)) {
-    if FAILED.with(|f| f.get()) {
+    if FAILED.with(std::cell::Cell::get) {
         return;
     }
     ENGINE.with(|e| {

@@ -79,7 +79,7 @@ fn make(_backend: &mut Uikit, p: &SearchProps, id: NodeId) -> Retained<UIView> {
     let ns: Retained<UIView> = Retained::from(<UISearchTextField as AsRef<UIView>>::as_ref(&field));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((ns.as_ref() as *const UIView) as usize, target)
+            .insert(std::ptr::from_ref::<UIView>(ns.as_ref()) as usize, target)
     });
     ns
 }
@@ -109,7 +109,7 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     TARGETS.with(|m| {
         m.borrow_mut()
-            .remove(&((h.as_ref() as *const UIView) as usize));
+            .remove(&(std::ptr::from_ref::<UIView>(h.as_ref()) as usize));
     });
 }
 

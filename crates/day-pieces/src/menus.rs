@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The app menu builder: `menu_item`, `sub_menu`, `menu_separator`, and `menu_role`, assembled
-//! with `app_menu`. Lowers to day_spec's toolkit-neutral `MenuItem` model and registers each
+//! with `app_menu`. Lowers to `day_spec`'s toolkit-neutral `MenuItem` model and registers each
 //! item's action closure.
 
 use std::cell::{Cell, RefCell};
@@ -24,6 +24,7 @@ use crate::{Decorated, IntoReactive, IntoText, Reactive, TextSource};
 /// [`sub_menu`], a standard system command with [`menu_role`], and a divider with [`menu_separator`].
 /// Attach to a Piece via [`Decorate::context_menu`](crate::decorators::Decorate::context_menu) or install app-wide via [`app_menu`].
 #[derive(Clone)]
+#[must_use]
 pub struct MenuEntry {
     id: Option<String>,
     /// The title, live: resolved (tracked) when the menu is lowered, so a localized title
@@ -96,6 +97,10 @@ impl MenuEntry {
     /// A label cannot do that job. It is localized, so it changes with the run's language, and an
     /// item that shows its own state changes it whenever the state moves, which is exactly the
     /// case [`MenuEntry::checked`] creates. Give an id to any item a script drives.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public builder signature; `id!` yields the id by value"
+    )]
     pub fn id(mut self, id: day_core::ElementId) -> MenuEntry {
         self.id = Some(id.as_str().to_owned());
         self
@@ -232,7 +237,7 @@ fn lower_menu_with(
                     role: e.bar_role,
                 }
             } else {
-                let mut action = e.action.map(register).unwrap_or(0);
+                let mut action = e.action.map_or(0, register);
                 // Tracked reads: a menu lowered inside `app_menu`'s effect re-lowers when
                 // a title, availability or check state changes.
                 let mut enabled = e.enabled.get();
@@ -397,7 +402,7 @@ fn install_menu(
 }
 
 /// Install the application menu: the native menu bar on desktop, the app-bar overflow on Android,
-/// the UIMenuBuilder main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(…)`s
+/// the `UIMenuBuilder` main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(…)`s
 /// (the menu-bar menus). Takes a list of entries or a closure that derives them.
 ///
 /// The menu is live (docs/menus.md): every title, `enabled` and `checked` is re-read, and the
@@ -446,6 +451,7 @@ pub fn dock_menu<M>(entries: impl MenuContent<M>) {
 /// The button carries the piece's [`.id`](crate::Decorate::id); each item keeps its own
 /// [`MenuEntry::id`]. A dayscript `context_menu: { id: <button>, item_id: <item> }` step chooses
 /// an item, as a press and a choice would.
+#[must_use]
 pub struct MenuButton {
     button: crate::Button,
     entries: MenuSource,
@@ -661,7 +667,7 @@ pub(crate) fn mount_composed_menu(
                     let p = pending.borrow();
                     (p.items.clone(), p.at)
                 };
-                composed_menu_host(items, at, open)
+                composed_menu_host(&items, at, open)
             })
             .unrouted()
             .background(|_| day_spec::Color::rgba(0.0, 0.0, 0.0, 0.0))
@@ -673,15 +679,15 @@ pub(crate) fn mount_composed_menu(
 /// The presented surface: a fullscreen dismiss catcher plus the item panel, placed at the
 /// summon point (clamped into the window by [`MenuPlace`]).
 fn composed_menu_host(
-    items: Vec<day_spec::MenuItem>,
+    items: &[day_spec::MenuItem],
     at: day_spec::Point,
     open: day_reactive::Signal<Option<String>>,
-) -> impl day_core::Piece {
+) -> impl day_core::Piece + use<> {
     use crate::Decorate;
 
     let mut rows: Vec<day_core::AnyPiece> = Vec::new();
     let mut next = 0usize;
-    composed_menu_rows(&items, 0.0, &mut next, open, &mut rows);
+    composed_menu_rows(items, 0.0, &mut next, open, &mut rows);
 
     let panel = crate::column(rows)
         .padding(day_spec::Insets::symmetric(0.0, 5.0))
@@ -762,11 +768,11 @@ fn composed_menu_rows(
                             day_core::dispatch_menu_action(action);
                         })
                         .tweak(move |node| {
-                            day_core::with_tree(|tree| tree.set_id(node, element_id))
+                            day_core::with_tree(|tree| tree.set_id(node, element_id));
                         })
                 } else {
                     base.opacity(0.45).tweak(move |node| {
-                        day_core::with_tree(|tree| tree.set_id(node, element_id))
+                        day_core::with_tree(|tree| tree.set_id(node, element_id));
                     })
                 };
                 out.push(day_core::AnyPiece::new(row));
@@ -1004,6 +1010,7 @@ impl Share {
 
     /// Present the chooser. Call it from a user action (the web requires one). Returns whether
     /// the chooser opened; cancelling it is not an error, and nothing reports what was shared.
+    #[must_use]
     pub fn present(self) -> bool {
         let actions = self
             .actions
@@ -1014,12 +1021,13 @@ impl Share {
             &self.url,
             &self.title,
             actions,
-            self.anchor.as_ref().map(|id| id.as_str()),
+            self.anchor.as_ref().map(day_core::ElementId::as_str),
         )
     }
 }
 
 /// One of the app's actions in a share chooser (see [`Share::action`]).
+#[must_use]
 pub struct ShareAction {
     label: TextSource,
     symbol: Option<day_spec::Symbol>,
@@ -1052,6 +1060,7 @@ impl ShareAction {
 }
 
 /// Whether this target can present a share chooser at all (docs/sharing.md).
+#[must_use]
 pub fn share_support() -> day_spec::Support {
     day_core::share_support()
 }

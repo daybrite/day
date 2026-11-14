@@ -13,6 +13,8 @@
 //! kept small (docs/texteditor.md §RTF scope), and because a text codec that panics or
 //! loops on hostile input is worse than one that misses a control word.
 
+use std::fmt::Write as _;
+
 use crate::{
     Color, Font, FontWeight, ListStyle, ParagraphAlign, ParagraphRun, ParagraphStyle, RunStyle,
     StyledText, TextRun, Underline, coalesce_runs, paragraph_bounds,
@@ -40,6 +42,7 @@ impl Default for DocStyle {
 }
 
 impl DocStyle {
+    #[must_use]
     pub fn new(base: Font, base_points: f64) -> Self {
         DocStyle { base, base_points }
     }
@@ -86,6 +89,7 @@ fn heading_level_for(scale: f64) -> Option<u8> {
 /// because a heading is a size and a weight, and Day's paragraph attributes are alignment,
 /// indent and list decoration. Quotes and list items become paragraph runs, which is what they
 /// are.
+#[must_use]
 pub fn markdown_to_styled(md: &str, style: DocStyle) -> StyledText {
     let mut doc = StyledText::default();
     let mut paragraphs: Vec<ParagraphRun> = Vec::new();
@@ -97,23 +101,20 @@ pub fn markdown_to_styled(md: &str, style: DocStyle) -> StyledText {
         let (body, para, heading) = split_block_markers(raw);
 
         // An ordered list numbers itself across consecutive items; anything else resets it.
-        let para = match para.list {
-            ListStyle::Ordered(_) => {
-                if !prev_ordered {
-                    ordinal = 1;
-                }
-                prev_ordered = true;
-                let p = ParagraphStyle {
-                    list: ListStyle::Ordered(ordinal),
-                    ..para
-                };
-                ordinal += 1;
-                p
+        let para = if let ListStyle::Ordered(_) = para.list {
+            if !prev_ordered {
+                ordinal = 1;
             }
-            _ => {
-                prev_ordered = false;
-                para
-            }
+            prev_ordered = true;
+            let p = ParagraphStyle {
+                list: ListStyle::Ordered(ordinal),
+                ..para
+            };
+            ordinal += 1;
+            p
+        } else {
+            prev_ordered = false;
+            para
         };
 
         let (text, mut runs) = crate::markdown::parse(body, style.base);
@@ -192,7 +193,7 @@ fn split_block_markers(line: &str) -> (&str, ParagraphStyle, Option<u8>) {
 
 /// `"12. text"` → `(12, "text")`.
 fn split_ordered_marker(s: &str) -> Option<(u32, &str)> {
-    let digits = s.bytes().take_while(|b| b.is_ascii_digit()).count();
+    let digits = s.bytes().take_while(u8::is_ascii_digit).count();
     if digits == 0 || digits > 9 {
         return None;
     }
@@ -221,6 +222,7 @@ fn merge_base_run(runs: &mut Vec<TextRun>, len: usize, style: RunStyle) {
 ///
 /// Lossy where markdown has no spelling: color, highlight, underline, alignment and relative
 /// sizes that are not one of the six heading steps all vanish. What survives round-trips.
+#[must_use]
 pub fn styled_to_markdown(doc: &StyledText, style: DocStyle) -> String {
     let mut out = String::with_capacity(doc.text.len() + 32);
     for (start, end) in paragraph_bounds(&doc.text) {
@@ -229,7 +231,7 @@ pub fn styled_to_markdown(doc: &StyledText, style: DocStyle) -> String {
             .paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= line_end.max(start + 1))
-            .map(|p| p.style())
+            .map(super::styled::ParagraphRun::style)
             .unwrap_or_default();
         // A whole-line scale that matches a heading step becomes `#`s.
         let heading = doc
@@ -249,7 +251,9 @@ pub fn styled_to_markdown(doc: &StyledText, style: DocStyle) -> String {
         }
         match para.list {
             ListStyle::Bullet => out.push_str("- "),
-            ListStyle::Ordered(n) => out.push_str(&format!("{n}. ")),
+            ListStyle::Ordered(n) => {
+                let _ = write!(out, "{n}. ");
+            }
             ListStyle::None => {}
         }
         if let Some(level) = heading {
@@ -340,6 +344,7 @@ fn escape_markdown(s: &str) -> String {
 
 /// Write a styled document as an HTML fragment: one `<p>` per paragraph, `<span style="…">` per
 /// run, with `<b>`/`<i>`/`<u>`/`<s>`/`<code>`/`<a>` where a tag says it more plainly.
+#[must_use]
 pub fn styled_to_html(doc: &StyledText, style: DocStyle) -> String {
     let mut out = String::with_capacity(doc.text.len() * 2);
     for (start, end) in paragraph_bounds(&doc.text) {
@@ -348,7 +353,7 @@ pub fn styled_to_html(doc: &StyledText, style: DocStyle) -> String {
             .paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= line_end.max(start + 1))
-            .map(|p| p.style())
+            .map(super::styled::ParagraphRun::style)
             .unwrap_or_default();
         let (open_tag, close_tag) = match para.list {
             ListStyle::None => ("p", "p"),
@@ -365,16 +370,16 @@ pub fn styled_to_html(doc: &StyledText, style: DocStyle) -> String {
         }
         let indent = para.indent + f64::from(para.list_level) * 24.0;
         if indent > 0.0 {
-            css.push_str(&format!("margin-inline-start:{indent}px;"));
+            let _ = write!(css, "margin-inline-start:{indent}px;");
         }
         if para.space_before > 0.0 {
-            css.push_str(&format!("margin-block-start:{}px;", para.space_before));
+            let _ = write!(css, "margin-block-start:{}px;", para.space_before);
         }
         if para.space_after > 0.0 {
-            css.push_str(&format!("margin-block-end:{}px;", para.space_after));
+            let _ = write!(css, "margin-block-end:{}px;", para.space_after);
         }
         if !css.is_empty() {
-            out.push_str(&format!(" style=\"{css}\""));
+            let _ = write!(out, " style=\"{css}\"");
         }
         out.push('>');
         for (seg, s) in doc.segments(style.base) {
@@ -395,19 +400,23 @@ pub fn styled_to_html(doc: &StyledText, style: DocStyle) -> String {
     out
 }
 
+#[expect(
+    clippy::float_cmp,
+    reason = "a scale of exactly 1.0 is the unscaled default, compared as a sentinel"
+)]
 fn write_html_run(s: &RunStyle, text: &str, out: &mut String) {
     let mut css = String::new();
     if let Some(c) = s.color {
-        css.push_str(&format!("color:{};", css_hex(c)));
+        let _ = write!(css, "color:{};", css_hex(c));
     }
     if let Some(c) = s.background {
-        css.push_str(&format!("background-color:{};", css_hex(c)));
+        let _ = write!(css, "background-color:{};", css_hex(c));
     }
     if s.font.scale != 1.0 {
-        css.push_str(&format!("font-size:{}em;", s.font.scale));
+        let _ = write!(css, "font-size:{}em;", s.font.scale);
     }
     if let Font::System(pt) | Font::Custom(_, pt) = s.font.style {
-        css.push_str(&format!("font-size:{pt}px;"));
+        let _ = write!(css, "font-size:{pt}px;");
     }
     let mut tags: Vec<&str> = Vec::new();
     if let Some(url) = &s.link {
@@ -416,7 +425,7 @@ fn write_html_run(s: &RunStyle, text: &str, out: &mut String) {
         out.push_str("\">");
     }
     if !css.is_empty() {
-        out.push_str(&format!("<span style=\"{css}\">"));
+        let _ = write!(out, "<span style=\"{css}\">");
     }
     if s.bold() {
         tags.push("b");
@@ -474,6 +483,7 @@ fn escape_html(s: &str, out: &mut String) {
 /// A tag-soup reader, not a browser: it tracks the inline tags and inline `style` properties Day
 /// can express and ignores everything else, including `<script>`/`<style>` contents, which it
 /// skips wholesale. Unknown tags are transparent: their text survives, their meaning does not.
+#[must_use]
 pub fn html_to_styled(html: &str, style: DocStyle) -> StyledText {
     let mut p = HtmlParser {
         src: html.as_bytes(),
@@ -758,7 +768,7 @@ fn attr<'a>(body: &'a str, name: &str) -> Option<&'a str> {
     let rest = &body[at..];
     let quote = rest.chars().next()?;
     if quote == '"' || quote == '\'' {
-        rest[1..].find(quote).map(|e| &rest[1..1 + e])
+        rest[1..].find(quote).map(|e| &rest[1..=e])
     } else {
         Some(rest.split([' ', '\t']).next().unwrap_or(rest))
     }
@@ -843,13 +853,13 @@ fn apply_block_css(para: &mut ParagraphStyle, body: &str) {
                 }
             }
             "margin-inline-start" | "margin-left" | "padding-inline-start" => {
-                para.indent = px(v).unwrap_or(para.indent)
+                para.indent = px(v).unwrap_or(para.indent);
             }
             "margin-block-start" | "margin-top" => {
-                para.space_before = px(v).unwrap_or(para.space_before)
+                para.space_before = px(v).unwrap_or(para.space_before);
             }
             "margin-block-end" | "margin-bottom" => {
-                para.space_after = px(v).unwrap_or(para.space_after)
+                para.space_after = px(v).unwrap_or(para.space_after);
             }
             _ => {}
         }
@@ -882,17 +892,17 @@ fn find_ci(hay: &[u8], needle: &[u8]) -> Option<usize> {
 
 /// Write a styled document as RTF, in the subset [`rtf_to_styled`] reads back
 /// (docs/texteditor.md).
+#[must_use]
 pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
     // The color table is 1-based in `\cfN`; index 0 is "the default", so the table starts with an
     // empty entry and every real color is written after it.
     let mut colors: Vec<Color> = Vec::new();
     let color_index = |c: Color, colors: &mut Vec<Color>| -> usize {
-        match colors.iter().position(|x| *x == c) {
-            Some(i) => i + 1,
-            None => {
-                colors.push(c);
-                colors.len()
-            }
+        if let Some(i) = colors.iter().position(|x| *x == c) {
+            i + 1
+        } else {
+            colors.push(c);
+            colors.len()
         }
     };
     let mut body = String::new();
@@ -902,7 +912,7 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
             .paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= line_end.max(start + 1))
-            .map(|p| p.style())
+            .map(super::styled::ParagraphRun::style)
             .unwrap_or_default();
         body.push_str("\\pard");
         match para.align {
@@ -914,20 +924,19 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
         let indent = para.indent + f64::from(para.list_level) * 24.0;
         if indent > 0.0 {
             // RTF measures in twips: 20 per point.
-            body.push_str(&format!("\\li{}", (indent * 20.0).round() as i64));
+            let _ = write!(body, "\\li{}", (indent * 20.0).round() as i64);
         }
         if para.space_before > 0.0 {
-            body.push_str(&format!(
-                "\\sb{}",
-                (para.space_before * 20.0).round() as i64
-            ));
+            let _ = write!(body, "\\sb{}", (para.space_before * 20.0).round() as i64);
         }
         if para.space_after > 0.0 {
-            body.push_str(&format!("\\sa{}", (para.space_after * 20.0).round() as i64));
+            let _ = write!(body, "\\sa{}", (para.space_after * 20.0).round() as i64);
         }
         match para.list {
             ListStyle::Bullet => body.push_str("\\bullet\\tab "),
-            ListStyle::Ordered(n) => body.push_str(&format!(" {n}.\\tab ")),
+            ListStyle::Ordered(n) => {
+                let _ = write!(body, " {n}.\\tab ");
+            }
             // The paragraph words above always end in one, so this space is their delimiter and
             // is consumed by the reader rather than becoming text.
             ListStyle::None => body.push(' '),
@@ -965,13 +974,13 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
             // Half-points, which is RTF's unit.
             let pts = s.font.resolved_points(style.base_points);
             if (pts - style.base_points).abs() > 0.01 {
-                body.push_str(&format!("\\fs{}", (pts * 2.0).round() as i64));
+                let _ = write!(body, "\\fs{}", (pts * 2.0).round() as i64);
             }
             if let Some(c) = s.color {
-                body.push_str(&format!("\\cf{}", color_index(c, &mut colors)));
+                let _ = write!(body, "\\cf{}", color_index(c, &mut colors));
             }
             if let Some(c) = s.background {
-                body.push_str(&format!("\\highlight{}", color_index(c, &mut colors)));
+                let _ = write!(body, "\\highlight{}", color_index(c, &mut colors));
             }
             if s.font.monospace {
                 body.push_str("\\f1");
@@ -993,18 +1002,10 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
     out.push_str("{\\colortbl;");
     for c in &colors {
         let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-        out.push_str(&format!(
-            "\\red{}\\green{}\\blue{};",
-            q(c.r),
-            q(c.g),
-            q(c.b)
-        ));
+        let _ = write!(out, "\\red{}\\green{}\\blue{};", q(c.r), q(c.g), q(c.b));
     }
     out.push('}');
-    out.push_str(&format!(
-        "\\fs{}\n",
-        (style.base_points * 2.0).round() as i64
-    ));
+    let _ = writeln!(out, "\\fs{}", (style.base_points * 2.0).round() as i64);
     out.push_str(&body);
     out.push('}');
     out
@@ -1037,7 +1038,7 @@ fn escape_rtf(s: &str, out: &mut String) {
             c => {
                 let mut buf = [0u16; 2];
                 for unit in c.encode_utf16(&mut buf) {
-                    out.push_str(&format!("\\u{}?", *unit as i16));
+                    let _ = write!(out, "\\u{}?", *unit as i16);
                 }
             }
         }
@@ -1052,6 +1053,7 @@ fn escape_rtf(s: &str, out: &mut String) {
 /// escapes, and group nesting for style scoping. Skips `{\*\…}` destinations whole. Everything
 /// else is ignored, which is what keeps a Word document from producing garbage rather than
 /// nothing.
+#[must_use]
 pub fn rtf_to_styled(rtf: &str, style: DocStyle) -> StyledText {
     let mut p = RtfParser {
         src: rtf.as_bytes(),
@@ -1336,7 +1338,8 @@ impl RtfParser<'_> {
             "cf" => st.run.color = color_at(&self.colors, param),
             "highlight" => st.run.background = color_at(&self.colors, param),
             "f" => {
-                st.run.font.monospace = param.is_some_and(|n| self.mono_fonts.contains(&(n as u32)))
+                st.run.font.monospace =
+                    param.is_some_and(|n| self.mono_fonts.contains(&(n as u32)));
             }
             "par" => {
                 self.flush_run();
@@ -1633,21 +1636,21 @@ mod tests {
         doc.apply(0..5, Font::Body, |s| {
             s.set_bold(true);
             s.underline = Underline::Single;
-            s.color = Some(Color::hex(0xff0000));
+            s.color = Some(Color::hex(0x00ff_0000));
         });
         doc.apply(6..11, Font::Body, |s| {
             s.strikethrough = true;
-            s.background = Some(Color::hex(0x00ff00));
+            s.background = Some(Color::hex(0x0000_ff00));
         });
         let html = styled_to_html(&doc, style());
         let back = html_to_styled(&html, style());
         assert_eq!(back.text, "hello world");
         let a = back.style_of(0..5, Font::Body);
         assert!(a.bold() && a.underline.is_on());
-        assert_eq!(a.color, Some(Color::hex(0xff0000)));
+        assert_eq!(a.color, Some(Color::hex(0x00ff_0000)));
         let b = back.style_of(6..11, Font::Body);
         assert!(b.strikethrough);
-        assert_eq!(b.background, Some(Color::hex(0x00ff00)));
+        assert_eq!(b.background, Some(Color::hex(0x0000_ff00)));
     }
 
     #[test]
@@ -1693,7 +1696,9 @@ mod tests {
         doc.apply(12..17, Font::Body, |s| s.underline = Underline::Single);
         doc.apply(18..24, Font::Body, |s| s.strikethrough = true);
         doc.apply(25..28, Font::Body, |s| s.font.scale = 1.5);
-        doc.apply(29..32, Font::Body, |s| s.color = Some(Color::hex(0xcc0000)));
+        doc.apply(29..32, Font::Body, |s| {
+            s.color = Some(Color::hex(0x00cc_0000));
+        });
 
         let rtf = styled_to_rtf(&doc, style());
         let back = rtf_to_styled(&rtf, style());
@@ -1704,7 +1709,7 @@ mod tests {
         assert!(back.style_of(18..24, Font::Body).strikethrough);
         assert_eq!(
             back.style_of(29..32, Font::Body).color,
-            Some(Color::hex(0xcc0000))
+            Some(Color::hex(0x00cc_0000))
         );
         // A relative scale becomes an absolute size in RTF and comes back as one.
         let big = back.style_of(25..28, Font::Body);

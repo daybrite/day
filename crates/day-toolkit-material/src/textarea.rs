@@ -80,7 +80,7 @@ fn measure(_backend: &mut Material, h: &AHandle, p: Proposal) -> Size {
     // Layout-pass JNI up-call: degrade to the default row height on a throw, don't panic.
     let h_dp = java(|env| DayTextArea::measureHeight(env, h.0.as_obj(), avail_w.round() as i32))
         .unwrap_or(44);
-    Size::new(avail_w, (h_dp as f64).max(24.0))
+    Size::new(avail_w, f64::from(h_dp).max(24.0))
 }
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts

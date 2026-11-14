@@ -68,7 +68,7 @@ struct ViewState {
     buttons: Vec<Retained<UIButton>>, // inline rows
     menu_button: Option<Retained<UIButton>>,
     /// The menu style's actions, in option order, so `update` can move the ✓ there too. A
-    /// UIMenu's children are immutable, so the selection change reattaches a fresh menu built
+    /// `UIMenu`'s children are immutable, so the selection change reattaches a fresh menu built
     /// over these same actions (their handlers stay wired).
     menu_actions: Vec<Retained<UIAction>>,
     options: Vec<String>,
@@ -196,7 +196,7 @@ fn menu_actions(
     actions
 }
 
-/// (Re)attach a UIMenu built over `actions` — creation and every selection change go through
+/// (Re)attach a `UIMenu` built over `actions` — creation and every selection change go through
 /// here, because an attached menu is a snapshot: editing an action's state alone leaves an
 /// already-materialized menu showing the old ✓.
 fn attach_menu(
@@ -270,7 +270,7 @@ fn set_options(h: &Retained<UIView>, opts: &[String]) {
         return;
     }
     STATE.with(|t| {
-        t.with((h.as_ref() as *const UIView) as usize, |st| {
+        t.with(std::ptr::from_ref::<UIView>(h.as_ref()) as usize, |st| {
             st.options = opts.to_vec();
             st.selected = st.selected.min(opts.len().saturating_sub(1));
             if let Some(btn) = &st.menu_button {
@@ -315,7 +315,7 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
     };
     STATE.with(|t| {
         t.insert(
-            (view.as_ref() as *const UIView) as usize,
+            std::ptr::from_ref::<UIView>(view.as_ref()) as usize,
             ViewState {
                 buttons,
                 menu_button,
@@ -334,7 +334,7 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
     view
 }
 
-/// Enable or disable the picker: the segmented control and the menu button are one UIControl
+/// Enable or disable the picker: the segmented control and the menu button are one `UIControl`
 /// each; the inline style disables every row button, since the stack itself takes no input.
 fn set_enabled(h: &Retained<UIView>, on: bool) {
     if let Some(c) = (**h).downcast_ref::<UIControl>() {
@@ -342,7 +342,7 @@ fn set_enabled(h: &Retained<UIView>, on: bool) {
         return;
     }
     STATE.with(|t| {
-        t.with((h.as_ref() as *const UIView) as usize, |st| {
+        t.with(std::ptr::from_ref::<UIView>(h.as_ref()) as usize, |st| {
             for b in &st.buttons {
                 b.setEnabled(on);
             }
@@ -354,7 +354,7 @@ fn set_enabled(h: &Retained<UIView>, on: bool) {
 /// is not a picker. The text is the selected option's title as shown (`None` with nothing
 /// selected); an inline picker reads enabled only when all its rows agree.
 pub(crate) fn read_native(h: &UIView) -> Option<(Option<String>, Option<bool>)> {
-    let key = (h as *const UIView) as usize;
+    let key = std::ptr::from_ref::<UIView>(h) as usize;
     if let Some(seg) = h.downcast_ref::<UISegmentedControl>() {
         if !STATE.with(|t| t.contains(key)) {
             return None;
@@ -401,7 +401,7 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
         return;
     }
     STATE.with(|t| {
-        t.with((h.as_ref() as *const UIView) as usize, |st| {
+        t.with(std::ptr::from_ref::<UIView>(h.as_ref()) as usize, |st| {
             st.selected = i;
             if let Some(btn) = &st.menu_button {
                 let title = st.options.get(i).cloned().unwrap_or_default();

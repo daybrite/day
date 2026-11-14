@@ -21,6 +21,10 @@ fn make(_backend: &mut ArkUi, p: &SearchProps, id: NodeId) -> AHandle {
     piece::make(KIND, id, &format!("{text}{SEP}{}", p.placeholder))
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &SearchPatch) {
     match patch {
         SearchPatch::SetText(t) => piece::update(h, "text", t),
@@ -28,6 +32,10 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &SearchPatch) {
 }
 
 /// The proposed width, at the Search component's own 40 vp height.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn measure(_backend: &mut ArkUi, _h: &AHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(240.0), 40.0)
 }

@@ -10,3 +10,6 @@ description = "Shared host-toolchain and SDK discovery for Day's build scripts a
 
 [dependencies]
 # None: this crate is a build-dependency of piece/tweak crates and must stay tiny.
+
+[lints]
+workspace = true

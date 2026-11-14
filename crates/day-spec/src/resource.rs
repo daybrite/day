@@ -92,6 +92,7 @@ impl AssetDir {
     /// Name a file under this directory, for [`resource`]: the escape hatch for paths
     /// composed at runtime (`dir.join("posts/1.html")`); prefer the generated file constants
     /// where the path is known.
+    #[must_use]
     pub fn join(&self, rel: &str) -> AssetName {
         AssetName::dynamic(format!("{}/{}", self.as_str(), rel.trim_start_matches('/')))
     }
@@ -100,7 +101,7 @@ resource_name!(
     /// The bundled-vector name that [`resource()`](crate::resource()) callers resolve by (docs/vectors.md):
     /// the stem of a `resource/vectors/` SVG (or `.symbolset` bundle). Vectors and images share one
     /// per-backend resolution namespace; staging guarantees every vector name resolves as whatever
-    /// form that backend loads natively (a VectorDrawable, a catalog entry, a rasterized PNG).
+    /// form that backend loads natively (a `VectorDrawable`, a catalog entry, a rasterized PNG).
     VectorName,
     "bundled-vector name"
 );
@@ -122,10 +123,12 @@ pub struct FontFamily(&'static str);
 
 impl FontFamily {
     /// A font family known at compile time: the form the generated `res::fonts::…` constants use.
+    #[must_use]
     pub const fn from_static(family: &'static str) -> Self {
         FontFamily(family)
     }
     /// The underlying family name (what `Font::Custom` carries).
+    #[must_use]
     pub const fn as_str(&self) -> &'static str {
         self.0
     }
@@ -157,6 +160,7 @@ impl Resource {
     /// # Safety
     /// `ptr` must point to `len` valid, immutable bytes that remain valid for as long as `guard` is
     /// alive, and `guard` must own (and keep alive) that backing store.
+    #[must_use]
     pub unsafe fn from_raw(ptr: *const u8, len: usize, guard: Box<dyn Any>) -> Resource {
         Resource {
             ptr,
@@ -167,6 +171,7 @@ impl Resource {
 
     /// Build a `Resource` from owned bytes: the copy fallback for backends that cannot expose a
     /// stable pointer into their store (or when a native API only offers a read-into-buffer call).
+    #[must_use]
     pub fn from_vec(bytes: Vec<u8>) -> Resource {
         let boxed: Box<[u8]> = bytes.into_boxed_slice();
         let ptr = boxed.as_ptr();
@@ -180,17 +185,20 @@ impl Resource {
     }
 
     /// Total byte length of the resource.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Whether the resource is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// A zero-copy view of the full contents. Backed directly by the native store (no allocation,
     /// no copy). Wrap in [`std::io::Cursor`] for `Read`/`Seek`-style access.
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         // Safety: `ptr`/`len` describe a valid immutable region kept alive by `_guard`.
         unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
@@ -210,6 +218,7 @@ impl Resource {
     }
 
     /// Copy the full contents into a freshly allocated `Vec`.
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.as_slice().to_vec()
     }
@@ -289,6 +298,7 @@ fn resolve_resource_path(name: &str) -> Option<PathBuf> {
 /// packaged app has one merged `assets/` directory beside the binary and needs neither.
 const ASSET_ROOT_VARS: [&str; 2] = ["DAY_ASSET_ROOT", "DAY_PIECE_ASSET_ROOT"];
 
+#[must_use]
 pub fn resolve_asset_file(name: &str) -> Option<PathBuf> {
     resolve_resource_path(name)
 }
@@ -297,6 +307,7 @@ pub fn resolve_asset_file(name: &str) -> Option<PathBuf> {
 /// location, for consumers whose local-content channel is a file URL, like the inline web
 /// view on the Apple backends (day-piece-webview's docs/webview.md). Same probe order as file
 /// resolution: `DAY_ASSET_ROOT` (dev / `day launch`), then the bundle-relative roots.
+#[must_use]
 pub fn resolve_asset_dir(rel: &str) -> Option<PathBuf> {
     // Canonicalized: consumers derive URLs from this path, and a literal `..` segment (the
     // bundle probe below goes through `MacOS/../Resources`) breaks prefix comparison against
@@ -334,6 +345,7 @@ pub const WEIGHT_SUFFIXES: [&str; 2] = ["__light", "__bold"];
 /// keeps `.weight(…)` from 404-ing on art that has no weight axis, without staging a byte-identical
 /// copy of every glyph per weight. (Before this, 38 of Day-Showcase's 39 sources were staged three
 /// times over as identical copies.)
+#[must_use]
 pub fn weight_alias(name: &str) -> Option<&str> {
     WEIGHT_SUFFIXES
         .iter()
@@ -346,6 +358,7 @@ pub fn weight_alias(name: &str) -> Option<&str> {
 /// then `DAY_ASSET_ROOT` and the bundle, trying the bare name and, if it has no extension, each
 /// known image extension. Native-pipeline backends (iOS `Assets.car`, Android `R`, …) resolve by
 /// name through their own store and do not use this.
+#[must_use]
 pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     // DAY_VECTOR_RASTER_ROOT: the build-time raster cache for `resource/vectors/`
@@ -407,6 +420,7 @@ pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
 /// `Contents/Resources/vectors/svg` in a .app, `vectors/svg` beside a flat-layout exe.
 /// `None` (name isn't a vector, or the layout carries no SVGs) means fall back to
 /// [`resolve_image_file`]'s raster resolution.
+#[must_use]
 pub fn resolve_vector_svg(name: &str) -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Ok(v) = std::env::var("DAY_VECTOR_SVG_ROOT") {
@@ -438,6 +452,7 @@ pub fn resolve_vector_svg(name: &str) -> Option<PathBuf> {
 /// `DAY_VECTOR_XAML_ROOT` under `day launch`, else `vectors/xaml` beside a flat-layout exe.
 /// `None` (name isn't a vector, the art was outside the convertible subset, or the layout
 /// carries no geometry) means fall back to [`resolve_image_file`]'s raster resolution.
+#[must_use]
 pub fn resolve_vector_xaml(name: &str) -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Ok(v) = std::env::var("DAY_VECTOR_XAML_ROOT") {
@@ -468,6 +483,7 @@ pub fn resolve_vector_xaml(name: &str) -> Option<PathBuf> {
 /// fallback through the loader they already have, instead of each growing a way to rasterize a
 /// path string. Written once per symbol per process; a failure to write answers `None` and the
 /// caller falls back to a label.
+#[must_use]
 pub fn stage_symbol_svg(sym: crate::Symbol) -> Option<PathBuf> {
     let svg = sym.outline_svg()?;
     let dir = std::env::temp_dir().join("day-symbols");

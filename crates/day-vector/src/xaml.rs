@@ -5,7 +5,7 @@
 //!
 //! Windows' `Path`/`PathIcon` take a `Geometry`, and XAML's geometry mini-language is the SVG
 //! path grammar, so the usvg tree, whose paths already carry absolute transforms and resolved
-//! paints, converts about as directly as it does to a VectorDrawable next door in `vd.rs`. The
+//! paints, converts about as directly as it does to a `VectorDrawable` next door in `vd.rs`. The
 //! supported subset matches that emitter's for the same reason: solid fills and strokes, both
 //! fill rules, nested plain groups; anything XAML cannot express as one flat shape list returns
 //! [`Unsupported`] and the caller stages only the raster, a loud fallback and never wrong art.
@@ -17,6 +17,8 @@
 //! Keeping geometry (not a rasterized or pre-colored image) is what lets the backend compose a
 //! tint at runtime: the color is a brush on the shape, applied when the glyph is realized, so
 //! one staged glyph serves every tint at every size without a second asset.
+
+use std::fmt::Write as _;
 
 use resvg::tiny_skia;
 use resvg::usvg;
@@ -55,11 +57,13 @@ pub struct XamlGeometry {
 /// Tab-separated payload so the path data, which contains spaces and commas, needs no
 /// escaping, and one line per shape so a reader can stop at the first line it does not know.
 impl XamlGeometry {
+    #[must_use]
     pub fn to_spec(&self) -> String {
         let mut s = format!("V {} {}\n", fnum(self.width), fnum(self.height));
         for sh in &self.shapes {
-            s.push_str(&format!(
-                "P {} {} {} {} {} {}\t{}\n",
+            let _ = writeln!(
+                s,
+                "P {} {} {} {} {} {}\t{}",
                 sh.fill.as_deref().unwrap_or("-"),
                 u8::from(sh.even_odd),
                 sh.stroke.as_deref().unwrap_or("-"),
@@ -67,13 +71,19 @@ impl XamlGeometry {
                 sh.cap,
                 sh.join,
                 sh.data
-            ));
+            );
         }
         s
     }
 }
 
 /// Convert the tree to XAML geometry, or say why it can't be.
+///
+/// # Errors
+///
+/// Returns [`Unsupported`] naming the first feature the geometry cannot express (a clip path,
+/// mask, filter, group opacity, raster image, text, gradient, pattern, or skewed transform),
+/// or saying that the tree has no drawable paths.
 pub fn to_xaml_geometry(tree: &usvg::Tree) -> Result<XamlGeometry, Unsupported> {
     let mut shapes = Vec::new();
     collect(tree.root(), &mut shapes)?;
@@ -208,18 +218,19 @@ fn path_data(path: &tiny_skia::Path) -> String {
     for seg in path.segments() {
         match seg {
             PathSegment::MoveTo(p) => {
-                d.push_str(&format!("M{},{}", fnum(p.x), fnum(p.y)));
+                let _ = write!(d, "M{},{}", fnum(p.x), fnum(p.y));
                 (cx, cy) = (p.x, p.y);
                 (sx, sy) = (p.x, p.y);
             }
             PathSegment::LineTo(p) => {
-                d.push_str(&format!("L{},{}", fnum(p.x), fnum(p.y)));
+                let _ = write!(d, "L{},{}", fnum(p.x), fnum(p.y));
                 (cx, cy) = (p.x, p.y);
             }
             PathSegment::QuadTo(c, p) => {
                 let c1 = (cx + 2.0 / 3.0 * (c.x - cx), cy + 2.0 / 3.0 * (c.y - cy));
                 let c2 = (p.x + 2.0 / 3.0 * (c.x - p.x), p.y + 2.0 / 3.0 * (c.y - p.y));
-                d.push_str(&format!(
+                let _ = write!(
+                    d,
                     "C{},{} {},{} {},{}",
                     fnum(c1.0),
                     fnum(c1.1),
@@ -227,11 +238,12 @@ fn path_data(path: &tiny_skia::Path) -> String {
                     fnum(c2.1),
                     fnum(p.x),
                     fnum(p.y)
-                ));
+                );
                 (cx, cy) = (p.x, p.y);
             }
             PathSegment::CubicTo(c1, c2, p) => {
-                d.push_str(&format!(
+                let _ = write!(
+                    d,
                     "C{},{} {},{} {},{}",
                     fnum(c1.x),
                     fnum(c1.y),
@@ -239,7 +251,7 @@ fn path_data(path: &tiny_skia::Path) -> String {
                     fnum(c2.y),
                     fnum(p.x),
                     fnum(p.y)
-                ));
+                );
                 (cx, cy) = (p.x, p.y);
             }
             PathSegment::Close => {
@@ -292,7 +304,7 @@ mod tests {
         .expect("geometry");
         for seg in g.data_numbers() {
             assert!(
-                (0.0..=g.width.max(g.height) as f64 + 0.01).contains(&seg.abs()),
+                (0.0..=f64::from(g.width.max(g.height)) + 0.01).contains(&seg.abs()),
                 "coordinate {seg} outside the {}x{} viewport",
                 g.width,
                 g.height

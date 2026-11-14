@@ -20,6 +20,7 @@ enum Clip {
 }
 
 /// A growing image surface. Empty and invalid sources show the placeholder.
+#[must_use]
 pub struct AsyncImage {
     source: Signal<Option<Arc<Vec<u8>>>>,
     clip: Clip,
@@ -245,7 +246,7 @@ pub mod conformance {
                         move || shown.get(),
                         move || {
                             async_image(source)
-                                .placeholder_color(Color::hex(0x808080))
+                                .placeholder_color(Color::hex(0x0080_8080))
                                 .id(day_core::id!(async_image::image))
                                 .frame(120.0, 60.0)
                         },
@@ -293,12 +294,12 @@ pub mod conformance {
                 column((
                     async_image(source)
                         .content_mode(ContentMode::Fit)
-                        .placeholder_color(Color::hex(0x808080))
+                        .placeholder_color(Color::hex(0x0080_8080))
                         .id(day_core::id!(async_image::fit))
                         .frame(100.0, 100.0),
                     async_image(source)
                         .content_mode(ContentMode::Fill)
-                        .placeholder_color(Color::hex(0x808080))
+                        .placeholder_color(Color::hex(0x0080_8080))
                         .id(day_core::id!(async_image::fill))
                         .frame(100.0, 100.0),
                 ))
@@ -337,21 +338,21 @@ pub mod conformance {
                         .id(day_core::id!(async_image::clear)),
                     async_image(source)
                         .circle()
-                        .placeholder_color(Color::hex(0x808080))
+                        .placeholder_color(Color::hex(0x0080_8080))
                         .id(day_core::id!(async_image::wide))
                         .frame(120.0, 60.0),
                     async_image(source)
                         .circle()
-                        .placeholder_color(Color::hex(0x808080))
+                        .placeholder_color(Color::hex(0x0080_8080))
                         .id(day_core::id!(async_image::tall))
                         .frame(60.0, 120.0),
                     async_image(source)
                         .rounded(20.0)
-                        .placeholder_color(Color::hex(0x808080))
+                        .placeholder_color(Color::hex(0x0080_8080))
                         .id(day_core::id!(async_image::rounded))
                         .frame(120.0, 60.0),
                 ))
-                .background(Color::hex(0x000000))
+                .background(Color::hex(0x0000_0000))
             })
             .drive(|d: Drive| async move {
                 for color in ["#00ff00", "#808080"] {
@@ -404,7 +405,7 @@ pub mod conformance {
                 ))
                 .spacing(0.0)
                 .frame(260.0, 60.0)
-                .background(Color::hex(0x000000))
+                .background(Color::hex(0x0000_0000))
             })
             .drive(|d: Drive| async move {
                 for width in [180.0, 120.0, 180.0] {

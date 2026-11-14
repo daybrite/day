@@ -3,6 +3,7 @@
 
 //! Command tree and grouped root help (DESIGN.md §16.5).
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
@@ -166,10 +167,10 @@ pub(crate) struct Cli {
     /// Output format for command results
     #[arg(long, global = true, value_enum, default_value = "plain")]
     format: OutputFormat,
-    /// Show output from build tools and other subprocesses (also DAY_VERBOSE=1)
+    /// Show output from build tools and other subprocesses (also `DAY_VERBOSE=1`)
     #[arg(long, global = true)]
     verbose: bool,
-    /// Build this flavor of the app: the overrides in `Day-<FLAVOR>.toml` (also DAY_FLAVOR)
+    /// Build this flavor of the app: the overrides in `Day-<FLAVOR>.toml` (also `DAY_FLAVOR`)
     #[arg(long, global = true, value_name = "FLAVOR")]
     flavor: Option<String>,
     #[command(subcommand)]
@@ -274,10 +275,10 @@ enum Cmd {
         /// iOS simulator name or UDID (default: all booted simulators)
         #[arg(long = "ios-simulator", value_name = "NAME|UDID")]
         ios_simulator: Option<String>,
-        /// Android adb serial (default: ANDROID_SERIAL, then all connected devices)
+        /// Android adb serial (default: `ANDROID_SERIAL`, then all connected devices)
         #[arg(long = "android-device", value_name = "SERIAL")]
         android_device: Option<String>,
-        /// OpenHarmony hdc key (default: DAY_OHOS_TARGET, then all reachable devices)
+        /// OpenHarmony hdc key (default: `DAY_OHOS_TARGET`, then all reachable devices)
         #[arg(long = "ohos-device", value_name = "KEY")]
         ohos_device: Option<String>,
         /// Device for every mobile platform launched: an iOS simulator name or UDID, an Android
@@ -315,7 +316,7 @@ enum Cmd {
         #[arg(long, requires = "scripts", value_name = "PATH")]
         video: Option<PathBuf>,
         /// Day dialog/file-picker presentation during scripts (default: scripted).
-        /// Scripted requests still require assert_presented/respond; native shows system UI
+        /// Scripted requests still require `assert_presented/respond`; native shows system UI
         #[arg(long, requires = "scripts", value_parser = ["scripted", "native"])]
         dialogs: Option<String>,
         /// Screenshot variant directory (default: derived from the locale)
@@ -330,11 +331,11 @@ enum Cmd {
         /// Run scripts for each locale (comma- or space-separated; repeatable)
         #[arg(long = "locales", requires = "scripts")]
         locales: Vec<String>,
-        /// Run scripts for each theme, setting DAY_THEME (combine with --locales)
+        /// Run scripts for each theme, setting `DAY_THEME` (combine with --locales)
         #[arg(long = "themes", requires = "scripts")]
         themes: Vec<String>,
-        /// Desktop screenshot size: WxH, WxH@SCALE, or window. Overrides Day.toml and
-        /// DAY_CAPTURE_SIZE; default: 2560x1600@2. Ignored on phones and tablets
+        /// Desktop screenshot size: `WxH`, WxH@SCALE, or window. Overrides Day.toml and
+        /// `DAY_CAPTURE_SIZE`; default: 2560x1600@2. Ignored on phones and tablets
         #[arg(
             long = "capture-size",
             value_name = "WxH[@SCALE]",
@@ -643,7 +644,7 @@ enum Cmd {
         /// iOS simulator name or UDID (default: all booted simulators)
         #[arg(long, value_name = "NAME|UDID")]
         ios_simulator: Option<String>,
-        /// Android adb serial (default: ANDROID_SERIAL, then all connected devices)
+        /// Android adb serial (default: `ANDROID_SERIAL`, then all connected devices)
         #[arg(long, value_name = "SERIAL")]
         android_device: Option<String>,
         /// Device for every mobile platform launched
@@ -737,7 +738,7 @@ pub enum StoreCmd {
         /// gallery.json by URL, or a local one: the captures the storefront's screenshots tables name
         #[arg(long, value_name = "URL|PATH")]
         screenshots: Option<String>,
-        /// The stores' rules to hold the listing to (default: DAY_STORE_RULES, else
+        /// The stores' rules to hold the listing to (default: `DAY_STORE_RULES`, else
         /// store/rules.toml, else the CLI's own)
         #[arg(long, value_name = "FILE")]
         rules: Option<PathBuf>,
@@ -759,7 +760,7 @@ pub enum StoreCmd {
             value_parser = crate::targets::parse_arg
         )]
         target: Option<String>,
-        /// The stores' rules to hold them to (default: DAY_STORE_RULES, else store/rules.toml,
+        /// The stores' rules to hold them to (default: `DAY_STORE_RULES`, else store/rules.toml,
         /// else the CLI's own)
         #[arg(long, value_name = "FILE")]
         rules: Option<PathBuf>,
@@ -1047,7 +1048,7 @@ pub enum DevicesCmd {
         #[arg(value_name = "ID")]
         id: Option<String>,
         /// iOS/Android device name or pattern, such as "iPhone * Pro Max" (newest match wins);
-        /// OpenHarmony panel: phone, tablet, or WxH
+        /// OpenHarmony panel: phone, tablet, or `WxH`
         #[arg(long, value_name = "NAME", conflicts_with = "id")]
         device: Option<String>,
         /// OS version for --device, such as "iOS 26"; newest matching minor version wins
@@ -1094,7 +1095,7 @@ pub enum DevicesCmd {
             value_parser = crate::targets::parse_arg
         )]
         platform: String,
-        /// Profile ID from avdmanager list device, such as pixel_7
+        /// Profile ID from avdmanager list device, such as `pixel_7`
         #[arg(long, value_name = "PROFILE")]
         device: String,
         /// Android API level, such as 36 or android-36
@@ -1103,7 +1104,7 @@ pub enum DevicesCmd {
         /// System image ABI (default: this host's architecture)
         #[arg(long, value_name = "ABI")]
         arch: Option<String>,
-        /// System image tag (default: google_apis)
+        /// System image tag (default: `google_apis`)
         #[arg(long, value_name = "TAG")]
         tag: Option<String>,
         /// Virtual device name (default: derived from profile and API level)
@@ -1226,7 +1227,7 @@ pub struct SignApply {
     /// Android/HarmonyOS: the keystore to sign with (default: signing.android.keystore)
     #[arg(long, value_name = "FILE")]
     keystore: Option<PathBuf>,
-    /// Android/HarmonyOS: the key alias inside that keystore; passwords come from DAY_SIGN_STORE_PASS and DAY_SIGN_KEY_PASS
+    /// Android/HarmonyOS: the key alias inside that keystore; passwords come from `DAY_SIGN_STORE_PASS` and `DAY_SIGN_KEY_PASS`
     #[arg(long, value_name = "NAME")]
     key_alias: Option<String>,
     /// HarmonyOS: the app certificate (.cer) a .hap is signed with, beside --keystore, --key-alias and --profile
@@ -1306,19 +1307,20 @@ fn command() -> clap::Command {
     let mut template =
         String::from("{before-help}{about-with-newline}\n{usage-heading} {usage}\n\n");
     for (group, names) in HELP_GROUPS {
-        template.push_str(&format!("{heading}{group:12}{heading:#}"));
+        let _ = write!(template, "{heading}{group:12}{heading:#}");
         for (i, name) in names.iter().enumerate() {
             let subcommand = command.find_subcommand(name).expect("help group command");
             if i > 0 {
                 template.push_str("  ");
             }
-            template.push_str(&format!("{literal}{}{literal:#}", subcommand.get_name()));
+            let _ = write!(template, "{literal}{}{literal:#}", subcommand.get_name());
         }
         template.push('\n');
     }
-    template.push_str(&format!(
+    let _ = write!(
+        template,
         "\n{heading}Options:{heading:#}\n{{options}}{{after-help}}"
-    ));
+    );
     command.help_template(template)
 }
 
@@ -1332,16 +1334,16 @@ impl Cli {
             | Cmd::Prepare { platforms, .. }
             | Cmd::Stop { platforms, .. }
             | Cmd::Relaunch { platforms, .. }
-            | Cmd::Test { platforms, .. } => platforms,
+            | Cmd::Test { platforms, .. }
+            | Cmd::Doctor {
+                cmd: Some(DoctorCmd::Verify { platforms, .. }),
+                ..
+            } => platforms,
             Cmd::Icon { cmd } => match cmd {
                 IconCmd::Build { platforms, .. }
                 | IconCmd::New { platforms, .. }
                 | IconCmd::Check { platforms, .. } => platforms,
             },
-            Cmd::Doctor {
-                cmd: Some(DoctorCmd::Verify { platforms, .. }),
-                ..
-            } => platforms,
             _ => return,
         };
         let mut seen = std::collections::HashSet::new();
@@ -1361,10 +1363,7 @@ pub fn run(snap_scrubbed: &[String]) -> i32 {
     // reach: nested launches a dayscript runner generates, or a whole CI job's worth of
     // commands turned verbose from one `env:` line.
     if !cli.verbose {
-        cli.verbose = matches!(
-            std::env::var("DAY_VERBOSE").as_deref(),
-            Ok("1") | Ok("true")
-        );
+        cli.verbose = matches!(std::env::var("DAY_VERBOSE").as_deref(), Ok("1" | "true"));
     }
     crate::ops::set_verbose(cli.verbose);
     if cli.verbose && !snap_scrubbed.is_empty() {
@@ -1622,7 +1621,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 return with_project(cli.project.as_deref(), |project| {
                     crate::bump::run(
                         project,
-                        crate::bump::Request {
+                        &crate::bump::Request {
                             bump: version_bump,
                             set_version: version_set.clone(),
                             set_build: build_set,
@@ -2488,9 +2487,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     let abs = if path.is_absolute() {
                         path.clone()
                     } else {
-                        std::env::current_dir()
-                            .map(|d| d.join(path))
-                            .unwrap_or_else(|_| path.clone())
+                        std::env::current_dir().map_or_else(|_| path.clone(), |d| d.join(path))
                     };
                     spec.envs
                         .push(("DAY_RECORD".into(), abs.to_string_lossy().into_owned()));
@@ -2521,10 +2518,10 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     let names: Vec<String> = scripts
                         .iter()
                         .map(|s| {
-                            std::path::Path::new(s)
-                                .file_name()
-                                .map(|n| n.to_string_lossy().into_owned())
-                                .unwrap_or_else(|| s.to_string_lossy().into_owned())
+                            std::path::Path::new(s).file_name().map_or_else(
+                                || s.to_string_lossy().into_owned(),
+                                |n| n.to_string_lossy().into_owned(),
+                            )
                         })
                         .collect();
                     spec.envs.push(("DAY_SCRIPT".into(), names.join(",")));
@@ -2535,8 +2532,14 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 // `<theme>`/`<theme>-<locale>` convention and the app-CI `<locale>` convention are
                 // preserved byte-for-byte so existing artifact layouts survive the move from YAML
                 // loops into the CLI. No flags = one run with the plain --locale/--variant.
-                let matrix = capture_matrix(&themes, &locales, &locale, &variant, &envs)
-                    .map_err(CliError::usage)?;
+                let matrix = capture_matrix(
+                    &themes,
+                    &locales,
+                    locale.as_deref(),
+                    variant.as_deref(),
+                    &envs,
+                )
+                .map_err(CliError::usage)?;
                 // The capture size (Day.toml `[screenshots]`): a scripted run's desktop-class
                 // captures are a stated pixel size, not whatever window the app happens to
                 // open. Resolved once; applied per target below, since a phone ignores it.
@@ -3048,12 +3051,10 @@ fn video_path(base: &Path, target: &str, variant: Option<&str>, many: bool) -> P
     }
     let stem = base
         .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "video".into());
+        .map_or_else(|| "video".into(), |s| s.to_string_lossy().into_owned());
     let ext = base
         .extension()
-        .map(|e| e.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "mp4".into());
+        .map_or_else(|| "mp4".into(), |e| e.to_string_lossy().into_owned());
     let name = match variant {
         Some(variant) => format!("{stem}-{target}-{variant}.{ext}"),
         None => format!("{stem}-{target}.{ext}"),
@@ -3064,8 +3065,8 @@ fn video_path(base: &Path, target: &str, variant: Option<&str>, many: bool) -> P
 fn capture_matrix(
     themes_raw: &[String],
     locales_raw: &[String],
-    locale: &Option<String>,
-    variant: &Option<String>,
+    locale: Option<&str>,
+    variant: Option<&str>,
     envs: &[String],
 ) -> Result<Vec<CaptureRun>, String> {
     let themes = split_list(themes_raw);
@@ -3073,8 +3074,8 @@ fn capture_matrix(
     if themes.is_empty() && locales.is_empty() {
         return Ok(vec![CaptureRun {
             theme: None,
-            locale: locale.clone(),
-            variant: variant.clone(),
+            locale: locale.map(str::to_owned),
+            variant: variant.map(str::to_owned),
         }]);
     }
     if variant.is_some() {
@@ -3103,7 +3104,7 @@ fn capture_matrix(
         for t in &themes {
             out.push(CaptureRun {
                 theme: Some(t.clone()),
-                locale: locale.clone(),
+                locale: locale.map(str::to_owned),
                 variant: Some(t.clone()),
             });
         }
@@ -3137,7 +3138,7 @@ mod error_tests {
         let mut public: Vec<_> = tree
             .get_subcommands()
             .filter(|cmd| !cmd.is_hide_set())
-            .map(|cmd| cmd.get_name())
+            .map(clap::Command::get_name)
             .collect();
         let mut grouped: Vec<_> = HELP_GROUPS
             .iter()
@@ -3298,7 +3299,7 @@ mod error_tests {
         assert_eq!(CliError::sign("x").exit_code(), 6);
     }
 
-    /// PackError keeps its documented mapping (§16.3) through the conversion.
+    /// `PackError` keeps its documented mapping (§16.3) through the conversion.
     #[test]
     fn pack_errors_keep_their_codes() {
         let sign = CliError::from(crate::pack::PackError::Sign("s".into()));
@@ -3391,7 +3392,7 @@ mod error_tests {
         assert_eq!(platforms, ["android-material", "web-dom"]);
     }
 
-    /// The two ValueEnums accept exactly today's spellings, and only those.
+    /// The two `ValueEnums` accept exactly today's spellings, and only those.
     #[test]
     fn profile_and_format_parse_strictly() {
         assert_eq!(Profile::from_str("debug", false).unwrap(), Profile::Debug);
@@ -3413,7 +3414,7 @@ mod error_tests {
     }
 
     /// A toolkit alone expands to this host's target for it
-    /// (crate::targets::parse_arg), so `-t dom` is `web-dom` wherever it is typed.
+    /// (`crate::targets::parse_arg`), so `-t dom` is `web-dom` wherever it is typed.
     #[test]
     fn target_flag_spellings_and_toolkit_shorthand() {
         for spelling in ["-t", "--target"] {
@@ -3493,7 +3494,7 @@ mod error_tests {
             .expect("the distinct --platforms option still works");
     }
 
-    /// A typo'd `--profile` is a clap parse error. Before the ValueEnum it reached the build
+    /// A typo'd `--profile` is a clap parse error. Before the `ValueEnum` it reached the build
     /// and string-compared its way into the debug branch.
     #[test]
     fn a_profile_typo_fails_argument_parsing() {
@@ -3622,14 +3623,14 @@ mod capture_matrix_tests {
     use super::*;
 
     fn v(items: &[&str]) -> Vec<String> {
-        items.iter().map(|s| s.to_string()).collect()
+        items.iter().map(std::string::ToString::to_string).collect()
     }
 
     /// The day-CI shape: themes × locales, with `en` implicit; the exact variant ids the
     /// gallery config lists.
     #[test]
     fn themes_cross_locales_the_gallery_way() {
-        let m = capture_matrix(&v(&["light dark"]), &v(&["en,fr"]), &None, &None, &[]).unwrap();
+        let m = capture_matrix(&v(&["light dark"]), &v(&["en,fr"]), None, None, &[]).unwrap();
         let got: Vec<(Option<&str>, Option<&str>, Option<&str>)> = m
             .iter()
             .map(|r| {
@@ -3654,7 +3655,7 @@ mod capture_matrix_tests {
     /// The app-CI shape: locales alone, every locale passed explicitly, variant = locale.
     #[test]
     fn locales_alone_the_app_ci_way() {
-        let m = capture_matrix(&[], &v(&["en", "fr"]), &None, &None, &[]).unwrap();
+        let m = capture_matrix(&[], &v(&["en", "fr"]), None, None, &[]).unwrap();
         let got: Vec<(Option<&str>, Option<&str>)> = m
             .iter()
             .map(|r| (r.locale.as_deref(), r.variant.as_deref()))
@@ -3668,7 +3669,7 @@ mod capture_matrix_tests {
     /// No matrix flags: one run carrying the plain --locale/--variant through unchanged.
     #[test]
     fn no_flags_is_one_plain_run() {
-        let m = capture_matrix(&[], &[], &Some("ar".into()), &Some("rtl".into()), &[]).unwrap();
+        let m = capture_matrix(&[], &[], Some("ar"), Some("rtl"), &[]).unwrap();
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].locale.as_deref(), Some("ar"));
         assert_eq!(m[0].variant.as_deref(), Some("rtl"));
@@ -3679,17 +3680,17 @@ mod capture_matrix_tests {
     #[test]
     fn conflicts_are_rejected_with_instructions() {
         assert!(
-            capture_matrix(&v(&["light"]), &[], &None, &Some("x".into()), &[])
+            capture_matrix(&v(&["light"]), &[], None, Some("x"), &[])
                 .unwrap_err()
                 .contains("--variant")
         );
         assert!(
-            capture_matrix(&[], &v(&["fr"]), &Some("ar".into()), &None, &[])
+            capture_matrix(&[], &v(&["fr"]), Some("ar"), None, &[])
                 .unwrap_err()
                 .contains("--locales")
         );
         assert!(
-            capture_matrix(&v(&["dark"]), &[], &None, &None, &v(&["DAY_THEME=light"]))
+            capture_matrix(&v(&["dark"]), &[], None, None, &v(&["DAY_THEME=light"]))
                 .unwrap_err()
                 .contains("DAY_THEME")
         );

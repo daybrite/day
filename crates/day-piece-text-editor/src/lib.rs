@@ -147,6 +147,7 @@ pub enum EditorPatch {
 /// (docs/texteditor.md). [`Support::Emulated`] only on the headless mock and on an external
 /// toolkit with no arm, where the piece degrades to plain text: the characters round-trip and the
 /// styling does not.
+#[must_use]
 pub fn support() -> Support {
     if cfg!(any(
         all(feature = "appkit", target_os = "macos"),
@@ -165,6 +166,7 @@ pub fn support() -> Support {
 }
 
 /// A styled-text editor bound two-way to a [`StyledText`] signal. Build with [`text_editor`].
+#[must_use]
 pub struct TextEditor {
     doc: Signal<StyledText>,
     selection: Option<AnyBinding<std::ops::Range<usize>>>,
@@ -426,7 +428,7 @@ impl Piece for TextEditor {
                 move |d: &StyledText| {
                     let text_changed = *native_text.borrow() != d.text;
                     let patch = if text_changed {
-                        *native_text.borrow_mut() = d.text.clone();
+                        (*native_text.borrow_mut()).clone_from(&d.text);
                         // The dayscript probe (`assert_text`) reads the tree, not the view, and
                         // the tree knows this piece's patches only through this line.
                         with_tree(|t| t.set_probe_value(node, 0.0, d.text.clone()));
@@ -468,7 +470,7 @@ impl Piece for TextEditor {
                     }
                     *pending_sel.borrow_mut() = Some(r.clone());
                     with_tree(|t| {
-                        t.patch(node, Box::new(EditorPatch::SetSelection(r.clone())), false)
+                        t.patch(node, Box::new(EditorPatch::SetSelection(r.clone())), false);
                     });
                 },
             );
@@ -491,7 +493,7 @@ impl Piece for TextEditor {
                             node,
                             Box::new(EditorPatch::SetTypingStyle(s.clone())),
                             false,
-                        )
+                        );
                     });
                 },
             );
@@ -560,7 +562,7 @@ impl Piece for TextEditor {
             // its closer. Both go through the view's own insertion (`Insert`), so undo sees them
             // as typing, and the view reports them back through this same path.
             if code && inserted == 1 && removed == 0 {
-                let typed = &new_text[offset..offset + 1];
+                let typed = &new_text[offset..=offset];
                 if typed == "\n" {
                     if let Some(ws) = auto_indent(new_text, offset, indent) {
                         with_tree(|t| {
@@ -571,7 +573,7 @@ impl Piece for TextEditor {
                                     text: ws,
                                 }),
                                 true,
-                            )
+                            );
                         });
                     }
                 } else if let Some(closer) = closer_after(new_text, offset) {
@@ -598,7 +600,7 @@ impl Piece for TextEditor {
                     *pending_after_closer.borrow_mut() = Some(offset + 1..offset + 1);
                     *closer_text.borrow_mut() = Some(format!(
                         "{}{}{}",
-                        &new_text[..offset + 1],
+                        &new_text[..=offset],
                         closer,
                         &new_text[offset + 1..]
                     ));
@@ -644,7 +646,7 @@ impl Piece for TextEditor {
                             text: insert,
                         }),
                         true,
-                    )
+                    );
                 });
             }
         };
@@ -737,6 +739,7 @@ impl Piece for TextEditor {
 ///
 /// Both ends are pulled back to character boundaries, so a multi-byte character that changed
 /// mid-sequence never produces a range that would split one.
+#[must_use]
 pub fn diff_edit(old: &str, new: &str) -> (usize, usize, usize) {
     let (ob, nb) = (old.as_bytes(), new.as_bytes());
     let max_prefix = ob.len().min(nb.len());
@@ -770,6 +773,7 @@ pub fn diff_edit(old: &str, new: &str) -> (usize, usize, usize) {
 
 /// A single-line editor's text: every line break a space, byte for byte, so the offsets of an
 /// edit computed against the raw text still hold.
+#[must_use]
 pub fn flatten(text: &str) -> String {
     text.chars()
         .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
@@ -778,6 +782,7 @@ pub fn flatten(text: &str) -> String {
 
 /// The spaces a Tab inserts at `caret`: to the next tab stop of width `indent`, counted in
 /// characters from the start of the caret's line.
+#[must_use]
 pub fn tab_indent(text: &str, caret: usize, indent: u8) -> String {
     let caret = caret.min(text.len());
     let line_start = text[..caret].rfind('\n').map_or(0, |i| i + 1);
@@ -789,6 +794,7 @@ pub fn tab_indent(text: &str, caret: usize, indent: u8) -> String {
 /// The indentation a new line takes after Enter typed at `newline_at`: the previous line's
 /// leading whitespace, one level deeper when that line ends in an opening bracket. `None` when
 /// there is nothing to insert.
+#[must_use]
 pub fn auto_indent(text: &str, newline_at: usize, indent: u8) -> Option<String> {
     let before = &text[..newline_at.min(text.len())];
     let line_start = before.rfind('\n').map_or(0, |i| i + 1);
@@ -806,6 +812,7 @@ pub fn auto_indent(text: &str, newline_at: usize, indent: u8) -> Option<String> 
 /// The closer to type after an opener typed at `at`, when the caret sits at the end of its line
 /// or before whitespace or another closer: `{` `[` `(` and the two quotes. `None` where a
 /// closer would land inside a word.
+#[must_use]
 pub fn closer_after(text: &str, at: usize) -> Option<&'static str> {
     let opener = text[at..].chars().next()?;
     let closer = match opener {
@@ -854,6 +861,7 @@ fn parse_selection(payload: &str) -> Option<std::ops::Range<usize>> {
 // ---------------------------------------------------------------------------
 
 /// A byte range as a UTF-16 range (Apple, Android, XAML).
+#[must_use]
 pub fn utf16_range(text: &str, r: &std::ops::Range<usize>) -> Option<(usize, usize)> {
     let start = text.get(..r.start)?.encode_utf16().count();
     let len = text.get(r.clone())?.encode_utf16().count();
@@ -861,6 +869,7 @@ pub fn utf16_range(text: &str, r: &std::ops::Range<usize>) -> Option<(usize, usi
 }
 
 /// A UTF-16 offset back to a byte offset, clamped into the string.
+#[must_use]
 pub fn byte_of_utf16(text: &str, units: usize) -> usize {
     let mut seen = 0usize;
     for (i, c) in text.char_indices() {
@@ -873,6 +882,7 @@ pub fn byte_of_utf16(text: &str, units: usize) -> usize {
 }
 
 /// A byte range as a character range (GTK's `TextIter`, ArkUI's spans).
+#[must_use]
 pub fn char_range(text: &str, r: &std::ops::Range<usize>) -> Option<(usize, usize)> {
     let start = text.get(..r.start)?.chars().count();
     let len = text.get(r.clone())?.chars().count();
@@ -880,19 +890,21 @@ pub fn char_range(text: &str, r: &std::ops::Range<usize>) -> Option<(usize, usiz
 }
 
 /// A character offset back to a byte offset, clamped into the string.
+#[must_use]
 pub fn byte_of_char(text: &str, chars: usize) -> usize {
     text.char_indices()
         .nth(chars)
-        .map(|(i, _)| i)
-        .unwrap_or(text.len())
+        .map_or(text.len(), |(i, _)| i)
 }
 
 /// The selection payload every arm emits.
+#[must_use]
 pub fn selection_payload(start: usize, end: usize) -> String {
     format!("{SEL_PREFIX}{start} {end}")
 }
 
 /// The text payload for an arm that has only the custom channel; see [`TEXT_PREFIX`].
+#[must_use]
 pub fn text_payload(text: &str) -> String {
     format!("{TEXT_PREFIX}{text}")
 }

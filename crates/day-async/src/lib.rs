@@ -30,7 +30,7 @@ struct Slot<T> {
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     // A poisoned slot holds nothing a later poll could misread: the flags below are set last.
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The sending half went away without delivering. A [`Oneshot`] resolves to this rather than
@@ -111,6 +111,7 @@ impl<T> Future for Oneshot<T> {
 
 impl<T> Oneshot<T> {
     /// Whether a value has arrived (or the sender is gone), without consuming it.
+    #[must_use]
     pub fn is_ready(&self) -> bool {
         let s = lock(&self.slot);
         s.value.is_some() || s.closed
@@ -118,6 +119,7 @@ impl<T> Oneshot<T> {
 }
 
 /// A single-value channel between one completion and one future.
+#[must_use]
 pub fn oneshot<T>() -> (Deliver<T>, Oneshot<T>) {
     let slot = Arc::new(Mutex::new(Slot {
         value: None,
@@ -173,6 +175,7 @@ impl<T> Default for TokenRegistry<T> {
 
 impl<T> TokenRegistry<T> {
     /// An empty registry.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             slots: Mutex::new(BTreeMap::new()),
@@ -289,7 +292,10 @@ mod timer_thread {
         let mut st = lock(&t.state);
         loop {
             let Some(Reverse((at, id))) = st.heap.peek().copied() else {
-                st = t.wake.wait(st).unwrap_or_else(|p| p.into_inner());
+                st = t
+                    .wake
+                    .wait(st)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 continue;
             };
             let now = Instant::now();
@@ -297,8 +303,7 @@ mod timer_thread {
                 st = t
                     .wake
                     .wait_timeout(st, at - now)
-                    .map(|(g, _)| g)
-                    .unwrap_or_else(|p| p.into_inner().0);
+                    .map_or_else(|p| p.into_inner().0, |(g, _)| g);
                 continue;
             }
             st.heap.pop();
@@ -536,6 +541,7 @@ pub fn blocking_inline() -> bool {
 /// How many threads the blocking pool may hold at once: the machine's parallelism, at least
 /// four (a job waiting behind three slow ones still gets a thread), at most thirty-two. Zero on
 /// the web, where jobs run inline.
+#[must_use]
 pub fn blocking_limit() -> usize {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -548,6 +554,7 @@ pub fn blocking_limit() -> usize {
 }
 
 /// How many pool threads exist right now, idle ones included: for diagnostics and tests.
+#[must_use]
 pub fn blocking_threads() -> usize {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -596,7 +603,7 @@ mod blocking_pool {
             }),
             wake: Condvar::new(),
             limit: std::thread::available_parallelism()
-                .map_or(4, |n| n.get())
+                .map_or(4, std::num::NonZero::get)
                 .clamp(4, 32),
         })
     }
@@ -648,7 +655,7 @@ mod blocking_pool {
             let (guard, waited) = p
                 .wake
                 .wait_timeout(st, IDLE_FOR)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             st = guard;
             st.idle -= 1;
             if waited.timed_out() && st.queue.is_empty() {
@@ -672,7 +679,8 @@ mod blocking_tests {
     /// toggling inline mode under another's thread assertion would fail it.
     fn turn() -> std::sync::MutexGuard<'static, ()> {
         static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        TURN.lock().unwrap_or_else(|p| p.into_inner())
+        TURN.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[test]
@@ -761,8 +769,8 @@ mod blocking_tests {
 
     #[test]
     fn the_future_is_send_for_a_send_value() {
-        let _turn = turn();
         fn assert_send<T: Send>(_: &T) {}
+        let _turn = turn();
         let fut = spawn_blocking(|| String::from("sent"));
         assert_send(&fut);
         assert_eq!(block_on(fut), Ok(String::from("sent")));

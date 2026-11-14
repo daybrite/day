@@ -44,11 +44,13 @@ pub enum BatteryState {
 
 impl BatteryStatus {
     /// The charge level as a whole percentage `0..=100`, if known.
+    #[must_use]
     pub fn percent(&self) -> Option<u8> {
         self.level
             .map(|l| (l.clamp(0.0, 1.0) * 100.0).round() as u8)
     }
     /// Whether the battery is currently charging.
+    #[must_use]
     pub fn is_charging(&self) -> bool {
         matches!(self.state, BatteryState::Charging)
     }
@@ -56,6 +58,7 @@ impl BatteryStatus {
 
 /// Read the current battery status via the platform's native API. Returns `None` when there is no
 /// battery API for the platform, or the device has no battery.
+#[must_use]
 pub fn status() -> Option<BatteryStatus> {
     imp::status()
 }

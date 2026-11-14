@@ -394,6 +394,9 @@ fn request_photos(on_done: Box<dyn FnOnce(Status) + Send>) {
 }
 
 fn request_notifications(on_done: Box<dyn FnOnce(Status) + Send>) {
+    // Alert | Badge | Sound, the conventional default set. A finer-grained options API is a
+    // follow-up; docs/permissions.md records the choice.
+    const OPTIONS: usize = (1 << 0) | (1 << 1) | (1 << 2);
     if !is_bundled() {
         on_done(Status::Unsupported);
         return;
@@ -415,9 +418,6 @@ fn request_notifications(on_done: Box<dyn FnOnce(Status) + Send>) {
         );
         done(status);
     });
-    // Alert | Badge | Sound, the conventional default set. A finer-grained options API is a
-    // follow-up; docs/permissions.md records the choice.
-    const OPTIONS: usize = (1 << 0) | (1 << 1) | (1 << 2);
     // SAFETY: the block matches `void (^)(BOOL, NSError *)`.
     unsafe {
         let center: *mut AnyObject = msg_send![cls, currentNotificationCenter];

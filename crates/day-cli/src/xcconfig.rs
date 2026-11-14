@@ -13,6 +13,7 @@
 //! provisioning profile issued for another bundle id needs. Precedence still ends at the
 //! command line: the settings `day build`/`day pack` pass to xcodebuild override all three.
 use crate::meta::Project;
+use std::fmt::Write as _;
 fn target_for(platform: &str) -> &'static str {
     if platform == "macos" {
         "macos-appkit"
@@ -95,18 +96,20 @@ pub fn write_generated(project: &Project, platform: &str) -> Result<(), String> 
             ("Release", crate::cli::Profile::Release),
         ] {
             let path = crate::sandbox::entitlements(project, profile)?;
-            out.push_str(&format!(
-                "CODE_SIGN_ENTITLEMENTS[config={name}] = {}\n",
+            let _ = writeln!(
+                out,
+                "CODE_SIGN_ENTITLEMENTS[config={name}] = {}",
                 path.as_ref()
                     .map(|p| p.display().to_string())
                     .unwrap_or_default()
-            ));
+            );
         }
         if let Some(config) = &project.manifest.sandbox.macos_appkit {
-            out.push_str(&format!(
-                "ENABLE_APP_SANDBOX = {}\n",
+            let _ = writeln!(
+                out,
+                "ENABLE_APP_SANDBOX = {}",
                 if config.enabled { "YES" } else { "NO" }
-            ));
+            );
             if config.enabled {
                 out.push_str("CODE_SIGNING_ALLOWED = YES\n");
                 out.push_str("CODE_SIGN_INJECT_BASE_ENTITLEMENTS[config=Release] = NO\n");

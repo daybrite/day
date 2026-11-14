@@ -5,6 +5,7 @@
 //! project's script phase calls back into `day xcode-backend build` for the Rust staticlib);
 //! android-material via gradle + adb (the gradle scaffold calls `day gradle-backend build`).
 
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -39,7 +40,7 @@ pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
 /// [`status`], in one format for every target, so the tool's version is captured and shown only
 /// when the step fails, where it is the diagnostic. Build output still streams: there the tool's
 /// narration is the content. The deadline exists because the same tools wait forever for a
-/// device that stopped answering (ops.rs INSTALL_TIMEOUT/LAUNCH_TIMEOUT).
+/// device that stopped answering (ops.rs `INSTALL_TIMEOUT/LAUNCH_TIMEOUT`).
 pub(crate) fn run_quiet(cmd: &mut Command, what: &str, limit: Duration) -> Result<(), String> {
     let out = crate::ops::run_capture_within(cmd, what, limit)?;
     if out.status.success() {
@@ -288,9 +289,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
 
     // Generated hosts export the app root; persistent hosts live two levels below it.
-    let root = get("DAY_PROJECT_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| project_dir.join("../.."));
+    let root = get("DAY_PROJECT_ROOT").map_or_else(|| project_dir.join("../.."), PathBuf::from);
     let project = find_project(Some(&root))
         .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     let profile = if configuration.to_lowercase().contains("release") {
@@ -443,9 +442,7 @@ pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
     };
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
     // Generated hosts export the app root; persistent hosts live two levels below it.
-    let root = get("DAY_PROJECT_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| project_dir.join("../.."));
+    let root = get("DAY_PROJECT_ROOT").map_or_else(|| project_dir.join("../.."), PathBuf::from);
     let project = find_project(Some(&root))
         .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     // Refresh the vector caches (raster + glyph SVGs): cheap and idempotent, and an
@@ -503,9 +500,7 @@ pub fn xcode_backend_stage_strings() -> Result<(), CliError> {
     };
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
     // Generated hosts export the app root; persistent hosts live two levels below it.
-    let root = get("DAY_PROJECT_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| project_dir.join("../.."));
+    let root = get("DAY_PROJECT_ROOT").map_or_else(|| project_dir.join("../.."), PathBuf::from);
     let project = find_project(Some(&root))
         .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     let bundle = PathBuf::from(tbd).join(res);
@@ -552,7 +547,7 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 /// otherwise replaces it for every target in the project.
 ///
 /// This covers every object the final link consumes, which is 12 of the 13 entries. The one it
-/// cannot reach is the SwiftPM package target: Xcode merges DayPieces' objects with `ld -r` into
+/// cannot reach is the SwiftPM package target: Xcode merges `DayPieces`' objects with `ld -r` into
 /// a relocatable `Release/DayPieces.o`, and that partial link writes the debug map naming
 /// `_DayPieces.o`. The final link copies it through verbatim, so a flag given to the final link
 /// arrives too late. Command-line build settings do not reach that step either (`PRELINK_FLAGS`
@@ -648,7 +643,7 @@ fn bundle_id_of(app: &Path) -> Option<String> {
 }
 
 /// Build macos-appkit through the Xcode host project, the only macos-appkit build since the
-/// bare-cargo path retired (2026-08). Mirrors [`build_ios_for`]: stage the DayPieces package
+/// bare-cargo path retired (2026-08). Mirrors [`build_ios_for`]: stage the `DayPieces` package
 /// the Xcode project references (empty is fine; the reference must resolve), run xcodebuild with
 /// an absolute SYMROOT, and hand back the built `.app` bundle as the artifact (launch execs
 /// its inner binary; the bundle carries identity, icon, and resources).
@@ -753,11 +748,11 @@ fn stage_apple_link_response(
             }
         }
     }
-    let mut args = roots
-        .into_iter()
-        .map(|s| format!("-Wl,-u,{s}\n"))
-        .collect::<String>();
-    args.push_str(&format!("{quoted}\n"));
+    let mut args = roots.into_iter().fold(String::new(), |mut out, s| {
+        let _ = writeln!(out, "-Wl,-u,{s}");
+        out
+    });
+    let _ = writeln!(args, "{quoted}");
     std::fs::write(response, args).map_err(|e| e.to_string())
 }
 
@@ -923,7 +918,7 @@ pub(crate) fn ios_info_plist(project: &Project) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
-/// Keep `UIAppFonts` in sync with the fonts staged in the DayPieces resource bundle.
+/// Keep `UIAppFonts` in sync with the fonts staged in the `DayPieces` resource bundle.
 /// The managed key is rewritten or removed only when its value changes.
 pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
     let Some(plist) = ios_info_plist(project) else {
@@ -1120,7 +1115,7 @@ pub(crate) struct InstalledStoreProfile {
     pub name: String,
     pub uuid: String,
     /// SHA-1 fingerprint of the profile's first certificate: the `signingCertificate` an
-    /// ExportOptions plist takes, which picks that one identity out of a keychain holding several.
+    /// `ExportOptions` plist takes, which picks that one identity out of a keychain holding several.
     pub cert_sha1: String,
     /// The installed `.mobileprovision`, for `day sign apply` to embed.
     pub path: PathBuf,
@@ -1163,8 +1158,8 @@ pub(crate) fn installed_store_profile(app_id: &str) -> Option<InstalledStoreProf
     })
 }
 
-/// Where profiles are installed: Xcode 16 and later keep them under its UserData folder, earlier
-/// releases (and a double-clicked profile on an older macOS) under MobileDevice.
+/// Where profiles are installed: Xcode 16 and later keep them under its `UserData` folder, earlier
+/// releases (and a double-clicked profile on an older macOS) under `MobileDevice`.
 fn profile_dirs() -> Vec<PathBuf> {
     let Some(home) = dirs_home() else {
         return Vec::new();
@@ -1193,7 +1188,7 @@ fn decoded_profiles(app_id: &str) -> Vec<(PathBuf, String, bool)> {
     let entries = profile_dirs()
         .into_iter()
         .filter_map(|dir| std::fs::read_dir(dir).ok())
-        .flat_map(|entries| entries.flatten());
+        .flat_map(std::iter::Iterator::flatten);
     for entry in entries {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("mobileprovision") {
@@ -1884,8 +1879,7 @@ fn select_sim(booted: &[String], want: &str) -> Result<Vec<String>, String> {
         .filter(|l| l.contains("(Booted)"))
         .filter(|l| {
             l.split_once('(')
-                .map(|(name, _)| name.trim().eq_ignore_ascii_case(want))
-                .unwrap_or(false)
+                .is_some_and(|(name, _)| name.trim().eq_ignore_ascii_case(want))
         })
         .filter_map(|l| {
             l.split(['(', ')'])
@@ -1916,8 +1910,7 @@ pub(crate) fn physical_ios_devices() -> Vec<(String, String)> {
         .args(["devicectl", "list", "devices", "--json-output"])
         .arg(&tmp)
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+        .is_ok_and(|o| o.status.success());
     if !ok {
         return Vec::new();
     }
@@ -2028,7 +2021,7 @@ fn launch_ios_device(
         let l2 = label.clone();
         let t1 = stdout.map(|s| stream_devicectl(label, LogStream::Out, s));
         let t2 = stderr.map(|s| stream_devicectl(l2, LogStream::Err, s));
-        let code = child.wait().map(crate::ops::exit_code_of).unwrap_or(1);
+        let code = child.wait().map_or(1, crate::ops::exit_code_of);
         if let Some(t) = t1 {
             let _ = t.join();
         }
@@ -2118,7 +2111,7 @@ fn stream_devicectl(
 }
 
 /// One line for a devicectl failure tree. The locked screen is called out by name because it is
-/// the common one and the remedy is not obvious from Apple's wording ("RequestDenied").
+/// the common one and the remedy is not obvious from Apple's wording ("`RequestDenied`").
 fn summarize_devicectl_failure(lines: &[String]) -> String {
     let joined = lines.join(" ");
     if joined.contains("could not be, unlocked")
@@ -2134,10 +2127,10 @@ fn summarize_devicectl_failure(lines: &[String]) -> String {
             return format!("launch failed: {}", reason.trim());
         }
     }
-    lines
-        .first()
-        .map(|l| l.trim_start_matches("ERROR: ").to_string())
-        .unwrap_or_else(|| "launch failed".to_string())
+    lines.first().map_or_else(
+        || "launch failed".to_string(),
+        |l| l.trim_start_matches("ERROR: ").to_string(),
+    )
 }
 
 // Build, profile selection and launch must use the same target-resolved identity.
@@ -2262,7 +2255,7 @@ pub fn launch_ios(
             log_threads.push(std::thread::spawn(move || {
                 let t1 = stdout.map(|s| stream_logs_labeled(out_label, LogStream::Out, s));
                 let t2 = stderr.map(|s| stream_logs_labeled(err_label, LogStream::Err, s));
-                let code = child.wait().map(crate::ops::exit_code_of).unwrap_or(1);
+                let code = child.wait().map_or(1, crate::ops::exit_code_of);
                 if let Some(t) = t1 {
                     let _ = t.join();
                 }
@@ -2320,9 +2313,8 @@ pub fn gradle_backend_build() -> Result<(), CliError> {
         Ok("release") => Profile::Release,
         _ => Profile::Debug,
     };
-    let out = std::env::var("DAY_OUT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| root.join("build/day/jniLibs"));
+    let out =
+        std::env::var("DAY_OUT").map_or_else(|_| root.join("build/day/jniLibs"), PathBuf::from);
     let project = find_project(Some(&root))
         .map_err(|e| CliError::usage(format!("day gradle-backend: {e}")))?;
     build_android_so(&project, profile, &out, &android_build_abis()).map_err(CliError::build)
@@ -2424,7 +2416,7 @@ fn android_window_titles(serial: &str) -> Option<Vec<String>> {
 /// With the setting on, the system ends an unresponsive process without asking; the ANR itself
 /// still lands in logcat. `immersive_mode_confirmations=confirmed` is what tapping "Got it" on the
 /// "Viewing full screen" hint stores. A fresh AVD has never had that tap, so every page that hides
-/// the system bars (Games Fair's boards) was captured under the hint. WindowManager observes both
+/// the system bars (Games Fair's boards) was captured under the hint. `WindowManager` observes both
 /// settings, so a write takes effect at once and also removes a hint already on screen.
 ///
 /// Never touched on a physical device (global, persistent settings); best-effort.
@@ -2821,6 +2813,10 @@ fn build_android_so(
             continue;
         };
         for path in entries.flatten().map(|e| e.path()) {
+            #[expect(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "Android loads native libraries by their exact lowercase `lib*.so` names"
+            )]
             let is_other_lib = path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -2855,7 +2851,7 @@ fn stage_android_cxx(ndk: &Path, out: &Path, abi: &str, built: &str) -> Result<(
         object::File::Elf64(file) => elf_needs_cxx(&file),
         _ => return Err("Android app library is not ELF".into()),
     }
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.clone())?;
     if !needs {
         return Ok(());
     }
@@ -2913,7 +2909,7 @@ where
             && let Some(index) = entry.val32(endian)
             && strings
                 .get(index)
-                .map_err(|_| "invalid ELF dynamic string")?
+                .map_err(|()| "invalid ELF dynamic string")?
                 == b"libc++_shared.so"
         {
             return Ok(true);
@@ -3445,7 +3441,7 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
                 emit_log(&label, stream, msg);
             }
         }
-        let code = child.wait().map(crate::ops::exit_code_of).unwrap_or(0);
+        let code = child.wait().map_or(0, crate::ops::exit_code_of);
         if let Ok(mut pumps) = LOGCAT_PUMPS.lock() {
             pumps.retain(|pid| *pid != child.id());
         }
@@ -3664,8 +3660,8 @@ id = "org.example.Legacy-Mac"
             parse_abi_list(" arm64-v8a , x86_64 "),
             vec!["arm64-v8a", "x86_64"]
         );
-        assert!(parse_abi_list("").is_empty());
-        assert!(parse_abi_list(" , ").is_empty());
+        assert_eq!(parse_abi_list(""), [] as [std::string::String; 0]);
+        assert_eq!(parse_abi_list(" , "), [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -3692,7 +3688,9 @@ id = "org.example.Legacy-Mac"
 
     #[test]
     fn day_mdc_abi_overrides_connected_devices() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // When set, the override is authoritative and short-circuits device detection (so this
         // test never touches adb): exactly the listed ABIs are built, deduped and sorted.
         // SAFETY: env access is serialized by ENV_LOCK and the var is restored before returning.
@@ -3745,7 +3743,7 @@ mod system_dialog_tests {
                 "ImmersiveModeConfirmation",
             ]
         );
-        assert!(system_dialogs(&parse_window_titles("")).is_empty());
+        assert_eq!(system_dialogs(&parse_window_titles("")), [] as [&str; 0]);
     }
 }
 

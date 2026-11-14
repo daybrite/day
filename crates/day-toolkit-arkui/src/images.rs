@@ -84,11 +84,11 @@ pub fn info(pm: *mut OH_PixelmapNative) -> (u32, u32, i32) {
     // SAFETY: an info object created and released here, filled from a live pixelmap.
     unsafe {
         let mut info = ptr::null_mut();
-        if OH_PixelmapImageInfo_Create(&mut info) == ImageResult::SUCCESS && !info.is_null() {
+        if OH_PixelmapImageInfo_Create(&raw mut info) == ImageResult::SUCCESS && !info.is_null() {
             if OH_PixelmapNative_GetImageInfo(pm, info) == ImageResult::SUCCESS {
-                OH_PixelmapImageInfo_GetWidth(info, &mut w);
-                OH_PixelmapImageInfo_GetHeight(info, &mut h);
-                OH_PixelmapImageInfo_GetAlphaType(info, &mut alpha);
+                OH_PixelmapImageInfo_GetWidth(info, &raw mut w);
+                OH_PixelmapImageInfo_GetHeight(info, &raw mut h);
+                OH_PixelmapImageInfo_GetAlphaType(info, &raw mut alpha);
             }
             OH_PixelmapImageInfo_Release(info);
         }
@@ -103,16 +103,16 @@ fn decode_bytes(bytes: &[u8]) -> Option<(*mut OH_PixelmapNative, u32, u32, i32)>
     // released except the pixelmap, which the caller owns.
     unsafe {
         let mut src = ptr::null_mut();
-        if OH_ImageSourceNative_CreateFromData(bytes.as_ptr().cast_mut(), bytes.len(), &mut src)
+        if OH_ImageSourceNative_CreateFromData(bytes.as_ptr().cast_mut(), bytes.len(), &raw mut src)
             != ImageResult::SUCCESS
             || src.is_null()
         {
             return None;
         }
         let mut opts = ptr::null_mut();
-        let _ = OH_DecodingOptions_Create(&mut opts);
+        let _ = OH_DecodingOptions_Create(&raw mut opts);
         let mut pm = ptr::null_mut();
-        let rc = OH_ImageSourceNative_CreatePixelmap(src, opts, &mut pm);
+        let rc = OH_ImageSourceNative_CreatePixelmap(src, opts, &raw mut pm);
         if !opts.is_null() {
             OH_DecodingOptions_Release(opts);
         }
@@ -176,11 +176,12 @@ pub fn pack(pm: *mut OH_PixelmapNative, mime: &str, quality: Option<u32>) -> Opt
     // SAFETY: packer and options created and released here; the buffer outlives the pack.
     unsafe {
         let mut packer = ptr::null_mut();
-        if OH_ImagePackerNative_Create(&mut packer) != ImageResult::SUCCESS || packer.is_null() {
+        if OH_ImagePackerNative_Create(&raw mut packer) != ImageResult::SUCCESS || packer.is_null()
+        {
             return None;
         }
         let mut opts = ptr::null_mut();
-        if OH_PackingOptions_Create(&mut opts) != ImageResult::SUCCESS || opts.is_null() {
+        if OH_PackingOptions_Create(&raw mut opts) != ImageResult::SUCCESS || opts.is_null() {
             OH_ImagePackerNative_Release(packer);
             return None;
         }
@@ -188,7 +189,7 @@ pub fn pack(pm: *mut OH_PixelmapNative, mime: &str, quality: Option<u32>) -> Opt
             data: mime_bytes.as_mut_ptr().cast(),
             size: mime_bytes.len(),
         };
-        OH_PackingOptions_SetMimeType(opts, &mut mt);
+        OH_PackingOptions_SetMimeType(opts, &raw mut mt);
         if let Some(q) = quality {
             OH_PackingOptions_SetQuality(opts, q);
         }
@@ -200,7 +201,7 @@ pub fn pack(pm: *mut OH_PixelmapNative, mime: &str, quality: Option<u32>) -> Opt
             opts,
             pm,
             buf.as_mut_ptr(),
-            &mut used,
+            &raw mut used,
         );
         OH_PackingOptions_Release(opts);
         OH_ImagePackerNative_Release(packer);
@@ -259,7 +260,7 @@ pub fn snapshot_png(n: Handle) -> Option<Vec<u8>> {
     }
     let mut pm = ptr::null_mut();
     // SAFETY: a live node; the snapshot pixelmap is released after packing.
-    let rc = unsafe { OH_ArkUI_GetNodeSnapshot(n, ptr::null_mut(), &mut pm) };
+    let rc = unsafe { OH_ArkUI_GetNodeSnapshot(n, ptr::null_mut(), &raw mut pm) };
     if rc != 0 || pm.is_null() {
         return None;
     }

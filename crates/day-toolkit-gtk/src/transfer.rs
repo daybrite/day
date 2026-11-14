@@ -1,6 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-use day_spec::{Point, transfer::*};
+use day_spec::{
+    Point,
+    transfer::{
+        BUNDLE_MIME, Item, Location, MAX_BYTES, Offer, Operation, Representation, Source, Target,
+    },
+};
 use gtk4::{gdk, glib, prelude::*};
 
 pub fn source(widget: &gtk4::Widget, source: Source) {
@@ -42,7 +47,7 @@ fn location(drop: &gdk::Drop, x: f64, y: f64) -> Location {
             .formats()
             .mime_types()
             .iter()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect(),
         allowed: if drop.actions().contains(gdk::DragAction::COPY) {
             vec![Operation::Copy]

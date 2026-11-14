@@ -217,7 +217,7 @@ pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
         }
     });
     APP_MENU_IDS.with(|ids| *ids.borrow_mut() = new_ids);
-    APP_MENU_MODEL.with(|m| *m.borrow_mut() = items.clone());
+    APP_MENU_MODEL.with(|m| (*m.borrow_mut()).clone_from(&items));
     crate::with_tree(|t| t.set_app_menu(items));
 }
 
@@ -256,7 +256,7 @@ pub(crate) fn install_dock_menu() {
     }
     items.extend(app);
     // Nothing to show and nothing shown: leave the toolkit alone (most apps never have a menu).
-    if items.is_empty() && !DOCK_MENU_SHOWN.with(|c| c.get()) {
+    if items.is_empty() && !DOCK_MENU_SHOWN.with(std::cell::Cell::get) {
         return;
     }
     DOCK_MENU_SHOWN.with(|c| c.set(!items.is_empty()));
@@ -265,11 +265,13 @@ pub(crate) fn install_dock_menu() {
 
 /// The app menu as last installed (post-injection). The dayscript `menu:` step walks it to
 /// resolve an item's dispatch id; backends re-read it on late preferences registration.
+#[must_use]
 pub fn app_menu_model() -> Vec<day_spec::MenuItem> {
     APP_MENU_MODEL.with(|m| m.borrow().clone())
 }
 
 /// Whether any app menu was installed (an empty model = the backend default menu is up).
+#[must_use]
 pub fn app_menu_installed() -> bool {
     APP_MENU_MODEL.with(|m| !m.borrow().is_empty())
 }
@@ -280,6 +282,7 @@ pub fn app_menu_installed() -> bool {
 /// backend's default menu bar, which the backend builds before `root()` runs, so a backend that
 /// puts registration-dependent items there (Settings…, File ▸ New Window) has to rebuild it once
 /// the app's registrations are in. day-toolkit-appkit does exactly that.
+#[must_use]
 pub fn has_app_menu() -> bool {
     APP_MENU_MODEL.with(|m| !m.borrow().is_empty())
 }
@@ -298,10 +301,6 @@ pub(crate) fn reinstall_app_menu() {
 /// app-supplied `.action` (nonzero id) always wins. Backends give the item its platform
 /// placement (macOS hoists it into the App menu) and label fallback.
 fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuItem> {
-    let prefs_id = crate::windows::preferences_action_id();
-    if prefs_id == 0 {
-        return items;
-    }
     fn rewrite(items: &mut [day_spec::MenuItem], prefs_id: u64) -> bool {
         use day_spec::MenuItem as M;
         for it in items.iter_mut() {
@@ -323,6 +322,10 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
             }
         }
         false
+    }
+    let prefs_id = crate::windows::preferences_action_id();
+    if prefs_id == 0 {
+        return items;
     }
     if rewrite(&mut items, prefs_id) {
         return items;
@@ -359,12 +362,6 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
 /// ([`MenuBarStyle::stock`]) supplies them, and macOS hoists both into the App menu whichever
 /// way they arrive.
 fn inject_about(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuItem> {
-    use day_spec::{MenuItem as M, MenuRole as R};
-    let about_id = crate::windows::about_action_id();
-    let updates_id = crate::windows::check_for_updates_action_id();
-    if about_id == 0 && updates_id == 0 {
-        return items;
-    }
     // Rewrite inert role items in place; report whether each role appears at all.
     fn rewrite(items: &mut [M], role: R, id: u64) -> bool {
         let mut found = false;
@@ -385,6 +382,12 @@ fn inject_about(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuItem> {
             }
         }
         found
+    }
+    use day_spec::{MenuItem as M, MenuRole as R};
+    let about_id = crate::windows::about_action_id();
+    let updates_id = crate::windows::check_for_updates_action_id();
+    if about_id == 0 && updates_id == 0 {
+        return items;
     }
     let has_about = rewrite(&mut items, R::About, about_id);
     let has_updates = rewrite(&mut items, R::CheckForUpdates, updates_id);
@@ -435,7 +438,6 @@ pub(crate) fn forget_actions(ids: &[u64]) {
 }
 
 fn collect_action_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {
-    let mut ids = Vec::new();
     fn walk(items: &[day_spec::MenuItem], ids: &mut Vec<u64>) {
         for it in items {
             match it {
@@ -445,6 +447,7 @@ fn collect_action_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {
             }
         }
     }
+    let mut ids = Vec::new();
     walk(items, &mut ids);
     ids
 }
@@ -469,6 +472,7 @@ pub enum MenuBarStyle {
 
 impl MenuBarStyle {
     /// The standard slots before and after the app's own menus on this desktop.
+    #[must_use]
     pub fn bar_order(
         self,
     ) -> (
@@ -493,6 +497,7 @@ impl MenuBarStyle {
     /// installs it natively (only AppKit can append the live window list). `Settings` is `None`
     /// for now everywhere: Preferences is placed before a backend sees the model
     /// (`inject_preferences`), so a stock Settings menu would be a second copy of it.
+    #[must_use]
     pub fn stock(self, role: day_spec::MenuBarRole) -> Option<day_spec::MenuItem> {
         use day_spec::{MenuBarRole as B, MenuItem as MI, MenuRole as R};
         // About and Check for Updates… dispatch to the registered Day actions when the app
@@ -536,16 +541,17 @@ impl MenuBarStyle {
             B::View => sub("day_view", vec![act(R::Fullscreen)]),
             // macOS keeps About in the app menu; the other desktops keep it in Help. An empty
             // Help menu still earns its place on macOS, where AppKit fills it with the help search.
-            B::Help => match self {
-                MenuBarStyle::Macos => sub("day_help", Vec::new()),
-                _ => {
+            B::Help => {
+                if self == MenuBarStyle::Macos {
+                    sub("day_help", Vec::new())
+                } else {
                     let mut items = vec![act(R::About)];
                     if crate::windows::check_for_updates_action_id() != 0 {
                         items.push(act(R::CheckForUpdates));
                     }
                     sub("day_help", items)
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -553,6 +559,7 @@ impl MenuBarStyle {
 
 /// Assemble the bar for a desktop's conventions: [`standard_menu_bar`] with that style's slot
 /// order and stock menus.
+#[must_use]
 pub fn standard_menu_bar_for(
     style: MenuBarStyle,
     app_menus: Vec<day_spec::MenuItem>,

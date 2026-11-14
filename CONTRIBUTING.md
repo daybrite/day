@@ -45,7 +45,10 @@ Agree on the scope and submission process with a maintainer before starting. Rea
    with their `scripts/ci/*-matrix.sh` generators and rerun the gate.
 5. Run `bash scripts/ci/lint.sh` for the available platform Clippy checks and `cargo test` for
    the crates you touched. Report any checks you could not run. The hooks and build tests do
-   not replace these checks.
+   not replace these checks. The workspace enables Clippy's `pedantic` group
+   (`[workspace.lints]` in the root `Cargo.toml`) and CI denies warnings. Fix a finding in the
+   code; where that would change public API or behavior, use
+   `#[expect(clippy::<lint>, reason = "…")]` on the narrowest item, not `#[allow]`.
 6. Update the affected documentation and `DESIGN.md` in the same PR as a framework change.
 
 For documentation changes, follow the [writing style guide](STYLE_GUIDE.md) and the

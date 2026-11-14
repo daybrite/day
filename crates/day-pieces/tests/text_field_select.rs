@@ -237,11 +237,15 @@ fn focus_selects_everything() {
         probe.emit(node, Event::FocusChanged(false));
         flush_sync();
     }
-    assert_eq!(slots.get().map(|s| s.get_untracked()), Some(false));
+    assert_eq!(
+        slots.get().map(day_reactive::Signal::get_untracked),
+        Some(false)
+    );
 }
 
 #[test]
 fn a_field_with_a_key_handler_claims_the_arrows_and_escape() {
+    use day_spec::keys::field_claims;
     let heard: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let log = heard.clone();
     let probe = boot(move || {
@@ -261,7 +265,6 @@ fn a_field_with_a_key_handler_claims_the_arrows_and_escape() {
         .find(|n| *n != bar)
         .unwrap();
 
-    use day_spec::keys::field_claims;
     for key in ["ArrowUp", "ArrowDown", "Escape"] {
         assert!(field_claims(bar, key, 0), "{key} is the bar's");
         assert!(
@@ -332,7 +335,7 @@ fn completion_from_an_effect_on_typing() {
     flush_sync();
     assert_eq!(field_updates(&probe), ["text=\"git\" from_native=true"]);
     assert_eq!(
-        slots.get().map(|a| a.get_untracked()),
+        slots.get().map(day_reactive::Signal::get_untracked),
         Some("git".to_owned())
     );
 }

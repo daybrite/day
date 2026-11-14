@@ -102,6 +102,10 @@ fn main() {
         }
     }
     let known: BTreeSet<&str> = english.iter().map(|m| m.key.as_str()).collect();
+    #[expect(
+        clippy::case_sensitive_file_extension_comparisons,
+        reason = "catalog files are committed with the lowercase `.ftl` extension"
+    )]
     let mut locales: Vec<_> = std::fs::read_dir(dir)
         .unwrap_or_else(|e| panic!("day-localization: listing catalog/: {e}"))
         .filter_map(|e| e.ok()?.file_name().into_string().ok())
@@ -118,12 +122,11 @@ fn main() {
             }
         }
     }
-    if !errors.is_empty() {
-        panic!(
-            "day-localization: the core catalog is invalid:\n  {}",
-            errors.join("\n  ")
-        );
-    }
+    assert!(
+        errors.is_empty(),
+        "day-localization: the core catalog is invalid:\n  {}",
+        errors.join("\n  ")
+    );
 
     let mut keys = String::new();
     let mut fns = String::new();

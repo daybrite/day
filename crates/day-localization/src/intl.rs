@@ -49,7 +49,8 @@ fn number_fn<'a>(positional: &[FluentValue<'a>], named: &FluentArgs) -> FluentVa
         }
         Some(FluentValue::String(s)) => match s.parse::<f64>() {
             Ok(v) => {
-                let mut n = FluentNumber::new(v, Default::default());
+                let mut n =
+                    FluentNumber::new(v, fluent_bundle::types::FluentNumberOptions::default());
                 n.options.merge(named);
                 FluentValue::Number(n)
             }
@@ -59,7 +60,7 @@ fn number_fn<'a>(positional: &[FluentValue<'a>], named: &FluentArgs) -> FluentVa
     }
 }
 
-/// The bundle-wide value formatter (`set_formatter`): numbers go through icu_decimal; everything
+/// The bundle-wide value formatter (`set_formatter`): numbers go through `icu_decimal`; everything
 /// else falls through to fluent-bundle's own rendering.
 fn format_value(value: &FluentValue, intls: &IntlLangMemoizer) -> Option<String> {
     match value {
@@ -131,7 +132,7 @@ fn format_number(n: &FluentNumber, intls: &IntlLangMemoizer) -> String {
 
     let formatted = intls
         .with_try_get::<MemoDecimalFormatter, _, _>((o.use_grouping,), |f| f.0.format_to_string(&d))
-        .unwrap_or_else(|_| n.as_string().into_owned());
+        .unwrap_or_else(|()| n.as_string().into_owned());
 
     if o.style == FluentNumberStyle::Percent {
         // icu4x percent formatting is still experimental; the sign goes where the locale's CLDR
@@ -153,7 +154,7 @@ struct MemoLocaleName(String);
 impl Memoizable for MemoLocaleName {
     type Args = ();
     type Error = ();
-    fn construct(lang: LanguageIdentifier, _: ()) -> Result<Self, ()> {
+    fn construct(lang: LanguageIdentifier, (): ()) -> Result<Self, ()> {
         Ok(Self(lang.to_string()))
     }
 }
@@ -281,7 +282,7 @@ fn parse_time(s: &str) -> Option<(u8, u8, u8)> {
     (h < 24 && m < 60 && s < 60).then_some((h, m, s))
 }
 
-/// Epoch seconds → UTC civil date+time (Howard Hinnant's civil_from_days).
+/// Epoch seconds → UTC civil date+time (Howard Hinnant's `civil_from_days`).
 pub(crate) fn from_epoch_seconds(secs: i64) -> DateParts {
     let days = secs.div_euclid(86_400);
     let sod = secs.rem_euclid(86_400);
@@ -294,7 +295,7 @@ pub(crate) fn from_epoch_seconds(secs: i64) -> DateParts {
     let mp = (5 * doy + 2) / 153;
     let day = (doy - (153 * mp + 2) / 5 + 1) as u8;
     let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u8;
-    let year = (y + if month <= 2 { 1 } else { 0 }) as i32;
+    let year = (y + i64::from(month <= 2)) as i32;
     (
         Some((year, month, day)),
         Some(((sod / 3600) as u8, (sod / 60 % 60) as u8, (sod % 60) as u8)),
@@ -316,18 +317,19 @@ impl FluentDateTime {
 
     /// ISO fallback rendering for every failure path (visible, locale-independent).
     fn iso(&self) -> String {
+        use std::fmt::Write as _;
         let mut out = String::new();
         if let Some((y, m, d)) = self.date {
-            out.push_str(&format!("{y:04}-{m:02}-{d:02}"));
+            let _ = write!(out, "{y:04}-{m:02}-{d:02}");
         }
         if let Some((h, mi, s)) = self.time {
             if !out.is_empty() {
                 out.push(' ');
             }
             if s == 0 {
-                out.push_str(&format!("{h:02}:{mi:02}"));
+                let _ = write!(out, "{h:02}:{mi:02}");
             } else {
-                out.push_str(&format!("{h:02}:{mi:02}:{s:02}"));
+                let _ = write!(out, "{h:02}:{mi:02}:{s:02}");
             }
         }
         out
@@ -347,7 +349,7 @@ impl FluentDateTime {
                 f.0.format(&icu_time::DateTime { date: d, time: t })
                     .to_string()
             })
-            .unwrap_or_else(|_| self.iso())
+            .unwrap_or_else(|()| self.iso())
     }
 }
 

@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! End-to-end tests of the crate-root functions against a local std::net server, with no external
-//! network. A macOS host runs them over URLSession and a Linux host over libcurl. Android, Windows,
+//! End-to-end tests of the crate-root functions against a local `std::net` server, with no external
+//! network. A macOS host runs them over `URLSession` and a Linux host over libcurl. Android, Windows,
 //! HarmonyOS and the web compile in CI, and the showcase's Network & HTTP walkthrough runs the
 //! Android transport on a device.
 
@@ -43,7 +43,7 @@ fn read_request(stream: &mut TcpStream) -> Vec<u8> {
         .unwrap();
     loop {
         match stream.read(&mut chunk) {
-            Ok(0) => break,
+            Ok(0) | Err(_) => break,
             Ok(n) => {
                 buf.extend_from_slice(&chunk[..n]);
                 if let Some(head_end) = find_head_end(&buf) {
@@ -63,7 +63,6 @@ fn read_request(stream: &mut TcpStream) -> Vec<u8> {
                     }
                 }
             }
-            Err(_) => break,
         }
     }
     buf
@@ -152,7 +151,7 @@ fn body_short_of_its_content_length_is_an_error() {
     );
     let head = fetch(&Request::head(&url)).expect("head");
     assert_eq!(head.status, 200);
-    assert!(head.body.is_empty());
+    assert_eq!(head.body, [] as [u8; 0]);
 }
 
 #[test]
@@ -243,15 +242,11 @@ fn download_streams_to_file() {
 #[test]
 fn tier_is_not_unavailable_on_hosts() {
     assert_ne!(day_part_http::tier(), day_part_http::Tier::Unavailable);
-    assert!(!day_part_http::tier().label().is_empty());
+    assert_ne!(day_part_http::tier().label(), "");
 }
 
 #[test]
 fn streamed_fetch_delivers_head_then_chunks() {
-    let body: Vec<u8> = (0..1_000_000u32).map(|i| (i % 253) as u8).collect();
-    let expected = body.clone();
-    let port = serve(1, "HTTP/1.1 200 OK", body);
-
     struct Collect {
         status: u16,
         got: Vec<u8>,
@@ -273,6 +268,10 @@ fn streamed_fetch_delivers_head_then_chunks() {
             Ok(())
         }
     }
+    let body: Vec<u8> = (0..1_000_000u32).map(|i| (i % 253) as u8).collect();
+    let expected = body.clone();
+    let port = serve(1, "HTTP/1.1 200 OK", body);
+
     let mut sink = Collect {
         status: 0,
         got: Vec::new(),
@@ -292,9 +291,6 @@ fn streamed_fetch_delivers_head_then_chunks() {
 
 #[test]
 fn streamed_fetch_cancels_mid_body() {
-    let body: Vec<u8> = vec![7u8; 2_000_000];
-    let port = serve(1, "HTTP/1.1 200 OK", body);
-
     struct CancelAfter(usize);
     impl day_part_http::StreamSink for CancelAfter {
         fn chunk(&mut self, data: &[u8]) -> Result<(), HttpError> {
@@ -306,6 +302,9 @@ fn streamed_fetch_cancels_mid_body() {
             }
         }
     }
+    let body: Vec<u8> = vec![7u8; 2_000_000];
+    let port = serve(1, "HTTP/1.1 200 OK", body);
+
     let err = day_part_http::fetch_streamed(
         &Request::get(format!("http://127.0.0.1:{port}/")),
         &mut CancelAfter(0),
@@ -316,7 +315,6 @@ fn streamed_fetch_cancels_mid_body() {
 
 #[test]
 fn streamed_head_abort() {
-    let port = serve(1, "HTTP/1.1 200 OK", b"body".to_vec());
     struct RejectHead;
     impl day_part_http::StreamSink for RejectHead {
         fn head(&mut self, _s: u16, _h: &[(String, String)]) -> bool {
@@ -326,6 +324,7 @@ fn streamed_head_abort() {
             panic!("no chunks after an aborted head");
         }
     }
+    let port = serve(1, "HTTP/1.1 200 OK", b"body".to_vec());
     let err = day_part_http::fetch_streamed(
         &Request::get(format!("http://127.0.0.1:{port}/")),
         &mut RejectHead,

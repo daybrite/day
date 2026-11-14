@@ -29,7 +29,7 @@
 //! });
 //! ```
 //!
-//! Contract: the pointer is BORROWED (not AddRef'd) and valid only while Day's handle lives —
+//! Contract: the pointer is BORROWED (not `AddRef`'d) and valid only while Day's handle lives —
 //! `copy_from_abi` in your C++ if you retain it, never Release a ref you didn't take, main
 //! thread only. After a size-affecting change, call `day_core::invalidate_size(node)`.
 
@@ -55,6 +55,7 @@ fn class_for_kind(kind: Option<PieceKind>) -> &'static str {
 
 /// The borrowed `IUIElement*` ABI pointer behind `node` and its native class name. `None` when the
 /// node is layout-only or disposed.
+#[must_use]
 pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
     let (handle, kind) = day_core::with_tree(|t| (t.node_handle_any(node), t.node_kind(node)));
     let h = handle?.downcast::<crate::Handle>().ok()?;

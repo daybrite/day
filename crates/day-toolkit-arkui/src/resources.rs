@@ -5,7 +5,7 @@
 //! `OH_ResourceManager_*` API (`ohos_sys::rawfile`).
 //!
 //! The native resource manager can only be made from the ArkTS `resourceManager` object, so the
-//! host hands it over once (`registerResourceManager`, src/host_api.rs); until then nothing
+//! host hands it over once (`registerResourceManager`, `src/host_api.rs`); until then nothing
 //! here can read, and `resource(name)` answers `None`.
 
 use std::ffi::c_void;
@@ -127,7 +127,7 @@ pub fn open(path: &str) -> Option<Mapped> {
             start: 0,
             length: 0,
         };
-        let have_fd = OH_ResourceManager_GetRawFileDescriptorData(rf, &mut fd);
+        let have_fd = OH_ResourceManager_GetRawFileDescriptorData(rf, &raw mut fd);
         if have_fd && fd.fd >= 0 && fd.length > 0 {
             let page = libc::sysconf(libc::_SC_PAGESIZE);
             let misalign = if page > 0 { fd.start % page } else { 0 };
@@ -141,7 +141,7 @@ pub fn open(path: &str) -> Option<Mapped> {
                 (fd.start - misalign) as libc::off_t,
             );
             // The descriptor owns a dup'd fd; release it: the mapping survives the close.
-            OH_ResourceManager_ReleaseRawFileDescriptorData(&fd);
+            OH_ResourceManager_ReleaseRawFileDescriptorData(&raw const fd);
             OH_ResourceManager_CloseRawFile(rf);
             if base != libc::MAP_FAILED {
                 return Some(Mapped::Mmap {
@@ -157,7 +157,7 @@ pub fn open(path: &str) -> Option<Mapped> {
             }
         } else if have_fd {
             // A descriptor obtained but unusable: release it so the dup'd fd isn't leaked.
-            OH_ResourceManager_ReleaseRawFileDescriptorData(&fd);
+            OH_ResourceManager_ReleaseRawFileDescriptorData(&raw const fd);
         }
         let size = OH_ResourceManager_GetRawFileSize(rf);
         if size <= 0 {

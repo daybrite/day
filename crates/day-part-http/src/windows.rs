@@ -26,6 +26,7 @@
 use std::cell::UnsafeCell;
 use std::collections::VecDeque;
 use std::ffi::c_void;
+use std::fmt::Write as _;
 use std::io::Read;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
@@ -230,7 +231,7 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Look a symbol up as a function pointer.
@@ -403,7 +404,7 @@ fn set_dword(api: &Api, handle: HINTERNET, option: DWORD, value: DWORD) -> bool 
         (api.set_option)(
             handle,
             option,
-            (&value as *const DWORD).cast(),
+            (&raw const value).cast(),
             std::mem::size_of::<DWORD>() as DWORD,
         ) != 0
     }
@@ -494,12 +495,15 @@ impl ClientCert {
         };
         let password = wide(&identity.password);
         // SAFETY: the blob points at bytes that outlive the call; the password is NUL-terminated.
-        let mut store =
-            unsafe { (crypt.pfx_import)(&blob, password.as_ptr(), PKCS12_NO_PERSIST_KEY) };
+        let mut store = unsafe {
+            (crypt.pfx_import)(&raw const blob, password.as_ptr(), PKCS12_NO_PERSIST_KEY)
+        };
         if store.is_null() && identity.password.is_empty() {
             // An archive without a password may expect none rather than an empty one.
             // SAFETY: as above, with no password.
-            store = unsafe { (crypt.pfx_import)(&blob, std::ptr::null(), PKCS12_NO_PERSIST_KEY) };
+            store = unsafe {
+                (crypt.pfx_import)(&raw const blob, std::ptr::null(), PKCS12_NO_PERSIST_KEY)
+            };
         }
         if store.is_null() {
             // SAFETY: reads this thread's last-error value.
@@ -622,7 +626,7 @@ impl Socket for Dead {
 }
 
 /// What one handle's notifications reach. Boxed, and its address is the handle's context value;
-/// STATUS_HANDLE_CLOSING frees it.
+/// `STATUS_HANDLE_CLOSING` frees it.
 enum Context {
     Exchange(Arc<Exchange>),
     /// The request a WebSocket upgrades.
@@ -646,7 +650,7 @@ fn attach(api: &Api, request: HINTERNET, context: Context) -> Result<usize, Http
         (api.set_option)(
             request,
             OPTION_CONTEXT_VALUE,
-            (&raw as *const usize).cast(),
+            (&raw const raw).cast(),
             std::mem::size_of::<usize>() as DWORD,
         )
     };
@@ -798,10 +802,10 @@ fn open_request(
             }
         }
         if !headers.is_empty() {
-            let joined: String = headers
-                .iter()
-                .map(|(k, v)| format!("{k}: {v}\r\n"))
-                .collect();
+            let joined = headers.iter().fold(String::new(), |mut block, (k, v)| {
+                let _ = write!(block, "{k}: {v}\r\n");
+                block
+            });
             let joined = wide(&joined);
             // A length of -1 takes the whole NUL-terminated string.
             if (api.add_headers)(
@@ -831,8 +835,8 @@ fn read_head(api: &Api, request: HINTERNET) -> Result<(u16, Vec<(String, String)
             request,
             WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
             std::ptr::null(),
-            (&mut status as *mut DWORD).cast(),
-            &mut len,
+            (&raw mut status).cast(),
+            &raw mut len,
             std::ptr::null_mut(),
         )
     };
@@ -848,7 +852,7 @@ fn read_head(api: &Api, request: HINTERNET) -> Result<(u16, Vec<(String, String)
             WINHTTP_QUERY_RAW_HEADERS_CRLF,
             std::ptr::null(),
             std::ptr::null_mut(),
-            &mut bytes,
+            &raw mut bytes,
             std::ptr::null_mut(),
         )
     };
@@ -861,7 +865,7 @@ fn read_head(api: &Api, request: HINTERNET) -> Result<(u16, Vec<(String, String)
                 WINHTTP_QUERY_RAW_HEADERS_CRLF,
                 std::ptr::null(),
                 buf.as_mut_ptr().cast(),
-                &mut bytes,
+                &raw mut bytes,
                 std::ptr::null_mut(),
             )
         };
@@ -906,7 +910,7 @@ fn read_some(reader: &mut dyn Read, buf: &mut [u8]) -> Result<usize, HttpError> 
     }
 }
 
-/// A request body on its way out, one piece per WinHttpWriteData.
+/// A request body on its way out, one piece per `WinHttpWriteData`.
 struct Upload {
     source: Source,
     /// Body bytes still to send, when the length is known.
@@ -915,7 +919,7 @@ struct Upload {
     chunked: bool,
     finished: bool,
     sent: u64,
-    /// The piece in flight, kept alive until STATUS_WRITE_COMPLETE, and the body bytes it carries
+    /// The piece in flight, kept alive until `STATUS_WRITE_COMPLETE`, and the body bytes it carries
     /// (a chunk's framing is not body).
     out: Vec<u8>,
     out_body: usize,
@@ -1010,6 +1014,10 @@ unsafe impl Send for Exchange {}
 unsafe impl Sync for Exchange {}
 
 impl Exchange {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the exchange takes over its caller's shares of the session and identity"
+    )]
     fn begin(
         session: Arc<Session>,
         identity: Option<Arc<ClientCert>>,
@@ -1046,15 +1054,14 @@ impl Exchange {
         };
         // WinHttpSendRequest takes a 32-bit length: a longer body declares its own, and a body of
         // unknown length goes out chunked, framed by `Upload::next`.
-        let total_length = match length {
-            Some(n) => DWORD::try_from(n).unwrap_or_else(|_| {
+        let total_length = if let Some(n) = length {
+            DWORD::try_from(n).unwrap_or_else(|_| {
                 headers.push(("Content-Length".into(), n.to_string()));
                 IGNORE_TOTAL_LENGTH
-            }),
-            None => {
-                headers.push(("Transfer-Encoding".into(), "chunked".into()));
-                IGNORE_TOTAL_LENGTH
-            }
+            })
+        } else {
+            headers.push(("Transfer-Encoding".into(), "chunked".into()));
+            IGNORE_TOTAL_LENGTH
         };
         let opened = open_request(
             &session,
@@ -1291,8 +1298,8 @@ impl Exchange {
             (self.api().query_option)(
                 self.request,
                 OPTION_HTTP_PROTOCOL_USED,
-                (&mut flags as *mut DWORD).cast(),
-                &mut len,
+                (&raw mut flags).cast(),
+                &raw mut len,
             )
         };
         (ok != 0).then(|| {
@@ -1327,7 +1334,7 @@ impl Exchange {
         unsafe { (self.api().close)(self.request) };
     }
 
-    /// STATUS_HANDLE_CLOSING: the request handle is gone.
+    /// `STATUS_HANDLE_CLOSING`: the request handle is gone.
     fn closed(&self) {
         let events = lock(&self.state).events.take();
         if let Some(events) = events {
@@ -1377,7 +1384,7 @@ struct WsState {
     receiving: bool,
     message: Vec<u8>,
     queue: VecDeque<(u32, Vec<u8>, Completion)>,
-    /// The message in flight, kept alive until STATUS_WRITE_COMPLETE, and its completion.
+    /// The message in flight, kept alive until `STATUS_WRITE_COMPLETE`, and its completion.
     sending: Vec<u8>,
     sending_done: Option<Completion>,
 }
@@ -1413,6 +1420,10 @@ fn refuse(waiting: Vec<Completion>) {
 }
 
 impl WsConn {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the connection takes over its caller's shares of the session and identity"
+    )]
     fn begin(
         session: Arc<Session>,
         ws: &'static WsApi,
@@ -1584,6 +1595,10 @@ impl WsConn {
             let bytes = &buffer[..n.min(PIECE)];
             st.message.extend_from_slice(bytes);
             st.receiving = false;
+            #[expect(
+                clippy::match_same_arms,
+                reason = "the fragment arm names the two frame types the catch-all would otherwise hide"
+            )]
             let got = match kind {
                 WS_BINARY_MESSAGE => {
                     Received::Message(Message::Binary(std::mem::take(&mut st.message)))
@@ -1648,10 +1663,10 @@ impl WsConn {
         let rc = unsafe {
             (self.ws.query_close_status)(
                 socket,
-                &mut code,
+                &raw mut code,
                 reason.as_mut_ptr().cast(),
                 CLOSE_REASON_MAX as DWORD,
-                &mut len,
+                &raw mut len,
             )
         };
         if rc != 0 {
@@ -1729,8 +1744,8 @@ impl WsConn {
         }
     }
 
-    /// STATUS_REQUEST_ERROR for the socket. Closing cancels the receive or send in flight, and
-    /// STATUS_CLOSE_COMPLETE then reports the peer's close, so that cancellation is not a failure.
+    /// `STATUS_REQUEST_ERROR` for the socket. Closing cancels the receive or send in flight, and
+    /// `STATUS_CLOSE_COMPLETE` then reports the peer's close, so that cancellation is not a failure.
     fn request_error(&self, code: DWORD) {
         {
             let mut st = lock(&self.state);
@@ -1777,7 +1792,7 @@ impl WsConn {
         unsafe { (self.session.api.close)(socket) };
     }
 
-    /// STATUS_HANDLE_CLOSING for the upgrade request.
+    /// `STATUS_HANDLE_CLOSING` for the upgrade request.
     fn request_closed(&self) {
         if !lock(&self.state).socket.is_null() {
             return;
@@ -1794,7 +1809,7 @@ impl WsConn {
         unsafe { (self.session.api.close)(self.connection) };
     }
 
-    /// STATUS_HANDLE_CLOSING for the socket.
+    /// `STATUS_HANDLE_CLOSING` for the socket.
     fn socket_closed(&self) {
         let (events, waiting) = self.terminal();
         if let Some(events) = events {

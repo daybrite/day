@@ -153,9 +153,8 @@ pub(super) fn place(window: &NSWindow, placement: WindowPlacement) {
             // Day's desktop coordinates run down from the top of the main screen; AppKit's run
             // up from its bottom.
             let mtm = window.mtm();
-            let height = objc2_app_kit::NSScreen::mainScreen(mtm)
-                .map(|s| s.frame().size.height)
-                .unwrap_or(0.0);
+            let height =
+                objc2_app_kit::NSScreen::mainScreen(mtm).map_or(0.0, |s| s.frame().size.height);
             window.setFrameTopLeftPoint(NSPoint::new(p.x, height - p.y));
         }
     }
@@ -191,7 +190,7 @@ pub(super) fn report_title_bar_inset(window: &NSWindow, top: f64) {
         // The first window, after boot: `set_safe_area` looks the root up in the tree, which the
         // caller may hold, so it goes on the next turn.
         None => {
-            <AppKit as day_spec::Platform>::post(Box::new(move || day_core::set_safe_area(insets)))
+            <AppKit as day_spec::Platform>::post(Box::new(move || day_core::set_safe_area(insets)));
         }
     }
 }
@@ -252,9 +251,9 @@ fn double_click(window: &NSWindow) {
         None => {
             if unsafe { defaults.boolForKey(&NSString::from_str("AppleMiniaturizeOnDoubleClick")) }
             {
-                window.performMiniaturize(None)
+                window.performMiniaturize(None);
             } else {
-                window.performZoom(None)
+                window.performZoom(None);
             }
         }
     }
@@ -320,8 +319,7 @@ fn desktop_height(mtm: MainThreadMarker) -> f64 {
     objc2_app_kit::NSScreen::screens(mtm)
         .iter()
         .next()
-        .map(|s| s.frame().size.height)
-        .unwrap_or(0.0)
+        .map_or(0.0, |s| s.frame().size.height)
 }
 
 /// An AppKit screen rectangle in Day's desktop coordinates (top-left origin, points).
@@ -351,12 +349,13 @@ pub(super) fn monitors(mtm: MainThreadMarker) -> Vec<day_spec::Monitor> {
                 let desc = s.deviceDescription();
                 msg_send![&desc, objectForKey: &*NSString::from_str("NSScreenNumber")]
             };
-            let id = number
-                .map(|n| {
+            let id = number.map_or_else(
+                || i.to_string(),
+                |n| {
                     let v: u32 = unsafe { msg_send![&n, unsignedIntValue] };
                     v.to_string()
-                })
-                .unwrap_or_else(|| i.to_string());
+                },
+            );
             day_spec::Monitor {
                 id,
                 name: s.localizedName().to_string(),

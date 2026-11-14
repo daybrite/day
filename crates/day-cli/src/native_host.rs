@@ -3,6 +3,7 @@
 
 //! Disposable Android and HarmonyOS project scaffolds. App-owned overrides always win.
 use crate::meta::Project;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// Only omit known boilerplate from templates; never discard extra Java/ArkTS app sources.
@@ -270,10 +271,11 @@ fn customize_android(
                     "android.cleartext-domains expects hostnames or IP addresses, not URLs: {domain:?}"
                 ));
             }
-            network.push_str(&format!(
-                "    <domain includeSubdomains=\"false\">{}</domain>\n",
+            let _ = writeln!(
+                network,
+                "    <domain includeSubdomains=\"false\">{}</domain>",
                 xml(domain)
-            ));
+            );
         }
         network.push_str("  </domain-config>\n</network-security-config>\n");
         files.insert(

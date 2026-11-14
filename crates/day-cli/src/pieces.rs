@@ -50,6 +50,7 @@
 //! pure `Cargo.toml` data too. Each declared dir needs an `Index.ets` exporting a `DayPieceModule`.
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
 
@@ -70,10 +71,10 @@ struct PermissionsMeta {
 /// The build-side contribution list handed to Gradle (serialized to day-pieces.json).
 #[derive(Debug, Default, Serialize)]
 pub struct AndroidPieces {
-    /// The day-toolkit-material framework Java shim (DayActivity, DayBridge, …), resolved from the
+    /// The day-toolkit-material framework Java shim (`DayActivity`, `DayBridge`, …), resolved from the
     /// `day-toolkit-material` crate the app depends on, wherever cargo has it (workspace path, git
     /// checkout, or registry source). Without this dir in the dex, the APK installs and then
-    /// crashes with ClassNotFoundException at launch; the Gradle scaffold hard-fails instead.
+    /// crashes with `ClassNotFoundException` at launch; the Gradle scaffold hard-fails instead.
     #[serde(rename = "dayJavaSrcDir")]
     pub day_java_src_dir: Option<String>,
     /// The Android runtime's shared R8/ProGuard keep rules (bridge classes + native methods),
@@ -308,12 +309,15 @@ fn direct_dependencies(meta: &Metadata) -> HashSet<String> {
 /// an optional dependency behind the outer one's backend feature, so `cargo metadata` leaves it
 /// out of the resolve graph, and its Swift shims, frameworks, Java, permissions and assets never
 /// reach the app. day-piece-lottie's web-view arm (which depends on day-piece-webview) is the
-/// case that found this: the app linked no WebKit and died on its first `WKWebView`.
+/// case that found this: the app linked no `WebKit` and died on its first `WKWebView`.
 pub(crate) fn cargo_metadata_for_contributions(
     project: &Project,
     features: &[&str],
 ) -> Result<Metadata, String> {
-    let mut all: Vec<String> = features.iter().map(|f| f.to_string()).collect();
+    let mut all: Vec<String> = features
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
     for f in features {
         all.extend(feature_union(project, f));
     }
@@ -629,7 +633,7 @@ fn appimage_needs(meta: &Metadata, toolkit: &str) -> Result<AppImageNeeds, Strin
             if entry.toolkit != toolkit {
                 continue;
             }
-            entry.declared_by = pkg.name.clone();
+            entry.declared_by.clone_from(&pkg.name);
             match chosen.get(&entry.name) {
                 Some(prev) if prev.value == entry.value => {}
                 Some(prev) => {
@@ -736,7 +740,11 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 continue;
             }
             if !path.is_dir() {
-                eprintln!("day: {} java path {:?} not found — skipping", pkg.id, path);
+                eprintln!(
+                    "day: {} java path \"{}\" not found — skipping",
+                    pkg.id,
+                    path.display()
+                );
                 continue;
             }
             let abs = path.to_string_lossy().into_owned();
@@ -747,7 +755,11 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
         for rel in &android.res.0 {
             let dir = crate_dir.join(rel);
             if !dir.is_dir() {
-                eprintln!("day: {} res dir {:?} not found — skipping", pkg.id, dir);
+                eprintln!(
+                    "day: {} res dir \"{}\" not found — skipping",
+                    pkg.id,
+                    dir.display()
+                );
                 continue;
             }
             let abs = dir.to_string_lossy().into_owned();
@@ -782,8 +794,9 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
             let file = crate_dir.join(rel);
             if !file.is_file() {
                 eprintln!(
-                    "day: {} proguard file {:?} not found — skipping",
-                    pkg.id, file
+                    "day: {} proguard file \"{}\" not found — skipping",
+                    pkg.id,
+                    file.display()
                 );
                 continue;
             }
@@ -799,8 +812,9 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
             let file = crate_dir.join(rel);
             if !file.is_file() {
                 return Err(format!(
-                    "{}: manifest-components file {:?} not found",
-                    pkg.id, file
+                    "{}: manifest-components file \"{}\" not found",
+                    pkg.id,
+                    file.display()
                 ));
             }
             let abs = file.to_string_lossy().into_owned();
@@ -955,7 +969,7 @@ fn web_contributions(meta: &Metadata) -> Result<Vec<WebContribution>, String> {
             let mut paths = Vec::new();
             for rel in rels {
                 let path = crate_dir.join(rel);
-                let name = path.file_name().map(|n| n.to_os_string());
+                let name = path.file_name().map(std::ffi::OsStr::to_os_string);
                 if !path.is_file() || name.is_none() {
                     return Err(format!(
                         "{}: [package.metadata.day.web].{key} names \"{rel}\", which is not a file",
@@ -1433,14 +1447,16 @@ fn pieces_manifest(
         match perm.max_sdk {
             // The cap matters: an uncapped legacy storage permission makes stores flag the app for
             // requesting broad access that API 33+ replaced with the granular READ_MEDIA_* set.
-            Some(max) => s.push_str(&format!(
-                "    <uses-permission android:name=\"{}\" android:maxSdkVersion=\"{max}\" />\n",
-                perm.name
-            )),
-            None => s.push_str(&format!(
-                "    <uses-permission android:name=\"{}\" />\n",
-                perm.name
-            )),
+            Some(max) => {
+                let _ = writeln!(
+                    s,
+                    "    <uses-permission android:name=\"{}\" android:maxSdkVersion=\"{max}\" />",
+                    perm.name
+                );
+            }
+            None => {
+                let _ = writeln!(s, "    <uses-permission android:name=\"{}\" />", perm.name);
+            }
         }
     }
     if !components.is_empty() || disable_pointer_tagging {
@@ -1668,12 +1684,15 @@ fn collect_apple(meta: &Metadata, platform_key: &str) -> Result<ApplePieces, Str
             .unwrap_or(Path::new("."));
         let namespace = crate_dir
             .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "piece".into());
+            .map_or_else(|| "piece".into(), |s| s.to_string_lossy().into_owned());
         for rel in &apple.swift.0 {
             let dir = crate_dir.join(rel);
             if !dir.is_dir() {
-                eprintln!("day: {} swift dir {:?} not found — skipping", pkg.id, dir);
+                eprintln!(
+                    "day: {} swift dir \"{}\" not found — skipping",
+                    pkg.id,
+                    dir.display()
+                );
                 continue;
             }
             let abs = dir.to_string_lossy().into_owned();
@@ -1688,8 +1707,9 @@ fn collect_apple(meta: &Metadata, platform_key: &str) -> Result<ApplePieces, Str
                 let dir = crate_dir.join(rel);
                 if !dir.join("Package.swift").is_file() {
                     eprintln!(
-                        "day: {} swift package {:?} not found (no Package.swift) — skipping",
-                        pkg.id, dir
+                        "day: {} swift package \"{}\" not found (no Package.swift) — skipping",
+                        pkg.id,
+                        dir.display()
                     );
                     continue;
                 }
@@ -1952,7 +1972,7 @@ fn render_view_glue(pieces: &ApplePieces) -> Option<String> {
 }
 
 /// Copy every `.swift` file under `src` into `dest` (recursively), so a piece's shims join the
-/// DayPieces target's sources.
+/// `DayPieces` target's sources.
 /// The `[package.metadata.day.ohos]` table, as declared by a piece crate.
 #[derive(Deserialize, Default)]
 struct OhosMeta {
@@ -2031,18 +2051,22 @@ fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, Stri
             .unwrap_or(Path::new("."));
         let namespace = crate_dir
             .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "piece".into());
+            .map_or_else(|| "piece".into(), |s| s.to_string_lossy().into_owned());
         for rel in &ohos.ets.0 {
             let dir = crate_dir.join(rel);
             if !dir.is_dir() {
-                eprintln!("day: {} ets dir {:?} not found — skipping", pkg.id, dir);
+                eprintln!(
+                    "day: {} ets dir \"{}\" not found — skipping",
+                    pkg.id,
+                    dir.display()
+                );
                 continue;
             }
             if !dir.join("Index.ets").is_file() {
                 eprintln!(
-                    "day: {} ets dir {:?} has no Index.ets (the `dayPiece` entry module) — skipping",
-                    pkg.id, dir
+                    "day: {} ets dir \"{}\" has no Index.ets (the `dayPiece` entry module) — skipping",
+                    pkg.id,
+                    dir.display()
                 );
                 continue;
             }
@@ -2180,7 +2204,7 @@ const START_COLOR_DARK: &str =
 
 /// The generated `DayPieceModule` contract between a piece's ArkTS and the aggregator.
 /// Written verbatim every build so the two generated files always agree.
-const DAY_PIECE_ETS: &str = r#"// Generated by `day build`. The contract between a standalone piece's ArkTS and the generated
+const DAY_PIECE_ETS: &str = r"// Generated by `day build`. The contract between a standalone piece's ArkTS and the generated
 // aggregator (docs/extending.md). Do not edit.
 import { FrameNode, UIContext } from '@kit.ArkUI';
 
@@ -2200,20 +2224,21 @@ export interface DayPieceModule {
   // node that paints nothing, so a settle caps its own wait.
   settle?: () => Promise<void>;
 }
-"#;
+";
 
 /// Render the aggregator for the resolved pieces.
 fn day_pieces_ets(pieces: &OhosPieces) -> String {
     let mut imports = String::new();
     let mut entries = String::new();
     for (i, (namespace, _)) in pieces.ets_dirs.iter().enumerate() {
-        imports.push_str(&format!(
-            "import {{ dayPiece as dayPiece{i} }} from './{namespace}/Index';\n"
-        ));
-        entries.push_str(&format!("  dayPiece{i},\n"));
+        let _ = writeln!(
+            imports,
+            "import {{ dayPiece as dayPiece{i} }} from './{namespace}/Index';"
+        );
+        let _ = writeln!(entries, "  dayPiece{i},");
     }
     format!(
-        r#"// Generated by `day build`. Registers every standalone piece's ArkTS component with the native
+        r"// Generated by `day build`. Registers every standalone piece's ArkTS component with the native
 // shim (docs/extending.md): one factory, one command sink, one disposer for all of them. Do not edit.
 import nativeEntry from 'libentry.so';
 import {{ FrameNode, UIContext }} from '@kit.ArkUI';
@@ -2269,7 +2294,7 @@ export function registerDayPieces(ui: UIContext, builtins: DayPieceModule[] = []
     }}
   );
 }}
-"#
+"
     )
 }
 
@@ -2310,11 +2335,10 @@ fn package_swift(
     has_resources: bool,
     has_fonts: bool,
 ) -> String {
-    let deps: String = pieces
-        .packages
-        .iter()
-        .map(|p| format!("        {},\n", p.dependency_clause()))
-        .collect();
+    let deps: String = pieces.packages.iter().fold(String::new(), |mut out, p| {
+        let _ = writeln!(out, "        {},", p.dependency_clause());
+        out
+    });
     let products: String = pieces
         .packages
         .iter()
@@ -2333,21 +2357,21 @@ fn package_swift(
     {
         String::new()
     } else {
-        let fws: String = pieces
-            .frameworks
-            .iter()
-            .map(|f| format!(".linkedFramework(\"{f}\"), "))
-            .collect();
-        let libs: String = pieces
-            .libraries
-            .iter()
-            .map(|l| format!(".linkedLibrary(\"{l}\"), "))
-            .collect();
+        let fws: String = pieces.frameworks.iter().fold(String::new(), |mut out, f| {
+            let _ = write!(out, ".linkedFramework(\"{f}\"), ");
+            out
+        });
+        let libs: String = pieces.libraries.iter().fold(String::new(), |mut out, l| {
+            let _ = write!(out, ".linkedLibrary(\"{l}\"), ");
+            out
+        });
         let opts: String = pieces
             .linker_options
             .iter()
-            .map(|o| format!(".unsafeFlags([\"-Xlinker\", \"{o}\"]), "))
-            .collect();
+            .fold(String::new(), |mut out, o| {
+                let _ = write!(out, ".unsafeFlags([\"-Xlinker\", \"{o}\"]), ");
+                out
+            });
         format!(", linkerSettings: [{fws}{libs}{opts}]")
     };
     // App images (§18.3) staged as a `.process`ed asset catalog next to the shims; app fonts
@@ -2502,7 +2526,10 @@ mod optional_bridge_tests {
         let collect = |value: &serde_json::Value| {
             super::bridge_roots_from_metadata(&serde_json::from_value(value.clone()).unwrap())
         };
-        assert!(collect(&fixture).is_empty());
+        assert_eq!(
+            collect(&fixture),
+            [] as [(std::string::String, std::path::PathBuf); 0]
+        );
         fixture["resolve"]["nodes"][0]["deps"] = serde_json::json!([{"pkg":"provider"}]);
         assert_eq!(
             collect(&fixture),
@@ -2511,7 +2538,7 @@ mod optional_bridge_tests {
     }
 }
 
-/// Stage every bridged crate's generated Swift for `platform` into the DayPieces sources, one
+/// Stage every bridged crate's generated Swift for `platform` into the `DayPieces` sources, one
 /// namespace directory per crate. Returns quietly when no crate in the build declares a bridge.
 ///
 /// Adapters come from source declarations in the selected feature graph (see `crate::bridge`).
@@ -2703,12 +2730,11 @@ fn jvm_package(source: &str) -> String {
             }
         }
         while let Some(body) = rest.strip_prefix("/*") {
-            match body.find("*/") {
-                Some(end) => rest = body[end + 2..].trim_start(),
-                None => {
-                    in_comment = true;
-                    rest = "";
-                }
+            if let Some(end) = body.find("*/") {
+                rest = body[end + 2..].trim_start();
+            } else {
+                in_comment = true;
+                rest = "";
             }
         }
         if rest.is_empty() || rest.starts_with("//") || rest.starts_with("@file:") {
@@ -2891,7 +2917,7 @@ mod tests {
         let needs = collect(&data).unwrap();
         assert_eq!(needs.bases.len(), 1);
         assert_eq!(needs.bases[0].id, "org.example.BaseApp");
-        assert!(needs.finish_args.is_empty());
+        assert_eq!(needs.finish_args, [] as [std::string::String; 0]);
         // Sandbox permissions are collected across the closure, sorted and without repeats;
         // a crate may declare them with no base at all.
         data["packages"][0]["metadata"] = serde_json::json!({"day":{"flatpak":{
@@ -3038,7 +3064,10 @@ mod tests {
             super::appimage_needs(&serde_json::from_value(v.clone()).unwrap(), toolkit)
         };
         assert_eq!(collect(&data, "gtk").unwrap().plugins, ["gstreamer"]);
-        assert!(collect(&data, "qt").unwrap().plugins.is_empty());
+        assert_eq!(
+            collect(&data, "qt").unwrap().plugins,
+            [] as [std::string::String; 0]
+        );
         for bad in ["../gstreamer", "--output", "", "gst stream"] {
             data["packages"][1]["metadata"]["day"]["appimage"]["plugins"][0]["name"] = bad.into();
             assert!(collect(&data, "gtk").unwrap_err().contains("plugin"));
@@ -3277,7 +3306,7 @@ mod tests {
         let meta: AndroidMeta =
             toml::from_str("java = [\"platform/android/java\"]\npermissions = []\n")
                 .expect("parses");
-        assert!(meta.manifest_components.0.is_empty());
+        assert_eq!(meta.manifest_components.0, [] as [std::string::String; 0]);
     }
 
     #[test]

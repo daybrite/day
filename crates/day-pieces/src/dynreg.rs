@@ -20,7 +20,7 @@
 //! - Reactive arguments are [`DynValue::Fn`] callbacks (re-run under day-reactive tracking,
 //!   so a `get()` on a bridged signal inside one registers a real dependency) or
 //!   [`DynValue::Signal`] handles (typed at creation; see [`DynSignal`]).
-//! - Naming is **snake_case throughout**: constructors (`text_field`), modifiers
+//! - Naming is **`snake_case` throughout**: constructors (`text_field`), modifiers
 //!   (`corner_radius`), and string enum values alike (`large_title`, `top_leading`); the
 //!   dyn surface mirrors day's Rust API one-to-one rather than re-casing per language.
 //! - Everything is main-thread only, like the rest of the piece layer. The registry maps
@@ -45,10 +45,10 @@ use crate::{
 /// `Color` from 8-bit channels (the geometry type is `f64`-channel).
 fn rgb8(r: u32, g: u32, b: u32, a: u32) -> Color {
     Color::rgba(
-        r as f64 / 255.0,
-        g as f64 / 255.0,
-        b as f64 / 255.0,
-        a as f64 / 255.0,
+        f64::from(r) / 255.0,
+        f64::from(g) / 255.0,
+        f64::from(b) / 255.0,
+        f64::from(a) / 255.0,
     )
 }
 
@@ -68,6 +68,7 @@ pub enum DynSignal {
 
 impl DynSignal {
     /// Tracked read, as a value.
+    #[must_use]
     pub fn get(&self) -> DynValue {
         match self {
             DynSignal::Bool(s) => DynValue::Bool(s.get()),
@@ -77,6 +78,10 @@ impl DynSignal {
     }
 
     /// Write; a mismatched payload type is a no-op error for the caller to surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DynError::Type`] when `v`'s type differs from the signal's payload type.
     pub fn set(&self, v: &DynValue) -> Result<(), DynError> {
         match (self, v) {
             (DynSignal::Bool(s), DynValue::Bool(b)) => {
@@ -131,6 +136,7 @@ impl DynValue {
         }
     }
 
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         match self {
             DynValue::Str(s) => Some(s),
@@ -138,6 +144,7 @@ impl DynValue {
         }
     }
 
+    #[must_use]
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             DynValue::Num(n) => Some(*n),
@@ -147,10 +154,11 @@ impl DynValue {
 
     /// A stable structural serialization, used as the row key by `each` (a changed item
     /// gets a new key and thus a rebuilt row).
+    #[must_use]
     pub fn key_string(&self) -> String {
         match self {
             DynValue::List(items) => {
-                let inner: Vec<String> = items.iter().map(|v| v.key_string()).collect();
+                let inner: Vec<String> = items.iter().map(DynValue::key_string).collect();
                 format!("[{}]", inner.join(","))
             }
             DynValue::Map(entries) => {
@@ -165,6 +173,7 @@ impl DynValue {
     }
 
     /// Render any value as display text (what `label`'s reactive closure produces).
+    #[must_use]
     pub fn display(&self) -> String {
         match self {
             DynValue::Null => String::new(),
@@ -300,6 +309,11 @@ pub fn register_modifier(name: &'static str, f: ModifierFn) {
 }
 
 /// Construct a piece by name.
+///
+/// # Errors
+///
+/// Returns [`DynError::Unknown`] when no piece is registered under `name`, or the
+/// constructor's own error for `args` it rejects.
 pub fn construct(name: &str, args: &[DynValue]) -> Result<DynPiece, DynError> {
     let ctor = ctors()
         .lock()
@@ -329,6 +343,10 @@ impl DynPiece {
 
     /// Apply a modifier by name (type-specific first, then the generic `Decorate` set,
     /// then extension-registered generics).
+    ///
+    /// # Errors
+    ///
+    /// Returns the modifier's error when `name` is unknown for this piece or `args` do not fit.
     pub fn modify(&self, name: &str, args: &[DynValue]) -> Result<(), DynError> {
         let mut slot = self.0.borrow_mut();
         let inner = slot.take().unwrap_or_else(|| Inner::Any(spacer().any()));
@@ -347,7 +365,7 @@ fn want(args: &[DynValue], i: usize, what: &'static str, want_: &'static str) ->
 
 fn num(args: &[DynValue], i: usize, what: &'static str) -> Result<f64, DynError> {
     args.get(i)
-        .and_then(|v| v.as_f64())
+        .and_then(DynValue::as_f64)
         .ok_or(want(args, i, what, "a number"))
 }
 
@@ -875,6 +893,7 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
 
 /// Introspection: every name the dynamic surface answers to. day-lite generates the JS API
 /// from this, so the script surface and the dispatch tables cannot drift.
+#[must_use]
 pub fn catalog() -> Vec<SpecEntry> {
     let mut out: Vec<SpecEntry> = Vec::new();
     let c = |name, sig| SpecEntry {

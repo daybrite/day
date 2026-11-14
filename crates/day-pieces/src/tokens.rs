@@ -33,6 +33,7 @@ pub enum Space {
 
 impl Space {
     /// The step in points on this platform.
+    #[must_use]
     pub const fn points(self) -> f64 {
         match self {
             Space::XS => 4.0,
@@ -61,6 +62,7 @@ impl IntoInsets for Space {
 /// `const`, so a preset is a constant, not a runtime value, and it composes the same
 /// `LabelBuilder` steps a chain would (docs/text.md).
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[must_use]
 pub struct TextPreset {
     pub(crate) font: Font,
     pub(crate) font_scale: f64,

@@ -41,17 +41,23 @@ pub(crate) fn welcome() -> impl Piece {
 pub(crate) fn item_list() -> impl Piece {
     let scene = Scene::ambient();
     // The Done command a row's context menu and its leading swipe share.
-    let done_label = move |id: u64| match scene.items.elem(id).done().peek() {
-        true => res::str::cmd_mark_not_done(),
-        false => res::str::cmd_mark_done(),
+    let done_label = move |id: u64| {
+        if scene.items.elem(id).done().peek() {
+            res::str::cmd_mark_not_done()
+        } else {
+            res::str::cmd_mark_done()
+        }
     };
     column((
         when(
             move || scene.visible_keys().is_empty(),
             move || {
-                label(move || match scene.query.get().is_empty() {
-                    true => res::str::items_empty().format(),
-                    false => res::str::search_empty().format(),
+                label(move || {
+                    if scene.query.get().is_empty() {
+                        res::str::items_empty().format()
+                    } else {
+                        res::str::search_empty().format()
+                    }
                 })
                 .secondary()
                 .padding(Space::L)
@@ -119,7 +125,7 @@ pub(crate) fn item_list() -> impl Piece {
 }
 
 /// The editor: native form controls bound to the selected item's fields.
-/// https://daybrite.dev/docs/explanation/reactivity
+/// <https://daybrite.dev/docs/explanation/reactivity>
 pub(crate) fn editor() -> impl Piece {
     let scene = Scene::ambient();
     column((

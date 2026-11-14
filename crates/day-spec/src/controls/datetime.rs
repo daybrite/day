@@ -12,6 +12,7 @@ pub const TIME_KIND: &str = "day.piece.timepicker";
 /// A civil (zoneless) calendar date, proleptic Gregorian. Ordered chronologically; `Display` and
 /// [`DayDate::parse_iso`] speak ISO-8601 (`YYYY-MM-DD`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[must_use]
 pub struct DayDate {
     pub year: i32,
     pub month: u8,
@@ -28,27 +29,39 @@ impl Default for DayDate {
     }
 }
 
-/// Seconds since the Unix epoch, from whatever clock this target has.
+/// Milliseconds since the Unix epoch, from the wall clock of whatever target this is. Use it (or
+/// [`now_epoch_secs`]) for timestamps in app code: it is the one wall clock that works on every
+/// Day target.
 ///
 /// `SystemTime::now()` traps on `wasm32-unknown-unknown`: the target has no clock, and the trap
-/// is not a panic that can be caught, it aborts the module. So a `DayDate::today()` anywhere on
-/// the startup path took the whole web app down with `RuntimeError: Unreachable code`. The web
-/// build reads the host's clock through the same JS shim day-toolkit-dom imports everything else from.
-fn now_epoch_secs() -> i64 {
+/// is not a panic that can be caught, it aborts the module. So a clock read anywhere on the
+/// startup path takes the whole web app down with `RuntimeError: Unreachable code`. The web
+/// build reads the browser's `Date.now()` through the same JS shim day-toolkit-dom imports
+/// everything else from; every other target reads `SystemTime`.
+///
+/// This is wall-clock time: the user or the network can set it backwards. Measure elapsed time
+/// with the monotonic `day_core::frame::now_secs()` instead.
+#[must_use]
+pub fn now_epoch_millis() -> i64 {
     #[cfg(target_arch = "wasm32")]
     {
-        // SAFETY: the shim exports this for every web-dom app; a build that links this piece and
+        // SAFETY: the shim exports this for every web-dom app; a build that links this crate and
         // an older shim fails at instantiation with a LinkError naming the missing import, which
         // is the loud failure rather than the silent one.
-        unsafe { day_datetime_now_secs() as i64 }
+        (unsafe { day_datetime_now_secs() } * 1000.0) as i64
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0)
+            .map_or(0, |d| d.as_millis() as i64)
     }
+}
+
+/// Seconds since the Unix epoch, from the same clock as [`now_epoch_millis`].
+#[must_use]
+pub fn now_epoch_secs() -> i64 {
+    now_epoch_millis().div_euclid(1000)
 }
 
 // The attribute makes this a wasm import from the instantiation's `env` object (shim.js supplies
@@ -62,6 +75,7 @@ unsafe extern "C" {
 
 impl DayDate {
     /// A validated date (`month` 1–12, `day` within the month, leap-aware); `None` otherwise.
+    #[must_use]
     pub fn new(year: i32, month: u8, day: u8) -> Option<Self> {
         if (1..=12).contains(&month) && day >= 1 && day <= days_in_month(year, month) {
             Some(DayDate { year, month, day })
@@ -78,37 +92,39 @@ impl DayDate {
 
     /// Days since 1970-01-01 (negative before). The numeric interchange form across native
     /// boundaries (`Event::Custom.num`).
+    #[must_use]
     pub fn to_epoch_days(self) -> i64 {
         // Howard Hinnant's days_from_civil.
-        let y = self.year as i64 - if self.month <= 2 { 1 } else { 0 };
+        let y = i64::from(self.year) - i64::from(self.month <= 2);
         let era = if y >= 0 { y } else { y - 399 } / 400;
         let yoe = y - era * 400;
-        let m = self.month as i64;
-        let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + self.day as i64 - 1;
+        let m = i64::from(self.month);
+        let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + i64::from(self.day) - 1;
         let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        era * 146097 + doe - 719468
+        era * 146_097 + doe - 719_468
     }
 
     /// The date `days` after 1970-01-01 (inverse of [`DayDate::to_epoch_days`]).
     pub fn from_epoch_days(days: i64) -> Self {
         // Howard Hinnant's civil_from_days.
-        let z = days + 719468;
-        let era = if z >= 0 { z } else { z - 146096 } / 146097;
-        let doe = z - era * 146097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
         let y = yoe + era * 400;
         let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
         let mp = (5 * doy + 2) / 153;
         let day = (doy - (153 * mp + 2) / 5 + 1) as u8;
         let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u8;
         DayDate {
-            year: (y + if month <= 2 { 1 } else { 0 }) as i32,
+            year: (y + i64::from(month <= 2)) as i32,
             month,
             day,
         }
     }
 
     /// Parse strict ISO-8601 `YYYY-MM-DD` (the form `Display` writes). `None` on anything else.
+    #[must_use]
     pub fn parse_iso(s: &str) -> Option<Self> {
         let mut it = s.split('-');
         let (y, m, d) = (it.next()?, it.next()?, it.next()?);
@@ -147,10 +163,12 @@ impl std::fmt::Display for DayDate {
     }
 }
 
+#[must_use]
 pub fn is_leap(year: i32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
+#[must_use]
 pub fn days_in_month(year: i32, month: u8) -> u8 {
     match month {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -172,6 +190,7 @@ pub struct DayTime {
 
 impl DayTime {
     /// A validated time (`hour` 0–23, `minute`/`second` 0–59); `None` otherwise.
+    #[must_use]
     pub fn new(hour: u8, minute: u8, second: u8) -> Option<Self> {
         if hour < 24 && minute < 60 && second < 60 {
             Some(DayTime {
@@ -188,17 +207,20 @@ impl DayTime {
     /// and carrying the same caveat: Day ships no time-zone database, so an app that needs local
     /// wall-clock time should apply its own offset. Pair the two for a timestamp
     /// (`Day-Showcase-2026-08-12-14-23-05.png`).
+    #[must_use]
     pub fn now() -> Self {
         Self::from_seconds_of_day(now_epoch_secs().rem_euclid(86_400))
     }
 
     /// Seconds since midnight, the numeric interchange form across native boundaries.
+    #[must_use]
     pub fn seconds_of_day(self) -> i64 {
-        self.hour as i64 * 3600 + self.minute as i64 * 60 + self.second as i64
+        i64::from(self.hour) * 3600 + i64::from(self.minute) * 60 + i64::from(self.second)
     }
 
     /// The time `secs` after midnight (inverse of [`DayTime::seconds_of_day`]; out-of-range wraps
     /// into the day).
+    #[must_use]
     pub fn from_seconds_of_day(secs: i64) -> Self {
         let s = secs.rem_euclid(86_400);
         DayTime {
@@ -209,6 +231,7 @@ impl DayTime {
     }
 
     /// Parse ISO-8601 `HH:MM` or `HH:MM:SS`. `None` on anything else.
+    #[must_use]
     pub fn parse_iso(s: &str) -> Option<Self> {
         let mut it = s.split(':');
         let (h, m) = (it.next()?, it.next()?);
@@ -257,14 +280,14 @@ pub enum Style {
     /// The platform default: [`Style::Compact`] everywhere today.
     #[default]
     Automatic,
-    /// A field/button showing the value that summons a transient chooser (NSDatePicker
-    /// textFieldAndStepper / UIDatePicker .compact / a Material dialog launcher / QDateEdit with
-    /// calendar popup / CalendarDatePicker flyout / GtkMenuButton+calendar popover /
-    /// ArkUI CalendarPicker).
+    /// A field/button showing the value that summons a transient chooser (`NSDatePicker`
+    /// textFieldAndStepper / `UIDatePicker` .compact / a Material dialog launcher / `QDateEdit` with
+    /// calendar popup / `CalendarDatePicker` flyout / GtkMenuButton+calendar popover /
+    /// ArkUI `CalendarPicker`).
     Compact,
-    /// An embedded calendar / clock / wheels (NSDatePicker graphical / UIDatePicker .inline /
-    /// framework DatePicker+TimePicker widgets / QCalendarWidget / CalendarView / GtkCalendar /
-    /// ArkUI DatePicker wheels).
+    /// An embedded calendar / clock / wheels (`NSDatePicker` graphical / `UIDatePicker` .inline /
+    /// framework DatePicker+TimePicker widgets / `QCalendarWidget` / `CalendarView` / `GtkCalendar` /
+    /// ArkUI `DatePicker` wheels).
     Inline,
 }
 

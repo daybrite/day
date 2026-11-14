@@ -23,7 +23,7 @@ fn host_platform() -> &'static str {
 
 fn crate_source(platform: &str) -> String {
     format!(
-        r###"
+        r##"
 day_bridge::bridge! {{
     #[day_bridge::declare]
     extern "day" {{
@@ -56,7 +56,7 @@ day_bridge::bridge! {{
     #[day_bridge::impl(rust, platforms = [other])]
     fn reset_native() {{}}
 }}
-"###
+"##
     )
 }
 
@@ -67,7 +67,9 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// `cc` reads cargo's build-script environment; a test is not a build script, so supply it.
 fn with_build_env(out: &Path, platform: &str, f: impl FnOnce()) {
-    let _serial = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _serial = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let vars = [
         ("OUT_DIR", out.display().to_string()),
         (
@@ -179,7 +181,10 @@ fn c_arm_generates_and_compiles() {
         .flatten()
         .any(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            name.starts_with("libday_bridge_day_part_demo") || name.ends_with(".lib")
+            name.starts_with("libday_bridge_day_part_demo")
+                || Path::new(&name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("lib"))
         });
     assert!(lib, "cc produced no archive in {}", out.display());
 
@@ -204,7 +209,7 @@ fn c_arm_generates_and_compiles() {
 fn c_arm_with_a_completion_compiles() {
     let platform = host_platform();
     let source = format!(
-        r###"
+        r##"
 day_bridge::bridge! {{
     #[day_bridge::declare]
     extern "day" {{
@@ -238,7 +243,7 @@ day_bridge::bridge! {{
         Ok(())
     }}
 }}
-"###
+"##
     );
     let tmp = std::env::temp_dir().join(format!("day-bridge-c-done-{}", std::process::id()));
     let src = tmp.join("src");
@@ -269,7 +274,10 @@ day_bridge::bridge! {{
         .flatten()
         .any(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            name.starts_with("libday_bridge_day_part_async") || name.ends_with(".lib")
+            name.starts_with("libday_bridge_day_part_async")
+                || Path::new(&name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("lib"))
         });
     assert!(compiled, "cc produced no archive in {}", out.display());
 

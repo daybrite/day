@@ -51,7 +51,10 @@ fn run(filter: &[&str]) -> RunReport {
 
 fn run_with(filter: &[&str], case_timeout_secs: Option<f64>) -> RunReport {
     let step = Step::RunTests {
-        filter: filter.iter().map(|s| s.to_string()).collect(),
+        filter: filter
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
         shots: ShotPolicy::Never,
         timeout_secs: None,
         case_timeout_secs,

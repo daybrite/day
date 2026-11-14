@@ -19,7 +19,7 @@
 //!
 //! Layout stays day-core-owned: `set_frame` writes absolute positions, exactly like the Qt
 //! and ArkUI backends. The exceptions are nav/tab pages, whose panes are CSS-managed and
-//! report their size back through a ResizeObserver (`Event::FrameChanged`) — the DayNavPage
+//! report their size back through a `ResizeObserver` (`Event::FrameChanged`) — the `DayNavPage`
 //! contract (docs/navigation.md).
 #![cfg(target_arch = "wasm32")]
 
@@ -282,6 +282,10 @@ unsafe extern "C" {
 /// getrandom for entropy (uuid, rand, …) lands here instead of failing to compile — the
 /// raw-wasm pipeline carries no wasm-bindgen runtime for getrandom's own `wasm_js` backend.
 #[unsafe(no_mangle)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "getrandom's custom-backend contract fixes this signature"
+)]
 unsafe extern "Rust" fn __getrandom_v03_custom(
     dest: *mut u8,
     len: usize,
@@ -459,7 +463,7 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
 }
 
 fn class(el: u32, c: &str, on: bool) {
-    unsafe { day_dom_set_class(el, c.as_ptr(), c.len(), on as u32) };
+    unsafe { day_dom_set_class(el, c.as_ptr(), c.len(), u32::from(on)) };
 }
 fn warn(msg: &str) {
     unsafe { day_dom_warn(msg.as_ptr(), msg.len()) };
@@ -468,6 +472,7 @@ fn warn(msg: &str) {
 /// environment lookup: `day launch --env K=V` lands in the page URL's query string and is
 /// read back here (docs/web.md). Empty/absent answers `None`. The page-fact keys (`vw`,
 /// `vh`, `dpr`, `dark`, `reduce_motion`, `locales`, `route`) are reserved by the shim.
+#[must_use]
 pub fn host_env(key: &str) -> Option<String> {
     let v = env(key);
     if v.is_empty() { None } else { Some(v) }
@@ -475,6 +480,7 @@ pub fn host_env(key: &str) -> Option<String> {
 
 /// Seconds on the page's monotonic clock (`performance.now()`), for `day_core::frame::now_secs`
 /// on a target without `Instant`.
+#[must_use]
 pub fn monotonic_secs() -> f64 {
     unsafe { day_dom_perf_now() / 1000.0 }
 }
@@ -482,6 +488,7 @@ pub fn monotonic_secs() -> f64 {
 /// Milliseconds since the Unix epoch, from the page's `Date.now()`. The wasm target has no
 /// working `SystemTime::now()`, so time-of-day code asks the host page instead (a zone-aware app's
 /// clock routes through here on `web-dom`).
+#[must_use]
 pub fn now_epoch_ms() -> u64 {
     let ms = unsafe { day_dom_now_ms() };
     if ms.is_finite() && ms > 0.0 {
@@ -938,14 +945,14 @@ thread_local! {
     /// Element id → day node id, for event routing (the shim only knows element ids).
     static NODE_OF: RefCell<HashMap<u32, NodeId>> = RefCell::new(HashMap::new());
     /// Elements whose frames are CSS-managed (nav/tab pages): `set_frame` skips them.
-    static CSS_FRAMED: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
+    static CSS_FRAMED: RefCell<std::collections::HashSet<u32>> = RefCell::new(std::collections::HashSet::default());
     /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom half
     /// of the viewport, under a grabber strip the stylesheet pads for.
-    static COVER_HALF: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
+    static COVER_HALF: RefCell<std::collections::HashSet<u32>> = RefCell::new(std::collections::HashSet::default());
     /// Covers built as modal sheets (`CoverProps::sheet`, docs/cover.md "Modal sheet"). Whether
     /// one shows the composed card is decided at each present (a compact window keeps the full
     /// cover), so this only says it may.
-    static COVER_SHEET: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
+    static COVER_SHEET: RefCell<std::collections::HashSet<u32>> = RefCell::new(std::collections::HashSet::default());
     static NAV_STATE: RefCell<HashMap<u32, NavState>> = RefCell::new(HashMap::new());
     /// NAV_PAGE element → is-sidebar, recorded at realize for the nav `insert`.
     static PAGE_SIDEBAR: RefCell<HashMap<u32, bool>> = RefCell::new(HashMap::new());
@@ -953,7 +960,7 @@ thread_local! {
     /// List cell element → (list host element, row index) for selection clicks.
     static CELL_ROWS: RefCell<HashMap<u32, (u32, usize)>> = RefCell::new(HashMap::new());
     /// Spinner-vs-bar per PROGRESS element (progress with `None` renders as a spinner).
-    static SPINNERS: RefCell<std::collections::HashMap<u32, f64>> = RefCell::new(Default::default());
+    static SPINNERS: RefCell<std::collections::HashMap<u32, f64>> = RefCell::new(HashMap::default());
     static POSTED: RefCell<Vec<Box<dyn FnOnce() + Send>>> = RefCell::new(Vec::new());
     static DELAYED: RefCell<HashMap<u32, Box<dyn FnOnce() + Send>>> = RefCell::new(HashMap::new());
     static NEXT_DELAY: Cell<u32> = const { Cell::new(1) };
@@ -1010,7 +1017,7 @@ fn measure_str(txt: &str) -> Size {
             css.len(),
             1.0e6,
             out.as_mut_ptr(),
-        )
+        );
     };
     Size::new(out[0].ceil(), out[1].ceil())
 }
@@ -1087,8 +1094,7 @@ fn font_rem(style: Font) -> (f64, u32) {
         // An explicit point size means that many px at the default preference (matching the
         // Apple pt == logical-px convention) — expressed in rem so it still scales with the
         // browser preference, per docs/text.md's rule that custom sizes never opt out.
-        Font::System(pt) => (pt / 16.0, 400),
-        Font::Custom(_, pt) => (pt / 16.0, 400),
+        Font::System(pt) | Font::Custom(_, pt) => (pt / 16.0, 400),
     }
 }
 
@@ -1118,7 +1124,7 @@ fn font_css(f: &FontSpec) -> String {
         Font::System(_) | Font::Custom(_, _) => format!("{rem}rem"),
         _ => scaled_rem(rem),
     };
-    let weight = f.weight.map(weight_css).unwrap_or(default_weight);
+    let weight = f.weight.map_or(default_weight, weight_css);
     let italic = if f.italic { "italic " } else { "" };
     // A bundled family names itself first and falls back to the stack; `monospace` picks the
     // fixed-pitch stack, which is what a code run asks for.
@@ -1188,7 +1194,7 @@ fn apply_font(el: u32, f: &FontSpec) {
 // ---------------------------------------------------------------------------
 
 /// Build the nav-menu JSON (`{items:[{title, section?, icon?, tint?}], selected}`) the shim's
-/// `day_dom_navmenu` consumes. Shared by NAV_MENU realize and the data-driven
+/// `day_dom_navmenu` consumes. Shared by `NAV_MENU` realize and the data-driven
 /// `NavMenuPatch::Items` rebuild.
 #[allow(clippy::too_many_arguments)]
 fn navmenu_json(
@@ -1259,7 +1265,7 @@ fn navmenu_json(
         json.push('}');
     }
     json.push_str("],\"selected\":");
-    json.push_str(&selected.map(|i| i.to_string()).unwrap_or("-1".into()));
+    json.push_str(&selected.map_or("-1".into(), |i| i.to_string()));
     json.push('}');
     json
 }
@@ -1277,6 +1283,7 @@ fn navmenu_json(
 /// `day_dom_toolbar_action` route a plain button takes — the ids are registered menu-action
 /// ids, and that export emits `Event::MenuAction`.
 fn menu_items_json(json: &mut String, items: &[day_spec::MenuItem]) {
+    use std::fmt::Write as _;
     json.push('[');
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
@@ -1318,10 +1325,11 @@ fn menu_items_json(json: &mut String, items: &[day_spec::MenuItem]) {
                 if let Some(sc) = shortcut {
                     json.push_str(",\"shortcut\":{\"key\":");
                     json_str(json, &sc.key);
-                    json.push_str(&format!(
+                    let _ = write!(
+                        json,
                         ",\"primary\":{},\"shift\":{},\"alt\":{},\"control\":{}}}",
                         sc.primary, sc.shift, sc.alt, sc.control
-                    ));
+                    );
                 }
                 if matches!(
                     role,
@@ -1657,6 +1665,7 @@ fn toolbar_item_json(json: &mut String, it: &day_spec::ToolbarItem) {
 }
 
 fn json_str(out: &mut String, v: &str) {
+    use std::fmt::Write as _;
     out.push('"');
     for ch in v.chars() {
         match ch {
@@ -1665,7 +1674,9 @@ fn json_str(out: &mut String, v: &str) {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
             c => out.push(c),
         }
     }
@@ -1715,6 +1726,7 @@ pub struct Dom {
 
 impl Dom {
     #[allow(clippy::new_without_default)]
+    #[must_use]
     pub fn new() -> Self {
         controls::register();
         // The two launch overrides a process environment would carry (docs/accessibility.md),
@@ -1835,8 +1847,7 @@ impl Toolkit for Dom {
     fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
         use day_spec::AppBadge;
         let encoded: i32 = match badge {
-            AppBadge::None => -1,
-            AppBadge::Count(0) => -1,
+            AppBadge::None | AppBadge::Count(0) => -1,
             AppBadge::Count(n) => (*n).min(i32::MAX as u32) as i32,
             AppBadge::Dot => 0,
             // No text badge on the web; clearing would be worse than leaving the last value, so
@@ -1871,7 +1882,7 @@ impl Toolkit for Dom {
             WindowState::Fullscreen => unsafe { day_dom_set_fullscreen(1) },
             WindowState::Normal => unsafe { day_dom_set_fullscreen(0) },
             WindowState::Minimized | WindowState::Maximized => {
-                WINDOW_STATE.with(|c| c.get()).code()
+                WINDOW_STATE.with(std::cell::Cell::get).code()
             }
         };
         // -1: the browser has the request; `fullscreenchange` or the rejection reports back.
@@ -1928,6 +1939,10 @@ impl Toolkit for Dom {
         );
     }
 
+    #[expect(
+        clippy::match_same_arms,
+        reason = "one arm per capability, each documented with the browser mechanism behind it"
+    )]
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::SearchField => Support::Native,
@@ -2135,7 +2150,7 @@ impl Toolkit for Dom {
                     return realize_placeholder(kind, id);
                 };
                 let el = unsafe { day_dom_create(EL_TOGGLE) };
-                unsafe { day_dom_set_checked(el, p.on as u32) };
+                unsafe { day_dom_set_checked(el, u32::from(p.on)) };
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
@@ -2149,11 +2164,7 @@ impl Toolkit for Dom {
                 let el = unsafe { day_dom_create(EL_SLIDER) };
                 attr(el, "min", &p.min.to_string());
                 attr(el, "max", &p.max.to_string());
-                attr(
-                    el,
-                    "step",
-                    &p.step.map(|s| s.to_string()).unwrap_or("any".into()),
-                );
+                attr(el, "step", &p.step.map_or("any".into(), |s| s.to_string()));
                 unsafe { day_dom_set_value(el, p.value) };
                 if !p.enabled {
                     attr(el, "disabled", "-");
@@ -2208,25 +2219,21 @@ impl Toolkit for Dom {
                         EL_SPINNER
                     })
                 };
-                match p.value {
-                    Some(v) => {
-                        attr(el, "max", "1");
-                        unsafe { day_dom_set_value(el, v) };
-                    }
+                if let Some(v) = p.value {
+                    attr(el, "max", "1");
+                    unsafe { day_dom_set_value(el, v) };
+                } else {
                     // Which of the two this element is, is only knowable here — both render with
                     // no text, so `measure` cannot tell them apart from the DOM.
-                    None => {
-                        SPINNERS
-                            .with(|s| s.borrow_mut().insert(el, if p.large { 48.0 } else { 22.0 }));
-                        attr(
-                            el,
-                            "data-day-animating",
-                            if p.animating { "true" } else { "false" },
-                        );
-                        if p.large {
-                            s(el, "width", "48px");
-                            s(el, "height", "48px");
-                        }
+                    SPINNERS.with(|s| s.borrow_mut().insert(el, if p.large { 48.0 } else { 22.0 }));
+                    attr(
+                        el,
+                        "data-day-animating",
+                        if p.animating { "true" } else { "false" },
+                    );
+                    if p.large {
+                        s(el, "width", "48px");
+                        s(el, "height", "48px");
                     }
                 }
                 el
@@ -2286,10 +2293,10 @@ impl Toolkit for Dom {
                     match &p.source {
                         day_spec::ImageSource::Named(_) => attr(el, "src", &src),
                         day_spec::ImageSource::Bytes(b) => unsafe {
-                            day_dom_image_set_bytes(el, b.as_ptr(), b.len())
+                            day_dom_image_set_bytes(el, b.as_ptr(), b.len());
                         },
                         day_spec::ImageSource::Decoded(id) => unsafe {
-                            day_dom_image_set_bitmap(el, id.0 as f64)
+                            day_dom_image_set_bitmap(el, id.0 as f64);
                         },
                     }
                     s(el, "object-fit", fit);
@@ -2339,7 +2346,7 @@ impl Toolkit for Dom {
                         nav_mode(p.presentation),
                         p.title.as_ptr(),
                         p.title.len(),
-                    )
+                    );
                 };
                 unsafe { day_dom_listen(el, 1) }; // the back bar's button reports via CLICK
                 let state = NavState {
@@ -2457,13 +2464,15 @@ impl Toolkit for Dom {
             // this path; the inspector kinds never arrive (`Cap::Inspector` is Unsupported
             // here, so the piece composes its pane instead — docs/inspector.md); anything
             // else is an extension piece.
-            Some(Builtin::ListCell)
-            | Some(Builtin::ListItem)
-            | Some(Builtin::Tree)
-            | Some(Builtin::Inspector)
-            | Some(Builtin::InspectorPane)
-            | Some(Builtin::Split)
-            | Some(Builtin::SplitPane)
+            Some(
+                Builtin::ListCell
+                | Builtin::ListItem
+                | Builtin::Tree
+                | Builtin::Inspector
+                | Builtin::InspectorPane
+                | Builtin::Split
+                | Builtin::SplitPane,
+            )
             | None => {
                 // An external piece's own dom renderer, if one registered for this kind.
                 if let Some(make) = registered(kind, |r| r.make) {
@@ -2531,7 +2540,7 @@ impl Toolkit for Dom {
                                 let state = IMAGE_SRC.with(|m| {
                                     let mut m = m.borrow_mut();
                                     let state = m.get_mut(&el)?;
-                                    state.src = src.clone();
+                                    state.src.clone_from(&src);
                                     Some(state.clone())
                                 });
                                 match state {
@@ -2546,10 +2555,10 @@ impl Toolkit for Dom {
                                 }
                             }
                             day_spec::ImageSource::Bytes(b) => unsafe {
-                                day_dom_image_set_bytes(el, b.as_ptr(), b.len())
+                                day_dom_image_set_bytes(el, b.as_ptr(), b.len());
                             },
                             day_spec::ImageSource::Decoded(id) => unsafe {
-                                day_dom_image_set_bitmap(el, id.0 as f64)
+                                day_dom_image_set_bitmap(el, id.0 as f64);
                             },
                         },
                     }
@@ -2602,7 +2611,7 @@ impl Toolkit for Dom {
                 if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                     match p {
                         ButtonPatch::Content(c) => {
-                            apply_button_content(el, &c.title, c.icon.as_ref(), c.icon_only)
+                            apply_button_content(el, &c.title, c.icon.as_ref(), c.icon_only);
                         }
                         ButtonPatch::Title(t) => text(el, t),
                         ButtonPatch::Enabled(e) => set_enabled(el, *e),
@@ -2614,7 +2623,7 @@ impl Toolkit for Dom {
             kinds::TOGGLE => {
                 if let Some(p) = patch.downcast_ref::<TogglePatch>() {
                     match p {
-                        TogglePatch::On(on) => unsafe { day_dom_set_checked(el, *on as u32) },
+                        TogglePatch::On(on) => unsafe { day_dom_set_checked(el, u32::from(*on)) },
                         TogglePatch::Enabled(e) => set_enabled(el, *e),
                     }
                 }
@@ -2663,13 +2672,13 @@ impl Toolkit for Dom {
                         // "-" sets / "" removes (see the shim's day_dom_set_attr): editable ⇒ no
                         // readonly attribute.
                         TextAreaPatch::SetEditable(e) => {
-                            attr(el, "readonly", if *e { "" } else { "-" })
+                            attr(el, "readonly", if *e { "" } else { "-" });
                         }
                         TextAreaPatch::SetSelectable(sel) => {
-                            s(el, "user-select", if *sel { "text" } else { "none" })
+                            s(el, "user-select", if *sel { "text" } else { "none" });
                         }
                         TextAreaPatch::SetSpellCheck(sc) => {
-                            attr(el, "spellcheck", if *sc { "true" } else { "false" })
+                            attr(el, "spellcheck", if *sc { "true" } else { "false" });
                         }
                     }
                 }
@@ -2750,7 +2759,7 @@ impl Toolkit for Dom {
                             // out at width 0 until the async ResizeObserver fires — invisible in
                             // LTR's top-left but off-screen to the LEFT under RTL (docs/cover.md).
                             if let Some(node) = node_of(el) {
-                                let vp = LAST_VIEWPORT.with(|v| v.get());
+                                let vp = LAST_VIEWPORT.with(std::cell::Cell::get);
                                 // Less the cover's own toolbar strip, which sits above it.
                                 let strip = unsafe { day_dom_toolbar_height(el) };
                                 // A half sheet is the bottom half, less the grabber strip
@@ -2820,7 +2829,7 @@ impl Toolkit for Dom {
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()
                 {
-                    unsafe { day_dom_navmenu_select(el, sel.map(|i| i as i32).unwrap_or(-1)) };
+                    unsafe { day_dom_navmenu_select(el, sel.map_or(-1, |i| i as i32)) };
                 }
             }
             kinds::LIST => {
@@ -2901,7 +2910,7 @@ impl Toolkit for Dom {
             // The sidebar page belongs to the CHROME slot in every presentation except `Stack`,
             // where it is the stack's root and so joins the detail pages instead.
             let to_chrome = sidebar && state.presentation != NavPresentation::Stack;
-            unsafe { day_dom_nav_add_page(parent.0, child.0, to_chrome as u32) };
+            unsafe { day_dom_nav_add_page(parent.0, child.0, u32::from(to_chrome)) };
             if !to_chrome {
                 state.pages.push(child.0);
             }
@@ -2947,7 +2956,7 @@ impl Toolkit for Dom {
                         0,
                         max_w,
                         out.as_mut_ptr(),
-                    )
+                    );
                 };
                 let sz = Size::new(out[0].ceil().min(max_w), out[1].ceil());
                 cache.borrow_mut().insert(key, sz);
@@ -2963,7 +2972,7 @@ impl Toolkit for Dom {
                         0,
                         1.0e6,
                         out.as_mut_ptr(),
-                    )
+                    );
                 };
                 Size::new(out[0].ceil() + 26.0, 28.0)
             }
@@ -2988,7 +2997,7 @@ impl Toolkit for Dom {
                 }
                 Size::new(
                     p.width.unwrap_or(240.0),
-                    p.height.unwrap_or((l as f64) * line_h + pad),
+                    p.height.unwrap_or(f64::from(l) * line_h + pad),
                 )
             }
             kinds::PICKER => PICKER_SIZE
@@ -3039,7 +3048,7 @@ impl Toolkit for Dom {
                 frame.origin.y,
                 frame.size.width,
                 frame.size.height,
-            )
+            );
         };
         // A list host framed: (re)populate when its width actually changed.
         let repopulate = LISTS.with(|m| {
@@ -3175,7 +3184,7 @@ impl Toolkit for Dom {
     }
 
     fn scroll_to(&mut self, h: &DomHandle, target: Rect, animated: bool) {
-        unsafe { day_dom_scroll_to(h.0, target.origin.x, target.origin.y, animated as u32) };
+        unsafe { day_dom_scroll_to(h.0, target.origin.x, target.origin.y, u32::from(animated)) };
     }
 
     fn scroll_offset(&mut self, h: &DomHandle) -> Point {
@@ -3215,7 +3224,7 @@ impl Toolkit for Dom {
     }
 
     fn focus(&mut self, h: &DomHandle, _node: NodeId, focused: bool) {
-        unsafe { day_dom_focus(h.0, focused as u32) };
+        unsafe { day_dom_focus(h.0, u32::from(focused)) };
     }
 
     fn attach_list(&mut self, host: &DomHandle, source: ListSource) {
@@ -3233,7 +3242,7 @@ impl Toolkit for Dom {
         // history just for showing its own launch route); every later change pushes one, so
         // browser back/forward walk the app's navigation.
         let replace = FIRST_ROUTE.with(|c| c.replace(false));
-        unsafe { day_dom_set_hash(route.as_ptr(), route.len(), replace as u32) };
+        unsafe { day_dom_set_hash(route.as_ptr(), route.len(), u32::from(replace)) };
     }
 
     fn edit_toolbar(&mut self, h: &DomHandle, ops: &[day_spec::ToolbarOp]) -> bool {
@@ -3424,7 +3433,7 @@ impl Toolkit for Dom {
     fn announce(&mut self, text: &str, urgent: bool) {
         // The shim's live regions (docs/accessibility.md): one per politeness, so an urgent
         // sentence interrupts and a polite one waits its turn.
-        unsafe { day_dom_announce(text.as_ptr(), text.len(), urgent as u32) };
+        unsafe { day_dom_announce(text.as_ptr(), text.len(), u32::from(urgent)) };
     }
 
     /// The element read back off the page, so `a11y_audit` and `assert_native` run on the web
@@ -3506,7 +3515,7 @@ impl Toolkit for Dom {
         let format = day_spec::ImageFormat::sniff(bytes);
         let has_alpha = !matches!(
             format,
-            Some(day_spec::ImageFormat::Jpeg) | Some(day_spec::ImageFormat::Bmp)
+            Some(day_spec::ImageFormat::Jpeg | day_spec::ImageFormat::Bmp)
         );
         BITMAP_INFO.with(|m| {
             m.borrow_mut().insert(
@@ -3560,9 +3569,9 @@ impl Toolkit for Dom {
             refuse(day_spec::ImageError::Encode);
             return;
         }
-        let (fit_w, fit_h) = spec.fit.map(|f| (f.width, f.height)).unwrap_or((0.0, 0.0));
+        let (fit_w, fit_h) = spec.fit.map_or((0.0, 0.0), |f| (f.width, f.height));
         // -1 means "the type's own default", which is what `toBlob` does with an absent quality.
-        let quality = spec.quality.map(|q| q.clamp(0.0, 1.0)).unwrap_or(-1.0);
+        let quality = spec.quality.map_or(-1.0, |q| q.clamp(0.0, 1.0));
         // SAFETY: `mime` is a 'static str; the shim reads `fmt_len` bytes and copies what it keeps.
         unsafe {
             day_dom_image_encode(
@@ -3573,7 +3582,7 @@ impl Toolkit for Dom {
                 quality,
                 fit_w,
                 fit_h,
-            )
+            );
         };
     }
 
@@ -3640,7 +3649,7 @@ impl Toolkit for Dom {
                 f64::from(pw),
                 f64::from(ph),
                 scale,
-            )
+            );
         };
     }
 
@@ -3668,7 +3677,7 @@ impl Toolkit for Dom {
                 strs.len(),
                 size.width,
                 size.height,
-            )
+            );
         };
     }
 
@@ -3714,7 +3723,7 @@ impl Toolkit for Dom {
                 family.as_ptr(),
                 family.len(),
                 out.as_mut_ptr(),
-            )
+            );
         };
         Some(day_spec::TextMetrics::from_slots(&out))
     }
@@ -3764,24 +3773,23 @@ impl Toolkit for Dom {
             json_str(&mut j, suggested_name);
             j.push('}');
             unsafe {
-                day_dom_present_save(req as u32, j.as_ptr(), j.len(), bytes.as_ptr(), bytes.len())
+                day_dom_present_save(req as u32, j.as_ptr(), j.len(), bytes.as_ptr(), bytes.len());
             };
             return;
         }
         let json = present_json(spec);
-        match json {
-            Some(j) => unsafe { day_dom_present(req as u32, j.as_ptr(), j.len()) },
-            None => {
-                // Unsupported spec: answer dismissed so the await resolves.
-                let node = day_spec::WINDOW_NODE;
-                emit(
-                    node,
-                    Event::PresentResult {
-                        req,
-                        result: PresentResult::Dismissed,
-                    },
-                );
-            }
+        if let Some(j) = json {
+            unsafe { day_dom_present(req as u32, j.as_ptr(), j.len()) }
+        } else {
+            // Unsupported spec: answer dismissed so the await resolves.
+            let node = day_spec::WINDOW_NODE;
+            emit(
+                node,
+                Event::PresentResult {
+                    req,
+                    result: PresentResult::Dismissed,
+                },
+            );
         }
     }
 
@@ -3818,7 +3826,7 @@ impl Toolkit for Dom {
     }
 
     fn dark_mode(&mut self) -> bool {
-        DARK.with(|d| d.get())
+        DARK.with(std::cell::Cell::get)
     }
 
     /// The browser's `prefers-reduced-motion: reduce` (docs/accessibility.md), read live: the
@@ -4052,9 +4060,17 @@ fn nav_patch(el: u32, p: &NavPatch) {
         let Some(state) = m.get_mut(&el) else { return };
         match p {
             // Handled above, before the borrow.
+            #[expect(
+                clippy::match_same_arms,
+                reason = "each group of no-op patches keeps its own arm and the comment saying why"
+            )]
             NavPatch::Presentation(_) => {}
             // Never arrives: this backend answers `Cap::NavContentList` Unsupported, so the
             // pieces layer composes the pane itself (docs/navigation.md).
+            #[expect(
+                clippy::match_same_arms,
+                reason = "each group of no-op patches keeps its own arm and the comment saying why"
+            )]
             NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => {}
             // Resident-page switch (docs/navigation.md): every page stays in the DOM and only
             // one is displayed, so a tab switch costs a `display` flip and keeps the other
@@ -4097,7 +4113,7 @@ fn nav_patch(el: u32, p: &NavPatch) {
             }
             NavPatch::Title(t) => {
                 if let Some(last) = state.titles.last_mut() {
-                    *last = t.clone();
+                    last.clone_from(t);
                 }
                 sync_back_bar(el, state);
             }
@@ -4192,7 +4208,7 @@ fn sync_back_bar_at(el: u32, state: &NavState, depth: usize) {
     let visible =
         state.presentation == NavPresentation::Stack && depth >= 1 && state.titles.len() > 1;
     let title = state.titles.last().cloned().unwrap_or_default();
-    unsafe { day_dom_nav_back_bar(el, visible as u32, title.as_ptr(), title.len()) };
+    unsafe { day_dom_nav_back_bar(el, u32::from(visible), title.as_ptr(), title.len()) };
 }
 
 // ---------------------------------------------------------------------------
@@ -4387,12 +4403,11 @@ fn list_fill_window(host: u32) {
                     m.borrow_mut()
                         .get_mut(&host)
                         .and_then(|st| st.heights.get_mut(i))
-                        .map(|h| {
+                        .is_some_and(|h| {
                             let changed = (*h - laid).abs() > 0.25;
                             *h = laid;
                             changed
                         })
-                        .unwrap_or(false)
                 });
             }
         }
@@ -4742,10 +4757,9 @@ fn list_patch(el: u32, p: &ListPatch) {
         ListPatch::ScrollToEnd => unsafe { day_dom_scroll_edge(el, 1, 1) },
         ListPatch::ScrollToRow(row) => {
             let y = LISTS.with(|m| {
-                m.borrow()
-                    .get(&el)
-                    .map(|st| (st.row_span(*row).0 - st.pinned_above(*row)).max(0.0))
-                    .unwrap_or(0.0)
+                m.borrow().get(&el).map_or(0.0, |st| {
+                    (st.row_span(*row).0 - st.pinned_above(*row)).max(0.0)
+                })
             });
             // Also held for the next fill: a jump asked for before the first one (a list the
             // page scrolls as it builds) meets content with no height yet, so the browser has
@@ -4893,7 +4907,7 @@ fn push_shape(buf: &mut Vec<f64>, shape: &Shape) {
                     day_spec::PathSeg::Line(a) => buf.extend([1.0, a.x, a.y]),
                     day_spec::PathSeg::Quad(c, a) => buf.extend([2.0, c.x, c.y, a.x, a.y]),
                     day_spec::PathSeg::Cubic(c1, c2, a) => {
-                        buf.extend([3.0, c1.x, c1.y, c2.x, c2.y, a.x, a.y])
+                        buf.extend([3.0, c1.x, c1.y, c2.x, c2.y, a.x, a.y]);
                     }
                     day_spec::PathSeg::Close => buf.push(4.0),
                 }
@@ -5084,6 +5098,7 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
 // ---------------------------------------------------------------------------
 
 fn present_json(spec: &PresentSpec) -> Option<String> {
+    use std::fmt::Write as _;
     let mut j = String::from("{");
     match spec {
         PresentSpec::Dialog {
@@ -5098,7 +5113,7 @@ fn present_json(spec: &PresentSpec) -> Option<String> {
                 j.push_str(",\"message\":");
                 json_str(&mut j, m);
             }
-            j.push_str(&format!(",\"sheet\":{sheet},\"buttons\":["));
+            let _ = write!(j, ",\"sheet\":{sheet},\"buttons\":[");
             for (i, b) in buttons.iter().enumerate() {
                 if i > 0 {
                     j.push(',');
@@ -5155,6 +5170,10 @@ fn present_json(spec: &PresentSpec) -> Option<String> {
         }
         // A browser has no folder chooser that hands back a path (`Cap::FolderDialog` is
         // Unsupported): the request resolves as Dismissed.
+        #[expect(
+            clippy::match_same_arms,
+            reason = "the two flows resolve here for different, separately documented reasons"
+        )]
         PresentSpec::OpenFolder { .. } => return None,
         // Save rides its own FFI arm (bytes attached); reaching here means a non-web build.
         PresentSpec::SaveFile { .. } => return None,
@@ -5164,6 +5183,7 @@ fn present_json(spec: &PresentSpec) -> Option<String> {
 }
 
 fn push_button(j: &mut String, b: &PresentButton) {
+    use std::fmt::Write as _;
     j.push_str("{\"label\":");
     json_str(j, &b.label);
     let role = match b.role {
@@ -5171,7 +5191,7 @@ fn push_button(j: &mut String, b: &PresentButton) {
         day_spec::present::ButtonRole::Cancel => "cancel",
         day_spec::present::ButtonRole::Destructive => "destructive",
     };
-    j.push_str(&format!(",\"role\":\"{role}\"}}"));
+    let _ = write!(j, ",\"role\":\"{role}\"}}");
 }
 
 // ---------------------------------------------------------------------------
@@ -5193,7 +5213,7 @@ pub extern "C" fn day_dom_alloc(len: usize) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_install_ids(ptr: *mut u8, len: usize) {
     // SAFETY: the shim allocated and initialized exactly len bytes with day_dom_alloc.
-    let bytes = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    let bytes = unsafe { take_bytes(ptr, len) };
     if let Err(error) = day_core::element_id::install_web_registry(&bytes) {
         log::error!("element registry: {error}");
     }
@@ -5204,16 +5224,31 @@ pub extern "C" fn day_dom_install_ids(ptr: *mut u8, len: usize) {
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_install_tests(ptr: *mut u8, len: usize) {
     // SAFETY: the shim initialized exactly len bytes from day_dom_alloc.
-    let bytes = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    let bytes = unsafe { take_bytes(ptr, len) };
     if let Err(error) = day_core::conformance::install_web_registry(&bytes) {
         // Keep the host alive to report a nonretryable dayscript infrastructure error.
         log::error!("{error}");
     }
 }
 
+/// Take ownership of a `day_dom_alloc(len)` allocation the shim filled.
+///
+/// # Safety
+///
+/// `ptr` must come from `day_dom_alloc(len)`, hold `len` initialized bytes, and not be used
+/// again by the caller.
+#[expect(
+    clippy::same_length_and_capacity,
+    reason = "`day_dom_alloc(len)` made the allocation with capacity `len`"
+)]
+pub(crate) unsafe fn take_bytes(ptr: *mut u8, len: usize) -> Vec<u8> {
+    // SAFETY: the caller's contract, stated above.
+    unsafe { Vec::from_raw_parts(ptr, len, len) }
+}
+
 fn take_string(ptr: *mut u8, len: usize) -> String {
     // SAFETY: the shim wrote exactly `len` bytes into a `day_dom_alloc(len)` allocation.
-    let v = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    let v = unsafe { take_bytes(ptr, len) };
     String::from_utf8_lossy(&v).into_owned()
 }
 
@@ -5318,10 +5353,15 @@ fn open_button_menu(el: u32, f: &day_spec::ContextMenuFn) {
 
 fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
     if kind == ev::CLICK && CELL_ROWS.with(|m| m.borrow().contains_key(&el)) {
-        if b != 2.0 {
+        #[expect(
+            clippy::float_cmp,
+            reason = "the shim sends these flags as exact small integers"
+        )]
+        let (double, activates) = (b == 2.0, c == 1.0);
+        if !double {
             list_cell_click(el, a as u32);
         }
-        if b == 2.0 || c == 1.0 {
+        if double || activates {
             // A section header activates nothing (docs/list.md "Sections").
             let row = CELL_ROWS
                 .with(|m| m.borrow().get(&el).copied())
@@ -5543,7 +5583,7 @@ pub extern "C" fn day_dom_image_encoded(req: u32, ptr: *mut u8, len: usize) {
     } else {
         // SAFETY: the shim wrote exactly `len` bytes into a `day_dom_alloc(len)` allocation, and
         // ownership passes here — the same contract `take_string` relies on.
-        Ok(unsafe { Vec::from_raw_parts(ptr, len, len) })
+        Ok(unsafe { take_bytes(ptr, len) })
     };
     day_spec::ffi_guard::contain((), move || {
         emit(
@@ -5587,9 +5627,9 @@ thread_local! {
 /// path and return that path. `bytes` is `None` for a save flow, whose bytes already left as a
 /// download.
 fn store_picked_file(name: &str, bytes: Option<Vec<u8>>) -> String {
+    static NEXT_FILE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     // The last path component only — a hostile/odd name must not escape the store's prefix.
     let leaf = name.rsplit(['/', '\\']).next().unwrap_or("file");
-    static NEXT_FILE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
     let id = NEXT_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let path = format!("/day-web/{id}/{leaf}");
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
@@ -5614,8 +5654,7 @@ pub extern "C" fn day_dom_present_file_stage(
 ) {
     let name = take_string(name_ptr, name_len);
     // SAFETY: the shim wrote exactly `bytes_len` bytes into a `day_dom_alloc` allocation.
-    let bytes =
-        (bytes_len > 0).then(|| unsafe { Vec::from_raw_parts(bytes_ptr, bytes_len, bytes_len) });
+    let bytes = (bytes_len > 0).then(|| unsafe { take_bytes(bytes_ptr, bytes_len) });
     day_spec::ffi_guard::contain((), move || {
         let path = store_picked_file(&name, bytes);
         STAGED_FILES.with(|s| s.borrow_mut().entry(req).or_default().push(path));
@@ -5638,8 +5677,7 @@ pub extern "C" fn day_dom_present_files(
 ) {
     let name = take_string(name_ptr, name_len);
     // SAFETY: the shim wrote exactly `bytes_len` bytes into a `day_dom_alloc` allocation.
-    let bytes =
-        (bytes_len > 0).then(|| unsafe { Vec::from_raw_parts(bytes_ptr, bytes_len, bytes_len) });
+    let bytes = (bytes_len > 0).then(|| unsafe { take_bytes(bytes_ptr, bytes_len) });
     day_spec::ffi_guard::contain((), move || {
         let path = store_picked_file(&name, bytes);
         let mut paths = STAGED_FILES
@@ -5708,8 +5746,8 @@ pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 
     })
 }
 
-/// A text field's Up, Down or Escape (docs/textfield.md "Keys"): `code` 0 is ArrowUp, 1
-/// ArrowDown, 2 Escape, `modifiers` the day mask. Returns whether the field claimed it, having
+/// A text field's Up, Down or Escape (docs/textfield.md "Keys"): `code` 0 is `ArrowUp`, 1
+/// `ArrowDown`, 2 Escape, `modifiers` the day mask. Returns whether the field claimed it, having
 /// reported it; the shim then keeps the browser from acting on the key.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_field_key(el: u32, code: u32, modifiers: u32) -> u32 {
@@ -5926,7 +5964,7 @@ pub extern "C" fn day_dom_titlebar_inset(top: f64) {
 /// Put the effective appearance on the page: the window's override, else the app-wide one,
 /// else the browser's `prefers-color-scheme`.
 fn apply_appearance() {
-    let (app, window) = APPEARANCE.with(|a| a.get());
+    let (app, window) = APPEARANCE.with(std::cell::Cell::get);
     let mode = match window.or(app) {
         Some(false) => 0,
         Some(true) => 1,
@@ -5988,10 +6026,12 @@ pub fn launch_locale() -> Option<String> {
 /// The page's launch route (the URL hash, else `?route=`), for the `day::web` glue to hand to
 /// `set_launch_deeplink` — the web spelling of `DAY_DEEPLINK` (docs/navigation.md).
 /// Original external protocol URL delivered by an installed PWA protocol handler.
+#[must_use]
 pub fn launch_open_url() -> Option<String> {
     let url = env("day_url");
     (!url.is_empty()).then_some(url)
 }
+#[must_use]
 pub fn launch_route() -> Option<String> {
     let route = env("route");
     (!route.is_empty()).then_some(route)
@@ -6000,6 +6040,7 @@ pub fn launch_route() -> Option<String> {
 /// The page's dayscript token (`?dayscript=`), the query-parameter spelling of
 /// `DAYSCRIPT_TOKEN` — present only when a `day launch` scripted/drivable session serves the
 /// page (docs/web.md). The `day::web` glue arms the engine's web transport with it.
+#[must_use]
 pub fn dayscript_token() -> Option<String> {
     let token = env("dayscript");
     (!token.is_empty()).then_some(token)
@@ -6049,6 +6090,7 @@ pub fn console_sink(level: log::Level, line: &str) {
 /// The level named by `?DAY_LOG=` in the page URL, if any. The web has no process environment for
 /// `DAY_LOG` to live in, so the launch server forwards it as a query parameter (docs/web.md) —
 /// `day launch -t web-dom --env DAY_LOG=debug` reaches this.
+#[must_use]
 pub fn launch_log_level() -> Option<log::LevelFilter> {
     host_env("DAY_LOG").and_then(|v| v.parse().ok())
 }

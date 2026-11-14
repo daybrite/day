@@ -86,7 +86,7 @@ fn ambient_of(root: RNode) -> WindowAmbient {
 /// live report lands, already sees the right top inset (the same lazy-env pattern as
 /// `layout_direction`/`DAY_LOCALE`). Points, not px.
 fn initial_safe_area() -> day_geometry::Insets {
-    if let Some(seed) = SEED.with(|s| s.take()) {
+    if let Some(seed) = SEED.with(std::cell::Cell::take) {
         return seed;
     }
     std::env::var("DAY_SAFE_AREA_TOP")
@@ -120,6 +120,7 @@ fn target_window() -> RNode {
 /// Outside a window's content build this reads the primary window, so a long-lived effect that
 /// wants a secondary window's class must capture its root at build time and use
 /// [`window_size_class`], the same discipline `toolbar_reactive` follows.
+#[must_use]
 pub fn size_class() -> Option<SizeClass> {
     // Headless (no tree on this thread, as in an app's model unit test): no window, so no class,
     // rather than a panic from asking which window is being built.
@@ -130,11 +131,13 @@ pub fn size_class() -> Option<SizeClass> {
 }
 
 /// [`size_class`] against an explicit window root.
+#[must_use]
 pub fn window_size_class(root: RNode) -> Option<SizeClass> {
     ambient_of(root).size_class.get()
 }
 
 /// [`size_class`] without subscribing, for code that reacts to the change itself.
+#[must_use]
 pub fn window_size_class_untracked(root: RNode) -> Option<SizeClass> {
     ambient_of(root).size_class.get_untracked()
 }
@@ -249,11 +252,13 @@ pub fn restore_reported_size_class() {
 /// paint the background unpadded, pad the content by these insets. The read is tracked, but
 /// layout attributes like `.padding` capture the value at build time, so a mid-run inset change
 /// (rotation) does not re-pad already-built pages.
+#[must_use]
 pub fn safe_area() -> day_geometry::Insets {
     window_safe_area(target_window())
 }
 
 /// [`safe_area`] against an explicit window root.
+#[must_use]
 pub fn window_safe_area(root: RNode) -> day_geometry::Insets {
     ambient_of(root).safe_area.get()
 }
@@ -317,6 +322,7 @@ pub fn with_environment<T: Clone + 'static, P: Piece>(
 
 /// Read the nearest ambient `T` provided by an enclosing [`with_environment`], or `None` if none is
 /// in scope. Call it while constructing or building a piece within that subtree.
+#[must_use]
 pub fn environment<T: Clone + 'static>() -> Option<T> {
     Scope::current().use_context::<T>()
 }
@@ -331,10 +337,11 @@ pub fn environment<T: Clone + 'static>() -> Option<T> {
 /// looking at. A cover that provides no `T` answers with the primary window's, since the
 /// cover renders inside it (following the window scope chain). `None` ⇒ no window is
 /// open, or the front one provides no `T`.
+#[must_use]
 pub fn focused_environment<T: Clone + 'static>() -> Option<T> {
     crate::windows::focused_scope_chain()
         .into_iter()
-        .find_map(|scope| scope.use_context::<T>())
+        .find_map(day_reactive::Scope::use_context::<T>)
 }
 
 /// The app-wide `T`: created on the reactive root scope the first time it is asked for, and
@@ -428,6 +435,7 @@ pub trait Ambient: Clone + 'static {
     /// Resolves through the current scope. Reactive computations re-enter their creation scope
     /// on every run, so a reactive closure can read the same environment as its enclosing piece.
     /// Ordinary callbacks and async tasks must capture the value or explicitly enter its scope.
+    #[must_use]
     fn ambient() -> Self
     where
         Self: Sized,
@@ -444,6 +452,7 @@ pub trait Ambient: Clone + 'static {
     }
 
     /// [`Ambient::ambient`] without the panic.
+    #[must_use]
     fn try_ambient() -> Option<Self>
     where
         Self: Sized,
@@ -453,6 +462,7 @@ pub trait Ambient: Clone + 'static {
 
     /// The instance belonging to the window that currently has focus, which is what an app-wide
     /// menu command acts on. See [`focused_environment`].
+    #[must_use]
     fn focused() -> Option<Self>
     where
         Self: Sized,

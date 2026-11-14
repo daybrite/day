@@ -69,7 +69,7 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
     let ctx = textview.pango_context();
     let layout = gtk4::pango::Layout::new(&ctx);
     layout.set_text("Ag");
-    let line_h = layout.pixel_size().1 as f64;
+    let line_h = f64::from(layout.pixel_size().1);
 
     // Submit-on-enter: claim a plain Return/Enter press as `Event::Submitted`; Shift+Return
     // falls through to the buffer as a line break. CAPTURE phase, so the press never reaches
@@ -170,24 +170,24 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
         .with(|m| {
             m.with(key(h), |st| {
                 let (_, nat_w, _, _) = st.textview.measure(gtk4::Orientation::Horizontal, -1);
-                let avail_w = p.width.unwrap_or(nat_w as f64).max(120.0);
+                let avail_w = p.width.unwrap_or(f64::from(nat_w)).max(120.0);
                 // Natural content height at the proposed width (includes the text view margins).
                 let (_, nat_h, _, _) = st
                     .textview
                     .measure(gtk4::Orientation::Vertical, avail_w as i32);
-                let min_h = (st.min_lines as f64) * st.line_h + PAD;
+                let min_h = f64::from(st.min_lines) * st.line_h + PAD;
                 let max_h = if st.max_lines > 0 {
-                    (st.max_lines as f64) * st.line_h + PAD
+                    f64::from(st.max_lines) * st.line_h + PAD
                 } else {
                     f64::MAX
                 };
-                let hgt = (nat_h as f64).clamp(min_h, max_h);
+                let hgt = f64::from(nat_h).clamp(min_h, max_h);
                 Size::new(avail_w, hgt)
             })
         })
         .unwrap_or_else(|| {
             let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
-            Size::new(p.width.unwrap_or(nat_w as f64).max(120.0), 44.0)
+            Size::new(p.width.unwrap_or(f64::from(nat_w)).max(120.0), 44.0)
         })
 }
 

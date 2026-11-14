@@ -353,7 +353,7 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
             if *copyable {
                 let text = value.clone();
                 parts = parts.tap(move || {
-                    day_part_clipboard::set_text(&text.initial());
+                    let _ = day_part_clipboard::set_text(&text.initial());
                 });
             }
             parts.row_id = id;

@@ -17,3 +17,6 @@ proc-macro = true
 # No syn/quote: the whole input is one string literal, and the output is a method chain built as
 # text. Pulling in a parser framework to read a literal and emit a chain would be all cost.
 [dependencies]
+
+[lints]
+workspace = true

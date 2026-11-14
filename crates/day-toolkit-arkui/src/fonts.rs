@@ -161,11 +161,11 @@ fn make_font(size: f32, req: &FontReq) -> (*mut OH_Drawing_Font, *mut OH_Drawing
             let family = crate::node::cstr(&req.family);
             tf = OH_Drawing_FontMgrMatchFamilyStyle(manager(), family.as_ptr(), style);
         }
-        if !tf.is_null() {
-            OH_Drawing_FontSetTypeface(font, tf);
-        } else {
+        if tf.is_null() {
             OH_Drawing_FontSetFakeBoldText(font, weight >= 600);
             OH_Drawing_FontSetTextSkewX(font, if req.italic { -0.25 } else { 0.0 });
+        } else {
+            OH_Drawing_FontSetTypeface(font, tf);
         }
         (font, tf)
     }
@@ -186,7 +186,7 @@ pub fn metrics(font: *mut OH_Drawing_Font) -> OH_Drawing_Font_Metrics {
     // SAFETY: a zeroed metrics struct the call fills for a live font.
     unsafe {
         let mut m: OH_Drawing_Font_Metrics = std::mem::zeroed();
-        OH_Drawing_FontGetMetrics(font, &mut m);
+        OH_Drawing_FontGetMetrics(font, &raw mut m);
         m
     }
 }
@@ -202,7 +202,7 @@ pub fn text_width(font: *mut OH_Drawing_Font, text: &str, size: f32) -> f32 {
             text.len(),
             OH_Drawing_TextEncoding::TEXT_ENCODING_UTF8,
             ptr::null_mut(),
-            &mut w,
+            &raw mut w,
         )
     };
     if ok.is_ok() {
@@ -254,21 +254,21 @@ pub fn families_text() -> Option<String> {
             let faces = OH_Drawing_FontStyleSetCount(set);
             for j in 0..faces {
                 let mut style_name = ptr::null_mut();
-                let st = OH_Drawing_FontStyleSetGetStyle(set, j, &mut style_name);
+                let st = OH_Drawing_FontStyleSetGetStyle(set, j, &raw mut style_name);
                 text.push('\u{1f}');
                 if !style_name.is_null() {
                     let s = CStr::from_ptr(style_name).to_string_lossy().into_owned();
                     list_append(&mut text, &s);
-                    OH_Drawing_FontStyleSetFreeStyleName(&mut style_name);
+                    OH_Drawing_FontStyleSetFreeStyleName(&raw mut style_name);
                 }
                 text.push('\u{1f}');
                 // FONT_WEIGHT_100 == 0
                 text.push_str(&((st.weight.0 as i32 + 1) * 100).to_string());
                 text.push('\u{1f}');
-                text.push(if st.slant != OH_Drawing_FontStyle::FONT_STYLE_NORMAL {
-                    '1'
-                } else {
+                text.push(if st.slant == OH_Drawing_FontStyle::FONT_STYLE_NORMAL {
                     '0'
+                } else {
+                    '1'
                 });
             }
             OH_Drawing_FontMgrDestroyFontStyleSet(set);
@@ -312,7 +312,7 @@ pub fn register_canvas_font(family: &str, data: &[u8]) -> bool {
 
 /// Measure one line of canvas text with the font [`font`] resolves: the eight slots
 /// `day_spec::TextMetrics::from_slots` reads (advance width, line height, ascent, cap height,
-/// then the ink box, which is the whole line box here: OH_Drawing's C surface has no
+/// then the ink box, which is the whole line box here: `OH_Drawing`'s C surface has no
 /// tight-bounds call, and the superset is what the contract allows, docs/fonts.md).
 pub fn measure_text(text: &str, size: f64, weight: i32, italic: bool, family: &str) -> [f64; 8] {
     let req = FontReq {

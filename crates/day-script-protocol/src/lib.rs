@@ -534,7 +534,7 @@ pub enum Step {
     DeepLink {
         url: String,
     },
-    /// Deliver an original external URL to on_open_url (with normal routing fallback).
+    /// Deliver an original external URL to `on_open_url` (with normal routing fallback).
     OpenUrl {
         url: String,
     },
@@ -672,6 +672,7 @@ pub enum Step {
 impl Step {
     /// The implicit-wait budget for this step, seconds: its own `timeout_secs` when declared
     /// (and positive), else the shared [`DEFAULT_TIMEOUT_SECS`].
+    #[must_use]
     pub fn wait_budget_secs(&self) -> f64 {
         match self {
             Step::WaitFor {
@@ -697,6 +698,7 @@ impl Step {
 
 impl Step {
     /// The stable snake-case operation name used on the wire and in script files.
+    #[must_use]
     pub const fn op(&self) -> &'static str {
         match self {
             Self::WaitFor { .. } => "wait_for",
@@ -815,6 +817,7 @@ pub struct MemorySample {
 }
 
 impl Reply {
+    #[must_use]
     pub fn ok() -> Self {
         Reply {
             ok: true,

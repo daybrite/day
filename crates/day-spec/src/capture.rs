@@ -29,6 +29,7 @@ struct State {
 }
 impl Fence {
     /// Start once; repeated polls of the same revision must not request another frame.
+    #[must_use]
     pub fn begin(&self, revision: u32) -> bool {
         let mut s = self.0.borrow_mut();
         if s.revision == Some(revision) {
@@ -46,6 +47,11 @@ impl Fence {
             s.result = Some(result);
         }
     }
+    /// The fence's state: pending until [`Fence::complete`] reports the current revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns the message the revision was completed with when its checkpoint failed.
     pub fn poll(&self) -> Result<Readiness, String> {
         match self.0.borrow().result.as_ref() {
             None => Ok(Readiness::Pending),
@@ -73,7 +79,7 @@ static HOLDS: std::sync::Mutex<Vec<Hold>> = std::sync::Mutex::new(Vec::new());
 pub fn register_hold(hold: Hold) {
     HOLDS
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .push(hold);
 }
 
@@ -82,7 +88,7 @@ pub fn register_hold(hold: Hold) {
 pub fn holds_settled() -> bool {
     let holds = HOLDS
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
     holds.iter().all(|hold| hold())
 }
@@ -118,13 +124,13 @@ mod tests {
     fn errors_and_windows_are_independent() {
         let a = Fence::default();
         let b = Fence::default();
-        a.begin(7);
-        b.begin(7);
+        let _ = a.begin(7);
+        let _ = b.begin(7);
         a.complete(7, Err("window closed".into()));
         a.complete(7, Ok(()));
         assert_eq!(a.poll(), Err("window closed".into()));
         assert_eq!(b.poll(), Ok(Readiness::Pending));
-        a.begin(8);
+        let _ = a.begin(8);
         a.complete(8, Ok(()));
         assert_eq!(a.poll(), Ok(Readiness::Ready));
     }

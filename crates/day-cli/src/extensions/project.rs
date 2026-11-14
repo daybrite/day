@@ -5,7 +5,7 @@
 //!
 //! Each extension becomes a native target whose sources are a synchronized folder, so files
 //! added to `platform/<os>/<Name>/` build without regenerating anything. The Runner target
-//! depends on every extension and embeds it with a copy phase: `PlugIns/` for NSExtension
+//! depends on every extension and embeds it with a copy phase: `PlugIns/` for `NSExtension`
 //! extensions, `Extensions/` for ExtensionKit ones. Xcode signs each embedded bundle on copy.
 
 use std::path::Path;
@@ -15,6 +15,10 @@ use serde_json::{Value, json};
 use super::{Family, Os, Resolved};
 
 /// Where the project sits relative to the app, which decides how its paths are written.
+#[expect(
+    clippy::struct_field_names,
+    reason = "each field is a spelling of the project root; the suffix alone would not say of what"
+)]
 pub struct Layout<'a> {
     /// The project root relative to the project's directory (`SRCROOT`): `../../../..` for the
     /// generated project under `build/day/xcode/<os>/`, `../..` for one under `platform/<os>/`.
@@ -142,8 +146,7 @@ pub fn apply(
     let after_resources = phases
         .iter()
         .position(|p| p == "resources" || p["kind"] == "resources")
-        .map(|i| i + 1)
-        .unwrap_or(phases.len());
+        .map_or(phases.len(), |i| i + 1);
     let mut insert = after_resources;
     for (needed, name) in [
         (
@@ -329,7 +332,7 @@ fn target(r: &Resolved, layout: &Layout<'_>, root: &Path) -> Value {
     let members: Vec<Value> = r
         .swift_packages
         .iter()
-        .flat_map(|p| p.product_names())
+        .flat_map(super::SwiftPackageDecl::product_names)
         .map(|product| {
             json!({
                 "product-name": product,

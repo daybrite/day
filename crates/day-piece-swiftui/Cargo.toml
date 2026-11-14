@@ -49,3 +49,6 @@ swift = ["platform/apple/swift"]
 
 [package.metadata.day.macos]
 swift = ["platform/apple/swift"]
+
+[lints]
+workspace = true

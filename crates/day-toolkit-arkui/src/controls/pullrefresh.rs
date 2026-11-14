@@ -20,7 +20,7 @@ use day_pieces::pullrefresh::*;
 use day_spec::Event;
 use day_spec::NodeId;
 
-/// A user pull began on the Refresh node carrying this day NodeId in its event user data.
+/// A user pull began on the Refresh node carrying this day `NodeId` in its event user data.
 unsafe extern "C" fn on_event(ev: *mut ArkUI_NodeEvent) {
     day_spec::ffi_guard::contain((), || {
         // SAFETY: a live node event for the callback's duration.
@@ -55,6 +55,10 @@ fn make(_backend: &mut ArkUi, p: &RefreshProps, id: NodeId) -> AHandle {
     h
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &RefreshPatch) {
     let RefreshPatch::SetRefreshing(on) = patch;
     set_refreshing(h, *on);

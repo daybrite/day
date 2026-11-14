@@ -38,12 +38,14 @@ pub fn set_text(text: &str) -> bool {
 
 /// Read the current clipboard contents as plain text. Returns `None` when the clipboard is empty,
 /// holds no text representation, or the platform denies access (e.g. an unfocused Android app).
+#[must_use]
 pub fn get_text() -> Option<String> {
     imp::get_text()
 }
 
 /// Whether the clipboard currently holds text. Cheap where the platform offers a dedicated check
 /// (`UIPasteboard.hasStrings`, Win32 `IsClipboardFormatAvailable`, …); otherwise it reads the text.
+#[must_use]
 pub fn has_text() -> bool {
     imp::has_text()
 }
@@ -168,7 +170,7 @@ mod tests {
             assert!(super::has_text());
             // Be polite: put back whatever was on the user's clipboard.
             if let Some(prev) = previous {
-                super::set_text(&prev);
+                let _ = super::set_text(&prev);
             }
         }
     }

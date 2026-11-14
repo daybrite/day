@@ -41,8 +41,8 @@ fn key_name(code: ArkUI_KeyCode, held: u64) -> Option<&'static str> {
     if name.is_some() {
         return name;
     }
-    let ctrl_or_alt = ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64
-        | ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0 as u64;
+    let ctrl_or_alt = u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0)
+        | u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0);
     if held & ctrl_or_alt != 0 {
         return None;
     }
@@ -102,10 +102,10 @@ unsafe fn full_route_key(
         return day_spec::KeyEvent::function_name((code.0 - f1 + 1) as u8)
             .map(|name| (K::Key, name.to_string()));
     }
-    let chord = ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64
-        | ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0 as u64;
+    let chord = u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0)
+        | u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0);
     if held & chord != 0 {
-        let shift = held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0 as u64 != 0;
+        let shift = held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0) != 0;
         let (a, z) = (Code::ARKUI_KEYCODE_A.0, Code::ARKUI_KEYCODE_Z.0);
         let (zero, nine) = (Code::ARKUI_KEYCODE_0.0, Code::ARKUI_KEYCODE_9.0);
         let c = if (a..=z).contains(&code.0) {
@@ -280,7 +280,7 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                     let input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
                     if !input.is_null() {
                         let mut held = 0;
-                        OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &mut held);
+                        OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &raw mut held);
                         // The API 18 pre-IME payload leaves modifierKeyState at zero, but
                         // supplies pressedKeyCodes. Read that list instead of tracking held
                         // keys across focus changes (which could leave a modifier stuck).
@@ -289,7 +289,7 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                         if OH_ArkUI_UIInputEvent_GetPressedKeys(
                             input,
                             pressed.as_mut_ptr(),
-                            &mut len,
+                            &raw mut len,
                         ) == 0
                         {
                             for &key in pressed.iter().take(len.max(0) as usize) {
@@ -308,12 +308,12 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                                     }
                                     _ => 0,
                                 };
-                                held |= modifier as u64;
+                                held |= u64::from(modifier);
                             }
                         }
                         let code = ArkUI_KeyCode(OH_ArkUI_KeyEvent_GetKeyCode(input));
                         if crate::area_can_submit(id)
-                            && held == ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0 as u64
+                            && held == u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0)
                             && matches!(
                                 code,
                                 ArkUI_KeyCode::ARKUI_KEYCODE_ENTER
@@ -332,7 +332,7 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                         }
                         // Copy/Cut must not race an asynchronous selection-collapse event.
                         let ctrl =
-                            held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64 != 0;
+                            held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0) != 0;
                         if crate::area_unselectable(id)
                             && ctrl
                             && matches!(
@@ -398,7 +398,7 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                         return;
                     }
                     let mut held = 0u64;
-                    OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &mut held);
+                    OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &raw mut held);
                     let code = ArkUI_KeyCode(OH_ArkUI_KeyEvent_GetKeyCode(input));
                     let node = day_spec::NodeId(id);
                     if !day_spec::keys::handled(node) {
@@ -416,13 +416,13 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                         }
                     };
                     let mut mods = 0.0;
-                    if held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0 as u64 != 0 {
+                    if held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0) != 0 {
                         mods += 1.0; // day KeyEvent::SHIFT
                     }
-                    if held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64 != 0 {
+                    if held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0) != 0 {
                         mods += 2.0 + 8.0; // PRIMARY, and the Control key itself
                     }
-                    if held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0 as u64 != 0 {
+                    if held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0) != 0 {
                         mods += 4.0; // ALT
                     }
                     crate::on_event(id, kind as i32, mods, &name);

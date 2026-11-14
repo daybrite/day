@@ -423,10 +423,22 @@ impl Drive {
     }
 
     /// A plain assertion for a headless test: fails with `what` when `ok` is false.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Fail`] carrying `what` when `ok` is false.
     pub fn check(&self, ok: bool, what: &str) -> TestResult {
         if ok { Ok(()) } else { Err(Fail(what.into())) }
     }
     /// Equality for a headless test, naming both sides on a mismatch.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Fail`] naming both values when they differ.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public test-helper signature; callers pass temporaries by value"
+    )]
     pub fn check_eq<T: PartialEq + std::fmt::Debug>(&self, got: T, want: T) -> TestResult {
         if got == want {
             Ok(())
@@ -449,6 +461,7 @@ type Body = Rc<dyn Fn(Drive) -> Pin<Box<dyn Future<Output = TestResult>>>>;
 /// Built by a `#[day::test]` function each time the test runs, so the signals a page and its
 /// drive share are fresh per run; the registry names it after that function.
 #[derive(Clone)]
+#[must_use]
 pub struct Case {
     name: String,
     kind: TestKind,
@@ -531,6 +544,7 @@ impl Case {
         self
     }
     /// The first support this case needs that the running toolkit lacks, named.
+    #[must_use]
     pub fn missing_support(&self) -> Option<String> {
         self.requires_support
             .iter()
@@ -567,28 +581,35 @@ impl Case {
 
     /// The name the registry gave the case: its function's, hyphenated. Empty for a case
     /// built outside the registry.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
     /// The case's own time limit, if it set one.
+    #[must_use]
     pub fn timeout_secs(&self) -> Option<f64> {
         self.timeout_secs
     }
+    #[must_use]
     pub fn kind(&self) -> TestKind {
         self.kind
     }
     /// The `kind:`, `cap:` and `duty:` keys this case proves, in the matrices' own spelling.
+    #[must_use]
     pub fn proves_keys(&self) -> &[String] {
         &self.proves
     }
+    #[must_use]
     pub fn requirements(&self) -> &[Cap] {
         &self.requires
     }
     /// The captures to take before the drive.
+    #[must_use]
     pub fn shots(&self) -> &[String] {
         &self.shots
     }
     /// Build the case's page, if it has one.
+    #[must_use]
     pub fn build_page(&self) -> Option<AnyPiece> {
         self.page.as_ref().map(|p| p())
     }
@@ -615,6 +636,7 @@ impl TestFn {
         TestFn { ident, build }
     }
     /// The test's name: the identifier's last path segment, with hyphens for underscores.
+    #[must_use]
     pub fn name(&self) -> String {
         let last = self.ident.rsplit("::").next().unwrap_or(self.ident);
         last.trim().replace('_', "-")
@@ -676,11 +698,13 @@ pub fn note_announcement(text: &str) {
 }
 
 /// The announcements made since the run began.
+#[must_use]
 pub fn announcements() -> Vec<String> {
     ANNOUNCED.with(|a| a.borrow().clone().unwrap_or_default())
 }
 
 /// Record `url` if a test run is intercepting; whether it did.
+#[must_use]
 pub fn intercept_open_url(url: &str) -> bool {
     OPENED.with(|o| match o.borrow_mut().as_mut() {
         Some(list) => {
@@ -692,6 +716,7 @@ pub fn intercept_open_url(url: &str) -> bool {
 }
 
 /// The URLs opened (and intercepted) since the run began.
+#[must_use]
 pub fn opened_urls() -> Vec<String> {
     OPENED.with(|o| o.borrow().clone().unwrap_or_default())
 }
@@ -707,6 +732,7 @@ pub fn register(test: TestFn) {
 }
 
 /// Every registered test, link-time and run-time ones together.
+#[must_use]
 pub fn tests() -> Vec<TestFn> {
     let mut all: Vec<TestFn> = Vec::new();
     all.extend(registry::compiled_tests());
@@ -729,6 +755,7 @@ pub fn cases() -> Vec<Case> {
 
 /// Show `case` in the app's test host, built fresh, until the next call or [`clear_active`].
 /// Answers false when the app mounts no test host, so the runner can say so.
+#[must_use]
 pub fn set_active(case: Case) -> bool {
     ACTIVE.with(|a| *a.borrow_mut() = Some(case));
     PAGE_PANIC.with(|p| *p.borrow_mut() = None);
@@ -753,6 +780,7 @@ fn notify_host() -> bool {
 }
 
 /// The active case, for the test host to build.
+#[must_use]
 pub fn active() -> Option<Case> {
     ACTIVE.with(|a| a.borrow().clone())
 }
@@ -769,6 +797,7 @@ pub fn note_page_panic(message: String) {
 }
 
 /// The panic, if any, the active case's page raised as it was built.
+#[must_use]
 pub fn take_page_panic() -> Option<String> {
     PAGE_PANIC.with(|p| p.borrow_mut().take())
 }
@@ -786,6 +815,7 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 
 /// A fresh case for the test called `name`, for a person browsing an app's tests (the
 /// conformance app's navigation does).
+#[must_use]
 pub fn case_named(name: &str) -> Option<Case> {
     tests()
         .into_iter()

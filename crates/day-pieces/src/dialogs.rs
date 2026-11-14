@@ -31,6 +31,7 @@ type Presenting<T> = Pin<Box<dyn Future<Output = T>>>;
 ///     .cancel(tr("cancel"))
 ///     .present().await;   // Option<Choice>
 /// ```
+#[must_use]
 pub struct Alert<T> {
     title: String,
     message: Option<String>,
@@ -130,10 +131,11 @@ impl<T: 'static> IntoFuture for Alert<T> {
 }
 
 /// A yes/no confirmation. Resolves to `true` only if the confirm button is chosen.
+#[must_use]
 pub struct Confirm {
     title: String,
     message: Option<String>,
-    confirm: String,
+    accept: String,
     cancel: String,
     destructive: bool,
 }
@@ -144,7 +146,7 @@ pub fn confirm<M>(title: impl IntoText<M>) -> Confirm {
         message: None,
         // Localized from the core catalog (docs/dialogs.md); `.confirm_label`/`.cancel_label`
         // override. Resolved in the current locale at build time.
-        confirm: day_localization::t(day_localization::key::day_ok),
+        accept: day_localization::t(day_localization::key::day_ok),
         cancel: day_localization::t(day_localization::key::day_cancel),
         destructive: false,
     }
@@ -156,7 +158,7 @@ impl Confirm {
         self
     }
     pub fn confirm_label<M>(mut self, label: impl IntoText<M>) -> Self {
-        self.confirm = label.into_text().initial();
+        self.accept = label.into_text().initial();
         self
     }
     pub fn cancel_label<M>(mut self, label: impl IntoText<M>) -> Self {
@@ -183,7 +185,7 @@ impl Confirm {
                     role: ButtonRole::Cancel,
                 },
                 PresentButton {
-                    label: self.confirm,
+                    label: self.accept,
                     role: confirm_role,
                 },
             ],
@@ -203,6 +205,7 @@ impl IntoFuture for Confirm {
 }
 
 /// A single-line text prompt. Resolves to `Some(text)` on OK, `None` on cancel/dismiss.
+#[must_use]
 pub struct Prompt {
     title: String,
     message: Option<String>,
@@ -295,11 +298,13 @@ impl FileUrl {
         FileUrl(locator.into())
     }
     /// The raw locator: a filesystem path, or a `content://`-style URI on Android.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
     /// The locator as a filesystem path: `Some` for local paths (and `file://` URLs), `None`
     /// for opaque URIs such as Android's `content://`.
+    #[must_use]
     pub fn local_path(&self) -> Option<std::path::PathBuf> {
         if self.0.starts_with("file://") {
             return day_spec::transfer::file_paths(self.0.as_bytes())?
@@ -314,15 +319,26 @@ impl FileUrl {
     /// Persistable macOS security-scoped bookmark for a file the user has authorized.
     /// Store the opaque bytes in app-private storage, not the path. Other platforms return
     /// `Unsupported`. `read_only` prevents a bookmark from requesting write access.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Unsupported` error off macOS, and the system's error when the bookmark cannot
+    /// be created.
     pub fn bookmark(&self, read_only: bool) -> std::io::Result<Vec<u8>> {
         crate::file_access::bookmark(self, read_only)
     }
     /// Resolve a saved macOS bookmark and hold its security scope until the returned guard
     /// is dropped. Keep the guard alive across all I/O, including asynchronous operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Unsupported` error off macOS, and the system's error when the bookmark is
+    /// stale or cannot be resolved.
     pub fn resolve_bookmark(bytes: &[u8]) -> std::io::Result<crate::FileAccess> {
         crate::file_access::resolve(bytes)
     }
     /// The last path component, for display (e.g. `notes.txt`). Best-effort for opaque URIs.
+    #[must_use]
     pub fn file_name(&self) -> Option<String> {
         let s = self.0.trim_end_matches(['/', '\\']);
         let tail = s.rsplit(['/', '\\']).next().unwrap_or(s);
@@ -333,6 +349,11 @@ impl FileUrl {
         }
     }
     /// Read the file's bytes. Local paths only; opaque URIs return an `Unsupported` error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Unsupported` error for an opaque URI, and the file system's error when the
+    /// read fails.
     pub fn read(&self) -> std::io::Result<Vec<u8>> {
         match self.local_path() {
             Some(p) => fs_read(&p),
@@ -345,6 +366,19 @@ impl FileUrl {
     /// Read at most `limit` bytes without blocking the UI. Native reads run on a worker;
     /// browser-picked bytes are already in memory. Oversized input returns `InvalidData`.
     /// Apple security-scoped access is held for the read and released on every exit path.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidData` when the file is larger than `limit`, `Unsupported` for an opaque
+    /// URI, and the file system's error when the read fails.
+    #[cfg_attr(
+        target_arch = "wasm32",
+        expect(
+            clippy::unused_async,
+            clippy::unused_async_trait_impl,
+            reason = "browser-picked bytes are already in memory; the native arm awaits a worker"
+        )
+    )]
     pub async fn read_limited(&self, limit: usize) -> std::io::Result<Vec<u8>> {
         #[cfg(target_arch = "wasm32")]
         {
@@ -384,6 +418,11 @@ impl FileUrl {
         Ok(bytes)
     }
     /// Read the file as UTF-8 text.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Unsupported` error for an opaque URI, `InvalidData` when the bytes are not
+    /// UTF-8, and the file system's error when the read fails.
     pub fn read_to_string(&self) -> std::io::Result<String> {
         match self.local_path() {
             Some(p) => fs_read(&p).and_then(|b| {
@@ -420,6 +459,7 @@ fn parse_filter(name: impl Into<String>, extensions: &[&str]) -> FileFilter {
 /// let file = open_file().filter("Text", &["txt", "md"]).await;
 /// if let Some(f) = file { let body = f.read_to_string()?; }
 /// ```
+#[must_use]
 pub struct OpenFile {
     title: String,
     filters: Vec<FileFilter>,
@@ -473,6 +513,7 @@ impl IntoFuture for OpenFile {
 /// let tracks = open_files().filter("Audio", &["mp3", "flac"]).await;
 /// for track in &tracks { library.add(track.read()?); }
 /// ```
+#[must_use]
 pub struct OpenFiles {
     title: String,
     filters: Vec<FileFilter>,
@@ -528,6 +569,7 @@ impl IntoFuture for OpenFiles {
 ///     scan(dir.local_path()?);
 /// }
 /// ```
+#[must_use]
 pub struct OpenFolder {
     title: String,
 }
@@ -571,6 +613,7 @@ impl IntoFuture for OpenFolder {
 ///     .filter("Text", &["txt"])
 ///     .await;
 /// ```
+#[must_use]
 pub struct SaveFile {
     title: String,
     suggested_name: String,

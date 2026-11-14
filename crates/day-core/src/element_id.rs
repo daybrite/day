@@ -21,6 +21,7 @@ impl Eq for ElementId {}
 
 impl ElementId {
     #[doc(hidden)]
+    #[must_use]
     pub fn from_declaration(declaration: &'static Declaration) -> Self {
         Self {
             declaration,
@@ -46,12 +47,15 @@ impl ElementId {
             text: Cow::Owned(text),
         }
     }
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.text
     }
+    #[must_use]
     pub fn family(&self) -> &'static str {
         self.declaration.family
     }
+    #[must_use]
     pub fn is_keyed(&self) -> bool {
         self.declaration.keyed
     }
@@ -113,6 +117,11 @@ pub static DECLARATIONS: [Declaration];
 
 /// Return the linked app's vocabulary, independent of visited pages. Reject conflicting
 /// shapes and owners; repeated declarations within one package are permitted.
+///
+/// # Errors
+///
+/// Returns a message when declarations of one family conflict in shape or owner or, on web,
+/// when the `day_ids` section was never handed off.
 pub fn registry() -> Result<&'static [RegisteredId], String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -150,6 +159,7 @@ pub fn registry() -> Result<&'static [RegisteredId], String> {
         .map_err(Clone::clone)
 }
 /// The exact family portion of a canonical locator; used only for mounted diagnostics.
+#[must_use]
 pub fn family_of(id: &str) -> &str {
     let mut chars = id.char_indices().peekable();
     while let Some((i, c)) = chars.next() {
@@ -371,6 +381,7 @@ macro_rules! __declare_element_id {
 }
 
 #[doc(hidden)]
+#[must_use]
 pub const fn record_bytes<const N: usize>(payload: &str) -> [u8; N] {
     let mut out = [0; N];
     let length = (payload.len() as u32).to_le_bytes();
@@ -396,6 +407,10 @@ static WEB_REGISTRY: std::sync::OnceLock<Result<Vec<RegisteredId>, String>> =
     std::sync::OnceLock::new();
 /// Install all concatenated custom sections once, before app startup. Invalid metadata
 /// remains an error at the protocol boundary; it never becomes an empty catalog.
+///
+/// # Errors
+///
+/// Returns a message when a registry is already installed.
 #[cfg(target_arch = "wasm32")]
 pub fn install_web_registry(bytes: &[u8]) -> Result<(), String> {
     WEB_REGISTRY

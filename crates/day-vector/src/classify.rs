@@ -43,6 +43,7 @@ fn is_variant_id(id: &str) -> bool {
 }
 
 /// Classify SVG text: an SF Symbol template, or plain art.
+#[must_use]
 pub fn classify(xml: &str) -> SourceKind {
     let Ok(doc) = roxmltree::Document::parse(xml) else {
         return SourceKind::Plain; // unparseable is reported by the real parse later
@@ -66,7 +67,13 @@ pub fn classify(xml: &str) -> SourceKind {
 /// then any variant at all, so a sparse third-party template still yields a glyph. The output
 /// viewBox is the variant's measured bounding box, padded ~6 % and squared (icon slots are
 /// square; centering the short axis keeps optical alignment).
+///
+/// # Errors
+///
+/// Returns a message when `xml` does not parse, is not an SF Symbol template (no `#Symbols`
+/// group, or one without variants), or the chosen variant renders no content.
 pub fn extract_variant(xml: &str, weight: &str, scale: &str) -> Result<String, String> {
+    use std::fmt::Write as _;
     let doc = roxmltree::Document::parse(xml).map_err(|e| format!("parse: {e}"))?;
     let symbols = doc
         .descendants()
@@ -97,7 +104,7 @@ pub fn extract_variant(xml: &str, weight: &str, scale: &str) -> Result<String, S
     let mut dims = String::new();
     for attr in ["viewBox", "width", "height"] {
         if let Some(v) = root.attribute(attr) {
-            dims.push_str(&format!(" {attr}=\"{v}\""));
+            let _ = write!(dims, " {attr}=\"{v}\"");
         }
     }
     let probe = format!("<svg xmlns=\"http://www.w3.org/2000/svg\"{dims}>{slice}</svg>");

@@ -5,8 +5,9 @@
 use crate::{Method, Request, Response};
 
 /// Origin-supplied validators for one stored URL/representation. Keep these with the body:
-/// a 304 has no replacement body. ETags are opaque, including quotes and the `W/` prefix.
+/// a 304 has no replacement body. `ETags` are opaque, including quotes and the `W/` prefix.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[must_use]
 pub struct CacheValidators {
     pub etag: Option<String>,
     pub last_modified: Option<String>,
@@ -98,21 +99,21 @@ mod tests {
             last_modified: Some(String::new()),
         };
         assert!(validators.is_empty());
-        assert!(
+        assert_eq!(
             Request::get("https://fixture.example")
                 .conditional(&validators)
-                .headers()
-                .is_empty()
+                .headers(),
+            []
         );
         let mut req = Request::get("https://fixture.example");
         req.method = Method::Post;
-        assert!(
+        assert_eq!(
             req.conditional(&CacheValidators {
                 etag: Some("\"tag\"".into()),
                 last_modified: None
             })
-            .headers()
-            .is_empty()
+            .headers(),
+            []
         );
     }
 }

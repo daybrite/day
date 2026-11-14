@@ -37,6 +37,11 @@ pub(super) fn compiled_tests() -> Vec<TestFn> {
 
 /// Install the build's independent expectations and initialize WASM constructors once.
 /// Custom hosts must supply the `day_test_expectations` section written by `day build`.
+///
+/// # Errors
+///
+/// Returns the errors of [`validate_registry`], which include a manifest that is missing,
+/// malformed, or does not match the compiled tests.
 #[cfg(target_arch = "wasm32")]
 pub fn install_web_registry(bytes: &[u8]) -> Result<(), String> {
     unsafe extern "C" {
@@ -55,6 +60,11 @@ pub fn install_web_registry(bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Fail closed before listing or running compiled tests, independent of test filters.
+///
+/// # Errors
+///
+/// Returns a message when two compiled tests share a name or, on web, when the build manifest
+/// is missing or does not match the compiled tests.
 pub fn validate_registry() -> Result<(), String> {
     let tests = compiled_tests();
     #[cfg(target_arch = "wasm32")]
@@ -129,7 +139,10 @@ mod tests {
     fn missing_replaced_duplicate_and_uninitialized_are_errors() {
         assert!(parse_manifest(b"").is_err());
         assert!(parse_manifest(b"day-tests-v1\na::b\na::b\n").is_err());
-        assert!(parse_manifest(b"day-tests-v1\n").unwrap().is_empty());
+        assert_eq!(
+            parse_manifest(b"day-tests-v1\n").unwrap(),
+            [] as [std::string::String; 0]
+        );
         let expected = ["a::one", "unused_module::two"];
         let error = compare(expected.into_iter(), ["a::one"].into_iter()).unwrap_err();
         assert!(error.contains("unused_module::two"));

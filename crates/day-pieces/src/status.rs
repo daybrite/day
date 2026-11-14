@@ -14,6 +14,7 @@ use crate::{IntoText, MenuContent, MenuSource, TextSource};
 
 /// What a status item shows: its icon, text and menu. Built by the closure handed to
 /// [`status_item`], which re-runs whenever a signal it reads changes.
+#[must_use]
 pub struct StatusItem {
     icon: Option<Icon>,
     raster: Option<StatusImage>,

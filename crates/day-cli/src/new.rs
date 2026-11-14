@@ -22,6 +22,7 @@
 //! or (which implies `--git`) a branch or a commit. `day doctor verify` drives that flag to check
 //! several days from one CLI.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::cli::CliError;
@@ -147,8 +148,7 @@ impl Deps {
     /// it builds against.
     fn ci_version(&self) -> String {
         match self {
-            Deps::Version(v) => v.clone(),
-            Deps::Git(Some(DaySource::Release(v))) => v.clone(),
+            Deps::Version(v) | Deps::Git(Some(DaySource::Release(v))) => v.clone(),
             Deps::Git(Some(DaySource::Branch(b))) => b.clone(),
             Deps::Git(Some(DaySource::Rev(r))) => r.clone(),
             Deps::Git(None) | Deps::Local(_) => "main".to_string(),
@@ -272,7 +272,7 @@ impl Repl {
     fn new(name: &str, id: Option<&str>) -> Self {
         let snake = snake_ident(name);
         let pascal = pascalize(&snake);
-        let id = id.map(String::from).unwrap_or_else(|| default_id(name));
+        let id = id.map_or_else(|| default_id(name), String::from);
         let pkg_slash = id.replace('.', "/");
         Repl {
             crate_name: name.to_string(),
@@ -298,7 +298,7 @@ impl Repl {
     }
 }
 
-/// A lowercase snake_case stem from an arbitrary name (non-alphanumerics collapse to `_`).
+/// A lowercase `snake_case` stem from an arbitrary name (non-alphanumerics collapse to `_`).
 fn snake_ident(name: &str) -> String {
     let mut out = String::new();
     for ch in name.chars() {
@@ -316,7 +316,7 @@ fn snake_ident(name: &str) -> String {
     }
 }
 
-/// PascalCase from a snake_case stem.
+/// `PascalCase` from a `snake_case` stem.
 pub(crate) fn pascalize(snake: &str) -> String {
     snake
         .split('_')
@@ -676,7 +676,7 @@ fn resolve_id(p: &Prompt, question: &str, id: Option<&str>, default: &str) -> St
 fn bundle_segment(name: &str) -> String {
     let s: String = name
         .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
+        .filter(char::is_ascii_alphanumeric)
         .map(|c| c.to_ascii_lowercase())
         .collect();
     if s.is_empty() || s.starts_with(|c: char| c.is_ascii_digit()) {
@@ -900,7 +900,7 @@ pub fn piece(
     };
     let mut next = repl.expand(next);
     if !no_demo {
-        for (path, text) in files.iter_mut() {
+        for (path, text) in &mut files {
             if path == "README.md" {
                 text.push_str(&repl.expand(DEMO_SECTION));
             }
@@ -919,10 +919,11 @@ pub fn piece(
             &app,
             Some(&demo),
         )?;
-        next.push_str(&format!(
-            "    # the demo app:  cd demo && day launch -t {} --script dayscript/demo.yaml\n",
+        let _ = writeln!(
+            next,
+            "    # the demo app:  cd demo && day launch -t {} --script dayscript/demo.yaml",
             targets::suggested(&app.targets)
-        ));
+        );
     }
     eprintln!("{next}");
     Ok(())
@@ -962,7 +963,10 @@ pub fn part(
         }
         picked.iter().map(|i| PLATFORMS[*i].to_string()).collect()
     } else {
-        PLATFORMS.iter().map(|s| s.to_string()).collect()
+        PLATFORMS
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect()
     };
 
     // Only the Android platform has Java to place. Naming the flag without it is a mistake; the
@@ -1126,31 +1130,29 @@ pub fn app(
         }
     }
 
-    let title = match title.map(str::trim).filter(|t| !t.is_empty()) {
-        Some(t) => t.to_string(),
-        None => {
-            let d = default_title(&name);
-            p.line("App title (window / store display name)", Some(&d))
-        }
+    let title = if let Some(t) = title.map(str::trim).filter(|t| !t.is_empty()) {
+        t.to_string()
+    } else {
+        let d = default_title(&name);
+        p.line("App title (window / store display name)", Some(&d))
     };
 
     // A repository from the first commit: git initialized in the new directory, .gitignore, and
     // the GitHub workflow that builds and tests every target on a push. Declined, all three stay
     // out; `--github` / `--no-github` answer for the prompt, and `--no-input` says yes.
-    let github = match github {
-        Some(answer) => answer,
-        None => {
-            let options = ["Yes".to_string(), "No".to_string()];
-            p.choose(
-                "Set up a git repository with a GitHub workflow that builds and tests the app?",
-                &options,
-                0,
-            ) == 0
-        }
+    let github = if let Some(answer) = github {
+        answer
+    } else {
+        let options = ["Yes".to_string(), "No".to_string()];
+        p.choose(
+            "Set up a git repository with a GitHub workflow that builds and tests the app?",
+            &options,
+            0,
+        ) == 0
     };
 
     let mut repl = Repl::new(&name, Some(rid.as_str()));
-    repl.repo = repo.clone();
+    repl.repo.clone_from(&repo);
     // Computed here rather than taken from the template context: this is advice for the person
     // standing at this terminal, and nothing rendered into the project may depend on the host.
     let run_target = targets::suggested(&targets).to_string();
@@ -1320,7 +1322,7 @@ fn write_app(
                     .parent()
                     .ok_or_else(|| "no parent".to_string())
                     .and_then(|d| std::fs::create_dir_all(d).map_err(|e| format!("mkdir: {e}")))
-                    .and_then(|_| std::fs::copy(&master, &mark).map_err(|e| format!("copy: {e}")));
+                    .and_then(|()| std::fs::copy(&master, &mark).map_err(|e| format!("copy: {e}")));
                 if let Err(e) = staged {
                     ops::status("Warning", &format!("welcome art: {e}"));
                 }
@@ -1602,7 +1604,7 @@ fn template_context(
     let scheme: String = repl
         .crate_name
         .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
+        .filter(char::is_ascii_alphanumeric)
         .collect::<String>()
         .to_lowercase();
     ctx.insert(
@@ -1661,8 +1663,7 @@ fn template_context(
         "first_target",
         targets
             .first()
-            .map(String::as_str)
-            .unwrap_or("macos-appkit")
+            .map_or("macos-appkit", String::as_str)
             .to_string(),
     );
     ctx
@@ -1902,6 +1903,34 @@ fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> Result<(), C
     Ok(())
 }
 
+/// The lint table every scaffolded piece and part manifest carries: Clippy's `pedantic` group with
+/// the framework workspace's named exceptions. The app template's `Cargo.toml.hbs` spells the
+/// same table, so a new project of any kind starts under the policy the framework itself meets.
+const SCAFFOLD_LINTS: &str = r#"# Lint policy: Clippy's `pedantic` group. The project's CI treats every warning as an error
+# (`cargo clippy --all-targets -- -D warnings`), so a finding blocks the change that
+# introduced it. Fix findings in the code; for a site where the lint is wrong, use
+# `#[expect(clippy::<lint>, reason = "…")]`.
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# UI code converts between float layout units and integer indices and pixel counts, and `as`
+# is the only operator for float-to-integer.
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+# Function length and short or similar names are style limits a UI tree does not fit.
+many_single_char_names = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+# Option structs mirror native toolkit flags, which are booleans.
+fn_params_excessive_bools = "allow"
+struct_excessive_bools = "allow"
+# `use day::prelude::*` is how Day code imports the piece vocabulary.
+wildcard_imports = "allow"
+# Asks for `#[must_use]` on nearly every function that returns a value.
+must_use_candidate = "allow"
+"#;
+
 // ---------------------------------------------------------------------------
 // Composite piece: pure composition, no features, works on every backend.
 // ---------------------------------------------------------------------------
@@ -1922,9 +1951,11 @@ edition = "2024"
 {day_core}
 {day_reactive}
 
+{lints}
 [workspace]
 "#,
         name = r.crate_name,
+        lints = SCAFFOLD_LINTS,
         day_pieces = deps.dep("day-pieces", ""),
         day_core = deps.dep("day-core", ""),
         day_reactive = deps.dep("day-reactive", ""),
@@ -2042,7 +2073,8 @@ fn native_piece_files(
     // Android / iOS backend-contribution metadata.
     let mut meta = String::new();
     if has("material") {
-        meta.push_str(&format!(
+        let _ = writeln!(
+            meta,
             "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
              # and folds the piece's own Java into the app's Gradle build, without touching day-toolkit-material.\n\
              # `java` takes source dirs or single files; a file is linked in by its `package` line.\n\
@@ -2050,8 +2082,8 @@ fn native_piece_files(
              java = [\"{java_entry}\"]\n\
              # res = [\"platform/android/res\"]\n\
              # gradle-dependencies = [\"group:artifact:version\"]\n\
-             # permissions = [\"android.permission.INTERNET\"]\n",
-        ));
+             # permissions = [\"android.permission.INTERNET\"]",
+        );
     }
     if has("uikit") {
         meta.push_str(
@@ -2112,8 +2144,10 @@ backends = [{backends}]
 {day_pieces}
 {day_reactive}
 linkme = "0.3"
-{day_deps}{ext_deps}{build_deps}{meta}"#,
+{day_deps}{ext_deps}{build_deps}{meta}
+{lints}"#,
         name = r.crate_name,
+        lints = SCAFFOLD_LINTS,
         features = features.trim_end(),
         backends = backends.join(", "),
         day_spec = deps.dep("day-spec", ""),
@@ -2202,9 +2236,7 @@ fn part_files(
     // Per-platform cfg/path module declarations for src/lib.rs.
     let mut cfg_mods = String::new();
     let mut push_mod = |cfg: &str, file: &str| {
-        cfg_mods.push_str(&format!(
-            "#[cfg({cfg})]\n#[path = \"{file}\"]\nmod imp;\n\n"
-        ));
+        let _ = writeln!(cfg_mods, "#[cfg({cfg})]\n#[path = \"{file}\"]\nmod imp;\n");
     };
     if has("macos") {
         push_mod("target_os = \"macos\"", "macos.rs");
@@ -2234,25 +2266,27 @@ fn part_files(
     // Target-gated deps: only Android rides on the day runtime (its Java shim needs day-platform-android).
     let mut dep_sections = String::new();
     if has("android") {
-        dep_sections.push_str(&format!(
+        let _ = writeln!(
+            dep_sections,
             "\n# Android reads through a Java shim + day-platform-android's cached JVM/Context, the one platform\n\
              # where a headless part rides on the day runtime (like the pieces' Android backends).\n\
-             [target.'cfg(target_os = \"android\")'.dependencies]\n{}\n",
+             [target.'cfg(target_os = \"android\")'.dependencies]\n{}",
             deps.dep("day-platform-android", ""),
-        ));
+        );
     }
 
     // Backend-contribution metadata.
     let mut meta = String::new();
     if has("android") {
-        meta.push_str(&format!(
+        let _ = writeln!(
+            meta,
             "\n# `day build` stages this Java into the app's Gradle build (and merges any permissions),\n\
              # without touching day-toolkit-material. This headless part registers no renderer. `java` takes\n\
              # source dirs or single files; a file is linked in by its `package` line.\n\
              [package.metadata.day.android]\n\
              java = [\"{java_entry}\"]\n\
-             # permissions = [\"android.permission.INTERNET\"]\n",
-        ));
+             # permissions = [\"android.permission.INTERNET\"]",
+        );
     }
     if has("ios") || has("macos") {
         meta.push_str(
@@ -2279,9 +2313,11 @@ edition = "2024"
 #   [target.'cfg(target_os = "macos")'.dependencies]
 #   core-foundation = "0.10"
 {dep_sections}{meta}
+{lints}
 [workspace]
 "#,
         name = r.crate_name,
+        lints = SCAFFOLD_LINTS,
         ident = r.crate_ident,
         dep_sections = dep_sections,
         meta = meta,
@@ -2323,6 +2359,7 @@ edition = "2024"
 fn part_stub(os: &str) -> String {
     format!(
         "// {os}: TODO: read your capability via the platform's native API. This stub returns a sample.\n\n\
+         #[allow(\n    clippy::unnecessary_wraps,\n    reason = \"other platforms can have no reading\"\n)]\n\
          pub fn status() -> Option<super::Sample> {{\n    \
          Some(super::Sample {{ value: 42 }})\n}}\n"
     )
@@ -2415,8 +2452,8 @@ against the day git remote with `--git`, or against a local day checkout with `D
 // --- Native piece -----------------------------------------------------------
 
 const NATIVE_LIB: &str = r#"//! __CRATE__, a native Day piece: a two-way text input realized as a distinct native control per
-//! toolkit (NSTextField / GtkEntry / a QLineEdit shim / UITextField / an Android EditText / a XAML
-//! TextBox), registered link-time into each backend's renderer slice without touching day.
+//! toolkit (`NSTextField` / `GtkEntry` / a `QLineEdit` shim / `UITextField` / an Android `EditText` / a XAML
+//! `TextBox`), registered link-time into each backend's renderer slice without touching day.
 //!
 //! It is bound **two-way** to a `Signal<String>`: a native edit dispatches `Event::TextChanged`
 //! back to Rust which `set`s the signal, and an external signal change patches the control via
@@ -2458,6 +2495,7 @@ pub struct __PASCAL__ {
 }
 
 /// `__SNAKE__(value)`: a native text input whose text mirrors `value` in both directions.
+#[must_use]
 pub fn __SNAKE__(value: Signal<String>) -> __PASCAL__ {
     __PASCAL__ {
         value,
@@ -2467,6 +2505,7 @@ pub fn __SNAKE__(value: Signal<String>) -> __PASCAL__ {
 
 impl __PASCAL__ {
     /// The empty-state prompt (evaluated once for the initial value; not reactive after build).
+    #[must_use]
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
         self.placeholder = Some(t.into_text());
         self
@@ -2477,7 +2516,7 @@ impl Piece for __PASCAL__ {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let __PASCAL__ { value, placeholder } = self;
         let initial = value.get_untracked();
-        let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
+        let ph = placeholder.map_or_default(|p| p.initial());
         let node = cx.leaf(
             KIND,
             &__PASCAL__Props {
@@ -2502,7 +2541,7 @@ impl Piece for __PASCAL__ {
                 if !from_native {
                     with_tree(|tr| {
                         let patch = Box::new(__PASCAL__Patch::SetText(t.clone()));
-                        tr.patch(node, patch, false)
+                        tr.patch(node, patch, false);
                     });
                 }
             },
@@ -2593,7 +2632,7 @@ fn make(backend: &mut AppKit, p: &__PASCAL__Props, id: NodeId) -> Retained<NSVie
     let ns: Retained<NSView> = Retained::from(<NSTextField as AsRef<NSView>>::as_ref(&field));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((ns.as_ref() as *const NSView) as usize, target)
+            .insert(std::ptr::from_ref::<NSView>(ns.as_ref()) as usize, target)
     });
     ns
 }
@@ -2947,7 +2986,7 @@ day_pieces::renderer!(day_toolkit_material::RENDERERS, Material,
     make: make, update: update, measure: measure);
 "#;
 
-const ANDROID_JAVA: &str = r#"// This piece's Android factory, bundled with the crate and pulled into the app's Gradle
+const ANDROID_JAVA: &str = r"// This piece's Android factory, bundled with the crate and pulled into the app's Gradle
 // build via [package.metadata.day.android], without touching day-toolkit-material. It uses only
 // day-toolkit-material's public Java surface: DayBridge.ctx (the Android Context) and
 // DayBridge.nativeOnEvent (the event trampoline).
@@ -2991,7 +3030,7 @@ public final class Day__PASCAL__ {
         }
     }
 }
-"#;
+";
 
 const XAML_IMPL: &str = r#"// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp), a TextBox boxed into a Day handle
 // via the day_xaml_box/unbox functions that day-toolkit-xaml-sys exports. Windows-only; built in CI, not
@@ -3263,13 +3302,13 @@ cargo build --features appkit    # or gtk / qt / uikit / material / xaml
 // names. `__TITLE__` is the demo's title and `__FIRST_TARGET__` the first target its Day.toml lists.
 
 /// Appended to the piece's own README when `demo/` is scaffolded.
-const DEMO_SECTION: &str = r#"
+const DEMO_SECTION: &str = r"
 ## Demo
 
 `demo/` is a one-page app that shows this piece, and its walkthrough is the piece's on-device test.
 It depends on the crate by path, so it always builds the code here. From `demo/`, run
 `day launch -t <target> --script dayscript/demo.yaml` with any target its `Day.toml` lists.
-"#;
+";
 
 const DEMO_README: &str = r#"# __TITLE__
 
@@ -3288,7 +3327,7 @@ that the page and the piece are on screen and saves a screenshot under `build/da
 Add a step for each feature you give the piece (https://daybrite.dev/docs/how-to/dayscript).
 "#;
 
-const DEMO_COMPOSITE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE__`, driven by `dayscript/demo.yaml`.
+const DEMO_COMPOSITE_LIB: &str = r"//! __TITLE__: one page that shows `__CRATE__`, driven by `dayscript/demo.yaml`.
 
 use day::prelude::*;
 
@@ -3309,9 +3348,9 @@ pub fn root() -> impl Piece {
     .spacing(Space::M)
     .padding(Space::L)
 }
-"#;
+";
 
-const DEMO_NATIVE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE__`, driven by `dayscript/demo.yaml`.
+const DEMO_NATIVE_LIB: &str = r"//! __TITLE__: one page that shows `__CRATE__`, driven by `dayscript/demo.yaml`.
 
 use day::prelude::*;
 
@@ -3338,19 +3377,19 @@ pub fn root() -> impl Piece {
     .spacing(Space::M)
     .padding(Space::L)
 }
-"#;
+";
 
-const DEMO_COMPOSITE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/how-to/localization).
+const DEMO_COMPOSITE_STRINGS: &str = r"# __TITLE__ UI strings (https://daybrite.dev/docs/how-to/localization).
 
 app_title = __TITLE__
 demo_text = Hello
-"#;
+";
 
-const DEMO_NATIVE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/how-to/localization).
+const DEMO_NATIVE_STRINGS: &str = r"# __TITLE__ UI strings (https://daybrite.dev/docs/how-to/localization).
 
 app_title = __TITLE__
 demo_placeholder = Type here
-"#;
+";
 
 const DEMO_COMPOSITE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/how-to/dayscript) and the piece's on-device test:
 #
@@ -3397,6 +3436,7 @@ pub struct Sample {
 }
 
 /// Read the current snapshot via the platform's native API, or `None` where unsupported.
+#[must_use]
 pub fn status() -> Option<Sample> {
     imp::status()
 }
@@ -3450,7 +3490,7 @@ pub fn status() -> Option<super::Sample> {
 }
 "#;
 
-const PART_ANDROID_JAVA: &str = r#"// __CRATE__'s Android backend: a headless capability shim (no UI), bundled with this crate and
+const PART_ANDROID_JAVA: &str = r"// __CRATE__'s Android backend: a headless capability shim (no UI), bundled with this crate and
 // folded into the app's Gradle build via [package.metadata.day.android], without touching day-platform-android.
 package __PKG_DOTS__;
 
@@ -3465,7 +3505,7 @@ public final class Day__PASCAL__ {
         return 42L;
     }
 }
-"#;
+";
 
 const PART_EXAMPLE: &str = r#"// A tiny driver: `cargo run --example __SNAKE__`.
 fn main() {
@@ -3923,8 +3963,8 @@ mod scaffold_tests {
         let cargo_toml = text("Cargo.toml");
         assert!(cargo_toml.contains("name = \"demo-app\""), "{cargo_toml}");
         // The app's lib crate is what `day build` compiles for every toolkit feature.
-        assert!(!text("src/lib.rs").is_empty());
-        assert!(!text("src/main.rs").is_empty());
+        assert_ne!(text("src/lib.rs"), "");
+        assert_ne!(text("src/main.rs"), "");
         // The scaffold ships its CI: the shared workflow, on the targets it was scaffolded with,
         // the day it builds against picked per event (and the CLI with it), the write grants on
         // the calling job alone.
@@ -4214,8 +4254,8 @@ mod scaffold_tests {
                 assert!(!starter, "the starter's {path} is in the demo");
             }
             assert!(text("build.rs").contains("prebuild_project"));
-            assert!(!text("resource/icons/icon.svg").is_empty());
-            assert!(!text("src/main.rs").is_empty());
+            assert_ne!(text("resource/icons/icon.svg"), "");
+            assert_ne!(text("src/main.rs"), "");
 
             let cargo = text("Cargo.toml");
             assert!(cargo.contains("name = \"day-piece-chip-demo\""), "{cargo}");
@@ -4299,7 +4339,7 @@ mod scaffold_tests {
             ] {
                 assert!(winui.iter().any(|value| value.as_str() == Some(feature)));
             }
-            assert!(!text("src/lib-xaml.rs").is_empty());
+            assert_ne!(text("src/lib-xaml.rs"), "");
             assert!(text("src/lib-xaml-shim.cpp").contains("#ifdef DAY_WINUI"));
             assert!(!files.iter().any(|(p, _)| p == "src/lib-winui.rs"));
         }
@@ -4355,6 +4395,10 @@ mod scaffold_tests {
     /// A part's Android shim lands beside its Rust by default, named after its public class, and
     /// the metadata names that one file; `java_in_src = false` keeps the platform/ source tree.
     #[test]
+    #[expect(
+        clippy::case_sensitive_file_extension_comparisons,
+        reason = "the scaffold writes Java sources with a lowercase `.java` extension"
+    )]
     fn part_java_in_src_writes_the_shim_beside_the_rust() {
         let r = Repl::new("day-part-gauge", Some("dev.example.daypartgauge"));
         let platforms = vec!["android".to_string(), "linux".to_string()];

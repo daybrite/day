@@ -14,6 +14,7 @@ mod obs;
 mod svg;
 
 use proc_macro::TokenStream;
+use std::fmt::Write as _;
 
 /// Keep a WASM ID record's archive member in the final link, including unused helpers.
 /// The public declaration frontend remains `id!`; this attribute is its linker plumbing.
@@ -81,21 +82,22 @@ pub fn build_path(input: TokenStream) -> TokenStream {
     for seg in &segs {
         match seg {
             svg::Seg::Move(x, y) => {
-                code.push_str(&format!(".move_to({})", point(*x, *y)));
+                let _ = write!(code, ".move_to({})", point(*x, *y));
             }
             svg::Seg::Line(x, y) => {
-                code.push_str(&format!(".line_to({})", point(*x, *y)));
+                let _ = write!(code, ".line_to({})", point(*x, *y));
             }
             svg::Seg::Quad(cx, cy, x, y) => {
-                code.push_str(&format!(".quad_to({}, {})", point(*cx, *cy), point(*x, *y)));
+                let _ = write!(code, ".quad_to({}, {})", point(*cx, *cy), point(*x, *y));
             }
             svg::Seg::Cubic(ax, ay, bx, by, x, y) => {
-                code.push_str(&format!(
+                let _ = write!(
+                    code,
                     ".cubic_to({}, {}, {})",
                     point(*ax, *ay),
                     point(*bx, *by),
                     point(*x, *y)
-                ));
+                );
             }
             svg::Seg::Close => code.push_str(".close()"),
         }
@@ -328,6 +330,10 @@ pub fn observable_impls(input: TokenStream) -> TokenStream {
 /// The registry lives in day-core; a crate below `day` names it: `#[day_macros::test(day_core)]`.
 /// Native targets use linkme; WASM uses inventory and a compiler-exported descriptor.
 /// `day build` records these exports before linking and validates discovery before tests run.
+///
+/// # Panics
+///
+/// Panics if the generated registration does not parse as Rust, which would be a bug in this macro.
 #[proc_macro_attribute]
 pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let krate = attr.to_string();

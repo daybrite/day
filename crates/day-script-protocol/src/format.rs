@@ -42,6 +42,12 @@ pub struct ScriptStep {
 impl ScriptStep {
     /// Accept an on-disk single-key entry or the flattened JSON wire spelling.
     /// Unknown parameter fields are retained as annotations for forward compatibility.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`FormatError`] when the value is not a step mapping, names an unknown operation
+    /// or a parameter of the wrong type, carries a duration that is not finite, non-negative and
+    /// representable, or has a malformed `skip_on`, `only_on` or `animation` annotation.
     pub fn from_value(value: Value) -> Result<Self, FormatError> {
         let mut fields = normalize(value)?;
         let step: Step = serde_json::from_value(Value::Object(fields.clone()))
@@ -87,6 +93,7 @@ impl ScriptStep {
 
     /// Flatten the operation and annotations for host-side processing. Protocol fields win
     /// if a caller manually adds a conflicting annotation.
+    #[must_use]
     pub fn to_value(&self) -> Value {
         let mut fields = self.annotations.clone();
         // Preserve the omission of a default `native: false`, even with conflicting metadata.
@@ -118,6 +125,12 @@ pub struct Script {
 impl Script {
     /// Parse and validate the entire flow before executing any of it. YAML comments and a
     /// UTF-8 BOM are accepted; every flow entry must have exactly one operation key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`FormatError`] when the text is not valid YAML, contains a non-finite number, is
+    /// not a mapping with a `flow:` sequence, has an invalid `on_failure`, contains an invalid
+    /// step, or places `expect_exit` anywhere but last.
     pub fn from_yaml(yaml: &str) -> Result<Self, FormatError> {
         // YAML's own Value rejects duplicate keys before conversion to a JSON map would
         // overwrite them. Reject non-finite numbers before JSON conversion, which would
@@ -143,7 +156,7 @@ impl Script {
         for (index, entry) in flow.into_iter().enumerate() {
             // Flattened entries are accepted by JSON driving, but a YAML flow has one
             // operation key; allowing both would make `op: tap` an ambiguous disk entry.
-            if !entry.as_object().is_some_and(|m| m.len() == 1) {
+            if entry.as_object().is_none_or(|m| m.len() != 1) {
                 return Err(FormatError(format!(
                     "flow step {}: entries must be single-key mappings",
                     index + 1
@@ -171,6 +184,12 @@ impl Script {
 
     /// Serialize as the canonical single-key YAML form. Optional null parameters are omitted;
     /// author metadata and annotations are retained. The default failure policy is implicit.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a step does not serialize as a JSON object or the document does not serialize as
+    /// YAML, neither of which a valid [`Script`] can cause.
+    #[must_use]
     pub fn to_yaml(&self) -> String {
         let mut doc = self.metadata.clone();
         doc.remove("on_failure");
@@ -213,6 +232,10 @@ pub fn steps_to_yaml(steps: &[Step]) -> String {
 
 /// Read operations for in-process playback. Host annotations and failure policy are validated
 /// but execution remains the caller's responsibility.
+///
+/// # Errors
+///
+/// Returns the message of the [`FormatError`] that [`Script::from_yaml`] reports.
 pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
     Script::from_yaml(yaml)
         .map(|script| script.steps.into_iter().map(|s| s.step).collect())

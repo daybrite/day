@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Additional protocol associations; registration never forces the user's default choice.
 use crate::meta::Project;
+use std::fmt::Write as _;
 /// The `CFBundleURLTypes` value for `Day.toml`'s `url_schemes`: `current` with Day's own
 /// `day.external-urls` entry replaced, or `None` once no entry remains. The app's own entries keep
 /// their order.
@@ -37,7 +38,7 @@ pub fn apple(project: &Project, current: Option<&plist::Value>) -> Option<plist:
     (!types.is_empty()).then(|| types.into())
 }
 pub fn android(project: &Project) -> String {
-    project.manifest.url_schemes.iter().map(|s| format!("<intent-filter><action android:name=\"android.intent.action.VIEW\"/><category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"{s}\"/></intent-filter>\n")).collect()
+    project.manifest.url_schemes.iter().fold(String::new(), |mut out, s| { let _ = writeln!(out, "<intent-filter><action android:name=\"android.intent.action.VIEW\"/><category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"{s}\"/></intent-filter>"); out })
 }
 pub fn linux(entry: String, schemes: &[String]) -> String {
     if schemes.is_empty() {
@@ -57,10 +58,10 @@ pub fn linux(entry: String, schemes: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n");
     }
-    let additions = schemes
-        .iter()
-        .map(|s| format!("x-scheme-handler/{s};"))
-        .collect::<String>();
+    let additions = schemes.iter().fold(String::new(), |mut out, s| {
+        let _ = write!(out, "x-scheme-handler/{s};");
+        out
+    });
     if entry.contains("MimeType=") {
         entry = entry
             .lines()
@@ -74,7 +75,7 @@ pub fn linux(entry: String, schemes: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n");
     } else {
-        entry.push_str(&format!("\nMimeType={additions}\n"));
+        let _ = writeln!(entry, "\nMimeType={additions}");
     }
     entry
 }
@@ -91,7 +92,7 @@ pub fn windows(text: String, schemes: &[String]) -> String {
             1,
         )
     };
-    let entries = schemes.iter().map(|s| format!("<uap3:Extension Category=\"windows.protocol\"><uap3:Protocol Name=\"{s}\" Parameters=\"--day-open-url &quot;%1&quot;\"/></uap3:Extension>")).collect::<String>();
+    let entries = schemes.iter().fold(String::new(), |mut out, s| { let _ = write!(out, "<uap3:Extension Category=\"windows.protocol\"><uap3:Protocol Name=\"{s}\" Parameters=\"--day-open-url &quot;%1&quot;\"/></uap3:Extension>"); out });
     if text.contains("</Extensions>") {
         text.replace("</Extensions>", &format!("{entries}</Extensions>"))
     } else {
@@ -157,28 +158,38 @@ pub fn windows_registry(
     id: &str,
     binary: &std::path::Path,
 ) -> String {
-    if schemes.is_empty() {
-        return text;
-    }
     fn q(s: &str) -> String {
         s.replace('\\', "\\\\").replace('"', "\\\"")
     }
+    if schemes.is_empty() {
+        return text;
+    }
     let capabilities = format!("Software\\{id}\\Capabilities");
     let prog = format!("{id}.external-url");
-    text.push_str(&format!("\r\n[HKEY_CURRENT_USER\\Software\\RegisteredApplications]\r\n\"{}\"=\"{}\"\r\n\r\n[HKEY_CURRENT_USER\\{capabilities}]\r\n\"ApplicationName\"=\"{}\"\r\n\r\n[HKEY_CURRENT_USER\\{capabilities}\\URLAssociations]\r\n", q(id), q(&capabilities), q(id)));
+    let _ = writeln!(
+        text,
+        "\r\n[HKEY_CURRENT_USER\\Software\\RegisteredApplications]\r\n\"{}\"=\"{}\"\r\n\r\n[HKEY_CURRENT_USER\\{capabilities}]\r\n\"ApplicationName\"=\"{}\"\r\n\r\n[HKEY_CURRENT_USER\\{capabilities}\\URLAssociations]\r",
+        q(id),
+        q(&capabilities),
+        q(id)
+    );
     for scheme in schemes {
-        text.push_str(&format!("\"{}\"=\"{}\"\r\n", q(scheme), q(&prog)));
+        let _ = writeln!(text, "\"{}\"=\"{}\"\r", q(scheme), q(&prog));
     }
-    text.push_str(&format!("\r\n[HKEY_CURRENT_USER\\Software\\Classes\\{prog}]\r\n\"URL Protocol\"=\"\"\r\n\r\n[HKEY_CURRENT_USER\\Software\\Classes\\{prog}\\shell\\open\\command]\r\n@=\"{}\"\r\n",q(&format!("\"{}\" --day-open-url \"%1\"",binary.display()))));
+    let _ = writeln!(
+        text,
+        "\r\n[HKEY_CURRENT_USER\\Software\\Classes\\{prog}]\r\n\"URL Protocol\"=\"\"\r\n\r\n[HKEY_CURRENT_USER\\Software\\Classes\\{prog}\\shell\\open\\command]\r\n@=\"{}\"\r",
+        q(&format!("\"{}\" --day-open-url \"%1\"", binary.display()))
+    );
     text
 }
 
 pub fn nsis(text: String, schemes: &[String], id: &str, exe: &str) -> String {
-    if schemes.is_empty() {
-        return text;
-    }
     fn q(s: &str) -> String {
         s.replace('$', "$$").replace('"', "$\\\"")
+    }
+    if schemes.is_empty() {
+        return text;
     }
     let id = q(id);
     let exe = q(exe);
@@ -187,12 +198,15 @@ pub fn nsis(text: String, schemes: &[String], id: &str, exe: &str) -> String {
     let mut install = format!(
         "  WriteRegStr HKCU \"Software\\RegisteredApplications\" \"{id}\" \"{caps}\"\n  WriteRegStr HKCU \"{caps}\" \"ApplicationName\" \"{id}\"\n  WriteRegStr HKCU \"Software\\Classes\\{prog}\" \"URL Protocol\" \"\"\n"
     );
-    install.push_str(&format!(r#"  WriteRegStr HKCU "Software\Classes\{prog}\shell\open\command" "" '$\"$INSTDIR\{exe}.exe$\" --day-open-url $\"%1$\"'
-"#));
+    let _ = writeln!(
+        install,
+        r#"  WriteRegStr HKCU "Software\Classes\{prog}\shell\open\command" "" '$\"$INSTDIR\{exe}.exe$\" --day-open-url $\"%1$\"'"#
+    );
     for scheme in schemes {
-        install.push_str(&format!(
-            "  WriteRegStr HKCU \"{caps}\\URLAssociations\" \"{scheme}\" \"{prog}\"\n"
-        ));
+        let _ = writeln!(
+            install,
+            "  WriteRegStr HKCU \"{caps}\\URLAssociations\" \"{scheme}\" \"{prog}\""
+        );
     }
     let uninstall = format!(
         "  DeleteRegValue HKCU \"Software\\RegisteredApplications\" \"{id}\"\n  DeleteRegKey HKCU \"{caps}\"\n  DeleteRegKey HKCU \"Software\\Classes\\{prog}\"\n"

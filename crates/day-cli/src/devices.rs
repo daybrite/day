@@ -118,6 +118,7 @@ pub fn list(only: Option<&str>, json: bool) -> Result<i32, CliError> {
     }
 
     for (t, r) in &reports {
+        const SHOWN: usize = 6;
         println!("{}", t.name);
         if !r.available {
             println!(
@@ -140,7 +141,6 @@ pub fn list(only: Option<&str>, json: bool) -> Result<i32, CliError> {
         // Bootable devices are summarized rather than listed: a stock Xcode carries dozens of
         // shut-down simulators, and burying two connected phones under forty of them helps no
         // one. `--json` still carries every one, which is what a picker needs.
-        const SHOWN: usize = 6;
         for b in r.bootable.iter().take(SHOWN) {
             println!(
                 "  {:<38} {:<10} {}",
@@ -168,7 +168,7 @@ pub fn list(only: Option<&str>, json: bool) -> Result<i32, CliError> {
 ///
 /// `devicectl device orientation set` is the actuator: absolute rather than a relative rotate,
 /// and it works with no Simulator.app and no GUI session, which is what it is here for: the
-/// route it replaced (clicking Simulator.app's `Device ▸ Orientation` through AppleScript) failed
+/// route it replaced (clicking Simulator.app's `Device ▸ Orientation` through `AppleScript`) failed
 /// outright on a CI runner. `simctl` has never had a rotate command, and the
 /// `SimulatorWindowOrientation` preference describes the app's window rather than the device: set
 /// before a headless boot it leaves the framebuffer in portrait. Both were measured.
@@ -476,7 +476,7 @@ type Sim = (String, String, String);
 /// the `xcode-27` runner image, which installs eleven iOS 27 simulators: devicectl reported one,
 /// the iPhone the build step had just used, so `--device "iPad Pro 13-inch"` failed with "This
 /// machine has: iPhone 17 Pro" while the iPad sat one `simctl list` away. A developer Mac showed
-/// the same shape at a larger scale, 77 devices against simctl's 217. simctl reads CoreSimulator's
+/// the same shape at a larger scale, 77 devices against simctl's 217. simctl reads `CoreSimulator`'s
 /// device set, which is exactly the set `simctl boot` can act on, so it is the authority here.
 fn simulators() -> Result<Vec<Sim>, CliError> {
     let out = Command::new("xcrun")
@@ -856,21 +856,18 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             let running = android_serials()
                 .into_iter()
                 .find(|s| avd_of_serial(s).as_deref() == Some(avd.as_str()));
-            let serial = match running {
-                Some(s) => {
-                    crate::ops::status("Found", &format!("emulator {avd} already up as {s}"));
-                    s
-                }
-                None => {
-                    // A fixed console port, so the serial is known before the emulator exists.
-                    // Discovering it afterwards means diffing `adb devices`, which races every
-                    // other emulator on the machine, and a developer's Mac usually has one.
-                    let port = free_emulator_port();
-                    let serial = format!("emulator-{port}");
-                    crate::ops::status("Booting", &format!("emulator {avd} as {serial}"));
-                    started = Some(spawn_emulator(&avd, port, spec.headless, false)?);
-                    serial
-                }
+            let serial = if let Some(s) = running {
+                crate::ops::status("Found", &format!("emulator {avd} already up as {s}"));
+                s
+            } else {
+                // A fixed console port, so the serial is known before the emulator exists.
+                // Discovering it afterwards means diffing `adb devices`, which races every
+                // other emulator on the machine, and a developer's Mac usually has one.
+                let port = free_emulator_port();
+                let serial = format!("emulator-{port}");
+                crate::ops::status("Booting", &format!("emulator {avd} as {serial}"));
+                started = Some(spawn_emulator(&avd, port, spec.headless, false)?);
+                serial
             };
             // Turning needs a booted device, so an orientation implies the wait even when the
             // caller did not ask for one. The alternative is rotating a device that is not there
@@ -939,7 +936,7 @@ fn harmony_boot_options(spec: &BootSpec<'_>) -> Result<HarmonyBoot, CliError> {
 
 /// Resolve a harmony-arkui `--device` and `--orientation` to a panel in pixels.
 fn harmony_panel(device: Option<&str>, orientation: Option<&str>) -> Result<(u32, u32), CliError> {
-    let name = device.map(str::trim).unwrap_or("phone");
+    let name = device.map_or("phone", str::trim);
     let (mut w, mut h) = match name.to_ascii_lowercase().as_str() {
         "" | "phone" => HARMONY_PHONE_PANEL,
         "tablet" => HARMONY_TABLET_PANEL,
@@ -962,10 +959,9 @@ fn harmony_panel(device: Option<&str>, orientation: Option<&str>) -> Result<(u32
         .map(|o| o.trim().to_ascii_lowercase())
         .as_deref()
     {
-        None => {}
         Some("portrait") if w > h => std::mem::swap(&mut w, &mut h),
         Some("landscape") if h > w => std::mem::swap(&mut w, &mut h),
-        Some("portrait" | "landscape") => {}
+        None | Some("portrait" | "landscape") => {}
         Some(other) => {
             return Err(CliError::usage(format!(
                 "--orientation {other:?}: use portrait or landscape"
@@ -1021,18 +1017,15 @@ pub fn shutdown(target: &str, id: &str) -> Result<i32, CliError> {
             let serials = android_serials();
             let serial = if serials.iter().any(|s| s == id) {
                 id.to_string()
+            } else if let Some(s) = serials
+                .iter()
+                .find(|s| avd_of_serial(s).as_deref() == Some(id))
+            {
+                s.clone()
             } else {
-                match serials
-                    .iter()
-                    .find(|s| avd_of_serial(s).as_deref() == Some(id))
-                {
-                    Some(s) => s.clone(),
-                    // Nothing running under either name is the state that was asked for.
-                    None => {
-                        crate::ops::status("Found", &format!("no running emulator for {id}"));
-                        return Ok(0);
-                    }
-                }
+                // Nothing running under either name is the state that was asked for.
+                crate::ops::status("Found", &format!("no running emulator for {id}"));
+                return Ok(0);
             };
             if !serial.starts_with("emulator-") {
                 return Err(CliError::usage(format!(
@@ -1090,24 +1083,6 @@ pub fn shutdown(target: &str, id: &str) -> Result<i32, CliError> {
 /// `--device`. Forwarding byte-for-byte rather than line-by-line keeps the progress bars live,
 /// since they redraw with carriage returns and never emit a newline until the end.
 fn run_sdk_tool(cmd: &mut Command, what: &str, feed: Option<&[u8]>) -> Result<(), CliError> {
-    use std::io::{Read, Write};
-    cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .stdin(if feed.is_some() {
-            std::process::Stdio::piped()
-        } else {
-            std::process::Stdio::null()
-        });
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| CliError::failure(format!("could not run {what} ({e})")))?;
-    if let (Some(bytes), Some(mut si)) = (feed, child.stdin.take()) {
-        let _ = si.write_all(bytes);
-        // Dropped now so the tool sees EOF; it waits for that before deciding the answer is final.
-        drop(si);
-    }
-    // Drain both streams concurrently, retaining a bounded diagnostic tail for install
-    // retries. Errors such as a corrupt download can be printed on either stream.
     fn tee(mut out: impl Read) -> Vec<u8> {
         const TAIL: usize = 16 * 1024;
         let mut tail = Vec::new();
@@ -1126,6 +1101,24 @@ fn run_sdk_tool(cmd: &mut Command, what: &str, feed: Option<&[u8]>) -> Result<()
         }
         tail
     }
+    use std::io::{Read, Write};
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .stdin(if feed.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        });
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| CliError::failure(format!("could not run {what} ({e})")))?;
+    if let (Some(bytes), Some(mut si)) = (feed, child.stdin.take()) {
+        let _ = si.write_all(bytes);
+        // Dropped now so the tool sees EOF; it waits for that before deciding the answer is final.
+        drop(si);
+    }
+    // Drain both streams concurrently, retaining a bounded diagnostic tail for install
+    // retries. Errors such as a corrupt download can be printed on either stream.
     let out = child.stdout.take().expect("stdout was piped");
     let err = child.stderr.take().expect("stderr was piped");
     let reader = std::thread::spawn(move || tee(out));
@@ -1271,8 +1264,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
     let tag = spec.tag.unwrap_or("google_apis");
     let name = spec
         .name
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("day_{}_api{api}", spec.device));
+        .map_or_else(|| format!("day_{}_api{api}", spec.device), str::to_string);
     let pkg = format!("system-images;android-{api};{tag};{arch}");
 
     // The image is a directory in the SDK, which is what makes it cacheable in CI: restore the
@@ -1447,7 +1439,7 @@ fn device_profiles() -> Vec<String> {
 /// verbatim, and the profiles size it for a phone: `pixel_tablet` boots with the same 2 GB as
 /// `pixel_5` behind a 2560×1600 panel that costs three and a half times the pixels per surface,
 /// and a smaller app heap. Headless under software GL, that guest froze whole (adbd included)
-/// partway through a WebView page on CI (Day-Showcase's pixel_tablet leg, three runs, at a text
+/// partway through a `WebView` page on CI (Day-Showcase's `pixel_tablet` leg, three runs, at a text
 /// input or a script result, never twice at the same step): the shape of a guest thrashing, not
 /// of a crash. Starving the same profile locally reproduces it. So a display past three million
 /// pixels gets 4 GB and a 512 MB app heap unless the profile already grants more; an explicit
@@ -1509,13 +1501,13 @@ fn parse_mb(v: &str) -> Option<u32> {
 /// layout the guest lays out.
 ///
 /// A headless boot has no GPU: every pixel the guest paints is rasterized on the host by
-/// SwiftShader (`spawn_emulator`), and that cost scales with the panel. `pixel_tablet`'s
+/// `SwiftShader` (`spawn_emulator`), and that cost scales with the panel. `pixel_tablet`'s
 /// 2560×1600 is four million of them, 62% more than `pixel_5`, behind a display that is also
 /// three times wider in layout units, so far more of the app is on screen at once. Day-Showcase's
 /// tablet leg froze the whole guest, adbd included, on its Web view page in ten runs out of ten:
 /// the page loads a live site, which lays out for a 1100-point-wide viewport there and paints a
 /// screenful of megapixel images through that host rasterizer. The same AVD, the same flags and
-/// the same runner carry Day-Rise's tablet walkthrough green, and Day-Showcase's own pixel_5 leg
+/// the same runner carry Day-Rise's tablet walkthrough green, and Day-Showcase's own `pixel_5` leg
 /// renders that page eight times a run, so the emulator is not broken and the app is not
 /// crashing; the panel is more than a software renderer keeps up with.
 ///
@@ -1919,7 +1911,7 @@ fn spawn_emulator(
 /// Restart an emulator that `day devices boot` started and whose guest has stopped answering.
 ///
 /// A headless guest on a CI runner can freeze with nothing in the emulator's log: Day-Showcase's
-/// medium_tablet leg passed every step of every variant up to the network script's third, then
+/// `medium_tablet` leg passed every step of every variant up to the network script's third, then
 /// adbd went silent at the next install and `adb reconnect` only took the device off the list
 /// (2026-10-16). Nothing on the adb side brings such a guest back, so this does what a person
 /// would: stop that emulator and boot the same AVD on the same console port, which keeps the
@@ -2089,6 +2081,10 @@ pub(crate) fn emulator_log_tails(lines: usize) -> Vec<(std::path::PathBuf, Strin
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
         return Vec::new();
     };
+    #[expect(
+        clippy::case_sensitive_file_extension_comparisons,
+        reason = "matches the lowercase `day-emulator-*.log` names this CLI writes"
+    )]
     let mut logs: Vec<(std::path::PathBuf, std::time::SystemTime)> = entries
         .flatten()
         .map(|e| e.path())
@@ -2130,7 +2126,7 @@ fn adb_shell(serial: &str, args: &[&str]) -> Option<String> {
 /// `sys.boot_completed` is the only property worth waiting on: `adb wait-for-device` returns as
 /// soon as adbd answers, which is minutes before the launcher exists, and installing into that
 /// window fails in ways that read as a broken app. `init.svc.bootanim` is checked too because a
-/// device reports boot_completed while the boot animation still owns the screen, and a capture
+/// device reports `boot_completed` while the boot animation still owns the screen, and a capture
 /// taken then is of the animation.
 ///
 /// The wait reports as it goes, because the silent version was unreadable where it mattered: a CI
@@ -2196,8 +2192,10 @@ fn wait_for_android_boot(
                 .split_whitespace()
                 .nth(1)
                 .and_then(|kb| kb.parse::<u64>().ok())
-                .map(|kb| format!("{} MB RAM", kb / 1024))
-                .unwrap_or_else(|| "RAM unknown".into());
+                .map_or_else(
+                    || "RAM unknown".into(),
+                    |kb| format!("{} MB RAM", kb / 1024),
+                );
             let cpus = adb_shell(serial, &["nproc"]).unwrap_or_default();
             let size = adb_shell(serial, &["wm", "size"]).unwrap_or_default();
             crate::ops::status(
@@ -2251,7 +2249,7 @@ fn wait_for_android_boot(
 /// Two things here were each measured being wrong the obvious way.
 ///
 /// `user_rotation` counts quarter-turns from the device's natural orientation, and that differs
-/// per device: a phone is born portrait, a tablet landscape. On the pixel_tablet measured here
+/// per device: a phone is born portrait, a tablet landscape. On the `pixel_tablet` measured here
 /// `user_rotation=0` is landscape (2560x1600) and `1` is portrait, the exact opposite of a phone.
 /// So the target is derived from the natural size rather than assumed, and every check asks what
 /// shape the display now is, never what number it holds.

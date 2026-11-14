@@ -58,31 +58,28 @@ pub(super) fn handlers(query: &HandlerQuery) -> Result<ApplicationHandlers, Appl
             )
         }
         HandlerQuery::MimeType(value) | HandlerQuery::Extension(value) => {
-            let content = match query {
-                HandlerQuery::MimeType(_) => {
-                    let valid = value.split_once('/').is_some_and(|(kind, subtype)| {
-                        let token = |s: &str| {
-                            !s.is_empty()
-                                && s.bytes().all(|c| {
-                                    c.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&c)
-                                })
-                        };
-                        token(kind) && token(subtype)
-                    });
-                    if !valid {
-                        return Err(ApplicationError::InvalidInput);
-                    }
-                    UTType::typeWithMIMEType(&NSString::from_str(value))
+            let content = if let HandlerQuery::MimeType(_) = query {
+                let valid = value.split_once('/').is_some_and(|(kind, subtype)| {
+                    let token = |s: &str| {
+                        !s.is_empty()
+                            && s.bytes().all(|c| {
+                                c.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&c)
+                            })
+                    };
+                    token(kind) && token(subtype)
+                });
+                if !valid {
+                    return Err(ApplicationError::InvalidInput);
                 }
-                _ => {
-                    if value.is_empty()
-                        || value.contains(['.', '/', '\\'])
-                        || value.chars().any(char::is_whitespace)
-                    {
-                        return Err(ApplicationError::InvalidInput);
-                    }
-                    UTType::typeWithFilenameExtension(&NSString::from_str(value))
+                UTType::typeWithMIMEType(&NSString::from_str(value))
+            } else {
+                if value.is_empty()
+                    || value.contains(['.', '/', '\\'])
+                    || value.chars().any(char::is_whitespace)
+                {
+                    return Err(ApplicationError::InvalidInput);
                 }
+                UTType::typeWithFilenameExtension(&NSString::from_str(value))
             };
             let Some(content) = content else {
                 return Ok(ApplicationHandlers::default());
@@ -138,7 +135,11 @@ pub(super) fn open(url: &str, app: &str, completion: OpenApplicationCompletion) 
     let completion = Mutex::new(Some(completion));
     let block = block2::RcBlock::new(
         move |running: *mut NSRunningApplication, error: *mut NSError| {
-            if let Some(complete) = completion.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            if let Some(complete) = completion
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+            {
                 complete(if error.is_null() && !running.is_null() {
                     Ok(())
                 } else {

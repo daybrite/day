@@ -28,10 +28,12 @@ pub struct BuildCx {
 }
 
 impl BuildCx {
+    #[must_use]
     pub fn new(parent: RNode) -> Self {
         BuildCx { parent }
     }
 
+    #[must_use]
     pub fn parent(&self) -> RNode {
         self.parent
     }
@@ -123,6 +125,7 @@ pub trait Piece: 'static {
 }
 
 /// Type-erased piece for heterogeneous branches and dynamic construction.
+#[must_use]
 pub struct AnyPiece(Box<dyn FnOnce(&mut BuildCx) -> RNode>);
 
 impl AnyPiece {
@@ -225,7 +228,7 @@ mod any_piece_tests {
     use slotmap::Key as _;
 
     fn box_addr(p: &AnyPiece) -> *const () {
-        (&*p.0 as *const dyn FnOnce(&mut BuildCx) -> RNode).cast::<()>()
+        std::ptr::from_ref::<dyn FnOnce(&mut BuildCx) -> RNode>(&*p.0).cast::<()>()
     }
 
     /// `.any()` on an already-erased piece hands the same allocation back. Guards the inherent

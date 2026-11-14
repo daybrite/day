@@ -9,7 +9,7 @@ pub enum TargetKind {
     IosSim,
     Android,
     /// HarmonyOS Next / ArkUI: a Rust cdylib (`libentry.so`) loaded by an ArkTS host and mounted
-    /// into a NodeContent, packaged into a `.hap` (see daybrite/Day-Showcase's platform/harmony). Cross-compiled
+    /// into a `NodeContent`, packaged into a `.hap` (see daybrite/Day-Showcase's platform/harmony). Cross-compiled
     /// with cargo-ohos against the OpenHarmony SDK it resolves; packaged/signed/run via DevEco Studio or hvigor.
     HarmonyOs,
     /// web-dom (DESIGN.md §9, docs/web.md): a wasm32 cdylib plus the day-toolkit-dom host page,
@@ -166,12 +166,12 @@ pub const TARGETS: &[Target] = &[
 /// spellings in generated output or as Cargo features. Remove after the announced
 /// breaking tooling release following the migration release.
 pub fn canonical(name: &str) -> &str {
+    static WARN: std::sync::Once = std::sync::Once::new();
     let replacement = match name {
         "mdc" => "material",
         "android-mdc" => "android-material",
         _ => return name,
     };
-    static WARN: std::sync::Once = std::sync::Once::new();
     WARN.call_once(|| {
         eprintln!(
             "warning: `mdc` and `android-mdc` are deprecated; use `material` and `android-material`"
@@ -282,8 +282,7 @@ pub fn suggested(targets: &[String]) -> &str {
         .find(|t| find(t).is_some_and(|t| t.host == "any" || t.host == host));
     buildable_here
         .or_else(|| targets.first())
-        .map(String::as_str)
-        .unwrap_or(default)
+        .map_or(default, String::as_str)
 }
 
 /// Qt or GTK for the running Linux desktop.
@@ -380,7 +379,7 @@ mod tests {
         }
         // The first variable may be empty while a later one names the desktop.
         assert_eq!(
-            desktop_toolkit(&["".into(), "".into(), "plasmawayland".into()]),
+            desktop_toolkit(&[String::new(), String::new(), "plasmawayland".into()]),
             "linux-qt"
         );
         // Nothing set at all (a CI shell, a bare TTY) is GTK, not a panic.
@@ -389,8 +388,9 @@ mod tests {
 
     #[test]
     fn the_suggested_target_is_one_this_machine_can_run() {
-        let list =
-            |names: &[&str]| -> Vec<String> { names.iter().map(|s| s.to_string()).collect() };
+        let list = |names: &[&str]| -> Vec<String> {
+            names.iter().map(std::string::ToString::to_string).collect()
+        };
 
         // The scaffold's own list, which opens with `ios-uikit`. Whatever this host is, the
         // suggestion is its native target; advising an Xcode build on a Linux desktop is the

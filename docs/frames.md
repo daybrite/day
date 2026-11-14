@@ -49,6 +49,11 @@ Callbacks and handles stay on the UI thread; callback panics are contained and s
 For timing work between frames, [`day_core::frame::now_secs()`](https://docs.rs/day-core/latest/day_core/frame/fn.now_secs.html) reads a monotonic clock on every
 target: `Instant` natively, [`performance.now()`](https://developer.mozilla.org/en-US/docs/Web/API/Performance/now) on the web, where `Instant` is unavailable.
 
+For a timestamp, such as when data was fetched, [`day::now_epoch_secs()`](https://docs.rs/day-app/latest/day/fn.now_epoch_secs.html) and
+[`day::now_epoch_millis()`](https://docs.rs/day-app/latest/day/fn.now_epoch_millis.html) read the wall clock on every target: `SystemTime` natively,
+[`Date.now()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/now) on the web. Use them in place of `std::time::SystemTime::now()`, which stops a web
+build. The wall clock can be set backwards, so measure elapsed time with `now_secs()`.
+
 `Frame` contains monotonic `timestamp`, subscription-local `delta`, and an optional
 `target_timestamp` when the toolkit supplies a predicted presentation time. The epoch is native
 and may differ across windows or platforms. Delivery is a **frame opportunity**, not proof of

@@ -119,6 +119,7 @@ impl<T: 'static, Sel: Binding<Option<T>>> PickerSelection<T> for Optional<Sel> {
 
 /// A native one-of-N selector bound two-way to a typed value (docs/picker.md). Style via
 /// `.menu()`/`.segmented()`/`.inline()`.
+#[must_use]
 pub struct Picker<T: Clone + PartialEq + 'static, S: PickerSelection<T>> {
     options: PickerOptions<T>,
     separators_before: Vec<usize>,
@@ -322,6 +323,7 @@ impl<T: Clone + PartialEq + 'static, S: PickerSelection<T>> Piece for Picker<T, 
 /// native editor attributes with `.editable(_)` / `.selectable(_)` / `.spellcheck(_)` (each accepts
 /// a constant or a reactive `bool`, and updates live). A backend that can't honor an attribute
 /// answers the matching `Cap::Text{Editable,Selectable,SpellCheck}` with `Support::Unsupported`.
+#[must_use]
 pub struct TextArea<S: Binding<String>> {
     text: S,
     placeholder: Option<TextSource>,
@@ -451,7 +453,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
                             node,
                             Box::new(day_spec::props::TextAreaPatch::SetEditable(*v)),
                             false,
-                        )
+                        );
                     });
                 },
             );
@@ -465,7 +467,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
                             node,
                             Box::new(day_spec::props::TextAreaPatch::SetSelectable(*v)),
                             false,
-                        )
+                        );
                     });
                 },
             );
@@ -479,7 +481,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
                             node,
                             Box::new(day_spec::props::TextAreaPatch::SetSpellCheck(*v)),
                             false,
-                        )
+                        );
                     });
                 },
             );
@@ -500,7 +502,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
                             node,
                             Box::new(day_spec::props::TextAreaPatch::SetText(t.clone())),
                             true,
-                        )
+                        );
                     });
                 }
             },
@@ -819,7 +821,7 @@ pub(crate) mod conformance {
     }
 
     /// Changing editor policies must preserve content and programmatic updates. Native input
-    /// rejection/selection needs the OS-input drivers; Drive::input injects a Day event.
+    /// rejection/selection needs the OS-input drivers; `Drive::input` injects a Day event.
     #[day_macros::test(day_core)]
     fn text_area_attributes_reactive() -> Case {
         let text = Signal::new("First\nsecond".to_owned());

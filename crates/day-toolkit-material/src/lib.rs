@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-toolkit-material: the android-material backend (DESIGN.md §9). jni + the DayBridge Java shim
+//! day-toolkit-material: the android-material backend (DESIGN.md §9). jni + the `DayBridge` Java shim
 //! (java/dev/daybrite/day/bridge/, the Java analogue of the Qt C++ shim; controls are Material 3
 //! components from com.google.android.material, M3 Expressive themed).
 //! `Handle = AHandle(GlobalRef)`. Coordinates: Day works in dp; `set_frame` scales by density to
@@ -227,6 +227,7 @@ mod imp {
         static TREE_SOURCES: RefCell<std::collections::HashMap<i64, SectionTreeEntry>> = RefCell::new(std::collections::HashMap::new());
     }
     fn tree_reload(host: &AHandle) {
+        use std::fmt::Write as _;
         let handle = host.clone();
         let id = LIST_NODE.with(|m| {
             m.borrow()
@@ -247,15 +248,16 @@ mod imp {
                 let token = (source.child_token)(None, g);
                 let index = tokens.len();
                 tokens.push(token);
-                data.push_str(&format!(
-                    "{token}:-1:{}:{}\n",
+                let _ = writeln!(
+                    data,
+                    "{token}:-1:{}:{}",
                     u8::from((source.section_header)(token)),
                     u8::from((source.expanded)(token))
-                ));
+                );
                 for c in 0..(source.children_len)(Some(token)) {
                     let child = (source.child_token)(Some(token), c);
                     tokens.push(child);
-                    data.push_str(&format!("{child}:{index}:0:0\n"));
+                    let _ = writeln!(data, "{child}:{index}:0:0");
                 }
             }
             TREE_SOURCES.with(|m| {
@@ -286,11 +288,11 @@ mod imp {
                 // outside the core update borrow so their Day IDs can actually be cleared.
                 let (host, token, open) = (host.clone(), *token, *open);
                 Material::post(Box::new(move || {
-                    bridge(|env| DayBridge::treeExpand(env, host.0.as_obj(), token as i64, open))
+                    bridge(|env| DayBridge::treeExpand(env, host.0.as_obj(), token as i64, open));
                 }));
             }
             TreePatch::Reveal(token) => {
-                bridge(|env| DayBridge::treeReveal(env, host.0.as_obj(), *token as i64))
+                bridge(|env| DayBridge::treeReveal(env, host.0.as_obj(), *token as i64));
             }
             TreePatch::Selected(tokens) => {
                 if let Some(id) = LIST_NODE.with(|m| {
@@ -302,7 +304,7 @@ mod imp {
                         m.borrow_mut()
                             .get_mut(&id)
                             .map(|e| {
-                                e.2 = tokens.clone();
+                                e.2.clone_from(tokens);
                                 e.1.iter()
                                     .enumerate()
                                     .filter(|(_, t)| tokens.contains(t))
@@ -320,14 +322,15 @@ mod imp {
 
     /// Row count, pulled by the Java adapter's getCount (reads the snapshot only; no tree).
     /// A JNI up-call entry: the body is contained, since a panic unwinding the frame would abort.
+    #[must_use]
     pub fn list_len(host_id: i64) -> usize {
         day_spec::ffi_guard::contain(0, || {
-            LIST_SOURCES.with(|m| m.borrow().get(&host_id).map(|s| (s.len)()).unwrap_or(0))
+            LIST_SOURCES.with(|m| m.borrow().get(&host_id).map_or(0, |s| (s.len)()))
         })
     }
 
     /// Give a self-sizing list's native row the height day-core laid its row at (docs/list.md
-    /// "Row heights"). Called right after `bind_row`, inside RecyclerView's own bind, which is
+    /// "Row heights"). Called right after `bind_row`, inside `RecyclerView`'s own bind, which is
     /// where a row's layout params belong: the layout manager measures the holder next. A
     /// uniform list's rows keep the height their holders were made with, except a section
     /// header, which sizes to its content in every list (docs/list.md "Sections").
@@ -350,15 +353,19 @@ mod imp {
 
     /// Set one native row's height, in points (`DayBridge.setListCellHeight`).
     fn set_list_cell_height(cell: &JObject, height: f64) {
-        let px = (height * DENSITY.with(|d| d.get())).round() as i32;
+        let px = (height * DENSITY.with(std::cell::Cell::get)).round() as i32;
         bridge(|env| DayBridge::setListCellHeight(env, cell, px));
     }
 
-    /// Fill a recycled cell; the Java adapter's getView calls this. A stable GlobalRef per
+    /// Fill a recycled cell; the Java adapter's getView calls this. A stable `GlobalRef` per
     /// physical cell (keyed by identityHashCode under its list) gives day-core a consistent
     /// cell key. A JNI up-call entry running app row builders: contained like `list_len`.
     /// `pinned`: the cell is the list's pinned header copy, bound through
     /// `ListSource::bind_pinned` (docs/list.md "Sections").
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public signature; the JNI entry hands over the cell's local reference"
+    )]
     pub fn list_bind(env: &mut Env, host_id: i64, position: i32, cell: JObject, pinned: bool) {
         day_spec::ffi_guard::contain((), || {
             let hash = framework::System::identityHashCode(env, &cell).unwrap_or(0);
@@ -367,23 +374,22 @@ mod imp {
                     .get(&host_id)
                     .and_then(|cells| cells.get(&hash).cloned())
             });
-            let gref = match cached {
-                Some(g) => g,
-                None => {
-                    // A failed global ref (JNI table exhausted) skips this bind (the next
-                    // bind retries) rather than panicking out of the up-call.
-                    let Ok(g) = env.new_global_ref(&cell) else {
-                        return;
-                    };
-                    let g = std::sync::Arc::new(g);
-                    LIST_CELLS.with(|m| {
-                        m.borrow_mut()
-                            .entry(host_id)
-                            .or_default()
-                            .insert(hash, g.clone())
-                    });
-                    g
-                }
+            let gref = if let Some(g) = cached {
+                g
+            } else {
+                // A failed global ref (JNI table exhausted) skips this bind (the next
+                // bind retries) rather than panicking out of the up-call.
+                let Ok(g) = env.new_global_ref(&cell) else {
+                    return;
+                };
+                let g = std::sync::Arc::new(g);
+                LIST_CELLS.with(|m| {
+                    m.borrow_mut()
+                        .entry(host_id)
+                        .or_default()
+                        .insert(hash, g.clone())
+                });
+                g
             };
             let raw = gref.as_obj().as_raw() as RawHandle;
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
@@ -437,17 +443,24 @@ mod imp {
                         .getWidth(env)
                         .unwrap_or(0);
                     if width > 0 {
-                        (source.layout_cell)(raw, width as f64 / DENSITY.with(|d| d.get()));
+                        (source.layout_cell)(
+                            raw,
+                            f64::from(width) / DENSITY.with(std::cell::Cell::get),
+                        );
                     }
                 }
             }
         });
     }
 
-    /// A holder left the visible set (RecyclerView's onViewRecycled): clear the cell
+    /// A holder left the visible set (`RecyclerView`'s onViewRecycled): clear the cell
     /// subtree's dayscript ids so pooled rows stop answering lookups, through day-core's
-    /// `list_recycle_cell`, keyed by the same per-cell GlobalRef `list_bind` binds with.
+    /// `list_recycle_cell`, keyed by the same per-cell `GlobalRef` `list_bind` binds with.
     /// A JNI up-call entry: contained.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public signature; the JNI entry hands over the cell's local reference"
+    )]
     pub fn list_recycle(env: &mut Env, host_id: i64, cell: JObject) {
         day_spec::ffi_guard::contain((), || {
             let hash = framework::System::identityHashCode(env, &cell).unwrap_or(0);
@@ -470,8 +483,8 @@ mod imp {
     }
 
     /// A sectioned list is going away: hand day-core its pinned header cell for good
-    /// (`ListSource::release`), the one cell RecyclerView never pooled (docs/list.md
-    /// "Sections"). The cell keys by the GlobalRef `list_bind` made for it.
+    /// (`ListSource::release`), the one cell `RecyclerView` never pooled (docs/list.md
+    /// "Sections"). The cell keys by the `GlobalRef` `list_bind` made for it.
     fn release_pinned_header(list: &AHandle, nid: i64) {
         let Some(source) = LIST_SOURCES.with(|m| m.borrow().get(&nid).cloned()) else {
             return;
@@ -499,6 +512,7 @@ mod imp {
 
     /// Whether row `position` is in the list's programmatic selection; the Java bind path
     /// paints newly bound holders from this. A JNI up-call entry: contained.
+    #[must_use]
     pub fn list_is_selected(host_id: i64, position: i32) -> bool {
         day_spec::ffi_guard::contain(false, || {
             LIST_SELECTED.with(|m| {
@@ -512,6 +526,7 @@ mod imp {
     /// Whether display row `position` of a sectioned list is a section header (docs/list.md
     /// "Sections"): the adapter's `getItemViewType`, so headers pool apart from rows. A JNI
     /// up-call entry: contained.
+    #[must_use]
     pub fn list_is_header(host_id: i64, position: i32) -> bool {
         day_spec::ffi_guard::contain(false, || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
@@ -525,6 +540,7 @@ mod imp {
     /// The display row of the header that opens the section holding row `position`, or -1:
     /// which header the pinned copy shows (docs/list.md "Sections"). Walks back from the row;
     /// row 0 of a sectioned list is always a header. A JNI up-call entry: contained.
+    #[must_use]
     pub fn list_header_of(host_id: i64, position: i32) -> i32 {
         day_spec::ffi_guard::contain(-1, || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
@@ -544,6 +560,18 @@ mod imp {
         })
     }
 
+    /// One drag-and-drop up-call from `DayTransfer` (docs/drag-and-drop.md): `kind` 0 asks the
+    /// source `token` for its encoded offer, 1 asks the target `token` whether it accepts the
+    /// types listed in `bytes`, and 2 delivers the offer encoded in `bytes`. Answers the
+    /// reply bytes for Java.
+    ///
+    /// # Errors
+    ///
+    /// Returns the JNI error when `bytes` cannot be read or the reply array cannot be made.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public signature; the JNI entry hands over the array's local reference"
+    )]
     pub fn transfer_call<'l>(
         env: &mut Env<'l>,
         kind: i32,
@@ -614,9 +642,10 @@ mod imp {
     }
 
     /// The reorder guard's verdict for a hovered drop (docs/list.md), pulled synchronously by
-    /// ItemTouchHelper's canDropOver. ItemTouchHelper cannot relocate the gap, so a Retarget
+    /// `ItemTouchHelper`'s canDropOver. `ItemTouchHelper` cannot relocate the gap, so a Retarget
     /// verdict (accepted != proposed) reads as a deny for that hover. The source is cloned out
     /// before the guard runs, so no thread-local borrow is held.
+    #[must_use]
     pub fn list_can_drop(host_id: i64, from: i32, to: i32) -> bool {
         // JNI up-call entry (ItemTouchHelper's canDropOver): contain the app's guard.
         day_spec::ffi_guard::contain(false, || {
@@ -634,8 +663,9 @@ mod imp {
         })
     }
 
-    /// Commit one incremental ItemTouchHelper swap through the source's synchronous `move_row`
+    /// Commit one incremental `ItemTouchHelper` swap through the source's synchronous `move_row`
     /// (rotates day's snapshot, defers the app callback). Returns whether the swap was accepted.
+    #[must_use]
     pub fn list_move(host_id: i64, from: i32, to: i32) -> bool {
         // JNI up-call entry: contain the synchronous commit.
         day_spec::ffi_guard::contain(false, || {
@@ -656,6 +686,7 @@ mod imp {
 
     /// May this row be swiped away? Consulted from `getMovementFlags`, so a protected row
     /// reports no swipe direction and never moves under the finger (docs/list.md).
+    #[must_use]
     pub fn list_can_delete(host_id: i64, index: i32) -> bool {
         // JNI up-call entry (getMovementFlags): contain the app's guard.
         day_spec::ffi_guard::contain(false, || {
@@ -671,6 +702,7 @@ mod imp {
 
     /// Commit a swipe-to-delete through the source's synchronous `delete_row` (shortens day's
     /// snapshot, defers the app callback). Returns whether the delete was accepted.
+    #[must_use]
     pub fn list_delete(host_id: i64, index: i32) -> bool {
         // JNI up-call entry: contain the synchronous commit.
         day_spec::ffi_guard::contain(false, || {
@@ -992,8 +1024,8 @@ mod imp {
                 let mut spec = String::new();
                 if let Some(provider) = provider {
                     let items = provider(Point {
-                        x: x as f64 / density(),
-                        y: y as f64 / density(),
+                        x: f64::from(x) / density(),
+                        y: f64::from(y) / density(),
                     });
                     serialize_menu(&items, &mut spec);
                 }
@@ -1215,7 +1247,7 @@ mod imp {
         }
     }
 
-    /// The app's `AAssetManager` plus a GlobalRef to the Java `AssetManager` that keeps it alive.
+    /// The app's `AAssetManager` plus a `GlobalRef` to the Java `AssetManager` that keeps it alive.
     struct AssetMgr {
         aam: *mut aasset::AAssetManager,
         _keepalive: Global<JObject<'static>>,
@@ -1250,6 +1282,12 @@ mod imp {
 
     /// Opener: `resource("name")` -> the APK asset `name`, zero-copy from `AAsset_getBuffer`.
     fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
+        struct AssetGuard(*mut aasset::AAsset);
+        impl Drop for AssetGuard {
+            fn drop(&mut self) {
+                unsafe { aasset::AAsset_close(self.0) };
+            }
+        }
         let mgr = ASSET_MGR.get()?.aam;
         let cname = std::ffi::CString::new(name).ok()?;
         let asset =
@@ -1258,16 +1296,10 @@ mod imp {
             return None;
         }
         let len = unsafe { aasset::AAsset_getLength64(asset) };
-        let ptr = unsafe { aasset::AAsset_getBuffer(asset) } as *const u8;
+        let ptr = unsafe { aasset::AAsset_getBuffer(asset) }.cast::<u8>();
         if ptr.is_null() || len < 0 {
             unsafe { aasset::AAsset_close(asset) };
             return None;
-        }
-        struct AssetGuard(*mut aasset::AAsset);
-        impl Drop for AssetGuard {
-            fn drop(&mut self) {
-                unsafe { aasset::AAsset_close(self.0) };
-            }
         }
         // Safety: `ptr`/`len` are the asset's buffer, valid until AAsset_close (held by the guard).
         Some(unsafe {
@@ -1286,7 +1318,7 @@ mod imp {
     }
 
     fn density() -> f64 {
-        DENSITY.with(|d| d.get())
+        DENSITY.with(std::cell::Cell::get)
     }
 
     /// Run with an attached `Env` (public: external renderers use this too). jni 0.22's
@@ -1330,6 +1362,11 @@ mod imp {
 
     /// A View returned by a Java factory, as a Day handle: `Err` for a null View, which a
     /// factory returns when it could not build one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`jni::errors::Error::NullPtr`] for a null View, and the JNI error when no
+    /// global reference to the View can be made.
     pub fn view_handle(env: &mut Env, view: JObject) -> jni::errors::Result<AHandle> {
         if view.is_null() {
             return Err(jni::errors::Error::NullPtr("factory returned a null View"));
@@ -1362,6 +1399,7 @@ mod imp {
     }
 
     /// Pack a color the way `android.graphics.Color` wants it (`0xAARRGGBB`, as a signed int).
+    #[must_use]
     pub fn argb(c: day_spec::Color) -> i32 {
         let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
         ((f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)) as i32
@@ -1457,8 +1495,8 @@ mod imp {
                 f |= 64;
             }
             flags.push(f);
-            colors.push(r.color.map(argb).unwrap_or(0));
-            backgrounds.push(r.background.map(argb).unwrap_or(0));
+            colors.push(r.color.map_or(0, argb));
+            backgrounds.push(r.background.map_or(0, argb));
             scales.push((r.font.scale * 1000.0).round() as i32);
             links.push(r.link.clone());
         }
@@ -1532,6 +1570,11 @@ mod imp {
 
     /// The visible stand-in for a native make that failed: the same `⟨name⟩` label the
     /// missing-renderer path shows (degrade loudly, keep the tree building).
+    ///
+    /// # Panics
+    ///
+    /// Panics when `DayBridge.makeLabel` itself fails, which means the bridge is not staged
+    /// and nothing can render.
     pub fn placeholder_view(env: &mut Env, what: &str) -> Gref {
         let text = format!("⟨{what}⟩");
         try_bridge_view(env, |env| {
@@ -1571,12 +1614,12 @@ mod imp {
     /// `clipToOutline`. The radius is density-scaled here (Java takes px). Idempotent; used at
     /// realize and on a reactive background patch.
     fn apply_surface(h: &AHandle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
-        let d = DENSITY.with(|x| x.get());
+        let d = DENSITY.with(std::cell::Cell::get);
         bridge(|env| {
             DayBridge::setSurface(
                 env,
                 h.0.as_obj(),
-                bg.map(argb_i32).unwrap_or(0),
+                bg.map_or(0, argb_i32),
                 bg.is_some(),
                 (corner_radius * d) as f32,
                 clips,
@@ -1590,7 +1633,7 @@ mod imp {
     where
         F: for<'a, 'l> FnOnce(&'a mut Env<'l>, &JObject) -> jni::errors::Result<i32>,
     {
-        java(|env| measure(env, h.0.as_obj())).unwrap_or(0) as f64
+        f64::from(java(|env| measure(env, h.0.as_obj())).unwrap_or(0))
     }
 
     /// Initialize globals from the Activity's nativeStart (called by `day::android_start`).
@@ -1629,7 +1672,7 @@ mod imp {
             }
             day_core::services::initialize();
             register_resource_opener(env);
-            let d = density_ as f64;
+            let d = f64::from(density_);
             DENSITY.with(|x| x.set(d));
             // Only fails when the JNI global-ref table is already exhausted; without a root
             // there is nothing to run, so degrade loudly rather than panic-abort the up-call.
@@ -1640,7 +1683,7 @@ mod imp {
                 return;
             };
             let handle = AHandle(std::sync::Arc::new(root_ref));
-            let size = Size::new(w as f64 / d, h as f64 / d);
+            let size = Size::new(f64::from(w) / d, f64::from(h) / d);
             ROOT.with(|r| *r.borrow_mut() = Some((handle, size)));
             // Android's OS temp dir isn't app-writable; use the app cache dir for the file-save
             // staging area (docs/files.md) so `save_file(..)` can write its temp before handing
@@ -1655,14 +1698,18 @@ mod imp {
         });
     }
 
-    /// A secondary DayWindowActivity's first laid-out root (the `nativeStartWindow` JNI
+    /// A secondary `DayWindowActivity`'s first laid-out root (the `nativeStartWindow` JNI
     /// export lands here): adopt it as the parked day window's content
     /// (docs/windows.md). `false` ⇒ the window was closed before the activity finished
     /// connecting, and the activity finishes itself.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public signature; the JNI entry hands over the root's local reference"
+    )]
     pub fn window_started(env: &mut Env, root: JObject, node: i64, w: i32, h: i32) -> bool {
         // JNI up-call entry (nativeStartWindow): contain the adoption + day-core completion.
         day_spec::ffi_guard::contain(false, || {
-            let d = DENSITY.with(|x| x.get());
+            let d = DENSITY.with(std::cell::Cell::get);
             let Ok(gref) = env.new_global_ref(&root) else {
                 return false;
             };
@@ -1672,7 +1719,7 @@ mod imp {
             let ok = day_core::finish_window_open(
                 day_spec::NodeId(node as u64),
                 raw,
-                Size::new(w as f64 / d, h as f64 / d),
+                Size::new(f64::from(w) / d, f64::from(h) / d),
             );
             if !ok {
                 SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node as u64));
@@ -1744,6 +1791,7 @@ mod imp {
     /// Whether node `id` has a `Decorate::on_key` handler (docs/menus.md). A canvas asks before
     /// it claims a key or takes focus on a press, so one nobody wanted keys from leaves them to
     /// the platform's own focus navigation. A JNI up-call entry, contained.
+    #[must_use]
     pub fn handles_keys(id: i64) -> bool {
         day_spec::ffi_guard::contain(false, || day_spec::keys::handled(NodeId(id as u64)))
     }
@@ -1751,6 +1799,7 @@ mod imp {
     /// Whether node `id` took the whole keyboard (`Decorate::keyboard`, docs/menus.md). A
     /// canvas asks before it raises the soft keyboard or names a letter. A JNI up-call
     /// entry, contained.
+    #[must_use]
     pub fn handles_text(id: i64) -> bool {
         day_spec::ffi_guard::contain(false, || day_spec::keys::text(NodeId(id as u64)))
     }
@@ -1830,7 +1879,12 @@ mod imp {
             // the last change).
             K_SEARCH_CHANGED => {
                 let text = string_of(env, jstr).ok().unwrap_or_default();
-                if num == 1.0 {
+                #[expect(
+                    clippy::float_cmp,
+                    reason = "`DayNavHost` sends the submit flag as exactly 1"
+                )]
+                let submitted = num == 1.0;
+                if submitted {
                     Event::SearchSubmitted(text)
                 } else {
                     Event::SearchChanged(text)
@@ -1867,7 +1921,7 @@ mod imp {
                 let Some((w, h)) = text.split_once(',') else {
                     return;
                 };
-                let d = DENSITY.with(|x| x.get());
+                let d = DENSITY.with(std::cell::Cell::get);
                 let (Ok(w), Ok(h)) = (w.parse::<f64>(), h.parse::<f64>()) else {
                     return;
                 };
@@ -1931,7 +1985,7 @@ mod imp {
                 if p.len() < 4 {
                     return;
                 }
-                let d = DENSITY.with(|x| x.get());
+                let d = DENSITY.with(std::cell::Cell::get);
                 let at = Point::new(p[0] / d, p[1] / d);
                 let tr = Point::new(p[2] / d, p[3] / d);
                 match num as i32 {
@@ -2062,7 +2116,7 @@ mod imp {
                 if p.len() < 4 {
                     return;
                 }
-                let d = DENSITY.with(|x| x.get());
+                let d = DENSITY.with(std::cell::Cell::get);
                 day_core::set_safe_area(day_spec::Insets {
                     top: p[0] / d,
                     bottom: p[1] / d,
@@ -2090,7 +2144,7 @@ mod imp {
                 if p.len() < 2 {
                     return;
                 }
-                let d = DENSITY.with(|x| x.get());
+                let d = DENSITY.with(std::cell::Cell::get);
                 // id 0 = the primary activity (WINDOW_NODE); a secondary DayWindowActivity
                 // reports against its own day root (docs/windows.md).
                 let target = if id == 0 {
@@ -2175,6 +2229,7 @@ mod imp {
     }
 
     impl Material {
+        #[must_use]
         pub fn new() -> Self {
             let mut registry = Registry::default();
             for f in RENDERERS {
@@ -2219,9 +2274,12 @@ mod imp {
         unsafe { std::mem::transmute(env.new_string(s).expect("new_string")) }
     }
 
-    /// Map an Android lifecycle phase code (day_spec::Lifecycle order) to the enum (docs/lifecycle.md).
+    /// Map an Android lifecycle phase code (`day_spec::Lifecycle` order) to the enum (docs/lifecycle.md).
     fn android_lifecycle(code: i32) -> Option<day_spec::Lifecycle> {
-        use day_spec::Lifecycle::*;
+        use day_spec::Lifecycle::{
+            DidBecomeActive, DidEnterBackground, DidExit, DidReceiveMemoryWarning,
+            WillEnterForeground, WillResignActive, WillTerminate,
+        };
         Some(match code {
             2 => DidBecomeActive,
             3 => WillResignActive,
@@ -2236,6 +2294,7 @@ mod imp {
 
     /// Mobile backends deliver the full lifecycle (docs/lifecycle.md). `const` for
     /// `day::require_lifecycle!` compile-time guards.
+    #[must_use]
     pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
         true
     }
@@ -2244,7 +2303,10 @@ mod imp {
     /// toolbar handles the actual Cut/Copy/Paste on editable views; a role in a day menu is shown
     /// for parity and dispatches nothing; see docs/menus.md.)
     fn android_role_label(role: day_spec::MenuRole) -> &'static str {
-        use day_spec::MenuRole::*;
+        use day_spec::MenuRole::{
+            About, CheckForUpdates, CloseWindow, Copy, Cut, Delete, Fullscreen, Minimize,
+            NewWindow, Paste, Preferences, Quit, Redo, SelectAll, Undo,
+        };
         match role {
             Cut => "Cut",
             Copy => "Copy",
@@ -2407,6 +2469,7 @@ mod imp {
     /// `Symbol::ZoomIn` → `day_symbol_zoom_in`: the variant's name in snake case. Public so a
     /// piece drawing a standard glyph in its own Java view (day-piece-settings' group rows)
     /// resolves the same drawable a nav item does.
+    #[must_use]
     pub fn symbol_drawable(sym: day_spec::Symbol) -> String {
         let mut out = String::from("day_symbol");
         for c in format!("{sym:?}").chars() {
@@ -2421,6 +2484,7 @@ mod imp {
     }
 
     fn serialize_menu(items: &[day_spec::MenuItem], out: &mut String) {
+        use std::fmt::Write as _;
         fn clean(s: &str) -> String {
             s.replace(['\t', '\n'], " ")
         }
@@ -2431,7 +2495,7 @@ mod imp {
             match item {
                 day_spec::MenuItem::Separator => out.push_str("-\t0\t1\t-1\t\n"),
                 day_spec::MenuItem::Submenu { label, items, .. } => {
-                    out.push_str(&format!("S\t0\t1\t-1\t{}\n", clean(label)));
+                    let _ = writeln!(out, "S\t0\t1\t-1\t{}", clean(label));
                     serialize_menu(items, out);
                     out.push_str("E\t0\t1\t-1\t\n");
                 }
@@ -2452,13 +2516,14 @@ mod imp {
                         Some(r) if label.is_empty() => android_role_label(*r).to_string(),
                         _ => label.clone(),
                     };
-                    out.push_str(&format!(
-                        "A\t{}\t{}\t{}\t{}\n",
+                    let _ = writeln!(
+                        out,
+                        "A\t{}\t{}\t{}\t{}",
                         action,
-                        *enabled as i32,
+                        i32::from(*enabled),
                         checked.map_or(-1, i32::from),
                         clean(&text)
-                    ));
+                    );
                 }
             }
         }
@@ -2468,8 +2533,9 @@ mod imp {
     /// accessibility text scale) + the style's inherent weight for a logical [`Font`]. Mobile
     /// scale, aligned with iOS. Public for standalone pieces (docs/extending.md), which resolve
     /// the same scale.
+    #[must_use]
     pub fn font_style(f: Font) -> (f32, day_spec::FontWeight) {
-        use day_spec::FontWeight::*;
+        use day_spec::FontWeight::{Regular, Semibold};
         match f {
             Font::LargeTitle => (34.0, Regular),
             Font::Title => (28.0, Regular),
@@ -2482,8 +2548,7 @@ mod imp {
             Font::Footnote => (13.0, Regular),
             Font::Caption => (12.0, Regular),
             Font::Caption2 => (11.0, Regular),
-            Font::System(pt) => (pt as f32, Regular),
-            Font::Custom(_, pt) => (pt as f32, Regular),
+            Font::System(pt) | Font::Custom(_, pt) => (pt as f32, Regular),
         }
     }
 
@@ -2526,7 +2591,7 @@ mod imp {
     fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
         tints
             .iter()
-            .map(|t| t.map(argb_i32).unwrap_or(0).to_string())
+            .map(|t| t.map_or(0, argb_i32).to_string())
             .collect::<Vec<_>>()
             .join("\u{1f}")
     }
@@ -2541,7 +2606,7 @@ mod imp {
     /// nav host's build path down with it (the navhost lesson, docs/navigation.md).
     fn nav_menu_select(env: &mut Env, h: &AHandle, sel: Option<usize>) {
         let _ = java_in(env, |env| {
-            DayBridge::setNavMenuSelected(env, h.0.as_obj(), sel.map(|i| i as i32).unwrap_or(-1))
+            DayBridge::setNavMenuSelected(env, h.0.as_obj(), sel.map_or(-1, |i| i as i32))
         });
         if env.exception_check() {
             env.exception_clear();
@@ -2590,10 +2655,10 @@ mod imp {
             let mut m = m.borrow_mut();
             let p = m.get_mut(&key)?;
             match patch {
-                P::Title(t) => p.title = t.clone(),
-                P::Subtitle(t) => p.subtitle = t.clone(),
-                P::Detail(t) => p.detail = t.clone(),
-                P::Icon(i) => p.icon = i.clone(),
+                P::Title(t) => p.title.clone_from(t),
+                P::Subtitle(t) => p.subtitle.clone_from(t),
+                P::Detail(t) => p.detail.clone_from(t),
+                P::Icon(i) => p.icon.clone_from(i),
                 P::IconTint(c) => p.icon_tint = *c,
                 P::Checked(on) => p.checked = *on,
             }
@@ -2615,7 +2680,7 @@ mod imp {
                 }
                 P::Icon(_) | P::IconTint(_) => {
                     let name = jstr(env, &list_item_icon(p.icon.as_ref()));
-                    let tint = p.icon_tint.map(argb_i32).unwrap_or(0);
+                    let tint = p.icon_tint.map_or(0, argb_i32);
                     java_in(env, |env| {
                         DayListItem::setIcon(env, h.0.as_obj(), &name, tint)
                     })
@@ -2688,9 +2753,8 @@ mod imp {
         // Android takes quality as 0..=100; -1 means the format's own default.
         let quality = spec
             .quality
-            .map(|q| (q.clamp(0.0, 1.0) * 100.0).round() as i32)
-            .unwrap_or(-1);
-        let (fit_w, fit_h) = spec.fit.map(|f| (f.width, f.height)).unwrap_or((0.0, 0.0));
+            .map_or(-1, |q| (q.clamp(0.0, 1.0) * 100.0).round() as i32);
+        let (fit_w, fit_h) = spec.fit.map_or((0.0, 0.0), |f| (f.width, f.height));
         with_env(|env| {
             let jfmt = jstr(env, format);
             java_in(env, |env| {
@@ -2865,6 +2929,10 @@ mod imp {
             TRANSFER_TARGETS.with(|t| t.insert(h.0.as_obj().as_raw() as usize, target));
             transfer_install(h, false);
         }
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one arm per capability, each documented with the Android mechanism behind it"
+        )]
         fn capability(&self, cap: Cap) -> Support {
             match cap {
             // `ChooserAction`s on the system chooser, which Android 14 (API 34) introduced.
@@ -3104,21 +3172,19 @@ mod imp {
             spec: &day_spec::share::ShareSpec,
             _anchor: Option<&Self::Handle>,
         ) -> bool {
+            use std::fmt::Write as _;
             // The app's actions cross as lines of `id \t drawable \t title`; the drawable is
             // the action's symbol (`day_symbol_*`), or empty for the chooser's default glyph.
-            let actions: String = spec
-                .actions
-                .iter()
-                .map(|a| {
-                    let title: String = a
-                        .title
-                        .chars()
-                        .map(|c| if c == '\t' || c == '\n' { ' ' } else { c })
-                        .collect();
-                    let icon = a.symbol.map(symbol_drawable).unwrap_or_default();
-                    format!("{}\t{icon}\t{title}\n", a.id)
-                })
-                .collect();
+            let actions = spec.actions.iter().fold(String::new(), |mut out, a| {
+                let title: String = a
+                    .title
+                    .chars()
+                    .map(|c| if c == '\t' || c == '\n' { ' ' } else { c })
+                    .collect();
+                let icon = a.symbol.map(symbol_drawable).unwrap_or_default();
+                let _ = writeln!(out, "{}\t{icon}\t{title}", a.id);
+                out
+            });
             with_env(|env| {
                 let url = jstr(env, &spec.url);
                 let title = jstr(env, &spec.title);
@@ -3145,7 +3211,7 @@ mod imp {
                     });
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
-                            let d = DENSITY.with(|x| x.get());
+                            let d = DENSITY.with(std::cell::Cell::get);
                             bridge(|env| {
                                 DayBridge::setSectionCard(
                                     env,
@@ -3154,7 +3220,7 @@ mod imp {
                                 )
                             });
                         } else if p.role == Some(day_spec::SurfaceRole::Window) {
-                            let d = DENSITY.with(|x| x.get());
+                            let d = DENSITY.with(std::cell::Cell::get);
                             bridge(|env| {
                                 DayBridge::setWindowSurface(
                                     env,
@@ -3172,8 +3238,7 @@ mod imp {
                 Some(Builtin::Scroll) => {
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
-                        .map(|p| p.horizontal)
-                        .unwrap_or(false);
+                        .is_some_and(|p| p.horizontal);
                     with_env(|env| {
                         AHandle(bridge_view(env, "makeScroll", |env| {
                             DayBridge::makeScroll(env, horizontal)
@@ -3193,7 +3258,7 @@ mod imp {
                             DayBridge::makeTree(
                                 env,
                                 id.0 as i64,
-                                (height * DENSITY.with(|d| d.get())).round() as i32,
+                                (height * DENSITY.with(std::cell::Cell::get)).round() as i32,
                                 p.selectable,
                             )
                         }))
@@ -3208,7 +3273,7 @@ mod imp {
                     let Some(p) = day_spec::props_of::<ListProps>(kind, "android", props) else {
                         return realize_placeholder(kind);
                     };
-                    let d = DENSITY.with(|x| x.get());
+                    let d = DENSITY.with(std::cell::Cell::get);
                     let rowh = match p.row_height {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
@@ -3654,7 +3719,7 @@ mod imp {
                             jstr(env, &p.detail),
                         );
                         let icon = jstr(env, &list_item_icon(p.icon.as_ref()));
-                        let tint = p.icon_tint.map(argb_i32).unwrap_or(0);
+                        let tint = p.icon_tint.map_or(0, argb_i32);
                         AHandle(bridge_view(env, "makeListItem", |env| {
                             DayListItem::make(env, &t, &s, &d, &icon, tint, p.checked)
                         }))
@@ -3667,11 +3732,13 @@ mod imp {
                 }
                 // A recycled list cell is adopted from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell)
-                | Some(Builtin::Inspector)
-                | Some(Builtin::InspectorPane)
-                | Some(Builtin::Split)
-                | Some(Builtin::SplitPane)
+                Some(
+                    Builtin::ListCell
+                    | Builtin::Inspector
+                    | Builtin::InspectorPane
+                    | Builtin::Split
+                    | Builtin::SplitPane,
+                )
                 | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
@@ -3817,7 +3884,7 @@ mod imp {
                                             env,
                                             &rows
                                                 .iter()
-                                                .map(|i| i.to_string())
+                                                .map(std::string::ToString::to_string)
                                                 .collect::<Vec<_>>()
                                                 .join(","),
                                         );
@@ -3877,11 +3944,10 @@ mod imp {
                         // (rows ripple, then push)", which was true of the hand-built list that
                         // could not draw a resting state; a NavigationView can, and a sidebar
                         // beside its detail is exactly where that state means "you are here".
-                        Some(NavMenuPatch::IconProgress(_)) => {}
                         Some(NavMenuPatch::Selected(sel)) => {
                             with_env(|env| nav_menu_select(env, h, *sel));
                         }
-                        None => {}
+                        Some(NavMenuPatch::IconProgress(_)) | None => {}
                     }
                 }
                 kinds::NAV => {
@@ -3946,6 +4012,10 @@ mod imp {
                             // Unsupported`, so the pieces layer never sends it. The plan for
                             // Android is `SlidingPaneLayout`, which decides at measure time and
                             // is OBSERVED rather than told (docs/size-classes.md).
+                            #[expect(
+                                clippy::match_same_arms,
+                                reason = "each group of no-op patches keeps its own arm and the comment saying why"
+                            )]
                             NavPatch::Presentation(_) => {}
                             NavPatch::Reorder(order) => with_env(|env| {
                                 let text = jstr(
@@ -3985,7 +4055,7 @@ mod imp {
                                 DayBridge::coverPresent(
                                     env,
                                     h.0.as_obj(),
-                                    background.map(argb_i32).unwrap_or(0),
+                                    background.map_or(0, argb_i32),
                                     background.is_some(),
                                     *dismiss_disabled,
                                 )
@@ -3994,7 +4064,7 @@ mod imp {
                                 DayBridge::coverSetDismissDisabled(env, h.0.as_obj(), *d)
                             }),
                             CoverPatch::Dismiss => {
-                                bridge(|env| DayBridge::coverDismiss(env, h.0.as_obj()))
+                                bridge(|env| DayBridge::coverDismiss(env, h.0.as_obj()));
                             }
                         }
                     }
@@ -4035,14 +4105,14 @@ mod imp {
                                         .copied()
                                         .unwrap_or(0)
                                 });
-                                with_env(|env| set_label_runs(env, node, &h.0, text, runs))
+                                with_env(|env| set_label_runs(env, node, &h.0, text, runs));
                             }
                             LabelPatch::Color(c) => {
                                 bridge(|env| {
                                     DayBridge::setLabelColor(
                                         env,
                                         h.0.as_obj(),
-                                        c.map(argb_i32).unwrap_or(0),
+                                        c.map_or(0, argb_i32),
                                         c.is_some(),
                                     )
                                 });
@@ -4060,7 +4130,7 @@ mod imp {
                                     &c.title,
                                     c.icon.as_ref(),
                                     c.icon_only,
-                                )
+                                );
                             }),
                             ButtonPatch::Title(t) => with_env(|env| {
                                 let s = jstr(env, t);
@@ -4068,13 +4138,13 @@ mod imp {
                                     java_in(env, |env| DayBridge::setLabel(env, h.0.as_obj(), &s));
                             }),
                             ButtonPatch::Enabled(e) => {
-                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e));
                             }
                             ButtonPatch::Selected(on) => {
-                                bridge(|env| DayBridge::setButtonSelected(env, h.0.as_obj(), *on))
+                                bridge(|env| DayBridge::setButtonSelected(env, h.0.as_obj(), *on));
                             }
                             ButtonPatch::Style(s) => {
-                                with_env(|env| apply_button_style(env, &h.0, *s))
+                                with_env(|env| apply_button_style(env, &h.0, *s));
                             }
                         }
                     }
@@ -4083,10 +4153,10 @@ mod imp {
                     if let Some(p) = patch.downcast_ref::<TogglePatch>() {
                         match p {
                             TogglePatch::On(on) => {
-                                bridge(|env| DayBridge::setToggle(env, h.0.as_obj(), *on))
+                                bridge(|env| DayBridge::setToggle(env, h.0.as_obj(), *on));
                             }
                             TogglePatch::Enabled(e) => {
-                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e));
                             }
                         }
                     }
@@ -4096,10 +4166,10 @@ mod imp {
                         match p {
                             SliderPatch::Value(v) => {
                                 // min recovered from the widget tag
-                                bridge(|env| DayBridge::setSlider(env, h.0.as_obj(), *v, 0.0))
+                                bridge(|env| DayBridge::setSlider(env, h.0.as_obj(), *v, 0.0));
                             }
                             SliderPatch::Enabled(e) => {
-                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e));
                             }
                         }
                     }
@@ -4140,7 +4210,7 @@ mod imp {
                                 });
                             }),
                             TextFieldPatch::Enabled(e) => {
-                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e));
                             }
                             TextFieldPatch::Select(sel) => {
                                 let at = |n: usize| n.min(i32::MAX as usize) as i32;
@@ -4151,13 +4221,13 @@ mod imp {
                                         at(sel.start),
                                         at(sel.end),
                                     )
-                                })
+                                });
                             }
                         }
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
+                    Some(ListPatch::Reload | ListPatch::Splice(_)) => {
                         // notifyDataSetChanged: getCount reads the snapshot, getView is deferred to
                         // the next layout, so it is safe inside a with_tree borrow.
                         bridge(|env| DayBridge::listReload(env, h.0.as_obj()));
@@ -4236,7 +4306,7 @@ mod imp {
                     s.borrow_mut().retain(|(_, gref)| {
                         !env.is_same_object(h.0.as_obj(), gref.as_obj())
                             .unwrap_or(false)
-                    })
+                    });
                 });
             });
             let key = h.0.as_obj().as_raw() as usize;
@@ -4313,8 +4383,10 @@ mod imp {
                         Some(pw) if natural_w > pw => {
                             let wpx = (pw * d).round() as i32;
                             let hh = with_env(|env| {
-                                DayBridge::measureHeightForWidth(env, h.0.as_obj(), wpx)
-                                    .unwrap_or(0) as f64
+                                f64::from(
+                                    DayBridge::measureHeightForWidth(env, h.0.as_obj(), wpx)
+                                        .unwrap_or(0),
+                                )
                             });
                             Size::new(pw, hh / d)
                         }
@@ -4337,7 +4409,9 @@ mod imp {
                     });
                     let wpx = (w * d).round() as i32;
                     let hh = with_env(|env| {
-                        DayBridge::measureHeightForWidth(env, h.0.as_obj(), wpx).unwrap_or(0) as f64
+                        f64::from(
+                            DayBridge::measureHeightForWidth(env, h.0.as_obj(), wpx).unwrap_or(0),
+                        )
                     });
                     Size::new(w, hh / d)
                 }
@@ -4380,7 +4454,7 @@ mod imp {
         }
 
         /// `View.getBaseline()`, the same answer `LinearLayout`'s `baselineAligned` uses
-        /// (docs/baseline.md). TextView and everything built on it override it; the base View
+        /// (docs/baseline.md). `TextView` and everything built on it override it; the base View
         /// returns -1, which is "no baseline".
         fn first_baseline(&mut self, h: &AHandle, kind: PieceKind, size: Size) -> Option<f64> {
             if !day_spec::kind_has_baseline(kind) {
@@ -4395,7 +4469,7 @@ mod imp {
                     (size.height * d).round() as i32,
                 )
             })?;
-            (px >= 0).then(|| px as f64 / d)
+            (px >= 0).then(|| f64::from(px) / d)
         }
 
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
@@ -5302,7 +5376,7 @@ mod imp {
             day_spec::Color::rgba(channel(16), channel(8), channel(0), channel(24))
         }
 
-        /// The system color mode, DAY_THEME override first (themed capture runs).
+        /// The system color mode, `DAY_THEME` override first (themed capture runs).
         fn dark_mode(&mut self) -> bool {
             match std::env::var("DAY_THEME").ok().as_deref() {
                 Some("dark") => return true,
@@ -5313,7 +5387,7 @@ mod imp {
         }
 
         /// The user's "Remove animations" setting (docs/accessibility.md): the global animator
-        /// duration scale read as zero (DayBridge.reduceMotion). The observer DayActivity
+        /// duration scale read as zero (DayBridge.reduceMotion). The observer `DayActivity`
         /// registers reports each flip as `K_REDUCE_MOTION_CHANGED`, after which day-core asks
         /// here again.
         fn reduce_motion(&mut self) -> bool {
@@ -5348,7 +5422,7 @@ mod imp {
         ) -> Result<day_spec::capture::Readiness, String> {
             with_env(|env| {
                 let null = JObject::null();
-                let obj = host.map(|h| h.0.as_obj()).unwrap_or(&null);
+                let obj = host.map_or(&null, |h| h.0.as_obj());
                 let ready = DayBridge::prepareSnapshot(env, obj, i64::from(revision))
                     .map_err(|e| format!("frame commit: {e}"))?;
                 Ok(if ready == 1 {
@@ -5369,7 +5443,7 @@ mod imp {
     /// and none of Day's own start with `day.`.
     const REMOUNT_ROUTE_KEY: &str = "day.route";
 
-    /// DayActivity is about to recreate itself (a theme or language switch): save the full
+    /// `DayActivity` is about to recreate itself (a theme or language switch): save the full
     /// current route, so the re-mounted tree can come back to it. The activity recreation
     /// re-runs the app's `root()`, so every signal made there starts over; only a nav surface
     /// with a `.restore(key)` reads its place back by itself, and an app without one came back
@@ -5429,7 +5503,7 @@ mod imp {
 
     /// Navigation persistence backed by the Activity's saved instance state (docs/navigation.md).
     /// The map lives on the Java side (`DayBridge.navState`) because that is where the platform
-    /// hands it out and takes it back: DayActivity restores it in `onCreate` before native
+    /// hands it out and takes it back: `DayActivity` restores it in `onCreate` before native
     /// starts, and writes it into the outgoing Bundle in `onSaveInstanceState`. Its lifetime is
     /// the task's: a process the system reclaims comes back on the page the user left, while a
     /// cold launch, or a task the user swiped off Recents, starts clean.

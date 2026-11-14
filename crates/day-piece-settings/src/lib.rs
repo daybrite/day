@@ -117,6 +117,7 @@ type Avail = Rc<dyn Fn() -> bool>;
 /// One group of settings (docs/settings.md): a page on desktop (a toolbar tab, a dialog page,
 /// a sidebar entry) and a row of the mobile root list that pushes the page.
 #[derive(Clone)]
+#[must_use]
 pub struct Group {
     id: &'static str,
     title: TextSource,
@@ -188,6 +189,7 @@ impl Group {
         self.available(move || day_core::capability(cap) != Support::Unsupported)
     }
     /// The route id.
+    #[must_use]
     pub fn id(&self) -> &'static str {
         self.id
     }
@@ -198,6 +200,7 @@ impl Group {
 
 /// A titled card of rows inside a group.
 #[derive(Clone, Default)]
+#[must_use]
 pub struct Section {
     title: Option<TextSource>,
     footer: Option<TextSource>,
@@ -281,6 +284,7 @@ enum RowKind {
 
 /// One row of a section (docs/settings.md), built by the row constructors.
 #[derive(Clone)]
+#[must_use]
 pub struct Row {
     title: TextSource,
     caption: Option<TextSource>,
@@ -588,6 +592,7 @@ pub mod rows {
 /// The app's About content (docs/settings.md): a window on the desktops, the toolkit's About
 /// dialog on GTK, a page inside Settings on mobile and Windows.
 #[derive(Clone, Default)]
+#[must_use]
 pub struct About {
     name: Option<TextSource>,
     version: Option<String>,
@@ -686,7 +691,9 @@ impl About {
         }
     }
     /// The version line, localized ("Version 2.3.0 (14)").
+    #[must_use]
     pub fn version_line(&self) -> Option<String> {
+        use std::fmt::Write as _;
         let version = self
             .version
             .clone()
@@ -695,22 +702,27 @@ impl About {
         if let Some(build) = &self.build
             && !build.is_empty()
         {
-            line.push_str(&format!(" ({build})"));
+            let _ = write!(line, " ({build})");
         }
         Some(line)
     }
+    #[must_use]
     pub fn version_value(&self) -> Option<&str> {
         self.version.as_deref()
     }
+    #[must_use]
     pub fn build_value(&self) -> Option<&str> {
         self.build.as_deref()
     }
+    #[must_use]
     pub fn links(&self) -> &[(TextSource, String)] {
         &self.links
     }
+    #[must_use]
     pub fn privacy_url(&self) -> Option<&str> {
         self.privacy.as_deref()
     }
+    #[must_use]
     pub fn icon_name(&self) -> Option<&day_spec::ImageName> {
         self.icon.as_ref()
     }
@@ -726,6 +738,7 @@ impl About {
     pub fn licenses_text(&self) -> Option<String> {
         self.licenses.as_ref().map(TextSource::initial)
     }
+    #[must_use]
     pub fn custom_piece(&self) -> Option<AnyPiece> {
         self.custom.as_ref().map(|b| b())
     }
@@ -833,6 +846,7 @@ pub enum Presentation {
 
 /// The settings declaration (docs/settings.md). Build it in `root()` and call
 /// [`Self::install`].
+#[must_use]
 pub struct Preferences {
     about: Option<About>,
     groups: Vec<Group>,
@@ -939,7 +953,7 @@ impl Preferences {
         let presentation = presentation.unwrap_or_else(default_presentation);
         let title = title.unwrap_or_else(|| TextSource::Dyn(Rc::new(platform_word)));
         let installed = Rc::new(Installed {
-            in_nav: Default::default(),
+            in_nav: Cell::default(),
             about,
             groups,
             presentation,
@@ -1043,16 +1057,19 @@ pub struct Prefs(Rc<Installed>);
 impl Prefs {
     /// Open-or-focus the surface: the window on desktop; on mobile, select the nav item when
     /// one is mounted, else present the navigation presentation as a cover.
+    #[must_use]
     pub fn open(&self) -> bool {
         open()
     }
     /// Open and select a group (`"updates"`), optionally a row (`"updates/check"`).
+    #[must_use]
     pub fn open_at(&self, route: &str) -> bool {
         open_at(route)
     }
     /// Whether the app should place a Settings entry in its own navigation: true where the
     /// platform gives no app menu to reach the surface from (the phones); false on the
     /// desktops and on the web, whose menu button carries Settings… and About.
+    #[must_use]
     pub fn in_nav(&self) -> bool {
         self.0.presentation == Presentation::Navigation
             && day_core::capability(Cap::AppMenu) == Support::Unsupported
@@ -1099,6 +1116,7 @@ impl Prefs {
         about_page(self.0.clone())
     }
     /// The surface's title.
+    #[must_use]
     pub fn title(&self) -> String {
         self.0.title.initial()
     }
@@ -1109,6 +1127,7 @@ fn installed() -> Option<Rc<Installed>> {
 }
 
 /// Open-or-focus the installed settings surface (see [`Prefs::open`]).
+#[must_use]
 pub fn open() -> bool {
     let Some(inst) = installed() else {
         log::warn!("day-piece-settings: open() before Preferences::install()");
@@ -1165,6 +1184,7 @@ pub fn group_page_of(id: &str) -> AnyPiece {
 }
 
 /// Open the surface at a group route (`"updates"`, `"updates/check"`).
+#[must_use]
 pub fn open_at(route: &str) -> bool {
     let Some(inst) = installed() else {
         return false;
@@ -1327,9 +1347,8 @@ fn install_about(inst: Rc<Installed>) {
             size_to_fit: true,
             ..day_spec::WindowOptions::default()
         },
-        move || match cover {
-            false => about_page(inst.clone()),
-            true => {
+        move || {
+            if cover {
                 let title = title.clone();
                 nav_stack(
                     Signal::new(Vec::<SettingsRoute>::new()),
@@ -1348,6 +1367,8 @@ fn install_about(inst: Rc<Installed>) {
                     }),
                 )
                 .any()
+            } else {
+                about_page(inst.clone())
             }
         },
     );
@@ -1661,6 +1682,10 @@ fn window_shell(inst: Rc<Installed>) -> AnyPiece {
     composed_window_shell(inst)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn composed_window_shell(inst: Rc<Installed>) -> AnyPiece {
     let groups = inst.visible_groups();
     if groups.len() <= 1 {
@@ -1756,6 +1781,10 @@ fn group_body(inst: Rc<Installed>, g: &Group) -> AnyPiece {
 }
 
 /// A group's sections as a form, then its custom piece.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn composed_group_form(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
     let mut parts: Vec<AnyPiece> = Vec::new();
     for s in &g.sections {
@@ -1793,6 +1822,10 @@ fn composed_group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiec
     }
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn section_piece(inst: Rc<Installed>, s: &Section, desktop: bool) -> Option<AnyPiece> {
     let rows: Vec<AnyPiece> = s
         .rows
@@ -1890,7 +1923,7 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
+    let enabled_fn = move || enabled.as_ref().is_none_or(day_pieces::Reactive::get);
     match &r.kind {
         RowKind::Toggle(sig) => {
             let ctl = with_id(toggle(*sig).enabled(enabled_fn).any());
@@ -2018,7 +2051,9 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
             let busy_gate = busy.clone();
             let b = button(text_source_fn(&r.title))
                 .action(run)
-                .enabled(move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get()));
+                .enabled(move || {
+                    enabled_fn() && !busy_gate.as_ref().is_some_and(day_pieces::Reactive::get)
+                });
             let ctl = with_id(b.any());
             let ctl = match busy {
                 Some(b) => row((when(move || b.get(), spinner), ctl))
@@ -2071,7 +2106,7 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
                         .icon_only()
                         .plain()
                         .action(move || {
-                            day_part_clipboard::set_text(&text.initial());
+                            let _ = day_part_clipboard::set_text(&text.initial());
                         }),
                 ))
                 .spacing(4.0)
@@ -2094,6 +2129,10 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
 
 /// Push a row's sub-page: onto the navigation presentation's stack when inside one, else into
 /// a cover.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn push_subpage(inst: Rc<Installed>, title: String, build: Build) {
     SUBPAGES.with(|s| s.borrow_mut().insert(title.clone(), build.clone()));
     #[cfg(feature = "gtk")]
@@ -2147,6 +2186,10 @@ fn navigation_shell_with_done(inst: Rc<Installed>) -> AnyPiece {
     navigation_stack(inst, true)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn navigation_stack(inst: Rc<Installed>, done: bool) -> AnyPiece {
     let root_inst = inst.clone();
     let dest_inst = inst.clone();
@@ -2179,8 +2222,7 @@ fn destination(inst: Rc<Installed>, r: &SettingsRoute) -> AnyPiece {
             if let Some(title) = g.strip_prefix("page:") {
                 return SUBPAGES
                     .with(|s| s.borrow().get(title).cloned())
-                    .map(|b| b())
-                    .unwrap_or_else(|| column(()).any());
+                    .map_or_else(|| column(()).any(), |b| b());
             }
             match inst.group(g) {
                 Some(group) => group_page(inst.clone(), group, false),
@@ -2229,7 +2271,7 @@ pub(crate) fn root_entries(inst: &Rc<Installed>) -> (Option<RootEntry>, Vec<Root
                 subtitle: g.subtitle.clone(),
                 icon: g.icon.clone(),
                 open: Rc::new(move || {
-                    path.update(|p| p.push(SettingsRoute::Group(id.to_string())))
+                    path.update(|p| p.push(SettingsRoute::Group(id.to_string())));
                 }),
             }
         })
@@ -2262,6 +2304,10 @@ fn root_page(inst: Rc<Installed>) -> AnyPiece {
 
 /// The mobile root page from ordinary Day pieces: the About header card, then the groups as
 /// chevron rows (one group: its rows inline under the header).
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
     let mut parts: Vec<AnyPiece> = Vec::new();
     if let Some(about) = &inst.about {
@@ -2333,6 +2379,10 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
 }
 
 /// The About header card on the mobile root: icon, name, version; tapping opens the About page.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn about_header(inst: Rc<Installed>, about: &About) -> AnyPiece {
     let path = inst.path;
     let name = about.display_name();
@@ -2361,6 +2411,10 @@ fn about_header(inst: Rc<Installed>, about: &About) -> AnyPiece {
 }
 
 /// The composed About page: icon, name, version, tagline, links, credits, licenses, copyright.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
+)]
 fn about_page(inst: Rc<Installed>) -> AnyPiece {
     let Some(about) = &inst.about else {
         return column(()).any();
@@ -2671,7 +2725,7 @@ pub mod conformance {
             .page(move || {
                 install_store(SharedTestStore(page_store.clone()));
                 let inst = Rc::new(Installed {
-                    in_nav: Default::default(),
+                    in_nav: Cell::default(),
                     about: None,
                     groups: vec![Group::new("general", "General").row(appearance_row())],
                     presentation: Presentation::Window,
@@ -2710,7 +2764,7 @@ pub mod conformance {
             .page(move || {
                 install_store(SharedTestStore(page_store.clone()));
                 let inst = Rc::new(Installed {
-                    in_nav: Default::default(),
+                    in_nav: Cell::default(),
                     about: None,
                     groups: vec![
                         Group::new("sound", "Sound")
@@ -2762,7 +2816,7 @@ pub mod conformance {
         Case::new()
             .page(move || {
                 let inst = Rc::new(Installed {
-                    in_nav: Default::default(),
+                    in_nav: Cell::default(),
                     about: None,
                     groups: vec![
                         Group::new("counts", "Counts")

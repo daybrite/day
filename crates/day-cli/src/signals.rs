@@ -138,7 +138,9 @@ pub fn kill_all() {
     // of an `adb force-stop`, so the app on the device outlived the Ctrl-C that was meant to end
     // it. Whoever arrives second now waits for the first to finish rather than exiting out from
     // under it.
-    let _teardown = TEARDOWN.lock().unwrap_or_else(|e| e.into_inner());
+    let _teardown = TEARDOWN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pids = CHILDREN
         .lock()
         .map(|mut c| std::mem::take(&mut *c))
@@ -219,7 +221,7 @@ pub fn install() {
     std::thread::spawn(move || {
         let mut buf = [0u8; 1];
         // SAFETY: blocking read on the self-pipe read end.
-        let _ = unsafe { libc::read(read_fd, buf.as_mut_ptr() as *mut _, 1) };
+        let _ = unsafe { libc::read(read_fd, buf.as_mut_ptr().cast(), 1) };
         kill_all();
         std::process::exit(130); // 128 + SIGINT
     });
@@ -237,7 +239,7 @@ extern "C" fn handle_signal(_sig: i32) {
         let byte = [1u8];
         // SAFETY: write(2) is async-signal-safe.
         unsafe {
-            libc::write(fd, byte.as_ptr() as *const _, 1);
+            libc::write(fd, byte.as_ptr().cast(), 1);
         }
     }
 }

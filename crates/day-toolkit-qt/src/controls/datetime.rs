@@ -41,7 +41,7 @@ unsafe extern "C" {
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_qt_size_hint(h.0, &mut w, &mut hh) };
+    unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(60.0), hh.max(22.0))
 }
 
@@ -62,11 +62,11 @@ mod date_renderer {
     fn make(_backend: &mut Qt, p: &DateProps, id: NodeId) -> QtHandle {
         QtHandle(unsafe {
             day_datetime_date_new(
-                (p.style == Style::Inline) as c_int,
+                c_int::from(p.style == Style::Inline),
                 p.date.to_epoch_days(),
-                p.min.is_some() as c_int,
+                c_int::from(p.min.is_some()),
                 p.min.map_or(0, DayDate::to_epoch_days),
-                p.max.is_some() as c_int,
+                c_int::from(p.max.is_some()),
                 p.max.map_or(0, DayDate::to_epoch_days),
                 id.0,
                 on_date,
@@ -100,7 +100,12 @@ mod time_renderer {
 
     fn make(_backend: &mut Qt, p: &TimeProps, id: NodeId) -> QtHandle {
         QtHandle(unsafe {
-            day_datetime_time_new(p.seconds as c_int, p.time.seconds_of_day(), id.0, on_time)
+            day_datetime_time_new(
+                c_int::from(p.seconds),
+                p.time.seconds_of_day(),
+                id.0,
+                on_time,
+            )
         })
     }
 

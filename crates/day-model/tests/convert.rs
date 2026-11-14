@@ -57,8 +57,8 @@ fn a_hex_string_binds_as_a_color() {
                 )
             },
         );
-        assert_eq!(color.peek(), Color::hex(0x3B82F6));
-        color.write(Color::hex(0x10B981));
+        assert_eq!(color.peek(), Color::hex(0x003B_82F6));
+        color.write(Color::hex(0x0010_B981));
         label("x").any()
     });
     flush_sync();

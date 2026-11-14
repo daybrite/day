@@ -25,7 +25,7 @@ static JS_THREAD: OnceLock<ThreadId> = OnceLock::new();
 
 /// Remember the JS thread and create the poster. Called from the host's NAPI entry points,
 /// which run on that thread; a repeat call is a no-op.
-pub fn init(env: &Env) -> napi_ohos::Result<()> {
+pub fn init(env: Env) -> napi_ohos::Result<()> {
     JS_THREAD.get_or_init(|| std::thread::current().id());
     if POSTER.get().is_some() {
         return Ok(());
@@ -43,7 +43,11 @@ pub fn init(env: &Env) -> napi_ohos::Result<()> {
             Ok(())
         })?;
     let _ = POSTER.set(poster);
-    let pending = std::mem::take(&mut *PENDING.lock().unwrap_or_else(|e| e.into_inner()));
+    let pending = std::mem::take(
+        &mut *PENDING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
     for job in pending {
         post(job);
     }
@@ -56,7 +60,10 @@ pub fn post(job: Job) {
         Some(p) => {
             p.call(job, ThreadsafeFunctionCallMode::NonBlocking);
         }
-        None => PENDING.lock().unwrap_or_else(|e| e.into_inner()).push(job),
+        None => PENDING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(job),
     }
 }
 
@@ -132,7 +139,7 @@ impl SameThread {
     // A method, so the posted closure captures the wrapper whole rather than its (non-Send)
     // field.
     fn run(self) {
-        (self.0)()
+        (self.0)();
     }
 }
 

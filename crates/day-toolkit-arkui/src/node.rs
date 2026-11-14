@@ -109,9 +109,10 @@ struct ImageNodes {
     tint: Option<u32>,
 }
 
-/// A native SVG Image with an optional SourceIn color layer. ArkUI's fillColor fills
+/// A native SVG Image with an optional `SourceIn` color layer. ArkUI's fillColor fills
 /// unpainted interiors, while its image colorFilter only affects SVG strokes. Compositing
 /// the complete native image preserves all painted alpha without a fixed-resolution cache.
+#[must_use]
 pub fn create_image() -> Handle {
     let root = create(STACK);
     let image = create(IMAGE);
@@ -153,6 +154,7 @@ pub(crate) fn image_node(n: Handle) -> Handle {
 
 /// The node API table, resolved on first use. `None` only before ArkUI's native module is
 /// loadable, in which case every operation below is a no-op.
+#[must_use]
 pub fn api() -> Option<&'static ArkUI_NativeNodeAPI_1> {
     API.with(|slot| {
         if let Some(p) = slot.get() {
@@ -185,8 +187,9 @@ macro_rules! api_call {
     };
 }
 
+#[must_use]
 pub fn density() -> f64 {
-    DENSITY.with(|d| d.get())
+    DENSITY.with(std::cell::Cell::get)
 }
 
 pub fn set_density(density: f64) {
@@ -201,18 +204,22 @@ pub(crate) fn cstr(s: &str) -> CString {
     })
 }
 
+#[must_use]
 pub fn f32v(v: f32) -> ArkUI_NumberValue {
     ArkUI_NumberValue { f32_: v }
 }
+#[must_use]
 pub fn i32v(v: i32) -> ArkUI_NumberValue {
     ArkUI_NumberValue { i32_: v }
 }
+#[must_use]
 pub fn u32v(v: u32) -> ArkUI_NumberValue {
     ArkUI_NumberValue { u32_: v }
 }
 
 // ---- tree -------------------------------------------------------------------------------
 
+#[must_use]
 pub fn create(kind: ArkUI_NodeType) -> Handle {
     api_call!(createNode(kind)).unwrap_or(ptr::null_mut())
 }
@@ -317,8 +324,8 @@ pub fn layout_frame_px(n: Handle) -> Option<(f64, f64, f64, f64)> {
     let ok = unsafe {
         // The layout-position query substitutes NODE_POSITION for the painted offset,
         // hiding native margins (and translations). Inspect where the widget really draws.
-        OH_ArkUI_NodeUtils_GetPositionWithTranslateInWindow(n, &mut pos) == 0
-            && OH_ArkUI_NodeUtils_GetLayoutSize(n, &mut size) == 0
+        OH_ArkUI_NodeUtils_GetPositionWithTranslateInWindow(n, &raw mut pos) == 0
+            && OH_ArkUI_NodeUtils_GetLayoutSize(n, &raw mut size) == 0
     };
     ok.then(|| {
         (
@@ -349,7 +356,7 @@ pub fn set_values(n: Handle, attr: Attr, values: &[ArkUI_NumberValue]) -> i32 {
         string: ptr::null(),
         object: ptr::null_mut(),
     };
-    api_call!(setAttribute(n, attr, &item)).unwrap_or(-1)
+    api_call!(setAttribute(n, attr, &raw const item)).unwrap_or(-1)
 }
 
 pub fn set_str(n: Handle, attr: Attr, s: &str) -> i32 {
@@ -370,7 +377,7 @@ pub fn set_str_values(n: Handle, attr: Attr, s: &str, values: &[ArkUI_NumberValu
         string: s.as_ptr(),
         object: ptr::null_mut(),
     };
-    api_call!(setAttribute(n, attr, &item)).unwrap_or(-1)
+    api_call!(setAttribute(n, attr, &raw const item)).unwrap_or(-1)
 }
 
 pub fn set_object(n: Handle, attr: Attr, object: *mut c_void) -> i32 {
@@ -380,7 +387,7 @@ pub fn set_object(n: Handle, attr: Attr, object: *mut c_void) -> i32 {
         string: ptr::null(),
         object,
     };
-    api_call!(setAttribute(n, attr, &item)).unwrap_or(-1)
+    api_call!(setAttribute(n, attr, &raw const item)).unwrap_or(-1)
 }
 
 /// Put an attribute back to ArkUI's own default.
@@ -644,7 +651,7 @@ pub fn measure_button(n: Handle, content: Handle, max_w: f64, max_h: f64) -> (f6
 }
 
 /// First text baseline from the node's top, in vp, for a box `box_h` tall (docs/baseline.md).
-/// The ArkUI C API exposes no baseline: NODE_FONT_SIZE is the only type metric a native node
+/// The ArkUI C API exposes no baseline: `NODE_FONT_SIZE` is the only type metric a native node
 /// will answer, so this centers one line box of that font in the node's height and puts the
 /// baseline an ascent below its top, the same model the Qt and XAML backends use. `None` ⇒ the
 /// node carries no font attribute, which is how a container or an image opts out.
@@ -838,12 +845,12 @@ pub fn set_placeholder(n: Handle, s: &str) {
     set_str(n, Attr::NODE_TEXT_INPUT_PLACEHOLDER, s);
 }
 
-/// The text a TextInput holds now.
+/// The text a `TextInput` holds now.
 pub fn input_text(n: Handle) -> String {
     get_item(n, Attr::NODE_TEXT_INPUT_TEXT).map_or_else(String::new, |it| text_of(it.string))
 }
 
-/// Select part of a TextInput's text (docs/textfield.md "Selection"): `sel` counts characters,
+/// Select part of a `TextInput`'s text (docs/textfield.md "Selection"): `sel` counts characters,
 /// the attribute UTF-16 units of the text the input holds now.
 pub fn select_input(n: Handle, sel: day_spec::props::TextSelection) {
     let (start, end) = sel.utf16(&input_text(n));
@@ -855,7 +862,7 @@ pub fn select_input(n: Handle, sel: day_spec::props::TextSelection) {
     );
 }
 
-/// Text entry traits on a TextInput (docs/textfield.md): the members ArkUI has an attribute
+/// Text entry traits on a `TextInput` (docs/textfield.md): the members ArkUI has an attribute
 /// for. Every one is written on every call, so a member back at its default leaves nothing
 /// behind. Read-only has no attribute; `lib.rs` holds it through [`watch_input_edits`].
 pub fn set_input_traits(n: Handle, traits: &day_spec::InputTraits) {
@@ -931,7 +938,7 @@ pub fn set_input_traits(n: Handle, traits: &day_spec::InputTraits) {
     // and the bound is in characters. day-pieces holds it.
 }
 
-/// Ask a TextInput before every insertion and deletion (docs/textfield.md): the receiver
+/// Ask a `TextInput` before every insertion and deletion (docs/textfield.md): the receiver
 /// answers each one, which is how a read-only field refuses edits while it stays focusable,
 /// selectable and copyable.
 pub fn watch_input_edits(n: Handle, id: u64) {
@@ -951,7 +958,7 @@ pub fn set_textarea_placeholder(n: Handle, s: &str) {
     set_str(n, Attr::NODE_TEXT_AREA_PLACEHOLDER, s);
 }
 
-/// TextArea has no persistent read-only or selection-enable property in the API 18 SDK.
+/// `TextArea` has no persistent read-only or selection-enable property in the API 18 SDK.
 /// Veto edits and collapse selection while retaining the native editor and its scrolling.
 pub fn watch_textarea_edits(n: Handle, id: u64) {
     use ArkUI_NodeEventType as Ev;
@@ -1053,7 +1060,12 @@ pub fn set_image_src(n: Handle, s: &str) {
     let image = image_node(n);
     if set_str(image, Attr::NODE_IMAGE_SRC, s) == 0 {
         crate::images::forget_node(image);
-        image_source_kind(n, s.ends_with(".svg"));
+        #[expect(
+            clippy::case_sensitive_file_extension_comparisons,
+            reason = "marks the vectors Day stages, whose names end in a lowercase `.svg`"
+        )]
+        let svg = s.ends_with(".svg");
+        image_source_kind(n, svg);
     }
 }
 
@@ -1162,7 +1174,7 @@ pub fn set_font_color(n: Handle, argb: u32) {
     set_u32(n, Attr::NODE_FONT_COLOR, argb);
 }
 
-/// A bundled custom font family (§18.4), registered by the ArkTS EntryAbility before the
+/// A bundled custom font family (§18.4), registered by the ArkTS `EntryAbility` before the
 /// native UI loads; ArkUI falls back to the default family when the name isn't registered.
 pub fn set_font_family(n: Handle, family: &str) {
     set_str(n, Attr::NODE_FONT_FAMILY, family);
@@ -1193,7 +1205,7 @@ pub fn set_font_weight_style(n: Handle, css_weight: i32, italic: bool) {
     set_i32(n, Attr::NODE_FONT_STYLE, style.0 as i32);
 }
 
-/// Clip children to the node's (rounded) bounds. NODE_BORDER_RADIUS rounds only the node's own
+/// Clip children to the node's (rounded) bounds. `NODE_BORDER_RADIUS` rounds only the node's own
 /// background; `.corner_radius` puts the fill on an inner node, so the outer one must clip.
 pub fn set_clip(n: Handle, on: bool) {
     set_i32(n, Attr::NODE_CLIP, i32::from(on));
@@ -1205,7 +1217,7 @@ pub fn set_opacity(n: Handle, opacity: f64) {
     set_f32(n, Attr::NODE_OPACITY, opacity as f32);
 }
 
-/// The pivot for scale + rotate, as fractions of the node's size (NODE_TRANSFORM_CENTER's
+/// The pivot for scale + rotate, as fractions of the node's size (`NODE_TRANSFORM_CENTER`'s
 /// percentage slots [3]/[4] override the vp slots [0]/[1]).
 pub fn set_transform_center(n: Handle, ax: f64, ay: f64) {
     set_values(
@@ -1238,7 +1250,7 @@ pub fn set_transform(n: Handle, tx: f64, ty: f64, sx: f64, sy: f64, deg: f64) {
 }
 
 /// A determinate progress bar: ArkUI uses a value in [0, total]; Day passes the 0..1 fraction,
-/// scaled onto a fixed 0..1000 range (like day-toolkit-material's LinearProgressIndicator ticks).
+/// scaled onto a fixed 0..1000 range (like day-toolkit-material's `LinearProgressIndicator` ticks).
 pub fn set_progress(n: Handle, fraction: f64) {
     set_f32(n, Attr::NODE_PROGRESS_TOTAL, 1000.0);
     set_f32(
@@ -1258,7 +1270,7 @@ pub fn set_visibility(n: Handle, visible: bool) {
     set_i32(n, Attr::NODE_VISIBILITY, v.0 as i32);
 }
 
-/// Start or stop an indeterminate spinner (a LOADING_PROGRESS node). A stopped one is HIDDEN,
+/// Start or stop an indeterminate spinner (a `LOADING_PROGRESS` node). A stopped one is HIDDEN,
 /// which keeps its layout box (so the row around it does not jump), as on Android and iOS.
 pub fn set_loading(n: Handle, on: bool) {
     set_i32(n, Attr::NODE_LOADING_PROGRESS_ENABLE_LOADING, i32::from(on));
@@ -1297,10 +1309,10 @@ pub fn set_a11y_text(n: Handle, label: &str) {
 ///   rather than released on the spot, so the node never points at freed text.
 /// - role → `NODE_ACCESSIBILITY_ROLE`, which takes an `ArkUI_NodeType`: a heading can only be
 ///   retyped as TEXT (its level has no attribute), a meter as PROGRESS, a group as STACK, and
-///   a tree as LIST / LIST_ITEM. `NODE_ACCESSIBILITY_GROUP` is deliberately NOT set for a group:
+///   a tree as LIST / `LIST_ITEM`. `NODE_ACCESSIBILITY_GROUP` is deliberately NOT set for a group:
 ///   it collapses the subtree into one focusable unit, which is the opposite of a container
 ///   whose children stay reachable.
-/// - hidden → `NODE_ACCESSIBILITY_MODE` DISABLED_FOR_DESCENDANTS. Hidden is sticky, so the mode
+/// - hidden → `NODE_ACCESSIBILITY_MODE` `DISABLED_FOR_DESCENDANTS`. Hidden is sticky, so the mode
 ///   is written only when set: nothing here ever puts a node back to AUTO.
 /// - identifier → `NODE_ID`, the component id the ArkTS inspector addresses nodes by.
 pub fn set_a11y(n: Handle, a11y: &day_spec::A11yProps) {
@@ -1329,6 +1341,10 @@ pub fn set_a11y(n: Handle, a11y: &day_spec::A11yProps) {
     }
     let role = match a11y.role {
         Role::None => None,
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one row per role; roles that share an ArkUI role stay separate rows"
+        )]
         Role::Button => Some(BUTTON),
         Role::Toggle => Some(TOGGLE),
         Role::Slider => Some(SLIDER),
@@ -1336,6 +1352,10 @@ pub fn set_a11y(n: Handle, a11y: &day_spec::A11yProps) {
         Role::Heading(_) => Some(TEXT),
         Role::Image => Some(IMAGE),
         Role::Meter => Some(PROGRESS),
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one row per role; roles that share an ArkUI role stay separate rows"
+        )]
         Role::Group => Some(STACK),
         Role::Tree => Some(LIST),
         Role::TreeItem => Some(LIST_ITEM),
@@ -1381,7 +1401,7 @@ pub fn menu_separator(n: Handle, argb: u32) {
     set_bg_color(n, argb);
 }
 
-/// A NAV_MENU / tab-bar row: full width, `height_vp` tall, left-aligned padded text.
+/// A `NAV_MENU` / tab-bar row: full width, `height_vp` tall, left-aligned padded text.
 pub fn style_row(n: Handle, height_vp: f64) {
     set_f32(n, Attr::NODE_WIDTH_PERCENT, 1.0);
     set_f32(n, Attr::NODE_HEIGHT, height_vp as f32);
@@ -1390,7 +1410,7 @@ pub fn style_row(n: Handle, height_vp: f64) {
     set_i32(n, Attr::NODE_TEXT_ALIGN, 0);
 }
 
-/// A NAV_MENU section title (docs/navigation.md): full width, medium weight, padded with more
+/// A `NAV_MENU` section title (docs/navigation.md): full width, medium weight, padded with more
 /// room above than below. `first` trims the top padding for the list's head.
 pub fn style_nav_heading(n: Handle, first: bool) {
     set_f32(n, Attr::NODE_WIDTH_PERCENT, 1.0);

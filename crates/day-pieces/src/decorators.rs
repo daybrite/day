@@ -97,6 +97,7 @@ impl Default for NativeRef {
 }
 
 impl NativeRef {
+    #[must_use]
     pub fn new() -> Self {
         NativeRef {
             cell: Rc::new(std::cell::Cell::new(None)),
@@ -105,6 +106,7 @@ impl NativeRef {
     }
 
     /// The mounted node, if it is currently live. A tracked read (see the type docs).
+    #[must_use]
     pub fn node(&self) -> Option<day_core::RNode> {
         self.changed.track();
         let node = self.cell.get()?;
@@ -173,6 +175,7 @@ type Build = Box<dyn FnOnce(&mut BuildCx) -> RNode>;
 ///
 /// Erase explicitly with `.any()` when a single [`AnyPiece`] is what's needed (a `Vec<AnyPiece>`, a
 /// `-> AnyPiece` signature).
+#[must_use]
 pub struct Decorated<P> {
     inner: P,
     /// Wrapping modifiers, applied outward in call order.
@@ -630,8 +633,8 @@ fn op_a11y(f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> impl FnOnce(
                                     selected: Some(*on),
                                     ..Default::default()
                                 },
-                            )
-                        })
+                            );
+                        });
                     },
                 );
             }
@@ -1052,7 +1055,7 @@ fn op_background(color: Reactive<Color>) -> impl FnOnce(Build) -> Build {
                     move || color.get(),
                     move |c: &Color| {
                         with_tree(|t| {
-                            t.patch(node, Box::new(ContainerPatch::Background(Some(*c))), false)
+                            t.patch(node, Box::new(ContainerPatch::Background(Some(*c))), false);
                         });
                     },
                 );
@@ -2191,6 +2194,7 @@ type LiveA11yString = (TextSource, fn(String) -> A11yProps);
 /// [`TextSource`]s, so each takes a literal, a `String`, a `Signal<String>` or a closure: a
 /// gauge's value follows the gauge, and a localized label follows the locale.
 #[derive(Default)]
+#[must_use]
 pub struct A11yBuilder {
     label: Option<TextSource>,
     hint: Option<TextSource>,
@@ -2347,11 +2351,11 @@ pub(crate) mod conformance {
             .page(move || {
                 column((
                     rectangle()
-                        .fill(day_spec::Color::hex(0x336699))
+                        .fill(day_spec::Color::hex(0x0033_6699))
                         .frame(width, height)
                         .id(day_core::id!(resizing)),
                     rectangle()
-                        .fill(day_spec::Color::hex(0x663399))
+                        .fill(day_spec::Color::hex(0x0066_3399))
                         .width(width)
                         .height(20.0)
                         .min_height(44.0)
@@ -2862,7 +2866,7 @@ pub(crate) mod conformance {
                             DragPhase::Ended => {
                                 format!("moved {:.0},{:.0}", d.translation.x, d.translation.y)
                             }
-                        })
+                        });
                     }),
                 ))
             })
@@ -2885,7 +2889,7 @@ pub(crate) mod conformance {
                         state.set(match p {
                             Some(p) => format!("over {:.0},{:.0}", p.x, p.y),
                             None => "out".into(),
-                        })
+                        });
                     }),
                 ))
             })
@@ -2914,7 +2918,7 @@ pub(crate) mod conformance {
                         total.update(|(x, y)| {
                             *x += p.delta.x;
                             *y += p.delta.y;
-                        })
+                        });
                     }),
                 ))
             })

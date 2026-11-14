@@ -4,7 +4,7 @@
 //! daybridge's ArkTS arms (docs/bridge.md "Callbacks") through `napi-ohos`.
 //!
 //! The host hands over the record `registerDayBridges()` built (`{ 'day_bridge_<crate>_<fn>':
-//! Function }`, kept in src/host_api.rs), and generated Rust reaches an arm through
+//! Function }`, kept in `src/host_api.rs`), and generated Rust reaches an arm through
 //! [`invoke`], which runs it on the JS thread: inline from that thread, posted and awaited from
 //! any other. An asynchronous arm gets its `Done` token as a trailing number and answers
 //! through `dayBridgeComplete`, or by returning a promise, which is settled into the same
@@ -110,7 +110,7 @@ pub fn complete(symbol: &str, done: u64, status: i32, value: Option<Unknown<'_>>
                     num = flt as i64;
                 }
                 ValueType::BigInt => {
-                    num = value.cast::<BigInt>().map(|b| b.get_i64().0).unwrap_or(0);
+                    num = value.cast::<BigInt>().map_or(0, |b| b.get_i64().0);
                     flt = num as f64;
                 }
                 ValueType::String => {
@@ -152,7 +152,7 @@ pub fn complete(symbol: &str, done: u64, status: i32, value: Option<Unknown<'_>>
             len,
             message.as_ptr(),
             message.len(),
-        )
+        );
     };
 }
 
@@ -169,8 +169,8 @@ fn error_message(err: &Unknown<'_>) -> String {
     message
         .unwrap_or(*err)
         .coerce_to_string()
-        .and_then(|s| s.into_utf8())
-        .and_then(|s| s.into_owned())
+        .and_then(napi_ohos::JsString::into_utf8)
+        .and_then(napi_ohos::JsStringUtf8::into_owned)
         .unwrap_or_default()
 }
 
@@ -204,7 +204,7 @@ fn call_here(env: &Env, symbol: &str, args: &[Owned], done: u64, out: &mut Arg) 
             }
         }
         let mut undefined = ptr::null_mut();
-        sys::napi_get_undefined(raw_env, &mut undefined);
+        sys::napi_get_undefined(raw_env, &raw mut undefined);
         let mut ret = ptr::null_mut();
         let status = sys::napi_call_function(
             raw_env,
@@ -212,13 +212,13 @@ fn call_here(env: &Env, symbol: &str, args: &[Owned], done: u64, out: &mut Arg) 
             fn_value.raw(),
             argv.len(),
             argv.as_ptr(),
-            &mut ret,
+            &raw mut ret,
         );
         let mut pending = false;
-        sys::napi_is_exception_pending(raw_env, &mut pending);
+        sys::napi_is_exception_pending(raw_env, &raw mut pending);
         if status != sys::Status::napi_ok || pending {
             let mut err = ptr::null_mut();
-            sys::napi_get_and_clear_last_exception(raw_env, &mut err);
+            sys::napi_get_and_clear_last_exception(raw_env, &raw mut err);
             log::error!("day-bridge: {symbol} threw");
             return 1;
         }
@@ -242,7 +242,7 @@ fn call_here(env: &Env, symbol: &str, args: &[Owned], done: u64, out: &mut Arg) 
             }
             ValueType::BigInt => {
                 out.kind = 2;
-                out.i = value.cast::<BigInt>().map(|b| b.get_i64().0).unwrap_or(0);
+                out.i = value.cast::<BigInt>().map_or(0, |b| b.get_i64().0);
                 out.f = out.i as f64;
             }
             _ => {}
@@ -342,13 +342,21 @@ pub unsafe fn invoke(
             }
             None => 2,
         };
-        *posted.result.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some((r, out.kind, out.i, out.f));
+        *posted
+            .result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((r, out.kind, out.i, out.f));
         posted.cv.notify_all();
     }));
-    let mut guard = job.result.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = job
+        .result
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     while guard.is_none() {
-        guard = job.cv.wait(guard).unwrap_or_else(|e| e.into_inner());
+        guard = job
+            .cv
+            .wait(guard)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
     let (r, kind, i, f) = guard.unwrap_or((2, -1, 0, 0.0));
     if !ret.is_null() {

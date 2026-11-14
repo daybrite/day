@@ -6,9 +6,9 @@
 //! signs a `.hap` via the staged host under `<project>/build/day/harmony/project/`; `launch_ohos`
 //! installs + starts it on a connected emulator/device over `hdc`.
 //!
-//! The emulator is an x86_64 OpenHarmony QEMU image: Oniro's (OpenHarmony 6.x), or
+//! The emulator is an `x86_64` OpenHarmony QEMU image: Oniro's (OpenHarmony 6.x), or
 //! harmony-contrib/ohos-qemu's `x86_64_virt` (7.0), told apart by [`EmulatorImage`]. Either is a
-//! networked hdc target (KVM-accelerated where `/dev/kvm` exists, i.e. x86_64 Linux CI, else
+//! networked hdc target (KVM-accelerated where `/dev/kvm` exists, i.e. `x86_64` Linux CI, else
 //! TCG), so every hdc call carries `-t <connect-key>` (default `127.0.0.1:55555`; override with
 //! `DAY_OHOS_TARGET`). Building a `.hap` needs cargo-ohos (which finds the OpenHarmony SDK's
 //! `native` component and drives the cross-compile, [`sdk_native`]), `hvigor` + `ohpm` on PATH
@@ -18,6 +18,7 @@
 //! parse its output for `Error Code:`), and `snapshot_display` writes JPEG (so the screenshot
 //! path prefers `uitest screenCap`, which writes PNG). See docs/harmonyos.md.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -81,12 +82,12 @@ pub(crate) fn exe_name(name: &str) -> String {
     }
 }
 
-/// The x86_64 OpenHarmony emulator images `emulator_launch` boots, by the layout of their
+/// The `x86_64` OpenHarmony emulator images `emulator_launch` boots, by the layout of their
 /// directory (`DAY_OHOS_EMULATOR`). Both run under the same QEMU recipe; they differ in their
 /// disks, kernel command line, and the port the guest's hdc listens on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EmulatorImage {
-    /// Eclipse Oniro's `oniro_emulator.zip` (device_board_oniro; OpenHarmony 5.x and 6.x):
+    /// Eclipse Oniro's `oniro_emulator.zip` (`device_board_oniro`; OpenHarmony 5.x and 6.x):
     /// four disks, hdc on guest port 55555.
     Oniro,
     /// harmony-contrib/ohos-qemu's `x86_64_virt` images (OpenHarmony 7.0): six disks (adding
@@ -243,8 +244,10 @@ impl EmulatorImage {
 pub(crate) fn emulator_images_dir() -> PathBuf {
     std::env::var_os("DAY_OHOS_EMULATOR")
         .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join("ohos").join("emulator").join("images"))
+        .map_or_else(
+            || home_dir().join("ohos").join("emulator").join("images"),
+            PathBuf::from,
+        )
 }
 
 /// The API levels a versioned SDK root (`OHOS_BASE_SDK_HOME`) holds: numeric subdirectories with
@@ -564,9 +567,7 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
                 "bootevent.boot.completed",
             ])
             .output()
-            .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "true")
-            .unwrap_or(false);
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true");
         if booted {
             status("Emulator", &format!("booted — hdc target {target}"));
             // Which OpenHarmony came up, so a log says whether a run was 6.x or 7.0.
@@ -656,8 +657,7 @@ pub fn hdc() -> Command {
 pub(crate) fn fport_engine(port: u16) {
     let key = ohos_devices()
         .first()
-        .map(|d| d.key.clone())
-        .unwrap_or_else(ohos_target);
+        .map_or_else(ohos_target, |d| d.key.clone());
     for attempt in 1..=5u32 {
         let _ = Command::new(hdc_bin()).args(["tconn", &key]).output();
         if fport_exists(&key, port) {
@@ -725,7 +725,7 @@ pub(crate) fn hdc_for(key: &str) -> Command {
 }
 
 /// A connected OpenHarmony target: its `hdc` connect key + the arch it runs (queried via
-/// `uname -m`, mapped to the Rust triple + hap ABI dir). An emulator is x86_64; a device is
+/// `uname -m`, mapped to the Rust triple + hap ABI dir). An emulator is `x86_64`; a device is
 /// arm64; the query tells them apart.
 pub(crate) struct OhosDevice {
     pub key: String,
@@ -795,8 +795,8 @@ fn ohos_arch_override(v: &str) -> (&'static str, &'static str) {
 ///
 /// The override is checked first, and that ordering matters. Probing devices first meant a
 /// distribution `day pack` changed shape depending on what happened to be plugged in: CI packs
-/// with `DAY_OHOS_ARCH=arm64` but boots an x86_64 emulator for the walkthrough first, so the hap
-/// shipped x86_64 and the same commit packed elsewhere shipped arm64. A pack must not be steered
+/// with `DAY_OHOS_ARCH=arm64` but boots an `x86_64` emulator for the walkthrough first, so the hap
+/// shipped `x86_64` and the same commit packed elsewhere shipped arm64. A pack must not be steered
 /// by an attached device (§20.3). Dev flows are unaffected: they leave the variable unset and
 /// still get every connected target's arch.
 /// Just the ABI names of `ohos_build_arches`, for the provenance record.
@@ -817,7 +817,7 @@ pub(crate) fn ohos_build_arches() -> Vec<(&'static str, &'static str)> {
         .into_iter()
         .map(|d| (d.triple, d.abi))
         .collect();
-    arches.sort();
+    arches.sort_unstable();
     arches.dedup();
     if arches.is_empty() {
         arches.push(("x86_64-unknown-linux-ohos", "x86_64"));
@@ -831,7 +831,7 @@ pub(crate) fn ohos_build_arches() -> Vec<(&'static str, &'static str)> {
 ///
 /// cargo-ohos owns the whole OpenHarmony cross environment (docs/harmonyos.md): it locates the
 /// SDK's `native` component, and for every wrapped cargo command sets the linker, the cc-rs
-/// compilers and archiver, the bindgen clang args, the CMake toolchain file and pkg-config
+/// compilers and archiver, the bindgen clang args, the `CMake` toolchain file and pkg-config
 /// sysroot for the target. Day adds only what is Day's: the target directory, the identity and
 /// bridge variables, and `OHOS_NDK_HOME`, which napi-ohos's build script reads under that name.
 pub(crate) fn cargo_ohos() -> Result<Command, String> {
@@ -854,7 +854,7 @@ pub(crate) fn cargo_ohos() -> Result<Command, String> {
 /// cargo-ohos reports them (`runtime_libraries` in `cargo ohos env --format json`: the C++
 /// standard library of the toolchain that compiled, `(soname, path)`). With the SDK's own clang
 /// that is `libc++_shared.so`; with an external LLVM (`--llvm`, `CARGO_OHOS_DOWNLOAD_PREBUILT`,
-/// which SpiderMonkey's prebuilt archives are built with) it is that toolchain's `libc++.so`,
+/// which `SpiderMonkey`'s prebuilt archives are built with) it is that toolchain's `libc++.so`,
 /// whose ABI namespace differs from the SDK's, so staging the SDK copy instead leaves the hap
 /// failing to load with "symbol not found". Empty when cargo-ohos predates the field, and the
 /// caller falls back to the SDK's `libc++_shared.so`.
@@ -1073,7 +1073,7 @@ fn shortcut_module(text: &str) -> Result<(String, Option<String>, String), Strin
 /// Write the declared permissions into `module.json5`, and their reasons into the module's string
 /// resources.
 ///
-/// HarmonyOS requires a user_grant permission's `reason` to be a `$string:` resource reference,
+/// HarmonyOS requires a `user_grant` permission's `reason` to be a `$string:` resource reference,
 /// not literal text, so the two files are written together. Both writers are idempotent and touch
 /// only what Day owns: a marker region in `module.json5`, and the `day_perm_reason_` prefix in
 /// `string.json`.
@@ -1119,13 +1119,14 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
         body.push_str(&e.name);
         body.push('"');
         if let Some(key) = &e.reason_key {
-            body.push_str(&format!(", \"reason\": \"$string:{key}\""));
+            let _ = write!(body, ", \"reason\": \"$string:{key}\"");
         }
         if let Some(ability) = ability {
-            body.push_str(&format!(
+            let _ = write!(
+                body,
                 ", \"usedScene\": {{ \"abilities\": [\"{ability}\"], \"when\": \"{}\" }}",
                 e.when
-            ));
+            );
         }
         body.push_str(" },\n");
     }
@@ -1242,11 +1243,12 @@ fn merge_day_strings(
     let mut out = String::from("{ \"string\": [\n");
     for (i, (name, value)) in kept.iter().enumerate() {
         let comma = if i + 1 == kept.len() { "" } else { "," };
-        out.push_str(&format!(
-            "  {{ \"name\": {}, \"value\": {} }}{comma}\n",
+        let _ = writeln!(
+            out,
+            "  {{ \"name\": {}, \"value\": {} }}{comma}",
             serde_json::to_string(name).unwrap_or_default(),
             serde_json::to_string(value).unwrap_or_default()
-        ));
+        );
     }
     out.push_str("] }\n");
     if out != before {
@@ -1259,7 +1261,7 @@ fn merge_day_strings(
 /// `$profile:shortcuts_config` JSON, an `ohos.ability.shortcuts` metadata entry on the main
 /// ability, and `day_shortcut_*` label strings merged into each locale's `string.json`
 /// (docs/deep-links.md "Shortcuts are saved deep links"). Each shortcut's want carries the
-/// deep link in `parameters["day.uri"]`; EntryAbility forwards it through the same `deepLink`
+/// deep link in `parameters["day.uri"]`; `EntryAbility` forwards it through the same `deepLink`
 /// call a `uris`-skill launch uses.
 fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
     let module = staged_harmony_dir(project).join("entry/src/main/module.json5");
@@ -1617,8 +1619,7 @@ fn bundle_installed_on(bundle: &str, key: &str) -> bool {
         hdc_for(key).args(["shell", "bm", "dump", "-a"]),
         LAUNCH_TIMEOUT,
     )
-    .map(|o| combined(&o).contains(bundle))
-    .unwrap_or(false)
+    .is_some_and(|o| combined(&o).contains(bundle))
 }
 
 pub fn launch_ohos(
@@ -1772,7 +1773,7 @@ fn install_and_start(
     // native `setEnv`) before `start()` runs the engine; this mirrors Android's intent extras.
     let mut args: Vec<String> = ["shell", "aa", "start", "-a", "EntryAbility", "-b", bundle]
         .iter()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
     for (k, v) in &spec.envs {
         let param = match k.as_str() {
@@ -1834,7 +1835,7 @@ fn install_and_start(
 /// is (180, 600) to (180, 102), the swipe verified headlessly: after `power-shell wakeup` the
 /// lock screen shows "Please slide to unlock", and it lands on the home screen. On an unlocked
 /// screen the swipe is a harmless scroll. The panel is the guest's own screen size, asked of its
-/// RenderService: the size `emulator_launch` requested is not always what the guest runs at,
+/// `RenderService`: the size `emulator_launch` requested is not always what the guest runs at,
 /// since QEMU's GTK window (a windowed boot on Linux) hands virtio-gpu its own 640×480, and a
 /// swipe aimed at the requested 360×720 then starts below the screen and never unlocks. When the
 /// query fails the requested panel is used, read back from `DAY_OHOS_PANEL`; unset means the
@@ -1861,7 +1862,7 @@ fn unlock_keyguard(key: &str) {
         .status();
 }
 
-/// The guest's current screen size, from RenderService's screen dump (best-effort).
+/// The guest's current screen size, from `RenderService`'s screen dump (best-effort).
 fn guest_screen_size(key: &str) -> Option<(u32, u32)> {
     let out = hdc_for(key)
         .args(["shell", "hidumper", "-s", "RenderService", "-a", "screen"])
@@ -1870,7 +1871,7 @@ fn guest_screen_size(key: &str) -> Option<(u32, u32)> {
     parse_screen_dump(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// The first screen's `physical resolution=WxH` in a RenderService screen dump.
+/// The first screen's `physical resolution=WxH` in a `RenderService` screen dump.
 fn parse_screen_dump(dump: &str) -> Option<(u32, u32)> {
     let rest = dump.split("physical resolution=").nth(1)?;
     let size = rest.split(|c: char| c == ',' || c.is_whitespace()).next()?;
@@ -1893,11 +1894,14 @@ static HILOG_READERS: std::sync::Mutex<std::collections::BTreeMap<String, LogChi
 pub(crate) fn stop_hilog(key: &str) {
     let child = HILOG_READERS
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .remove(key);
     if let Some(child) = child {
         // Child::kill cannot target a reused pid: the reader owns and reaps this Child.
-        let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+        let _ = child
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .kill();
     }
 }
 
@@ -1952,7 +1956,7 @@ fn spawn_hilog(mut command: Command, key: &str, label: &str) -> std::thread::Joi
     let child = std::sync::Arc::new(std::sync::Mutex::new(child));
     HILOG_READERS
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(key.into(), child.clone());
     let key = key.to_owned();
     let label = label.to_owned();
@@ -1963,14 +1967,20 @@ fn spawn_hilog(mut command: Command, key: &str, label: &str) -> std::thread::Joi
         // EOF can precede process exit. Do not hold the mutex in Child::wait: stop_hilog
         // must still be able to acquire it and kill a helper that closed stdout but hung.
         loop {
-            match child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
+            match child
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .try_wait()
+            {
                 Ok(None) => {}
                 Ok(Some(_)) | Err(_) => break,
             }
             std::thread::sleep(Duration::from_millis(20));
         }
         crate::signals::forget_child(pid);
-        let mut readers = HILOG_READERS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut readers = HILOG_READERS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if readers
             .get(&key)
             .is_some_and(|current| std::sync::Arc::ptr_eq(current, &child))
@@ -2210,11 +2220,11 @@ mod emulator_image_tests {
     fn layouts_are_told_apart_by_their_files() {
         let oniro = scratch("oniro", EmulatorImage::Oniro.files());
         assert_eq!(EmulatorImage::detect(&oniro), Ok(EmulatorImage::Oniro));
-        assert!(EmulatorImage::Oniro.missing(&oniro).is_empty());
+        assert_eq!(EmulatorImage::Oniro.missing(&oniro), [] as [&str; 0]);
 
         let seven = scratch("ohos-qemu", EmulatorImage::OhosQemu.files());
         assert_eq!(EmulatorImage::detect(&seven), Ok(EmulatorImage::OhosQemu));
-        assert!(EmulatorImage::OhosQemu.missing(&seven).is_empty());
+        assert_eq!(EmulatorImage::OhosQemu.missing(&seven), [] as [&str; 0]);
 
         // One extra partition is enough to call it ohos-qemu, and then the rest are reported.
         let partial = scratch("partial", &["bzImage", "sys_prod.img"]);

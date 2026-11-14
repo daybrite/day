@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Mock e2e for the styled-text editor (the day-pieces mock_e2e pattern).
+//! Mock e2e for the styled-text editor (the day-pieces `mock_e2e` pattern).
 //!
 //! What these pin is the contract every native arm is written against, on the one backend where it
 //! can be driven without a window: a character edit reported as plain text is diffed and reflowed

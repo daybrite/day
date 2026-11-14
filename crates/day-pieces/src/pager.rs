@@ -139,7 +139,7 @@ impl Piece for Pager {
             day_reactive::Effect::new(move || {
                 let value = state.get();
                 day_core::with_tree(|tree| {
-                    tree.patch(node, Box::new(PagerPatch(value.clone())), false)
+                    tree.patch(node, Box::new(PagerPatch(value.clone())), false);
                 });
             });
         }
@@ -179,7 +179,7 @@ pub mod conformance {
                             state.update(|s| {
                                 s.order.reverse();
                                 s.epoch += 1;
-                            })
+                            });
                         })
                         .id(day_core::id!(pager::pager_reverse)),
                     pager(
@@ -210,6 +210,7 @@ pub mod conformance {
 }
 
 /// Whether the selected toolkit implements this control.
+#[must_use]
 pub fn support() -> day_spec::Support {
     day_core::capability(day_spec::Cap::Pager)
 }

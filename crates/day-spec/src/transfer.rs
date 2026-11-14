@@ -29,9 +29,11 @@ pub struct Item {
     pub representations: Vec<Representation>,
 }
 impl Item {
+    #[must_use]
     pub fn new(representations: Vec<Representation>) -> Self {
         Self { representations }
     }
+    #[must_use]
     pub fn get(&self, mime: &str) -> Option<&[u8]> {
         self.representations
             .iter()
@@ -62,6 +64,7 @@ pub struct Location {
     pub local: bool,
 }
 impl Location {
+    #[must_use]
     pub fn has(&self, mime: &str) -> bool {
         self.types.iter().any(|m| m == mime)
     }
@@ -85,6 +88,7 @@ pub struct Target {
     pub receive: Rc<dyn Fn(Drop) -> bool>,
 }
 impl Target {
+    #[must_use]
     pub fn proposal(&self, location: &Location) -> Operation {
         let op = crate::ffi_guard::contain(Operation::None, || (self.accept)(location));
         if location.allowed.contains(&op) {
@@ -93,6 +97,11 @@ impl Target {
             Operation::None
         }
     }
+    #[must_use]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public signature; toolkits pass the location they built for this drop"
+    )]
     pub fn deliver(&self, location: Location, offer: Offer) -> bool {
         let op = self.proposal(&location);
         op != Operation::None
@@ -110,6 +119,7 @@ impl Target {
 /// Bounded, versioned transport for multiple items through native MIME providers. Standard
 /// image and file formats are published alongside this, for applications that do not know Day.
 impl Offer {
+    #[must_use]
     pub fn types(&self) -> Vec<String> {
         let mut out = Vec::new();
         for r in self.items.iter().flat_map(|i| &i.representations) {
@@ -119,6 +129,7 @@ impl Offer {
         }
         out
     }
+    #[must_use]
     pub fn encode(&self) -> Option<Vec<u8>> {
         if self.items.is_empty() || self.items.len() > MAX_ITEMS {
             return None;
@@ -151,6 +162,7 @@ impl Offer {
         }
         Some(out)
     }
+    #[must_use]
     pub fn decode(mut bytes: &[u8]) -> Option<Self> {
         fn take<'a>(b: &mut &'a [u8], n: usize) -> Option<&'a [u8]> {
             let (a, rest) = b.split_at_checked(n)?;
@@ -199,6 +211,7 @@ impl Offer {
         Some(Self { items })
     }
 }
+#[must_use]
 pub fn valid_mime(m: &str) -> bool {
     m.len() <= 255
         && m.split_once('/')

@@ -42,6 +42,7 @@ pub struct DeviceInfo {
 
 /// Read the current device-identity snapshot via the platform's native API. Never panics; unknown
 /// fields fall back to `"Unknown"` (or the OS family name for `system_name`).
+#[must_use]
 pub fn get() -> DeviceInfo {
     imp::get()
 }

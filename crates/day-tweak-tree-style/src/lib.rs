@@ -25,6 +25,7 @@ use day_pieces::Decorate;
 /// The tree treatments to apply. Combine with the builder methods; each backend applies
 /// what it supports (see the crate table).
 #[derive(Clone, Copy, Debug, Default)]
+#[must_use]
 pub struct TreeStyle {
     /// The sidebar look: the tree's own background goes clear so the hosting pane shows
     /// through (AppKit), or the platform's sidebar list class applies (GTK).

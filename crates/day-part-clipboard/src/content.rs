@@ -39,6 +39,13 @@ pub type ClipboardFuture<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
 pub const MAX_BYTES: usize = 64 * 1024 * 1024;
 
 impl Content {
+    /// Check the content against the limits every platform arm enforces before a write.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidData`] when there are no representations, more than 32, a malformed MIME
+    /// type, or the same type twice. [`Error::TooLarge`] when the bytes total more than
+    /// [`MAX_BYTES`].
     pub fn validate(&self) -> Result<(), Error> {
         if self.0.is_empty() || self.0.len() > 32 {
             return Err(Error::InvalidData);
@@ -95,6 +102,10 @@ pub fn read(preferred: &[&str]) -> ClipboardFuture<Option<Representation>> {
 /// Replace the clipboard with alternate representations. Returns the types actually written;
 /// platforms with restricted formats may accept a subset. Cut only after this succeeds.
 /// No previous-copy fallback is used: an empty/denied clipboard never resurrects stale data.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "public signature; only some platform arms consume the content, so the finding differs per target"
+)]
 pub fn write(content: Content) -> ClipboardFuture<Vec<String>> {
     if let Err(e) = content.validate() {
         return Box::pin(std::future::ready(Err(e)));

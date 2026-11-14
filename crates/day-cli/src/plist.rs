@@ -28,6 +28,7 @@
 //! depth-blind editor would happily mistake it for a top-level key and rewrite the wrong element.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 /// Every top-level `<key>` whose value is a `<string>`, mapped to that string.
 ///
@@ -206,7 +207,7 @@ pub fn apply_string_keys(
         // Copy up to the start of the line, not to the tag: the line's leading indentation belongs
         // to the entry being rewritten, and copying it here as well would double it on every pass
         // (which is what breaks byte-for-byte idempotency).
-        let line_start = text[..*start].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let line_start = text[..*start].rfind('\n').map_or(0, |p| p + 1);
         if remove.contains(key.as_str()) {
             out.push_str(&text[cursor..line_start]);
             cursor = skip_to_next_line(text, *end);
@@ -216,7 +217,7 @@ pub fn apply_string_keys(
             out.push_str(&text[cursor..line_start]);
             out.push_str(&line_endings_of(
                 text,
-                entry_xml(key, new, indent_of(text, *start)),
+                entry_xml(key, new, &indent_of(text, *start)),
             ));
             written.insert(key.as_str());
             cursor = skip_to_next_line(text, *end);
@@ -236,9 +237,9 @@ pub fn apply_string_keys(
         let indent = indent_of(&out, anchor) + "\t";
         let mut block = String::new();
         for (k, v) in missing {
-            block.push_str(&entry_xml(k, v, indent.clone()));
+            block.push_str(&entry_xml(k, v, &indent));
         }
-        let line_start = out[..anchor].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let line_start = out[..anchor].rfind('\n').map_or(0, |p| p + 1);
         let block = line_endings_of(&out, block);
         out.insert_str(line_start, &block);
     }
@@ -319,7 +320,7 @@ fn splice(text: &str, key: &str, render: Option<Render>) -> Result<String, Strin
     match (entry, render) {
         // Replace in place, preserving position.
         (Some((_, _, start, end)), Some(render)) => {
-            let line_start = text[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
+            let line_start = text[..start].rfind('\n').map_or(0, |p| p + 1);
             let indent = indent_of(text, start);
             let mut out = String::with_capacity(text.len() + 256);
             out.push_str(&text[..line_start]);
@@ -329,7 +330,7 @@ fn splice(text: &str, key: &str, render: Option<Render>) -> Result<String, Strin
         }
         // Remove.
         (Some((_, _, start, end)), None) => {
-            let line_start = text[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
+            let line_start = text[..start].rfind('\n').map_or(0, |p| p + 1);
             let mut out = String::with_capacity(text.len());
             out.push_str(&text[..line_start]);
             out.push_str(&text[skip_to_next_line(text, end)..]);
@@ -341,7 +342,7 @@ fn splice(text: &str, key: &str, render: Option<Render>) -> Result<String, Strin
                 .rfind("</dict>")
                 .ok_or_else(|| "Info.plist has no closing </dict>".to_string())?;
             let indent = indent_of(text, anchor) + "\t";
-            let line_start = text[..anchor].rfind('\n').map(|p| p + 1).unwrap_or(0);
+            let line_start = text[..anchor].rfind('\n').map_or(0, |p| p + 1);
             let mut out = String::with_capacity(text.len() + 256);
             out.push_str(&text[..line_start]);
             out.push_str(&line_endings_of(text, render(&indent)?));
@@ -358,26 +359,38 @@ fn value_xml(value: &::plist::Value, indent: &str, out: &mut String) -> Result<(
     use ::plist::Value;
     let inner = format!("{indent}\t");
     match value {
-        Value::String(s) => out.push_str(&format!("{indent}<string>{}</string>\n", escape(s))),
-        Value::Boolean(b) => out.push_str(&format!("{indent}<{b}/>\n")),
-        Value::Integer(i) => out.push_str(&format!("{indent}<integer>{i}</integer>\n")),
-        Value::Real(r) => out.push_str(&format!("{indent}<real>{r}</real>\n")),
-        Value::Array(a) if a.is_empty() => out.push_str(&format!("{indent}<array/>\n")),
+        Value::String(s) => {
+            let _ = writeln!(out, "{indent}<string>{}</string>", escape(s));
+        }
+        Value::Boolean(b) => {
+            let _ = writeln!(out, "{indent}<{b}/>");
+        }
+        Value::Integer(i) => {
+            let _ = writeln!(out, "{indent}<integer>{i}</integer>");
+        }
+        Value::Real(r) => {
+            let _ = writeln!(out, "{indent}<real>{r}</real>");
+        }
+        Value::Array(a) if a.is_empty() => {
+            let _ = writeln!(out, "{indent}<array/>");
+        }
         Value::Array(a) => {
-            out.push_str(&format!("{indent}<array>\n"));
+            let _ = writeln!(out, "{indent}<array>");
             for v in a {
                 value_xml(v, &inner, out)?;
             }
-            out.push_str(&format!("{indent}</array>\n"));
+            let _ = writeln!(out, "{indent}</array>");
         }
-        Value::Dictionary(d) if d.is_empty() => out.push_str(&format!("{indent}<dict/>\n")),
+        Value::Dictionary(d) if d.is_empty() => {
+            let _ = writeln!(out, "{indent}<dict/>");
+        }
         Value::Dictionary(d) => {
-            out.push_str(&format!("{indent}<dict>\n"));
+            let _ = writeln!(out, "{indent}<dict>");
             for (k, v) in d {
-                out.push_str(&format!("{inner}<key>{}</key>\n", escape(k)));
+                let _ = writeln!(out, "{inner}<key>{}</key>", escape(k));
                 value_xml(v, &inner, out)?;
             }
-            out.push_str(&format!("{indent}</dict>\n"));
+            let _ = writeln!(out, "{indent}</dict>");
         }
         other => return Err(format!("Day writes no {other:?} value into an Info.plist")),
     }
@@ -387,31 +400,32 @@ fn value_xml(value: &::plist::Value, indent: &str, out: &mut String) -> Result<(
 fn dict_array_xml(key: &str, dicts: &[Vec<(String, String)>], indent: &str) -> String {
     let mut s = format!("{indent}<key>{}</key>\n{indent}<array>\n", escape(key));
     for pairs in dicts {
-        s.push_str(&format!("{indent}\t<dict>\n"));
+        let _ = writeln!(s, "{indent}\t<dict>");
         for (k, v) in pairs {
-            s.push_str(&format!(
-                "{indent}\t\t<key>{}</key>\n{indent}\t\t<string>{}</string>\n",
+            let _ = writeln!(
+                s,
+                "{indent}\t\t<key>{}</key>\n{indent}\t\t<string>{}</string>",
                 escape(k),
                 escape(v)
-            ));
+            );
         }
-        s.push_str(&format!("{indent}\t</dict>\n"));
+        let _ = writeln!(s, "{indent}\t</dict>");
     }
-    s.push_str(&format!("{indent}</array>\n"));
+    let _ = writeln!(s, "{indent}</array>");
     s
 }
 
 fn array_xml(key: &str, values: &[String], indent: &str) -> String {
     let mut s = format!("{indent}<key>{}</key>\n{indent}<array>\n", escape(key));
     for v in values {
-        s.push_str(&format!("{indent}\t<string>{}</string>\n", escape(v)));
+        let _ = writeln!(s, "{indent}\t<string>{}</string>", escape(v));
     }
-    s.push_str(&format!("{indent}</array>\n"));
+    let _ = writeln!(s, "{indent}</array>");
     s
 }
 
 /// One `<key>`/`<string>` pair, indented to match its neighbors.
-fn entry_xml(key: &str, value: &str, indent: String) -> String {
+fn entry_xml(key: &str, value: &str, indent: &str) -> String {
     format!(
         "{indent}<key>{}</key>\n{indent}<string>{}</string>\n",
         escape(key),
@@ -421,7 +435,7 @@ fn entry_xml(key: &str, value: &str, indent: String) -> String {
 
 /// The whitespace at the start of the line containing `pos`.
 fn indent_of(text: &str, pos: usize) -> String {
-    let line_start = text[..pos].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let line_start = text[..pos].rfind('\n').map_or(0, |p| p + 1);
     text[line_start..pos]
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')

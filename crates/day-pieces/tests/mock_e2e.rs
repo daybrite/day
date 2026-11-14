@@ -12,7 +12,7 @@ use day_reactive::flush_sync;
 use day_spec::{Event, NodeId, Size, WindowOptions};
 
 /// Serializes boots against env mutation: `launch_with` reads process-global env
-/// (DAY_DEEPLINK), and tests run on parallel threads.
+/// (`DAY_DEEPLINK`), and tests run on parallel threads.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
@@ -157,7 +157,10 @@ fn menu_button_resolves_entries_on_open_and_runs_the_chosen_action() {
     // Disabled: the native control greys out, and nothing opens.
     open.set(false);
     flush_sync();
-    assert!(provider(day_spec::Point::ZERO).is_empty());
+    assert_eq!(
+        provider(day_spec::Point::ZERO),
+        [] as [day_spec::MenuItem; 0]
+    );
     let (_, button) = probe.find_by_kind("day.button").into_iter().next().unwrap();
     assert!(!button.enabled);
 }
@@ -262,11 +265,10 @@ fn text_builder_links_use_route_paths_and_query_parameters() {
                 .style(NavStyle::Tabs)
                 .item("welcome", "Welcome", || label("welcome-page"))
                 .item("other", "Other", move || {
-                    nav_stack(other_path, label("other-root"))
-                        .destination(|key| label(key.to_string()))
+                    nav_stack(other_path, label("other-root")).destination(|key| label(key.clone()))
                 })
                 .item("drill", "Drill", move || {
-                    nav_stack(path, label("root")).destination(|key| label(key.to_string()))
+                    nav_stack(path, label("root")).destination(|key| label(key.clone()))
                 }),
         ))
     });
@@ -289,7 +291,7 @@ fn text_builder_links_use_route_paths_and_query_parameters() {
     assert_eq!(route_param("mode").as_deref(), Some("edit item"));
     open_link("#");
     flush_sync();
-    assert!(path.get_untracked().is_empty());
+    assert_eq!(path.get_untracked(), [] as [std::string::String; 0]);
     assert!(!probe.log().iter().any(|op| op.starts_with("open_url ")));
 }
 
@@ -340,7 +342,9 @@ fn boot_with_env(
     env: Option<(&str, &str)>,
     root: impl FnOnce() -> AnyPiece + 'static,
 ) -> MockProbe {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((k, v)) = env {
         unsafe { std::env::set_var(k, v) };
     }
@@ -361,7 +365,9 @@ fn boot_with_env(
 /// Boot with a named window, for the tests that assert what a window is called. The mock
 /// backend is untagged (`debug_title_tag`), so the title asserts verbatim.
 fn boot_titled(title: &str, root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     day_core::launch_with(
@@ -379,7 +385,9 @@ fn boot_titled(title: &str, root: impl FnOnce() -> AnyPiece + 'static) -> MockPr
 /// Boot a mock that can present split panes, in a window of `size`, so the launch size class
 /// decides the presentation exactly as it does on a real toolkit (docs/size-classes.md).
 fn boot_splittable(size: Size, root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     // Read during the build, so it has to be set before launching.
@@ -565,8 +573,7 @@ fn label_y(probe: &MockProbe, text: &str) -> f64 {
         .find_by_kind("day.label")
         .into_iter()
         .find(|(_, w)| w.text == text)
-        .map(|(_, w)| w.frame.origin.y)
-        .unwrap_or_else(|| panic!("no label {text:?}"))
+        .map_or_else(|| panic!("no label {text:?}"), |(_, w)| w.frame.origin.y)
 }
 
 /// A column holding a capped scroll: the title, the scroll, and the button under it.
@@ -1211,7 +1218,7 @@ fn each_rerun_without_a_reorder_leaves_the_native_children_alone() {
         column((each(
             day_pieces::items(
                 move || {
-                    bump.get(); // the coarse read the order does not depend on
+                    let _ = bump.get(); // the coarse read the order does not depend on
                     items.get()
                 },
                 |t: &(u64, String)| t.0,
@@ -1779,7 +1786,7 @@ fn nav_filtered_rows_keep_a_live_detail() {
                     let needle = q.get();
                     all.iter()
                         .filter(|t| day_localization::matches_search_in("en", t, &needle))
-                        .map(|t| t.to_string())
+                        .map(std::string::ToString::to_string)
                         .collect::<Vec<_>>()
                 },
                 |r: &String| item(r.clone(), r.clone()),
@@ -1914,7 +1921,9 @@ fn boot_content_list(
     size: Size,
     root: impl FnOnce() -> AnyPiece + 'static,
 ) -> MockProbe {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.set_nav_split(true);
@@ -2845,7 +2854,7 @@ fn stack_root_retitles_native_bar_live() {
     let probe = boot(move || {
         nav_stack(path, label("root"))
             .title(move || name.get())
-            .destination(|key| label(key.to_string()))
+            .destination(|key| label(key.clone()))
             .any()
     });
     let nav = probe.find_by_kind("day.nav")[0].0;
@@ -3073,7 +3082,7 @@ fn absolute_route_replaces_remembered_path_in_newly_mounted_stack() {
     );
     assert!(day_core::nav_back());
     flush_sync();
-    assert!(path.get().is_empty());
+    assert_eq!(path.get(), [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -3357,7 +3366,7 @@ fn prompt_returns_text_or_none() {
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
     let (req, _) = day_core::pending_presentation().unwrap();
-    day_core::respond_presentation(req, PresentResult::Text("Ada".into()));
+    let _ = day_core::respond_presentation(req, PresentResult::Text("Ada".into()));
     flush_sync();
     assert_eq!(*out.borrow(), Some(Some("Ada".to_string())));
 }
@@ -3398,12 +3407,12 @@ fn alert_returns_typed_payload_and_sequences() {
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
     // First modal: [Keep(0), Delete(1), Cancel(2)]; pick Delete.
     let (req, _) = day_core::pending_presentation().unwrap();
-    day_core::respond_presentation(req, PresentResult::Button(1));
+    let _ = day_core::respond_presentation(req, PresentResult::Button(1));
     flush_sync();
     // The flow chained into a second modal (the prompt).
     let (req2, spec2) = day_core::pending_presentation().expect("prompt pending");
     assert_eq!(spec2.title(), "Confirm name");
-    day_core::respond_presentation(req2, PresentResult::Text("x".into()));
+    let _ = day_core::respond_presentation(req2, PresentResult::Text("x".into()));
     flush_sync();
     assert_eq!(out.borrow().as_slice(), ["deleted Some(\"x\")"]);
 }
@@ -3417,7 +3426,7 @@ fn five_item_list() -> AnyPiece {
     let items = Signal::new(
         ["a", "b", "c", "d", "e"]
             .iter()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<Vec<_>>(),
     );
     list(
@@ -3479,6 +3488,10 @@ fn list_recycles_cells_with_a_slot_write_not_a_rebuild() {
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "the mock reports the exact constants the test set"
+)]
 fn pooled_list_cells_skip_resize_and_dirty_layout_until_rebound() {
     // Synthetic viewport history: hundreds of physical cells, only one still displayed.
     let changed = Signal::new(false);
@@ -3721,7 +3734,7 @@ fn reorderable_list(
 fn seed() -> Vec<String> {
     ["a", "b", "c", "d", "e"]
         .iter()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect()
 }
 
@@ -3969,11 +3982,15 @@ fn list_stick_to_bottom_scrolls_on_data_change() {
 // The chat-bubble recipe: a padded label on a rounded colored surface. `background` and
 // `corner_radius` each wrap the piece in a native container carrying the surface style.
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "the mock reports the exact constants the test set"
+)]
 fn background_and_corner_radius_form_a_rounded_surface() {
     let probe = boot(|| {
         label("Hi")
             .padding(10.0)
-            .background(Color::hex(0x2F6FDE))
+            .background(Color::hex(0x002F_6FDE))
             .corner_radius(12.0)
             .any()
     });
@@ -3983,7 +4000,7 @@ fn background_and_corner_radius_form_a_rounded_surface() {
     assert_eq!(
         containers
             .iter()
-            .filter(|(_, w)| w.background == Some(Color::hex(0x2F6FDE)))
+            .filter(|(_, w)| w.background == Some(Color::hex(0x002F_6FDE)))
             .count(),
         1,
         "one colored surface"
@@ -4001,19 +4018,22 @@ fn background_and_corner_radius_form_a_rounded_surface() {
 // A reactive background repaints the surface (one Background patch) when its signal changes.
 #[test]
 fn reactive_background_patches_the_surface() {
-    let color = Signal::new(Color::hex(0x111111));
+    let color = Signal::new(Color::hex(0x0011_1111));
     let probe = boot(move || label("x").background(move || color.get()).any());
     let surface = probe
         .find_by_kind("day.container")
         .into_iter()
-        .find(|(_, w)| w.background == Some(Color::hex(0x111111)))
+        .find(|(_, w)| w.background == Some(Color::hex(0x0011_1111)))
         .expect("colored surface")
         .0;
 
     probe.clear_log();
-    batch(|| color.set(Color::hex(0xEE0000)));
+    batch(|| color.set(Color::hex(0x00EE_0000)));
     flush_sync();
-    assert_eq!(probe.widget(surface).background, Some(Color::hex(0xEE0000)));
+    assert_eq!(
+        probe.widget(surface).background,
+        Some(Color::hex(0x00EE_0000))
+    );
     assert!(
         probe.mutations().iter().any(|m| m.contains("bg=")),
         "one background patch"
@@ -4025,14 +4045,14 @@ fn reactive_background_patches_the_surface() {
 fn grow_w_fills_the_available_width() {
     let probe = boot(|| {
         row((label("a")
-            .background(Color::hex(0x222222))
+            .background(Color::hex(0x0022_2222))
             .grow(Dimension::Width),))
         .any()
     });
     let surface = probe
         .find_by_kind("day.container")
         .into_iter()
-        .find(|(_, w)| w.background == Some(Color::hex(0x222222)))
+        .find(|(_, w)| w.background == Some(Color::hex(0x0022_2222)))
         .expect("colored surface")
         .0;
     // The 400pt-wide window: the growing surface takes the whole width, not the label's intrinsic.
@@ -4047,8 +4067,8 @@ fn grow_w_fills_the_available_width() {
 fn shape_records_fill_then_stroke() {
     let probe = boot(|| {
         circle()
-            .fill(Color::hex(0xff0000))
-            .stroke(Color::hex(0x0000ff), 2.0)
+            .fill(Color::hex(0x00ff_0000))
+            .stroke(Color::hex(0x0000_00ff), 2.0)
             .frame(100.0, 100.0)
             .any()
     });
@@ -4070,7 +4090,7 @@ fn shape_records_fill_then_stroke() {
 fn shape_rotate_wraps_geometry_in_a_transform() {
     let probe = boot(|| {
         rectangle()
-            .fill(Color::hex(0x00ff00))
+            .fill(Color::hex(0x0000_ff00))
             .rotate(45.0)
             .frame(80.0, 80.0)
             .any()
@@ -4118,9 +4138,9 @@ fn shape_fill_rebinds_reactively() {
         circle()
             .fill(move || {
                 if on.get() {
-                    Color::hex(0xff0000)
+                    Color::hex(0x00ff_0000)
                 } else {
-                    Color::hex(0x222222)
+                    Color::hex(0x0022_2222)
                 }
             })
             .frame(60.0, 60.0)
@@ -4147,9 +4167,9 @@ fn shape_fill_linear_records_gradient_paint() {
         rectangle()
             .fill_linear(move || {
                 if night.get() {
-                    LinearGradient::vertical(Color::hex(0x0e1430), Color::hex(0x2c3a66))
+                    LinearGradient::vertical(Color::hex(0x000e_1430), Color::hex(0x002c_3a66))
                 } else {
-                    LinearGradient::vertical(Color::hex(0x2e6fb8), Color::hex(0x7fb2e5))
+                    LinearGradient::vertical(Color::hex(0x002e_6fb8), Color::hex(0x007f_b2e5))
                 }
             })
             .frame(60.0, 60.0)
@@ -4319,8 +4339,8 @@ fn shape_fill_radial_records_gradient_paint() {
     let probe = boot(move || {
         circle()
             .fill_radial(RadialGradient::centered(
-                Color::hex(0xfff2b0),
-                Color::hex(0x3e86c9),
+                Color::hex(0x00ff_f2b0),
+                Color::hex(0x003e_86c9),
             ))
             .frame(60.0, 60.0)
             .any()
@@ -4355,7 +4375,7 @@ fn line_records_stroke_only_at_unit_points() {
     let probe = boot(|| {
         line((0.16, 0.72), (0.84, 0.72))
             .fill(Color::WHITE) // ignored: a line has no interior
-            .stroke(Color::hex(0xffffff), 2.0)
+            .stroke(Color::hex(0x00ff_ffff), 2.0)
             .frame(100.0, 100.0)
             .any()
     });
@@ -4366,7 +4386,7 @@ fn line_records_stroke_only_at_unit_points() {
         ops[0],
         DrawOp::Stroke(
             Shape::Line(Point::new(16.0, 72.0), Point::new(84.0, 72.0)),
-            day_spec::Paint::Solid(Color::hex(0xffffff)),
+            day_spec::Paint::Solid(Color::hex(0x00ff_ffff)),
             day_spec::StrokeStyle::width(2.0)
         ),
         "{ops:?}"
@@ -4416,9 +4436,9 @@ fn shape_at_places_fractional_subrect() {
 fn shape_group_flattens_to_one_canvas_leaf() {
     let probe = boot(|| {
         shape_group([
-            rectangle().fill(Color::hex(0x111111)),
-            circle().fill(Color::hex(0x222222)),
-            line((0.0, 0.5), (1.0, 0.5)).stroke(Color::hex(0x333333), 1.0),
+            rectangle().fill(Color::hex(0x0011_1111)),
+            circle().fill(Color::hex(0x0022_2222)),
+            line((0.0, 0.5), (1.0, 0.5)).stroke(Color::hex(0x0033_3333), 1.0),
         ])
         .frame(80.0, 80.0)
         .any()
@@ -4443,12 +4463,12 @@ fn shape_group_reactive_fill_rerecords() {
     let on = Signal::new(false);
     let probe = boot(move || {
         shape_group([
-            rectangle().fill(Color::hex(0x000000)),
+            rectangle().fill(Color::hex(0x0000_0000)),
             circle().fill(move || {
                 if on.get() {
-                    Color::hex(0xff0000)
+                    Color::hex(0x00ff_0000)
                 } else {
-                    Color::hex(0x222222)
+                    Color::hex(0x0022_2222)
                 }
             }),
         ])
@@ -4569,7 +4589,7 @@ fn open_file_reads_the_chosen_path() {
         spec,
         day_spec::present::PresentSpec::OpenFile { .. }
     ));
-    day_core::respond_presentation(
+    let _ = day_core::respond_presentation(
         req,
         PresentResult::Files(vec![path.to_string_lossy().into_owned()]),
     );
@@ -4615,7 +4635,7 @@ fn open_files_reads_every_chosen_path() {
         "open_files asks for a multiple-selection picker: {spec:?}"
     );
     assert!(spec.multiple());
-    day_core::respond_presentation(
+    let _ = day_core::respond_presentation(
         req,
         PresentResult::Files(vec![
             a.to_string_lossy().into_owned(),
@@ -4649,7 +4669,7 @@ fn open_files_cancel_is_an_empty_list() {
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
     let (req, _) = day_core::pending_presentation().expect("open picker pending");
-    day_core::respond_presentation(req, PresentResult::Dismissed);
+    let _ = day_core::respond_presentation(req, PresentResult::Dismissed);
     flush_sync();
     assert_eq!(
         *out.borrow(),
@@ -4688,13 +4708,13 @@ fn open_folder_resolves_to_the_chosen_directory() {
     ));
     assert_eq!(spec.title(), "Add Folder");
     assert!(spec.filters().is_empty() && !spec.multiple());
-    day_core::respond_presentation(
+    let _ = day_core::respond_presentation(
         req,
         PresentResult::Files(vec![dir.to_string_lossy().into_owned()]),
     );
     flush_sync();
     assert_eq!(out.borrow().as_deref(), Some(dir.as_path()));
-    assert!(out.borrow().as_deref().is_some_and(|p| p.is_dir()));
+    assert!(out.borrow().as_deref().is_some_and(std::path::Path::is_dir));
     let _ = std::fs::remove_dir(&dir);
 }
 
@@ -4759,13 +4779,13 @@ fn overlay_sizes_to_first_child() {
 fn modifier_closure_wraps_the_piece() {
     // A plain FnOnce(AnyPiece) -> AnyPiece is a Modifier (blanket impl): wrap the label in a surface.
     let probe =
-        boot(|| label("m").modifier(|p: AnyPiece| p.background(Color::hex(0x445566)).any()));
+        boot(|| label("m").modifier(|p: AnyPiece| p.background(Color::hex(0x0044_5566)).any()));
     assert_eq!(probe.find_by_kind("day.label")[0].1.text, "m");
     assert!(
         probe
             .find_by_kind("day.container")
             .iter()
-            .any(|(_, w)| w.background == Some(Color::hex(0x445566))),
+            .any(|(_, w)| w.background == Some(Color::hex(0x0044_5566))),
         "the modifier wrapped the label in a colored surface"
     );
 }
@@ -4774,16 +4794,22 @@ fn modifier_closure_wraps_the_piece() {
 fn a_tint_picks_a_readable_label_color() {
     use day_spec::props::ButtonStyleSpec as S;
     // The showcase palette, which is what this rule is judged on.
-    assert_eq!(S::on_tint(Color::hex(0x2F6FDE)), Color::WHITE, "sky");
-    assert_eq!(S::on_tint(Color::hex(0xC2491D)), Color::WHITE, "rust");
-    assert_eq!(S::on_tint(Color::hex(0x7C5CD6)), Color::WHITE, "violet");
+    assert_eq!(S::on_tint(Color::hex(0x002F_6FDE)), Color::WHITE, "sky");
+    assert_eq!(S::on_tint(Color::hex(0x00C2_491D)), Color::WHITE, "rust");
+    assert_eq!(S::on_tint(Color::hex(0x007C_5CD6)), Color::WHITE, "violet");
     // The one that a luminance-over-half test gets wrong: amber is 0.44, so that test calls it
     // dark and puts white on it at 2.2:1. Against black it is 9.7:1.
-    assert_eq!(S::on_tint(Color::hex(0xF0A64C)), Color::BLACK, "amber");
+    assert_eq!(S::on_tint(Color::hex(0x00F0_A64C)), Color::BLACK, "amber");
     assert_eq!(S::on_tint(Color::WHITE), Color::BLACK);
     assert_eq!(S::on_tint(Color::BLACK), Color::WHITE);
     // Either choice must clear WCAG AA for large text (3:1) on every color above.
-    for hex in [0x2F6FDE, 0xC2491D, 0x7C5CD6, 0xF0A64C, 0x3AA76D] {
+    for hex in [
+        0x002F_6FDE,
+        0x00C2_491D,
+        0x007C_5CD6,
+        0x00F0_A64C,
+        0x003A_A76D,
+    ] {
         let fill = Color::hex(hex);
         let lin = |c: f64| {
             if c <= 0.04045 {
@@ -4815,7 +4841,7 @@ fn a_tinted_button_is_still_a_native_button() {
     let probe = boot(move || {
         button("Go")
             .action(move || c2.set(c2.get() + 1))
-            .tint(Color::hex(0x2F6FDE))
+            .tint(Color::hex(0x002F_6FDE))
             .any()
     });
     let buttons = probe.find_by_kind("day.button");
@@ -4844,7 +4870,7 @@ fn a_tinted_button_is_still_a_native_button() {
 /// A tint wins over `prominent`, and says so rather than silently dropping one of them.
 #[test]
 fn a_tint_overrides_prominent_and_stays_native() {
-    let probe = boot(|| button("Go").prominent().tint(Color::hex(0x2F6FDE)).any());
+    let probe = boot(|| button("Go").prominent().tint(Color::hex(0x002F_6FDE)).any());
     assert_eq!(probe.find_by_kind("day.button").len(), 1);
 }
 
@@ -4905,13 +4931,13 @@ fn with_environment_provides_to_descendants_only() {
         column((
             with_environment(Tint(7), || {
                 piece_fn(|cx| {
-                    let v = environment::<Tint>().map(|t| t.0).unwrap_or(0);
+                    let v = environment::<Tint>().map_or(0, |t| t.0);
                     label(format!("in={v}")).build(cx)
                 })
             }),
             // A sibling outside the environment scope must not see the value.
             piece_fn(|cx| {
-                let v = environment::<Tint>().map(|t| t.0).unwrap_or(99);
+                let v = environment::<Tint>().map_or(99, |t| t.0);
                 label(format!("out={v}")).build(cx)
             }),
         ))
@@ -4963,7 +4989,7 @@ fn save_file_writes_data_to_the_chosen_path() {
         !spec.src_path().is_empty(),
         "save spec stages a temp source file"
     );
-    day_core::respond_presentation(
+    let _ = day_core::respond_presentation(
         req,
         PresentResult::Files(vec![dest.to_string_lossy().into_owned()]),
     );
@@ -5493,8 +5519,8 @@ fn picker_and_text_area_are_built_in() {
     );
 }
 
-/// Cover (docs/cover.md): Some(route) presents + builds content, the native FrameChanged
-/// report lays the content out at the reported size, nav_back dismisses, and the content is
+/// Cover (docs/cover.md): Some(route) presents + builds content, the native `FrameChanged`
+/// report lays the content out at the reported size, `nav_back` dismisses, and the content is
 /// disposed only after the backend reports the hide finished (`CoverHidden`).
 #[test]
 fn back_skips_hidden_tabs_and_dismisses_cover_before_underlying_stack() {
@@ -5516,7 +5542,7 @@ fn back_skips_hidden_tabs_and_dismisses_cover_before_underlying_stack() {
     // The later-registered stack in the hidden tab must not consume Back.
     assert!(nav_back());
     flush_sync();
-    assert!(first.get_untracked().is_empty());
+    assert_eq!(first.get_untracked(), [] as [std::string::String; 0]);
     assert_eq!(second.get_untracked(), vec!["second-detail"]);
     first.set(vec!["first-detail".into()]);
     open.set(Some("reader".into()));
@@ -5524,7 +5550,7 @@ fn back_skips_hidden_tabs_and_dismisses_cover_before_underlying_stack() {
     // A stack inside a cover still gets Back before its enclosing cover.
     assert!(nav_back());
     flush_sync();
-    assert!(inner.get_untracked().is_empty());
+    assert_eq!(inner.get_untracked(), [] as [std::string::String; 0]);
     assert!(open.get_untracked().is_some());
     assert_eq!(first.get_untracked(), vec!["first-detail"]);
     assert!(nav_back());
@@ -5609,7 +5635,7 @@ fn system_back_handler_runs_after_covers_and_pushed_pages() {
         path.set(vec!["again".into()]);
         flush_sync();
         assert!(back());
-        assert!(path.get_untracked().is_empty());
+        assert_eq!(path.get_untracked(), [] as [std::string::String; 0]);
         assert_eq!((ran.get_untracked(), inner.get_untracked()), (1, 2));
 
         // 6. Unmounted, both handlers are gone: the back falls through to the default (leaving
@@ -5813,7 +5839,9 @@ fn status_bar_hidden_follows_mount_and_setting() {
         .any()
     });
     flush_sync();
-    let setting = STATUS_SETTING.with(|s| s.get()).expect("setting published");
+    let setting = STATUS_SETTING
+        .with(std::cell::Cell::get)
+        .expect("setting published");
     let calls = |probe: &MockProbe| {
         probe
             .mutations()
@@ -6163,7 +6191,7 @@ impl day_core::NavStore for MemStore {
     }
 }
 
-/// Install a fresh MemStore seeded with `pairs`, returning a handle to inspect it afterward.
+/// Install a fresh `MemStore` seeded with `pairs`, returning a handle to inspect it afterward.
 fn install_store(pairs: &[(&str, &str)]) -> MemStore {
     let store = MemStore::default();
     for (k, v) in pairs {
@@ -7027,6 +7055,15 @@ fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
 /// and dispatching it opens the singleton About window (docs/settings.md).
 #[test]
 fn register_about_wires_the_role_and_opens_singleton() {
+    fn find_role(items: &[day_spec::MenuItem], role: day_spec::MenuRole) -> Option<u64> {
+        items.iter().find_map(|it| match it {
+            day_spec::MenuItem::Action {
+                action, role: r, ..
+            } if *r == Some(role) => Some(*action),
+            day_spec::MenuItem::Submenu { items, .. } => find_role(items, role),
+            _ => None,
+        })
+    }
     let probe = boot(|| label("main").any());
     app_menu(vec![sub_menu("File", vec![menu_item("Save").key("s")])]);
     day_core::register_about_window(
@@ -7039,15 +7076,6 @@ fn register_about_wires_the_role_and_opens_singleton() {
     day_core::register_check_for_updates(|| {});
     flush_sync();
 
-    fn find_role(items: &[day_spec::MenuItem], role: day_spec::MenuRole) -> Option<u64> {
-        items.iter().find_map(|it| match it {
-            day_spec::MenuItem::Action {
-                action, role: r, ..
-            } if *r == Some(role) => Some(*action),
-            day_spec::MenuItem::Submenu { items, .. } => find_role(items, role),
-            _ => None,
-        })
-    }
     // The app's bar has no Help menu, so the stock one carries both commands, live.
     let bar = day_core::menu::standard_menu_bar_for(
         day_core::menu::MenuBarStyle::Gnome,
@@ -7262,7 +7290,9 @@ fn toolbar_edit_replaces_only_what_changed() {
 /// cannot draw would not be drawn at all.
 #[test]
 fn toolbar_search_falls_back_inline_where_the_bar_holds_no_field() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.set_no_toolbar_search(true);
@@ -8113,7 +8143,9 @@ fn automatic_never_stacks_when_tabs_are_available() {
 #[test]
 fn automatic_degrades_to_the_sidebar_resolver_without_nav_tabs() {
     let sel = Signal::new(String::new());
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.set_nav_split(true);
@@ -8250,7 +8282,9 @@ fn a_pinned_presentation_outranks_the_window_and_falls_back_when_undrawable() {
 
     // A pinned tab bar on a toolkit with none falls back to what it can draw.
     let sel2 = Signal::new("one".to_string());
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe2) = MockToolkit::new();
     probe2.set_nav_split(true);
@@ -8281,7 +8315,9 @@ fn a_pinned_presentation_outranks_the_window_and_falls_back_when_undrawable() {
 #[test]
 fn a_desktop_idiom_collapses_to_a_stack_instead_of_growing_a_tab_bar() {
     let sel = Signal::new(String::new());
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.set_nav_split(true);
@@ -8341,7 +8377,9 @@ fn a_mobile_idiom_grows_a_tab_bar_at_the_same_breakpoint() {
 #[test]
 fn a_pinned_tab_bar_still_draws_on_a_desktop_idiom() {
     let sel = Signal::new("one".to_string());
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.set_nav_split(true);
@@ -8476,7 +8514,7 @@ fn movable_tree(
         day_pieces::branches(
             move || entries.get(),
             |e: &TEntry| e.id.to_string(),
-            |e: &TEntry| e.parent.map(|p| p.to_string()),
+            |e: &TEntry| e.parent.map(std::string::ToString::to_string),
         ),
         |row: ItemSlot<TEntry, String>| label(move || row.field(|e| e.id.to_string())),
     )
@@ -8504,7 +8542,7 @@ fn movable_tree(
         })
         .guard(|_k, parent, _i| {
             // The app's rule for the tests: nothing may move under "A2".
-            if parent.map(|p| p == "A2").unwrap_or(false) {
+            if parent.is_some_and(|p| p == "A2") {
                 MoveVerdict::Deny
             } else {
                 MoveVerdict::Allow
@@ -8512,7 +8550,7 @@ fn movable_tree(
         }),
     )
     .on_selection(move |keys| *sel.borrow_mut() = keys)
-    .type_ahead(|k| k.to_string())
+    .type_ahead(std::clone::Clone::clone)
     .reveal(reveal)
     .any()
 }
@@ -8529,11 +8567,11 @@ struct TreeRig {
 
 fn boot_tree(open: &[&str]) -> TreeRig {
     let entries = Signal::new(tree_seed());
-    let moves: MoveLog = Default::default();
+    let moves: MoveLog = Rc::default();
     let sel = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let expanded = Signal::new(
         open.iter()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect::<std::collections::HashSet<String>>(),
     );
     let reveal = Signal::new(None);
@@ -8609,7 +8647,7 @@ fn tree_teardown_releases_row_content_but_never_the_adopted_cells() {
                     day_pieces::branches(
                         move || entries.get(),
                         |e: &TEntry| e.id.to_string(),
-                        |e: &TEntry| e.parent.map(|p| p.to_string()),
+                        |e: &TEntry| e.parent.map(std::string::ToString::to_string),
                     ),
                     |row: ItemSlot<TEntry, String>| label(move || row.field(|e| e.id.to_string())),
                 )
@@ -8692,7 +8730,7 @@ fn tree_reports_selection_by_key_and_syncs_expansion() {
     batch(|| {
         rig.expanded.update(|s| {
             s.remove("A");
-        })
+        });
     });
     flush_sync();
     assert!(
@@ -8823,8 +8861,8 @@ fn tree_data_edits_reload_and_flattener_walks_expanded_rows() {
             v.push(TEntry {
                 id: "A4",
                 parent: Some("A"),
-            })
-        })
+            });
+        });
     });
     flush_sync();
     assert_eq!(
@@ -9464,7 +9502,7 @@ fn a_resize_within_one_class_notifies_nothing() {
         day_reactive::Effect::new(move || {
             let _ = day_core::size_class();
             seen.set(seen.get() + 1);
-        })
+        });
     });
     flush_sync();
     let baseline = runs.get();
@@ -9541,6 +9579,22 @@ fn a_window_that_crosses_a_breakpoint_re_presents_without_rebuilding() {
 
 #[test]
 fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
+    fn view_items() -> Vec<(Option<String>, Option<bool>)> {
+        fn walk(items: &[day_spec::MenuItem], out: &mut Vec<(Option<String>, Option<bool>)>) {
+            for it in items {
+                match it {
+                    day_spec::MenuItem::Action { id, checked, .. } => {
+                        out.push((id.clone(), *checked));
+                    }
+                    day_spec::MenuItem::Submenu { items, .. } => walk(items, out),
+                    day_spec::MenuItem::Separator => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&day_core::menu::app_menu_model(), &mut out);
+        out
+    }
     let probe = boot(|| label("main").any());
     let grid = Signal::new(true);
     // The state the mark shows is read here, so `app_menu` re-lowers on every change
@@ -9560,23 +9614,6 @@ fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
         )]
     });
     flush_sync();
-
-    fn view_items() -> Vec<(Option<String>, Option<bool>)> {
-        fn walk(items: &[day_spec::MenuItem], out: &mut Vec<(Option<String>, Option<bool>)>) {
-            for it in items {
-                match it {
-                    day_spec::MenuItem::Action { id, checked, .. } => {
-                        out.push((id.clone(), *checked))
-                    }
-                    day_spec::MenuItem::Submenu { items, .. } => walk(items, out),
-                    day_spec::MenuItem::Separator => {}
-                }
-            }
-        }
-        let mut out = Vec::new();
-        walk(&day_core::menu::app_menu_model(), &mut out);
-        out
-    }
 
     assert_eq!(
         view_items(),
@@ -9619,7 +9656,7 @@ fn measure_text_asks_the_toolkit_once_per_distinct_string() {
     // The shape a chart's axis has: the same handful of labels, every frame.
     for _frame in 0..20 {
         for label in ["0", "50", "100", "150"] {
-            day_core::measure_text(label, 12.0, &font);
+            let _ = day_core::measure_text(label, 12.0, &font);
         }
     }
     assert_eq!(
@@ -9632,8 +9669,8 @@ fn measure_text_asks_the_toolkit_once_per_distinct_string() {
 
     // Every part of the key is part of the identity: a different size, weight, slant or family
     // is a different measurement, and none of them may answer for another.
-    day_core::measure_text("0", 13.0, &font);
-    day_core::measure_text(
+    let _ = day_core::measure_text("0", 13.0, &font);
+    let _ = day_core::measure_text(
         "0",
         12.0,
         &day_spec::CanvasFont {
@@ -9641,7 +9678,7 @@ fn measure_text_asks_the_toolkit_once_per_distinct_string() {
             ..Default::default()
         },
     );
-    day_core::measure_text(
+    let _ = day_core::measure_text(
         "0",
         12.0,
         &day_spec::CanvasFont {
@@ -9649,7 +9686,7 @@ fn measure_text_asks_the_toolkit_once_per_distinct_string() {
             ..Default::default()
         },
     );
-    day_core::measure_text(
+    let _ = day_core::measure_text(
         "0",
         12.0,
         &day_spec::CanvasFont {
@@ -9666,7 +9703,7 @@ fn measure_text_asks_the_toolkit_once_per_distinct_string() {
     // Clearing drops the entries and measures afresh; the counters keep running.
     day_core::clear_text_metrics_cache();
     assert_eq!(day_core::text_metrics_cache_stats().entries, 0);
-    day_core::measure_text("0", 12.0, &font);
+    let _ = day_core::measure_text("0", 12.0, &font);
     assert_eq!(count(&probe), 9);
     drop(probe);
 }
@@ -9679,7 +9716,7 @@ fn the_metrics_cache_holds_two_generations_and_stops_growing() {
     // Far past one generation: the cap is per generation and two are live, so the ceiling is
     // twice it; a text tool measuring a new string every keystroke must not grow without end.
     for i in 0..5_000 {
-        day_core::measure_text(&format!("s{i}"), 12.0, &font);
+        let _ = day_core::measure_text(&format!("s{i}"), 12.0, &font);
     }
     let s = day_core::text_metrics_cache_stats();
     assert!(s.entries <= 1024, "held {} entries", s.entries);
@@ -9700,7 +9737,7 @@ fn a_second_font_holds_its_own_entries_beside_the_first() {
     for f in [&a, &b] {
         for _ in 0..2 {
             for t in ["specimen", "Bold", "Italic", "Bold Italic"] {
-                day_core::measure_text(t, 20.0, f);
+                let _ = day_core::measure_text(t, 20.0, f);
             }
         }
     }
@@ -9711,10 +9748,11 @@ fn a_second_font_holds_its_own_entries_beside_the_first() {
 
 #[test]
 fn a_stamp_encodes_as_one_prefix_its_points_and_one_template() {
+    use day_spec::OpCode::*;
     use day_spec::{Color, DrawOp, Paint, Point, Rect, Shape, Stamp};
     // Seven points: two full coordinate records and a third carrying three, padded.
     let at: Vec<Point> = (0..7)
-        .map(|i| Point::new(i as f64, i as f64 * 2.0))
+        .map(|i| Point::new(f64::from(i), f64::from(i) * 2.0))
         .collect();
     let ops = vec![DrawOp::Stamp(Box::new(Stamp {
         shape: Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0)),
@@ -9728,7 +9766,6 @@ fn a_stamp_encodes_as_one_prefix_its_points_and_one_template() {
         .chunks(9)
         .map(|r| day_spec::OpCode::from_wire(r[0]).expect("known code"))
         .collect();
-    use day_spec::OpCode::*;
     assert_eq!(
         codes,
         vec![Stamp, StampPoints, StampPoints, FillEllipse],
@@ -9749,7 +9786,7 @@ fn a_stamp_encodes_as_one_prefix_its_points_and_one_template() {
     // One op, whatever the count: this is what the variant exists for.
     let big = vec![DrawOp::Stamp(Box::new(Stamp {
         shape: Shape::Rect(Rect::new(-1.0, -1.0, 2.0, 2.0)),
-        at: (0..50_000).map(|i| Point::new(i as f64, 0.0)).collect(),
+        at: (0..50_000).map(|i| Point::new(f64::from(i), 0.0)).collect(),
         paint: Paint::Solid(Color::BLACK),
         stroke: None,
     }))];
@@ -10393,6 +10430,13 @@ fn an_image_piece_carries_bytes_and_swaps_them_without_realizing_again() {
 
 #[test]
 fn reusable_command_shares_state_and_guards_every_dispatch_path() {
+    fn menu_action() -> day_spec::MenuItem {
+        let day_spec::MenuItem::Submenu { items, .. } = day_core::menu::app_menu_model().remove(0)
+        else {
+            panic!()
+        };
+        items.into_iter().next().unwrap()
+    }
     let enabled = Signal::new(true);
     let on = Signal::new(false);
     let title = Signal::new("Enable grid".to_string());
@@ -10416,13 +10460,6 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
         ))
         .toolbar(move || vec![bar.toolbar_item().id(day_core::id!(grid_toolbar))])
     });
-    fn menu_action() -> day_spec::MenuItem {
-        let day_spec::MenuItem::Submenu { items, .. } = day_core::menu::app_menu_model().remove(0)
-        else {
-            panic!()
-        };
-        items.into_iter().next().unwrap()
-    }
     let day_spec::MenuItem::Action {
         action,
         checked,
@@ -10522,7 +10559,7 @@ fn reusable_command_does_not_outlive_its_owner_or_cross_window_state() {
     });
     let other_count = Signal::new(0);
     let second = Command::new(day_core::id!(increment), "Increment", move || {
-        other_count.update(|n| *n += 1)
+        other_count.update(|n| *n += 1);
     });
     let clone = first.clone();
     assert!(first.invoke());
@@ -11076,6 +11113,10 @@ fn regroup_nav(
         .any()
 }
 
+#[expect(
+    clippy::ref_option,
+    reason = "`regroup_items` hands its callback the dragged key as `&Option<String>`"
+)]
 fn feed_drag_sorted(key: &Option<String>) -> NavDrag {
     if key.as_deref().is_some_and(|k| k.starts_with("feed:")) {
         NavDrag::Regroup
@@ -11084,6 +11125,10 @@ fn feed_drag_sorted(key: &Option<String>) -> NavDrag {
     }
 }
 
+#[expect(
+    clippy::ref_option,
+    reason = "`regroup_items` hands its callback the dragged key as `&Option<String>`"
+)]
 fn feed_drag_free(key: &Option<String>) -> NavDrag {
     if key.as_deref().is_some_and(|k| k.starts_with("feed:")) {
         NavDrag::Reorder
@@ -11114,7 +11159,7 @@ fn fixture_drop(moved: &str, section: &str, before: Option<&str>) -> NavDrop<Opt
 fn nav_regroup_moves_rows_between_sections_on_the_stand_in_list() {
     let selected = Signal::new(Some("feed:b".to_string()));
     let feeds = Signal::new(regroup_feeds());
-    let drops: Drops = Default::default();
+    let drops: Drops = Rc::default();
     let seen = drops.clone();
     let probe = boot(move || regroup_nav(selected, feeds, feed_drag_sorted, seen));
     let host = probe.find_by_kind("day.list")[0].0;
@@ -11164,7 +11209,7 @@ fn nav_regroup_moves_rows_between_sections_on_the_stand_in_list() {
 fn nav_regroup_denies_sorted_moves_fixed_sections_and_fixed_rows() {
     let selected = Signal::new(Some("feed:b".to_string()));
     let feeds = Signal::new(regroup_feeds());
-    let drops: Drops = Default::default();
+    let drops: Drops = Rc::default();
     let seen = drops.clone();
     boot(move || regroup_nav(selected, feeds, feed_drag_sorted, seen));
     let list = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
@@ -11190,7 +11235,7 @@ fn nav_regroup_denies_sorted_moves_fixed_sections_and_fixed_rows() {
 fn nav_regroup_reorder_rows_move_within_their_section() {
     let selected = Signal::new(Some("feed:b".to_string()));
     let feeds = Signal::new(regroup_feeds());
-    let drops: Drops = Default::default();
+    let drops: Drops = Rc::default();
     let seen = drops.clone();
     boot(move || regroup_nav(selected, feeds, feed_drag_free, seen));
     let list = day_core::with_tree(|t| t.find_by_id("nav_reorder_list")).expect("addressable");
@@ -11214,7 +11259,7 @@ fn nav_regroup_reorder_rows_move_within_their_section() {
 #[test]
 fn nav_regroup_items_overrides_an_earlier_reorder_items() {
     let selected = Signal::new(Some("feed:b".to_string()));
-    let drops: Drops = Default::default();
+    let drops: Drops = Rc::default();
     let seen = drops.clone();
     boot(move || {
         nav(selected)
@@ -11251,7 +11296,7 @@ fn native_nav_regroup_marks_sorted_rows_and_moves_by_its_event() {
     probe.set_native_nav_reorder(true);
     let selected = Signal::new(Some("feed:b".to_string()));
     let feeds = Signal::new(regroup_feeds());
-    let drops: Drops = Default::default();
+    let drops: Drops = Rc::default();
     let seen = drops.clone();
     day_core::launch_with(mock, WindowOptions::default(), move || {
         regroup_nav(selected, feeds, feed_drag_sorted, seen)
@@ -11524,11 +11569,20 @@ fn status_item_lowers_rebuilds_and_dispatches() {
     assert_eq!(items.len(), 1, "same id, same item");
     assert_eq!(items[0].title, "Paused");
     item.remove();
-    assert!(probe.status_items().is_empty());
+    assert_eq!(probe.status_items(), [] as [day_spec::StatusItemSpec; 0]);
 }
 
 #[test]
 fn status_menu_tracking_preserves_selection_and_reclaims_superseded_handlers() {
+    fn action(spec: &day_spec::StatusItemSpec) -> u64 {
+        let day_spec::MenuItem::Submenu { items, .. } = &spec.menu[0] else {
+            panic!()
+        };
+        let day_spec::MenuItem::Action { action, .. } = items[0] else {
+            panic!()
+        };
+        action
+    }
     // Synthetic repository/run labels: simulate polling while a nested menu is open.
     let probe = boot(|| label("fixture host").any());
     let generation = Signal::new(0);
@@ -11543,22 +11597,13 @@ fn status_menu_tracking_preserves_selection_and_reclaims_superseded_handlers() {
         StatusItem::new().title(run.to_string()).menu(vec![sub_menu(
             "fixture/repository",
             vec![menu_item(format!("fixture run {run}")).action(move || {
-                let _keep_alive = &lifetime;
+                let _ = &lifetime; // keep it alive for as long as the action is
                 selected.set(run);
             })],
         )])
     });
     flush_sync();
     let original = probe.status_items().remove(0);
-    fn action(spec: &day_spec::StatusItemSpec) -> u64 {
-        let day_spec::MenuItem::Submenu { items, .. } = &spec.menu[0] else {
-            panic!()
-        };
-        let day_spec::MenuItem::Action { action, .. } = items[0] else {
-            panic!()
-        };
-        action
-    }
     let token = day_core::status::begin_menu_tracking(&original.id);
     for run in 1..=3 {
         generation.set(run);
@@ -11645,7 +11690,7 @@ fn status_raster_updates_preserve_fallback_and_outlive_the_source_buffer() {
     assert_eq!(&after.raster.unwrap().pixels()[..4], &[0, 255, 0, 255]);
     assert_eq!(&before.raster.unwrap().pixels()[..4], &[255, 0, 0, 255]);
     item.remove();
-    assert!(probe.status_items().is_empty());
+    assert_eq!(probe.status_items(), [] as [day_spec::StatusItemSpec; 0]);
 }
 
 #[test]
@@ -12024,7 +12069,9 @@ fn document_tabs_preserve_resident_identity_and_dispose_only_closed_pages() {
 #[test]
 fn document_tabs_switch_windows_without_rebuilding_or_disposing_content() {
     use std::{cell::Cell, rc::Rc};
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.state.borrow_mut().native_window_tabs = true;
@@ -12130,7 +12177,9 @@ fn document_tabs_switch_windows_without_rebuilding_or_disposing_content() {
 #[test]
 fn document_tabs_observe_native_order_on_focus_and_close_without_frames() {
     use std::{cell::Cell, rc::Rc};
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.state.borrow_mut().native_window_tabs = true;
@@ -12363,7 +12412,9 @@ fn focused_ambient_reacts_when_switching_between_unchanged_windows() {
 
 #[test]
 fn dedicated_document_host_stays_hidden_after_last_close_and_reopens() {
-    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
     probe.state.borrow_mut().native_window_tabs = true;
@@ -12526,11 +12577,11 @@ fn sectioned_list_maps_programmatic_selection_and_offers_no_header_swipe() {
         .list_swipe_actions(host, 6, SwipeEdge::Trailing)
         .unwrap();
     assert_eq!(offer[0].label, "Row 3");
-    assert!(
+    assert_eq!(
         probe
             .list_swipe_actions(host, 5, SwipeEdge::Trailing)
-            .unwrap()
-            .is_empty()
+            .unwrap(),
+        [] as [day_spec::ListSwipeAction; 0]
     );
     // Native drag reorder works within a section: a header never lifts.
     assert_eq!(probe.list_can_move(host, 5, 6), -1);
@@ -12556,7 +12607,7 @@ fn sectioned_list_reorders_within_a_section_and_keeps_its_headers() {
                 rows.update(|r| {
                     let row = r.remove(from);
                     r.insert(to, row);
-                })
+                });
             })
             .guard(move |from, to| {
                 seen.borrow_mut().push((from, to));
@@ -12655,7 +12706,7 @@ fn pinned_header_copy_never_answers_an_id_lookup() {
 
 /// A reactive cursor is app code, so it is read outside the tree borrow: a closure that reaches
 /// the tree (here through `size_class`, as a composed split's axis closure did) must not panic
-/// with "RefCell already borrowed" when its subtree mounts after the window's first build.
+/// with "`RefCell` already borrowed" when its subtree mounts after the window's first build.
 #[test]
 fn reactive_cursor_may_read_the_tree() {
     let shown = Signal::new(false);
@@ -12892,7 +12943,7 @@ fn reactive_size_bindings_dispose_with_their_subtree() {
     width.set(120.0);
     flush_sync();
     assert!(probe.find_by_kind("day.label").is_empty());
-    assert!(probe.mutations().is_empty());
+    assert_eq!(probe.mutations(), [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -12916,7 +12967,7 @@ fn minimum_height_expands_for_content_and_preserves_alignment_baselines() {
 
 #[test]
 fn system_palette_updates_without_a_dark_mode_change_and_survives_remount() {
-    for seed in [0x116633, 0x883311] {
+    for seed in [0x0011_6633, 0x0088_3311] {
         day_core::uninstall_tree();
         let (mock, probe) = MockToolkit::new();
         let mut palette = SystemColor::ALL.map(|role| role.fallback(false));
@@ -12928,18 +12979,18 @@ fn system_palette_updates_without_a_dark_mode_change_and_survives_remount() {
                 .any()
         });
         assert_eq!(system_color(SystemColor::Accent), Color::hex(seed));
-        palette[SystemColor::Accent as usize] = Color::hex(0x336699);
+        palette[SystemColor::Accent as usize] = Color::hex(0x0033_6699);
         probe.state.borrow_mut().system_colors = Some(palette);
         day_core::note_appearance_changed();
         flush_sync();
-        assert_eq!(system_color(SystemColor::Accent), Color::hex(0x336699));
+        assert_eq!(system_color(SystemColor::Accent), Color::hex(0x0033_6699));
         assert!(
             probe
                 .state
                 .borrow()
                 .widgets
                 .values()
-                .any(|w| w.background == Some(Color::hex(0x336699)))
+                .any(|w| w.background == Some(Color::hex(0x0033_6699)))
         );
     }
 }

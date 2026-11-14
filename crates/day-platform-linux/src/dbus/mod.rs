@@ -211,6 +211,7 @@ impl Value {
     }
 
     /// A variant wrapping `v`.
+    #[must_use]
     pub fn variant(v: Value) -> Value {
         Value::Variant(Box::new(v))
     }
@@ -224,6 +225,7 @@ impl Value {
     }
 
     /// A byte array (`ay`).
+    #[must_use]
     pub fn bytes(bytes: &[u8]) -> Value {
         Value::array("y", bytes.iter().map(|b| Value::Byte(*b)).collect())
     }
@@ -260,6 +262,7 @@ impl Value {
     }
 
     /// This value's D-Bus signature, such as `s`, `a{sv}` or `(iiay)`.
+    #[must_use]
     pub fn signature(&self) -> String {
         let mut s = String::new();
         self.write_signature(&mut s);
@@ -343,6 +346,7 @@ impl Value {
     }
 
     /// The string inside a `Str`, `ObjectPath` or `Signature` (looking through variants).
+    #[must_use]
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::Str(s) | Value::ObjectPath(s) | Value::Signature(s) => Some(s),
@@ -352,6 +356,7 @@ impl Value {
     }
 
     /// The boolean inside a `Bool` (looking through variants).
+    #[must_use]
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(b) => Some(*b),
@@ -362,6 +367,7 @@ impl Value {
 
     /// Any integer value widened to `i64` (looking through variants); `None` for a `U64` above
     /// `i64::MAX` or a non-integer.
+    #[must_use]
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Byte(n) => Some(i64::from(*n)),
@@ -377,6 +383,7 @@ impl Value {
     }
 
     /// The number inside a `Double`, or any integer converted (looking through variants).
+    #[must_use]
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Double(d) => Some(*d),
@@ -386,6 +393,7 @@ impl Value {
     }
 
     /// The items of an array (looking through variants).
+    #[must_use]
     pub fn as_array(&self) -> Option<&[Value]> {
         match self {
             Value::Array { items, .. } => Some(items),
@@ -395,6 +403,7 @@ impl Value {
     }
 
     /// The fields of a struct (looking through variants).
+    #[must_use]
     pub fn as_struct(&self) -> Option<&[Value]> {
         match self {
             Value::Struct(fields) => Some(fields),
@@ -404,6 +413,7 @@ impl Value {
     }
 
     /// The value inside a variant, or the value itself when it is not one.
+    #[must_use]
     pub fn unwrap_variant(&self) -> &Value {
         match self {
             Value::Variant(v) => v.unwrap_variant(),
@@ -413,6 +423,7 @@ impl Value {
 
     /// Looks `key` up in a string-keyed dictionary such as `a{sv}`; the result is the entry's
     /// value with any variant unwrapped.
+    #[must_use]
     pub fn dict_get(&self, key: &str) -> Option<&Value> {
         self.as_array()?.iter().find_map(|item| match item {
             Value::DictEntry(k, v) if k.as_str() == Some(key) => Some(v.unwrap_variant()),
@@ -507,6 +518,7 @@ fn alignment(sig: &str) -> usize {
 }
 
 /// Whether `p` is a valid object path: `/`, or `/`-separated non-empty `[A-Za-z0-9_]` segments.
+#[must_use]
 pub fn is_valid_object_path(p: &str) -> bool {
     if p == "/" {
         return true;
@@ -858,6 +870,11 @@ impl<'a> Decoder<'a> {
 }
 
 /// Marshals `values` as a little-endian body (offsets relative to an 8-aligned start).
+///
+/// # Errors
+///
+/// Returns [`Error::Protocol`] when a value cannot be marshaled, such as an invalid object
+/// path or containers nested too deeply.
 pub fn marshal(values: &[Value]) -> Result<Vec<u8>, Error> {
     let mut e = Encoder::new(false);
     for v in values {
@@ -868,6 +885,11 @@ pub fn marshal(values: &[Value]) -> Result<Vec<u8>, Error> {
 
 /// Unmarshals a body with signature `signature` from `bytes` (little-endian unless
 /// `big_endian`), requiring every byte to be consumed.
+///
+/// # Errors
+///
+/// Returns [`Error::Protocol`] when `signature` is invalid, when `bytes` does not hold the
+/// values it describes, or when bytes are left over.
 pub fn unmarshal(bytes: &[u8], signature: &str, big_endian: bool) -> Result<Vec<Value>, Error> {
     validate_signature(signature)?;
     let mut d = Decoder {
@@ -962,6 +984,7 @@ impl Message {
     }
 
     /// A method call to `member` of `interface` on object `path` of `destination`.
+    #[must_use]
     pub fn method_call(
         destination: &str,
         path: &str,
@@ -980,6 +1003,7 @@ impl Message {
     }
 
     /// A broadcast signal `member` of `interface` from object `path`.
+    #[must_use]
     pub fn signal(path: &str, interface: &str, member: &str, body: Vec<Value>) -> Message {
         Message {
             path: Some(path.to_owned()),
@@ -1012,6 +1036,7 @@ impl Message {
     }
 
     /// The body signature.
+    #[must_use]
     pub fn signature(&self) -> String {
         let mut s = String::new();
         for v in &self.body {
@@ -1021,6 +1046,11 @@ impl Message {
     }
 
     /// Serializes the message in little-endian byte order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Protocol`] when a header field the message type requires is missing or
+    /// invalid, or when the body cannot be marshaled.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         self.encode_with(false)
     }
@@ -1137,6 +1167,10 @@ impl Message {
 
     /// Parses one complete message of either byte order. `bytes` must hold exactly that one
     /// message, with no trailing data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Protocol`] when `bytes` is not one well-formed message.
     pub fn decode(bytes: &[u8]) -> Result<Message, Error> {
         let big = match bytes.first() {
             Some(b'l') => false,
@@ -1274,14 +1308,14 @@ fn read_line(s: &mut dyn Read) -> Result<String, Error> {
     allow(dead_code, reason = "only unix transports authenticate")
 )]
 fn authenticate<S: Read + Write>(s: &mut S, uid: Option<u32>) -> Result<(), Error> {
+    use std::fmt::Write as _;
     s.write_all(b"\0")?;
     match uid {
         Some(uid) => {
-            let hex: String = uid
-                .to_string()
-                .bytes()
-                .map(|b| format!("{b:02x}"))
-                .collect();
+            let hex = uid.to_string().bytes().fold(String::new(), |mut hex, b| {
+                let _ = write!(hex, "{b:02x}");
+                hex
+            });
             s.write_all(format!("AUTH EXTERNAL {hex}\r\n").as_bytes())?;
         }
         None => s.write_all(b"AUTH EXTERNAL\r\n")?,
@@ -1357,6 +1391,7 @@ impl MethodError {
     }
 
     /// `org.freedesktop.DBus.Error.UnknownMethod`.
+    #[must_use]
     pub fn unknown_method(call: &MethodCall) -> Self {
         MethodError::new(
             "org.freedesktop.DBus.Error.UnknownMethod",
@@ -1375,6 +1410,7 @@ impl MethodError {
     }
 
     /// `org.freedesktop.DBus.Error.UnknownProperty`.
+    #[must_use]
     pub fn unknown_property(name: &str) -> Self {
         MethodError::new(
             "org.freedesktop.DBus.Error.UnknownProperty",
@@ -1396,6 +1432,7 @@ impl MethodError {
 /// match anything. This filters locally; the bus only sends signals a match rule asked for
 /// ([`Connection::add_match`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[must_use]
 pub struct SignalFilter {
     /// The sender's bus name, compared literally (signals carry the unique name, except the
     /// bus's own, which carry `org.freedesktop.DBus`).
@@ -1510,6 +1547,11 @@ impl fmt::Debug for Connection {
 impl Connection {
     /// Connects to the session bus named by `DBUS_SESSION_BUS_ADDRESS`, or to
     /// `$XDG_RUNTIME_DIR/bus` when the variable is unset.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NoBus`] when neither variable names a usable address, and otherwise the
+    /// errors of [`connect`](Self::connect).
     pub fn session() -> Result<Connection, Error> {
         if let Some(address) = std::env::var_os("DBUS_SESSION_BUS_ADDRESS")
             && !address.is_empty()
@@ -1533,6 +1575,12 @@ impl Connection {
 
     /// Connects to a bus at a D-Bus server address such as `unix:path=/run/user/1000/bus`.
     /// Several `;`-separated addresses are tried in order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Unsupported`] off unix, [`Error::NoBus`] or [`Error::Io`] when no
+    /// address can be connected to, [`Error::Auth`] when the bus refuses authentication, and
+    /// [`Error::Io`] or [`Error::Protocol`] when the opening exchange fails.
     pub fn connect(address: &str) -> Result<Connection, Error> {
         #[cfg(unix)]
         {
@@ -1593,17 +1641,19 @@ impl Connection {
         let weak = Arc::downgrade(&inner);
         let handle = thread::Builder::new()
             .name("day-platform-linux".into())
-            .spawn(move || reader_loop(reader, weak))?;
+            .spawn(move || reader_loop(reader, &weak))?;
         let _ = inner.reader.set(handle.thread().id());
         Ok(Connection { inner })
     }
 
     /// This connection's unique bus name, such as `:1.42`.
+    #[must_use]
     pub fn unique_name(&self) -> &str {
         &self.inner.unique_name
     }
 
     /// Whether the connection has closed (the bus went away, or [`close`](Self::close)).
+    #[must_use]
     pub fn is_closed(&self) -> bool {
         lock(&self.inner.state).closed
     }
@@ -1625,6 +1675,11 @@ impl Connection {
     }
 
     /// Sends `msg` with a fresh serial, returning that serial.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Disconnected`] when the connection is closed, [`Error::Protocol`] when
+    /// `msg` cannot be encoded, and [`Error::Io`] when the write fails.
     pub fn send(&self, mut msg: Message) -> Result<u32, Error> {
         if self.is_closed() {
             return Err(Error::Disconnected);
@@ -1643,6 +1698,10 @@ impl Connection {
     }
 
     /// Calls a method and waits up to [`DEFAULT_TIMEOUT`] for its reply's arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`call_with_timeout`](Self::call_with_timeout).
     pub fn call(
         &self,
         destination: &str,
@@ -1655,6 +1714,13 @@ impl Connection {
     }
 
     /// [`call`](Self::call) with an explicit timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::ReaderThread`] when called from the reader thread, [`Error::Remote`]
+    /// when the peer answers with an error, [`Error::Timeout`] when no reply arrives in time,
+    /// [`Error::Disconnected`] when the connection closes first, and [`Error::Protocol`] or
+    /// [`Error::Io`] when the call cannot be encoded or written.
     pub fn call_with_timeout(
         &self,
         destination: &str,
@@ -1702,6 +1768,10 @@ impl Connection {
     }
 
     /// Calls a method without waiting, asking the peer not to reply. Safe from handlers.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`send`](Self::send).
     pub fn call_no_reply(
         &self,
         destination: &str,
@@ -1716,6 +1786,10 @@ impl Connection {
     }
 
     /// Broadcasts a signal.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`send`](Self::send).
     pub fn emit_signal(
         &self,
         path: &str,
@@ -1732,6 +1806,11 @@ impl Connection {
     }
 
     /// Asks the bus for a well-known name; returns a `NAME_REPLY_*` code.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`call`](Self::call), and [`Error::Protocol`] when the bus's reply
+    /// carries no code.
     pub fn request_name(&self, name: &str, flags: u32) -> Result<u32, Error> {
         let reply = self.bus_call("RequestName", &[Value::str(name), Value::U32(flags)])?;
         match reply.first() {
@@ -1741,6 +1820,10 @@ impl Connection {
     }
 
     /// Gives a well-known name back without waiting for the bus's answer.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`send`](Self::send).
     pub fn release_name(&self, name: &str) -> Result<(), Error> {
         self.call_no_reply(
             BUS_NAME,
@@ -1752,6 +1835,7 @@ impl Connection {
     }
 
     /// Whether some connection owns `name`; `false` when the bus cannot be asked.
+    #[must_use]
     pub fn name_has_owner(&self, name: &str) -> bool {
         matches!(
             self.bus_call("NameHasOwner", &[Value::str(name)])
@@ -1762,11 +1846,19 @@ impl Connection {
 
     /// Asks the bus to route messages matching `rule` (such as
     /// `type='signal',interface='org.example.Iface'`) to this connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`call`](Self::call).
     pub fn add_match(&self, rule: &str) -> Result<(), Error> {
         self.bus_call("AddMatch", &[Value::str(rule)]).map(|_| ())
     }
 
     /// Withdraws a rule added with [`add_match`](Self::add_match), without waiting.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`send`](Self::send).
     pub fn remove_match(&self, rule: &str) -> Result<(), Error> {
         self.call_no_reply(
             BUS_NAME,
@@ -1800,6 +1892,11 @@ impl Connection {
     /// `org.freedesktop.DBus.Introspectable.Introspect` it asks the handler first and, when the
     /// handler answers `UnknownMethod`, replies with a minimal document listing the standard
     /// interfaces and any exported child objects ([`introspection_xml`] builds a handler's own).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Protocol`] when `path` is not a valid object path or is already
+    /// exported.
     pub fn export<F>(&self, path: &str, handler: F) -> Result<(), Error>
     where
         F: Fn(&MethodCall) -> Result<Vec<Value>, MethodError> + Send + Sync + 'static,
@@ -1948,18 +2045,15 @@ fn mark_closed(inner: &Inner) {
 }
 
 #[cfg_attr(not(unix), allow(dead_code, reason = "only unix transports connect"))]
-fn reader_loop(mut reader: Box<dyn Read + Send>, weak: Weak<Inner>) {
+fn reader_loop(mut reader: Box<dyn Read + Send>, weak: &Weak<Inner>) {
     loop {
         let frame = read_frame(&mut *reader);
         let Some(inner) = weak.upgrade() else {
             return;
         };
-        let bytes = match frame {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                mark_closed(&inner);
-                return;
-            }
+        let Ok(bytes) = frame else {
+            mark_closed(&inner);
+            return;
         };
         let conn = Connection { inner };
         // A message that frames correctly but does not parse is dropped; the stream stays in
@@ -2043,23 +2137,22 @@ fn answer(conn: &Connection, msg: &Message) -> Result<Vec<Value>, MethodError> {
         args: msg.body.clone(),
         sender: msg.sender.clone(),
     };
-    match handler {
-        Some(handler) => match handler(&call) {
+    if let Some(handler) = handler {
+        match handler(&call) {
             Err(e) if introspect && e.is_unknown_method() => Ok(vec![Value::Str(
                 introspection_xml("", &children(conn, &path)),
             )]),
             other => other,
-        },
-        None => {
-            let kids = children(conn, &path);
-            if introspect && !kids.is_empty() {
-                Ok(vec![Value::Str(introspection_xml("", &kids))])
-            } else {
-                Err(MethodError::new(
-                    "org.freedesktop.DBus.Error.UnknownObject",
-                    format!("no object at {path}"),
-                ))
-            }
+        }
+    } else {
+        let kids = children(conn, &path);
+        if introspect && !kids.is_empty() {
+            Ok(vec![Value::Str(introspection_xml("", &kids))])
+        } else {
+            Err(MethodError::new(
+                "org.freedesktop.DBus.Error.UnknownObject",
+                format!("no object at {path}"),
+            ))
         }
     }
 }
@@ -2092,7 +2185,9 @@ fn machine_id() -> Option<String> {
 
 /// An introspection document: the standard `Peer` and `Introspectable` interfaces, then
 /// `interfaces` (raw `<interface>` elements), then a `<node>` per child name.
+#[must_use]
 pub fn introspection_xml(interfaces: &str, children: &[String]) -> String {
+    use std::fmt::Write as _;
     let mut xml = String::from(
         "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\"\n \
          \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n<node>\n \
@@ -2104,7 +2199,7 @@ pub fn introspection_xml(interfaces: &str, children: &[String]) -> String {
     );
     xml.push_str(interfaces);
     for child in children {
-        xml.push_str(&format!(" <node name=\"{child}\"/>\n"));
+        let _ = writeln!(xml, " <node name=\"{child}\"/>");
     }
     xml.push_str("</node>\n");
     xml
@@ -2136,6 +2231,7 @@ pub mod launcher {
     }
 
     /// The object path the signal is sent from: one per desktop id, as libunity does.
+    #[must_use]
     pub fn object_path(desktop_id: &str) -> String {
         // FNV-1a, so the path is stable and valid whatever characters the id holds.
         let hash = desktop_id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
@@ -2146,6 +2242,10 @@ pub mod launcher {
 
     /// Emits `com.canonical.Unity.LauncherEntry.Update` for `desktop_id` (the desktop file's
     /// name, with or without `.desktop`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`Connection::emit_signal`].
     pub fn update(conn: &Connection, desktop_id: &str, props: LauncherProps) -> Result<(), Error> {
         let id = desktop_id.strip_suffix(".desktop").unwrap_or(desktop_id);
         let uri = format!("application://{id}.desktop");
@@ -2237,11 +2337,13 @@ pub mod instance {
 
     impl Claim {
         /// The bus name owned.
+        #[must_use]
         pub fn name(&self) -> &str {
             &self.name
         }
 
         /// The connection holding the name.
+        #[must_use]
         pub fn connection(&self) -> &Connection {
             &self.conn
         }
@@ -2258,6 +2360,7 @@ pub mod instance {
     /// become `_`, an element that is empty or starts with a digit gains a leading `_`, an id
     /// with a single element is put under `dev.daybrite.instance.`, and an overlong one is
     /// replaced by a hash under that prefix.
+    #[must_use]
     pub fn bus_name(app_id: &str) -> String {
         let elements: Vec<String> = app_id
             .split('.')
@@ -2312,6 +2415,15 @@ pub mod instance {
     /// thread**; the caller hands them to its UI thread (for example through its platform's
     /// post-to-main mechanism) rather than touching UI state there. It must not block for long:
     /// the forwarding process waits for it to return.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Claimed::Forwarded`] when a running instance took `args`, and
+    /// [`Claimed::NoBus`] when the session bus cannot be used or the owner did not take them.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public signature; callers pass the argument list they collected for this launch"
+    )]
     pub fn claim<F>(app_id: &str, args: Vec<String>, on_forward: F) -> Result<Claim, Claimed>
     where
         F: Fn(Vec<String>) + Send + Sync + 'static,
@@ -2393,12 +2505,12 @@ pub mod instance {
 mod tests {
     use super::*;
 
-    fn round_trip(values: Vec<Value>) {
+    fn round_trip(values: &[Value]) {
         let sig: String = values.iter().map(Value::signature).collect();
-        let bytes = marshal(&values).expect("marshal");
+        let bytes = marshal(values).expect("marshal");
         assert_eq!(unmarshal(&bytes, &sig, false).expect("unmarshal"), values);
         let mut e = Encoder::new(true);
-        for v in &values {
+        for v in values {
             e.value(v, 0).expect("marshal big-endian");
         }
         assert_eq!(unmarshal(&e.buf, &sig, true).expect("unmarshal BE"), values);
@@ -2406,7 +2518,7 @@ mod tests {
 
     #[test]
     fn every_basic_type_round_trips() {
-        round_trip(vec![
+        round_trip(&[
             Value::Byte(0xab),
             Value::Bool(true),
             Value::Bool(false),
@@ -2426,7 +2538,7 @@ mod tests {
 
     #[test]
     fn containers_round_trip() {
-        round_trip(vec![
+        round_trip(&[
             Value::Struct(vec![
                 Value::I32(1),
                 Value::str("x"),
@@ -2450,7 +2562,7 @@ mod tests {
         let values = vec![Value::Byte(1), Value::Struct(vec![Value::Byte(2)])];
         let bytes = marshal(&values).expect("marshal");
         assert_eq!(bytes, [1, 0, 0, 0, 0, 0, 0, 0, 2]);
-        round_trip(values);
+        round_trip(&values);
     }
 
     #[test]
@@ -2459,18 +2571,18 @@ mod tests {
         let values = vec![Value::Byte(9), Value::array("(ii)", Vec::new())];
         let bytes = marshal(&values).expect("marshal");
         assert_eq!(bytes, [9, 0, 0, 0, 0, 0, 0, 0]);
-        round_trip(values);
+        round_trip(&values);
         // a{sv} after a u32 lands its length at 4 and is padded to 8 too.
         let values = vec![Value::U32(1), Value::props(Vec::<(&str, Value)>::new())];
         assert_eq!(marshal(&values).expect("marshal").len(), 8);
-        round_trip(values);
+        round_trip(&values);
         // An empty array of bytes needs no padding after its length.
         let values = vec![Value::Byte(1), Value::bytes(&[]), Value::Byte(2)];
         assert_eq!(
             marshal(&values).expect("marshal"),
             [1, 0, 0, 0, 0, 0, 0, 0, 2]
         );
-        round_trip(values);
+        round_trip(&values);
     }
 
     #[test]
@@ -2491,7 +2603,7 @@ mod tests {
             Value::variant(Value::array("v", vec![Value::variant(Value::I64(-1))])),
         ]))));
         assert_eq!(deep.signature(), "v");
-        round_trip(vec![Value::Byte(7), deep]);
+        round_trip(&[Value::Byte(7), deep]);
     }
 
     #[test]

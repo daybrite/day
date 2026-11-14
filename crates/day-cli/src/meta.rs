@@ -28,7 +28,7 @@ pub struct Manifest {
     pub app: App,
     #[serde(default)]
     pub file_types: Vec<crate::documents::FileType>,
-    /// Additional OS URL associations, delivered intact through on_open_url.
+    /// Additional OS URL associations, delivered intact through `on_open_url`.
     #[serde(default)]
     pub url_schemes: Vec<String>,
     /// MIME types the app accepts from the system share sheet (docs/deep-links.md "Receiving
@@ -571,7 +571,7 @@ pub struct MacAppStoreSigning {
 pub struct Notarize {
     pub key_id: String,
     pub issuer: String,
-    /// Path to the AuthKey_<id>.p8 file.
+    /// Path to the `AuthKey`_<id>.p8 file.
     pub key_path: String,
 }
 
@@ -579,7 +579,7 @@ pub struct Notarize {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct IosSigning {
-    /// Apple Developer team id (DEVELOPMENT_TEAM).
+    /// Apple Developer team id (`DEVELOPMENT_TEAM`).
     pub team: String,
     /// The provisioning profile `day sign apply` embeds when it re-signs a built `.ipa`
     /// (docs/packaging.md). Unused by `day pack`, which exports through Xcode and lets it choose
@@ -597,7 +597,7 @@ pub struct IosSigning {
     /// it signs with what the profile grants.
     #[serde(default)]
     pub entitlements: Option<String>,
-    /// ExportOptions method; default "app-store-connect".
+    /// `ExportOptions` method; default "app-store-connect".
     #[serde(default)]
     pub export_method: Option<String>,
     /// Per app extension (`[signing.ios.extensions.<Name>]`, docs/app-extensions.md): the
@@ -711,14 +711,14 @@ pub struct App {
     /// and keep the scheme they shipped with.
     #[serde(default)]
     pub scheme: Option<String>,
-    /// Monotonic build number (versionCode / CFBundleVersion).
+    /// Monotonic build number (versionCode / `CFBundleVersion`).
     #[serde(default = "default_build")]
     pub build: u64,
     /// The platform-toolkit combos this app ships on (`day project add-target` appends here).
     #[serde(default)]
     pub targets: Vec<String>,
     /// `[app.<platform|toolkit|target>]` override tables, validated by `day lint`.
-    /// (serde note: this flatten map is why App has no deny_unknown_fields; a typo'd scalar
+    /// (serde note: this flatten map is why App has no `deny_unknown_fields`; a typo'd scalar
     /// key still errors because it can't parse as an override table.)
     #[serde(flatten)]
     pub overrides: BTreeMap<String, AppOverride>,
@@ -836,18 +836,19 @@ impl Manifest {
         // declared target (docs/extending.md) is the opposite by contract: its os is the name
         // prefix (there is no override key), so splitting is exact there, and this method has no
         // project to resolve the external catalog through anyway.
-        let platform = crate::targets::find(target)
-            .map(|t| t.os)
-            .unwrap_or_else(|| target.split_once('-').map(|(os, _)| os).unwrap_or_default());
+        let platform = crate::targets::find(target).map_or_else(
+            || target.split_once('-').map(|(os, _)| os).unwrap_or_default(),
+            |t| t.os,
+        );
         let toolkit = target.split_once('-').map(|(_, t)| t).unwrap_or_default();
         // Increasing precedence: toolkit, platform, exact target.
         for key in [toolkit, platform, target] {
             if let Some(o) = self.app.overrides.get(key) {
                 if let Some(id) = &o.id {
-                    out.id = id.clone();
+                    out.id.clone_from(id);
                 }
                 if let Some(title) = &o.title {
-                    out.title = title.clone();
+                    out.title.clone_from(title);
                 }
                 if let Some(s) = &o.scheme {
                     out.scheme = Some(s.clone());
@@ -1240,7 +1241,7 @@ pub fn parse_manifest(
 fn inherits_from_workspace(value: &toml::Value) -> bool {
     value
         .get("workspace")
-        .and_then(|w| w.as_bool())
+        .and_then(toml::Value::as_bool)
         .unwrap_or(false)
 }
 
@@ -1298,9 +1299,7 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
             // the app target and a SwiftPM package dependency scatter their products into different
             // trees (a missing `*_*.bundle` copy failure). Absolute paths resolve identically everywhere.
             let root = std::fs::canonicalize(&dir).unwrap_or_else(|_| {
-                std::env::current_dir()
-                    .map(|cwd| cwd.join(&dir))
-                    .unwrap_or_else(|_| dir.clone())
+                std::env::current_dir().map_or_else(|_| dir.clone(), |cwd| cwd.join(&dir))
             });
             return Ok(Project {
                 root: strip_verbatim(root),
@@ -1502,7 +1501,7 @@ build = 7
         let m =
             parse_manifest("schema = 1\n[app]\nid = \"dev.x.demo\"\n", CARGO, None).expect("parse");
         assert!(m.permissions.declared.is_empty());
-        assert!(m.permissions.raw.android.is_empty());
+        assert_eq!(m.permissions.raw.android, [] as [std::string::String; 0]);
     }
 
     #[test]

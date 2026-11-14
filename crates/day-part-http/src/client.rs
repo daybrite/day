@@ -44,7 +44,7 @@ const MAX_AUTH_ATTEMPTS: u32 = 3;
 /// Lock, riding out poisoning: every state here is plain data whose invariants a panicking
 /// holder cannot break halfway.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|p| p.into_inner())
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// A request body, as the builder recorded it.
@@ -154,17 +154,17 @@ pub struct RedirectReply(ReplyGrip);
 impl RedirectReply {
     /// Follow the redirect.
     pub fn follow(self) {
-        self.0.answer(Resolution::Follow)
+        self.0.answer(Resolution::Follow);
     }
 
     /// Do not follow: the redirect response is the response.
     pub fn stop(self) {
-        self.0.answer(Resolution::Stop)
+        self.0.answer(Resolution::Stop);
     }
 
     /// Abandon the request; it fails with [`HttpError::Cancelled`].
     pub fn cancel(self) {
-        self.0.answer(Resolution::Cancel)
+        self.0.answer(Resolution::Cancel);
     }
 }
 
@@ -184,22 +184,22 @@ impl ChallengeReply {
         self.0.answer(Resolution::Credential {
             user: user.into(),
             password: password.into(),
-        })
+        });
     }
 
     /// Answer with a bearer token.
     pub fn bearer(self, token: impl Into<String>) {
-        self.0.answer(Resolution::Bearer(token.into()))
+        self.0.answer(Resolution::Bearer(token.into()));
     }
 
     /// Offer nothing: the challenge response is the response.
     pub fn default_handling(self) {
-        self.0.answer(Resolution::Default)
+        self.0.answer(Resolution::Default);
     }
 
     /// Abandon the request; it fails with [`HttpError::Cancelled`].
     pub fn cancel(self) {
-        self.0.answer(Resolution::Cancel)
+        self.0.answer(Resolution::Cancel);
     }
 }
 
@@ -215,17 +215,17 @@ pub struct TrustReply(ReplyGrip);
 impl TrustReply {
     /// Trust the server, whatever the platform concluded.
     pub fn accept(self) {
-        self.0.answer(Resolution::Accept)
+        self.0.answer(Resolution::Accept);
     }
 
     /// Refuse the server; the request fails with [`HttpError::Tls`].
     pub fn reject(self) {
-        self.0.answer(Resolution::Reject)
+        self.0.answer(Resolution::Reject);
     }
 
     /// Keep the platform's verdict.
     pub fn default_handling(self) {
-        self.0.answer(Resolution::Default)
+        self.0.answer(Resolution::Default);
     }
 }
 
@@ -241,6 +241,7 @@ type TrustHandler = dyn Fn(&ServerTrust, TrustReply) + Send + Sync;
 
 /// Which servers a client trusts beyond the platform's own evaluation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[must_use]
 pub struct Trust {
     pins: Vec<(String, Option<[u8; 32]>)>,
 }
@@ -262,6 +263,7 @@ impl Trust {
     }
 
     /// Whether any pin is configured.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.pins.is_empty()
     }
@@ -329,6 +331,7 @@ pub enum Cookies {
 
 impl Cookies {
     /// A fresh in-memory jar.
+    #[must_use]
     pub fn jar() -> Cookies {
         Cookies::Jar(Arc::new(CookieJar::new()))
     }
@@ -366,6 +369,7 @@ pub enum Cache {
 
 impl Cache {
     /// The platform cache at 8 MiB in memory and 64 MiB on disk.
+    #[must_use]
     pub fn platform() -> Cache {
         Cache::Platform {
             memory: 8 << 20,
@@ -381,6 +385,7 @@ impl Default for Cache {
 }
 
 /// Configures a [`Client`].
+#[must_use]
 pub struct ClientBuilder {
     timeout_idle: Duration,
     timeout_total: Option<Duration>,
@@ -541,7 +546,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Route through an isolated session. By default clients follow Session::global().
+    /// Route through an isolated session. By default clients follow `Session::global()`.
     /// An explicit `transport` overrides provider/interception selection for this client.
     pub fn session(mut self, session: crate::Session) -> Self {
         self.session = Some(session);
@@ -665,6 +670,7 @@ impl Default for Client {
 
 impl Client {
     /// A client with the default policy over the platform's transport.
+    #[must_use]
     pub fn new() -> Client {
         ClientBuilder::default().build()
     }
@@ -675,6 +681,7 @@ impl Client {
     }
 
     /// What this client's transport can do.
+    #[must_use]
     pub fn capabilities(&self) -> Capabilities {
         self.inner.current_transport().capabilities()
     }
@@ -694,6 +701,7 @@ impl Client {
     }
 
     /// Send `request` and await the response head. Dropping the future cancels the request.
+    #[must_use]
     pub fn send_future(&self, request: Request) -> Sending {
         let (tx, rx) = day_async::oneshot();
         let flight = Flight::start(&self.inner, request, Box::new(move |r| tx.send(r)));
@@ -706,6 +714,11 @@ impl Client {
 
     /// Buffer at most `max_bytes`, cancelling if either Content-Length or the actual streamed
     /// body exceeds it. The bound applies to decoded response bytes delivered by the transport.
+    ///
+    /// # Errors
+    ///
+    /// [`HttpError::BodyTooLarge`] when the advertised or received body exceeds `max_bytes`, and
+    /// otherwise the [`HttpError`] the request or its body stream fails with.
     pub async fn fetch_limited_future(
         &self,
         request: Request,
@@ -719,6 +732,11 @@ impl Client {
     /// Unknown or encoded representation lengths report None, never a guessed fraction.
     /// Observer calls occur at connection start, response headers, and each body chunk;
     /// UI consumers should throttle their presentation updates.
+    ///
+    /// # Errors
+    ///
+    /// [`HttpError::BodyTooLarge`] when the advertised or received body exceeds `max_bytes`, and
+    /// otherwise the [`HttpError`] the request or its body stream fails with.
     pub async fn fetch_limited_with_progress_future(
         &self,
         request: Request,
@@ -778,6 +796,7 @@ impl Client {
     }
 
     /// Send `request` and await the whole response. Dropping the future cancels the request.
+    #[must_use]
     pub fn fetch_future(&self, request: Request) -> Fetching {
         let (tx, rx) = day_async::oneshot();
         let flight = Flight::start(
@@ -824,6 +843,7 @@ impl Client {
     }
 
     /// Open a WebSocket and await the handshake. Dropping the future abandons the connection.
+    #[must_use]
     pub fn websocket_future(&self, request: Request) -> Connecting {
         let (tx, rx) = day_async::oneshot();
         let shared = WsShared::open(&self.inner, request, Box::new(move |r| tx.send(r)));
@@ -835,6 +855,7 @@ impl Client {
     }
 
     /// The cookies this client would send, from its jar or the platform's store.
+    #[must_use]
     pub fn cookies(&self) -> Vec<Cookie> {
         match &self.inner.cookies {
             Cookies::Jar(jar) => jar.cookies(),
@@ -874,10 +895,10 @@ impl Client {
 
 impl ClientInner {
     fn current_transport(&self) -> Arc<dyn Transport> {
-        self.session
-            .as_ref()
-            .map(|s| s.provider_transport(&self.config, &self.provider_cache))
-            .unwrap_or_else(|| self.transport.clone())
+        self.session.as_ref().map_or_else(
+            || self.transport.clone(),
+            |s| s.provider_transport(&self.config, &self.provider_cache),
+        )
     }
 
     fn snapshot(&self, request: &Request) -> Arc<Self> {
@@ -951,10 +972,10 @@ impl ClientInner {
         })
     }
 
-    fn cached_credential(&self, origin: &str, realm: &Option<String>) -> Option<Resolution> {
+    fn cached_credential(&self, origin: &str, realm: Option<&str>) -> Option<Resolution> {
         lock(&self.credentials)
             .iter()
-            .find(|(o, r, _)| o == origin && r == realm)
+            .find(|(o, r, _)| o == origin && r.as_deref() == realm)
             .map(|(_, _, c)| c.clone())
     }
 }
@@ -1080,6 +1101,10 @@ impl<T> Inbox<T> {
     }
 
     /// The next item to deliver: `Some(None)` is the clean end, `None` is nothing yet.
+    #[expect(
+        clippy::option_option,
+        reason = "the inner `Option<Result>` is the item a reader receives, where `None` is the clean end; the outer one says whether an item is ready"
+    )]
     fn take(&mut self) -> Option<Option<Result<T, HttpError>>> {
         if let Some(item) = self.queue.pop_front() {
             return Some(Some(Ok(item)));
@@ -1405,7 +1430,8 @@ impl Flight {
                     previous_failures: st.auth_failures,
                 };
                 if st.auth_failures == 0
-                    && let Some(known) = client.cached_credential(&origin_of(&url), &realm)
+                    && let Some(known) =
+                        client.cached_credential(&origin_of(&url), realm.as_deref())
                 {
                     return answer_challenge(st, &parsed, &challenge, &url, known, head, actions);
                 }
@@ -1497,14 +1523,13 @@ impl Flight {
                 actions.push(Action::CancelTimer(timer));
             }
             if st.stage != Stage::Done {
-                self.apply(&mut st, asked, resolution, &mut actions);
+                Self::apply(&mut st, asked, resolution, &mut actions);
             }
         }
         self.run(actions);
     }
 
     fn apply(
-        &self,
         st: &mut FlightState,
         asked: Asked,
         resolution: Resolution,
@@ -1844,41 +1869,49 @@ pub struct Streaming {
 
 impl Streaming {
     /// The status code.
+    #[must_use]
     pub fn status(&self) -> u16 {
         self.head.status
     }
 
     /// The headers, in arrival order.
+    #[must_use]
     pub fn headers(&self) -> &[(String, String)] {
         &self.head.headers
     }
 
     /// The first header with this name, ASCII case-insensitive.
+    #[must_use]
     pub fn header(&self, name: &str) -> Option<&str> {
         self.head.header(name)
     }
 
     /// The URL that answered, after redirects.
+    #[must_use]
     pub fn url(&self) -> &str {
         &self.head.url
     }
 
     /// `Content-Length`, when the response declared one.
+    #[must_use]
     pub fn expected_length(&self) -> Option<u64> {
         self.head.expected_length
     }
 
     /// The whole head.
+    #[must_use]
     pub fn head(&self) -> &Head {
         &self.head
     }
 
     /// The body, unread.
+    #[must_use]
     pub fn into_body(self) -> Body {
         self.body
     }
 
     /// The head and the body, apart.
+    #[must_use]
     pub fn into_parts(self) -> (Head, Body) {
         (self.head, self.body)
     }
@@ -1920,6 +1953,7 @@ impl Streaming {
     }
 
     /// Read the whole body into memory and await the response.
+    #[must_use]
     pub fn collect_future(self) -> Collecting {
         let flight = self.body.flight.clone();
         let (tx, rx) = day_async::oneshot();
@@ -1963,21 +1997,25 @@ impl Body {
 
     /// A grip that cancels this body's request from any thread, also after
     /// [`Body::read_async`] took the body.
+    #[must_use]
     pub fn in_flight(&self) -> InFlight {
         InFlight(Arc::downgrade(&self.flight))
     }
 
     /// Bytes received so far, including chunks not read yet.
+    #[must_use]
     pub fn received(&self) -> u64 {
         lock(&self.flight.state).received
     }
 
     /// `Content-Length`, when the response declared one.
+    #[must_use]
     pub fn expected_length(&self) -> Option<u64> {
         lock(&self.flight.state).expected
     }
 
     /// Transfer metrics, once the platform reported them (usually just before the end).
+    #[must_use]
     pub fn metrics(&self) -> Option<Metrics> {
         lock(&self.flight.state).metrics.clone()
     }
@@ -2041,15 +2079,12 @@ impl Future for NextChunk<'_> {
             if let Some(n) = st.inbox.refill() {
                 demand(&mut st, n, &mut actions);
             }
-            match item {
-                Some(item) => {
-                    let terminal = !matches!(item, Some(Ok(_)));
-                    (Poll::Ready(item), terminal)
-                }
-                None => {
-                    st.inbox.waker = Some(cx.waker().clone());
-                    (Poll::Pending, false)
-                }
+            if let Some(item) = item {
+                let terminal = !matches!(item, Some(Ok(_)));
+                (Poll::Ready(item), terminal)
+            } else {
+                st.inbox.waker = Some(cx.waker().clone());
+                (Poll::Pending, false)
             }
         };
         flight.run(actions);
@@ -2214,6 +2249,10 @@ struct WsState {
 }
 
 impl WsShared {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the public `websocket_*` methods own the request and hand it over whole"
+    )]
     fn open(client: &Arc<ClientInner>, request: Request, on_open: OpenCallback) -> Arc<WsShared> {
         let client = client.snapshot(&request);
         let shared = Arc::new(WsShared {
@@ -2403,12 +2442,11 @@ impl WsShared {
 }
 
 fn ws_demand(st: &mut WsState, n: u32) -> Option<(Arc<dyn Socket>, u32)> {
-    match &st.socket {
-        Some(socket) => Some((socket.clone(), n)),
-        None => {
-            st.pending_demand += n;
-            None
-        }
+    if let Some(socket) = &st.socket {
+        Some((socket.clone(), n))
+    } else {
+        st.pending_demand += n;
+        None
     }
 }
 
@@ -2429,11 +2467,13 @@ impl std::fmt::Debug for WebSocket {
 
 impl WebSocket {
     /// The subprotocol the server chose.
+    #[must_use]
     pub fn protocol(&self) -> Option<String> {
         lock(&self.shared.state).protocol.clone()
     }
 
     /// A sending half to give to other code: it can send, ping and close.
+    #[must_use]
     pub fn sender(&self) -> WsSender {
         WsSender {
             shared: self.shared.clone(),
@@ -2446,17 +2486,18 @@ impl WebSocket {
         message: Message,
         done: impl FnOnce(Result<(), HttpError>) + Send + 'static,
     ) {
-        self.sender().send_async(message, done)
+        self.sender().send_async(message, done);
     }
 
     /// Send a message and await the platform taking it.
+    #[must_use]
     pub fn send_future(&self, message: Message) -> day_async::Oneshot<Result<(), HttpError>> {
         self.sender().send_future(message)
     }
 
     /// Close with `code` and `reason`.
     pub fn close(&self, code: u16, reason: &str) {
-        self.sender().close(code, reason)
+        self.sender().close(code, reason);
     }
 
     /// The next message; the last is a [`Message::Close`], then `None`.
@@ -2530,6 +2571,7 @@ impl WsSender {
     }
 
     /// Send a message and await the platform taking it.
+    #[must_use]
     pub fn send_future(&self, message: Message) -> day_async::Oneshot<Result<(), HttpError>> {
         let (tx, rx) = day_async::oneshot();
         self.send_async(message, move |r| tx.send(r));
@@ -2545,6 +2587,7 @@ impl WsSender {
     }
 
     /// Send a ping and await the pong.
+    #[must_use]
     pub fn ping_future(&self) -> day_async::Oneshot<Result<(), HttpError>> {
         let (tx, rx) = day_async::oneshot();
         self.ping_async(move |r| tx.send(r));
@@ -2583,12 +2626,11 @@ impl Future for NextMessage<'_> {
             if let Some(n) = st.inbox.refill() {
                 grant = ws_demand(&mut st, n);
             }
-            match item {
-                Some(item) => Poll::Ready(item),
-                None => {
-                    st.inbox.waker = Some(cx.waker().clone());
-                    Poll::Pending
-                }
+            if let Some(item) = item {
+                Poll::Ready(item)
+            } else {
+                st.inbox.waker = Some(cx.waker().clone());
+                Poll::Pending
             }
         };
         if let Some((socket, n)) = grant {
@@ -2665,6 +2707,7 @@ pub struct CookieJar {
 
 impl CookieJar {
     /// An empty jar in memory.
+    #[must_use]
     pub fn new() -> CookieJar {
         CookieJar::default()
     }
@@ -3013,8 +3056,12 @@ impl SharedReader {
     }
 
     /// Take the reader; `None` once it was taken.
+    #[must_use]
     pub fn take(&self) -> Option<Box<dyn Read + Send>> {
-        self.0.lock().unwrap_or_else(|p| p.into_inner()).take()
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
     }
 }
 
@@ -3090,6 +3137,7 @@ pub struct Head {
 
 impl Head {
     /// The first header with this name, ASCII case-insensitive.
+    #[must_use]
     pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -3157,7 +3205,7 @@ impl Scheme {
         }
     }
 
-    /// Schemes a stack with native challenge handling (URLSession) raises as questions itself.
+    /// Schemes a stack with native challenge handling (`URLSession`) raises as questions itself.
     pub(crate) fn raised_natively(&self) -> bool {
         matches!(
             self,
@@ -3181,6 +3229,7 @@ pub struct ServerTrust {
 impl ServerTrust {
     /// Each certificate's public-key pin, `sha256/<base64>`, leaf first, the value
     /// `Trust::pin` takes.
+    #[must_use]
     pub fn pins(&self) -> Vec<String> {
         self.chain
             .iter()
@@ -3394,9 +3443,10 @@ pub(crate) fn sha256(bytes: &[u8]) -> [u8; 32] {
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        s.push_str(&format!("{b:02x}"));
+        let _ = write!(s, "{b:02x}");
     }
     s
 }
@@ -3428,7 +3478,7 @@ fn read_tlv(data: &[u8]) -> Option<Tlv<'_>> {
     Some((tag, &data[header..end], &data[..end], &data[end..]))
 }
 
-/// The SubjectPublicKeyInfo element of a DER certificate.
+/// The `SubjectPublicKeyInfo` element of a DER certificate.
 ///
 /// `Certificate ::= SEQUENCE { tbsCertificate, signatureAlgorithm, signature }` and
 /// `TBSCertificate ::= SEQUENCE { [0] version OPTIONAL, serialNumber, signature, issuer, validity,
@@ -3667,8 +3717,7 @@ fn digest_cnonce() -> String {
     let n = CNONCES.fetch_add(1, Ordering::Relaxed);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_nanos());
     hex(&sha256(format!("{n}:{now}").as_bytes())[..8])
 }
 
@@ -3687,6 +3736,7 @@ pub(crate) fn digest_authorization(
     method: &str,
     uri: &str,
 ) -> Option<String> {
+    use std::fmt::Write as _;
     let realm = challenge.param("realm")?;
     let nonce = challenge.param("nonce")?;
     let algorithm = challenge.param("algorithm").unwrap_or("MD5");
@@ -3710,15 +3760,16 @@ pub(crate) fn digest_authorization(
         let nc = "00000001";
         let cnonce = digest_cnonce();
         let response = hash(format!("{ha1}:{nonce}:{nc}:{cnonce}:auth:{ha2}"))?;
-        value.push_str(&format!(
+        let _ = write!(
+            value,
             ", response=\"{response}\", qop=auth, nc={nc}, cnonce=\"{cnonce}\""
-        ));
+        );
     } else {
         let response = hash(format!("{ha1}:{nonce}:{ha2}"))?;
-        value.push_str(&format!(", response=\"{response}\""));
+        let _ = write!(value, ", response=\"{response}\"");
     }
     if let Some(opaque) = challenge.param("opaque") {
-        value.push_str(&format!(", opaque=\"{opaque}\""));
+        let _ = write!(value, ", opaque=\"{opaque}\"");
     }
     Some(value)
 }
@@ -3850,6 +3901,7 @@ struct Part {
 
 /// A multipart form. Build it, then hand it to `Request::form`.
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct Form {
     boundary: String,
     parts: Vec<Part>,
@@ -3868,8 +3920,7 @@ impl Form {
         let n = BOUNDARIES.fetch_add(1, Ordering::Relaxed);
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         let hash = sha256(format!("{n}:{seed}").as_bytes());
         Self {
             boundary: format!("day-{}", hex(&hash[..12])),
@@ -3915,8 +3966,7 @@ impl Form {
         let path = path.into();
         let filename = path
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "file".into());
+            .map_or_else(|| "file".into(), |n| n.to_string_lossy().into_owned());
         self.parts.push(Part {
             name: name.into(),
             filename: Some(filename),
@@ -3927,11 +3977,13 @@ impl Form {
     }
 
     /// The `Content-Type` header value, boundary included.
+    #[must_use]
     pub fn content_type(&self) -> String {
         format!("multipart/form-data; boundary={}", self.boundary)
     }
 
     fn part_header(&self, part: &Part) -> Vec<u8> {
+        use std::fmt::Write as _;
         let escape = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
         let mut head = format!(
             "--{}\r\nContent-Disposition: form-data; name=\"{}\"",
@@ -3939,11 +3991,11 @@ impl Form {
             escape(&part.name)
         );
         if let Some(filename) = &part.filename {
-            head.push_str(&format!("; filename=\"{}\"", escape(filename)));
+            let _ = write!(head, "; filename=\"{}\"", escape(filename));
         }
         head.push_str("\r\n");
         if let Some(ct) = &part.content_type {
-            head.push_str(&format!("Content-Type: {ct}\r\n"));
+            let _ = write!(head, "Content-Type: {ct}\r\n");
         }
         head.push_str("\r\n");
         head.into_bytes()
@@ -4049,6 +4101,10 @@ mod client_tests {
         chunks: Vec<Vec<u8>>,
         question: Option<Question>,
         stall: bool,
+        #[expect(
+            clippy::option_option,
+            reason = "the outer `None` derives the length from the chunks; the inner one is the length the reply advertises, which can be absent"
+        )]
         expected: Option<Option<u64>>,
     }
 
@@ -4492,7 +4548,7 @@ mod client_tests {
         assert_eq!(t.seen()[1].header("cookie"), Some("session=abc"));
         assert_eq!(client.cookies().len(), 1);
         client.clear_cookies();
-        assert!(client.cookies().is_empty());
+        assert_eq!(client.cookies(), [] as [Cookie; 0]);
     }
 
     #[test]
@@ -4616,7 +4672,7 @@ mod client_tests {
             req.method = method;
             let response = wait(builder(&t).build().fetch_limited_future(req, 0)).unwrap();
             assert_eq!(response.status, status);
-            assert!(response.body.is_empty());
+            assert_eq!(response.body, [] as [u8; 0]);
         }
     }
 
@@ -4723,9 +4779,9 @@ mod client_tests {
         let client = builder(&t)
             .on_server_trust(|trust, reply| {
                 if trust.host == "self-signed.test" {
-                    reply.accept()
+                    reply.accept();
                 } else {
-                    reply.reject()
+                    reply.reject();
                 }
             })
             .build();

@@ -7,6 +7,7 @@
 //! runs inside `day pack` (the per-format modules in pack/).
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::Command;
 
@@ -39,7 +40,7 @@ pub fn check(project: &Project) -> i32 {
         if let Some(m) = macos {
             match interpolate_opt(m.identity.as_ref()) {
                 Ok(Some(id)) if id == "-" || id.is_empty() => {
-                    c.problems.push("identity resolves to ad-hoc".into())
+                    c.problems.push("identity resolves to ad-hoc".into());
                 }
                 Ok(_) => {}
                 Err(e) => c.problems.push(e),
@@ -57,7 +58,7 @@ pub fn check(project: &Project) -> i32 {
                 }
                 match interpolate(&n.key_path) {
                     Ok(p) if !Path::new(&p).exists() => {
-                        c.problems.push(format!("notarize.key-path missing: {p}"))
+                        c.problems.push(format!("notarize.key-path missing: {p}"));
                     }
                     Ok(_) => {}
                     Err(e) => c.problems.push(format!("notarize.key-path: {e}")),
@@ -93,7 +94,7 @@ pub fn check(project: &Project) -> i32 {
             }
             match interpolate(&m.profile) {
                 Ok(p) if !project.root.join(&p).is_file() => {
-                    c.problems.push(format!("profile missing: {p}"))
+                    c.problems.push(format!("profile missing: {p}"));
                 }
                 Ok(_) => {}
                 Err(e) => c.problems.push(format!("profile: {e}")),
@@ -153,7 +154,7 @@ pub fn check(project: &Project) -> i32 {
             if let Some(raw) = &i.key_path {
                 match interpolate(raw) {
                     Ok(p) if !Path::new(&p).exists() => {
-                        c.problems.push(format!("key-path missing: {p}"))
+                        c.problems.push(format!("key-path missing: {p}"));
                     }
                     Ok(_) => {}
                     Err(e) => c.problems.push(format!("key-path: {e}")),
@@ -174,7 +175,7 @@ pub fn check(project: &Project) -> i32 {
         if let Some(a) = android {
             match interpolate(&a.keystore) {
                 Ok(p) if !project.root.join(&p).exists() => {
-                    c.problems.push(format!("keystore missing: {p}"))
+                    c.problems.push(format!("keystore missing: {p}"));
                 }
                 Ok(_) => {}
                 Err(e) => c.problems.push(format!("keystore: {e}")),
@@ -224,7 +225,7 @@ pub fn check(project: &Project) -> i32 {
             ] {
                 match interpolate(raw) {
                     Ok(p) if !project.root.join(&p).exists() => {
-                        c.problems.push(format!("{label} missing: {p}"))
+                        c.problems.push(format!("{label} missing: {p}"));
                     }
                     Ok(_) => {}
                     Err(e) => c.problems.push(format!("{label}: {e}")),
@@ -311,8 +312,7 @@ pub fn notarize_status(project: &Project, id: &str) -> Result<i32, crate::cli::C
         .args(["notarytool", "info", id])
         .args(["--key", &key_path, "--key-id", &key_id, "--issuer", &issuer])
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+        .is_ok_and(|s| s.success());
     Ok(if ok {
         0
     } else {
@@ -391,7 +391,7 @@ fn android_debug_keys() -> Result<AndroidKeys, String> {
     if !keys.keystore.exists() {
         std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
         run_tool(
-            &jdk_tool("keytool")?,
+            &jdk_tool("keytool"),
             &[
                 "-genkeypair".into(),
                 "-keystore".into(),
@@ -727,7 +727,7 @@ fn sign_android(
             }
             Format::Aab => {
                 run_tool(
-                    &jdk_tool("jarsigner")?,
+                    &jdk_tool("jarsigner"),
                     &[
                         "-keystore".into(),
                         keys.keystore.display().to_string(),
@@ -748,14 +748,14 @@ fn sign_android(
                     ],
                 )?;
                 run_tool(
-                    &jdk_tool("jarsigner")?,
+                    &jdk_tool("jarsigner"),
                     &["-verify".into(), work.display().to_string()],
                     &[],
                 )?;
                 // jarsigner's own verify output names no certificate; keytool reads the signature
                 // block out of the bundle, which is the fingerprint Play compares an upload to.
                 let report = run_tool(
-                    &jdk_tool("keytool")?,
+                    &jdk_tool("keytool"),
                     &[
                         "-printcert".into(),
                         "-jarfile".into(),
@@ -925,9 +925,10 @@ fn apple_material(
         None => match from_manifest(ios.and_then(|i| i.profile.as_ref()), "profile")? {
             // Relative to the project that declared it; with no project here, the manifest was
             // never read and this arm is unreachable.
-            Some(p) => project
-                .map(|pr| pr.root.join(&p))
-                .unwrap_or_else(|| p.into()),
+            Some(p) => match project {
+                Some(pr) => pr.root.join(&p),
+                None => p.into(),
+            },
             None => {
                 return Err(CliError::sign(
                     "no provisioning profile — pass --profile <file>, or set signing.ios.profile \
@@ -1010,24 +1011,23 @@ fn extension_material(
             ),
             None => None,
         };
-        let path = match declared.and_then(|d| d.entitlements.as_ref()) {
-            Some(raw) => project.root.join(
+        let path = if let Some(raw) = declared.and_then(|d| d.entitlements.as_ref()) {
+            project.root.join(
                 interpolate(raw)
                     .map_err(|e| format!("signing.ios.extensions.{}.entitlements: {e}", r.name))?,
-            ),
-            None => {
-                let staged = project.root.join(r.staged_entitlements());
-                if let Some(dir) = staged.parent() {
-                    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-                }
-                let mut bytes = Vec::new();
-                plist::Value::Dictionary(crate::extensions::entitlements(&r, &project.root)?)
-                    .to_writer_xml(&mut bytes)
-                    .map_err(|e| e.to_string())?;
-                bytes.push(b'\n');
-                crate::pieces::write_bytes_if_changed(&staged, &bytes)?;
-                staged
+            )
+        } else {
+            let staged = project.root.join(r.staged_entitlements());
+            if let Some(dir) = staged.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             }
+            let mut bytes = Vec::new();
+            plist::Value::Dictionary(crate::extensions::entitlements(&r, &project.root)?)
+                .to_writer_xml(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            bytes.push(b'\n');
+            crate::pieces::write_bytes_if_changed(&staged, &bytes)?;
+            staged
         };
         out.push(ExtensionMaterial {
             name: r.name.clone(),
@@ -1292,9 +1292,10 @@ fn mas_material(
     let profile = match over.profile {
         Some(p) => p.to_path_buf(),
         None => match from_manifest(mas.map(|m| &m.profile), "profile")? {
-            Some(p) => project
-                .map(|pr| pr.root.join(&p))
-                .unwrap_or_else(|| p.into()),
+            Some(p) => match project {
+                Some(pr) => pr.root.join(&p),
+                None => p.into(),
+            },
             None => {
                 return Err(missing(
                     "Mac App Store profile",
@@ -1405,11 +1406,10 @@ fn sha256_tree(root: &Path) -> Result<String, String> {
         }
         hasher.update([0]);
     }
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(hasher.finalize().iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    }))
 }
 
 /// The one `.app` inside an unpacked `Payload/`.
@@ -1541,8 +1541,7 @@ pub(crate) fn ios_app_entitlements(
     let xcconfig = project.root.join("platform/ios/DayApp.xcconfig");
     let srcroot = crate::xcode::project_dir(&project.root, "ios")
         .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| project.root.join("platform/ios"));
+        .map_or_else(|| project.root.join("platform/ios"), Path::to_path_buf);
     // Day signs device and store builds only; a simulator build is signed by Xcode itself.
     let read = xcconfig_settings(
         &xcconfig,
@@ -1623,7 +1622,7 @@ struct XcconfigBuild<'a> {
     /// The SDK's platform name without its version, `[sdk=…]`: "iphoneos" for a device,
     /// "iphonesimulator" for the simulator, "macosx" for a Mac.
     sdk: &'a str,
-    /// The architecture, `[arch=…]`: "arm64" or "x86_64".
+    /// The architecture, `[arch=…]`: "arm64" or "`x86_64`".
     arch: &'a str,
 }
 
@@ -2188,7 +2187,7 @@ fn build_tool(name: &str) -> Result<PathBuf, String> {
 }
 
 /// A tool from the JDK (`jarsigner`, `keytool`): `$JAVA_HOME` first, then whatever is on PATH.
-fn jdk_tool(name: &str) -> Result<PathBuf, String> {
+fn jdk_tool(name: &str) -> PathBuf {
     let exe = if cfg!(windows) {
         format!("{name}.exe")
     } else {
@@ -2197,11 +2196,11 @@ fn jdk_tool(name: &str) -> Result<PathBuf, String> {
     if let Some(home) = day_toolchain::jdk_home() {
         let p = home.join("bin").join(&exe);
         if p.is_file() {
-            return Ok(p);
+            return p;
         }
     }
     // On PATH: `Command` resolves it, and a missing tool surfaces as the spawn error.
-    Ok(PathBuf::from(exe))
+    PathBuf::from(exe)
 }
 
 /// `"35.0.0"` → `(35, 0, 0)`, for ordering build-tools directories.
@@ -2237,8 +2236,8 @@ fn keytool_fingerprint(report: &str) -> Option<String> {
 
 fn normalize_fingerprint(raw: &str) -> String {
     raw.chars()
-        .filter(|c| c.is_ascii_hexdigit())
-        .flat_map(|c| c.to_lowercase())
+        .filter(char::is_ascii_hexdigit)
+        .flat_map(char::to_lowercase)
         .collect()
 }
 
@@ -2251,7 +2250,10 @@ fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest;
     let mut h = sha2::Sha256::new();
     h.update(bytes);
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    h.finalize().iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
 }
 
 #[cfg(test)]
@@ -2462,11 +2464,13 @@ mod ios_entitlement_tests {
         assert_eq!(
             signed
                 .get("beta-reports-active")
-                .and_then(|v| v.as_boolean()),
+                .and_then(plist::Value::as_boolean),
             Some(true)
         );
         assert_eq!(
-            signed.get("get-task-allow").and_then(|v| v.as_boolean()),
+            signed
+                .get("get-task-allow")
+                .and_then(plist::Value::as_boolean),
             Some(false)
         );
     }
@@ -2492,7 +2496,9 @@ mod ios_entitlement_tests {
             Some("TEAM123.org.example.Browser.dev")
         );
         assert_eq!(
-            signed.get("get-task-allow").and_then(|v| v.as_boolean()),
+            signed
+                .get("get-task-allow")
+                .and_then(plist::Value::as_boolean),
             Some(true)
         );
         // A literal environment the profile does not grant is dropped, not rewritten.
@@ -2519,7 +2525,7 @@ mod ios_entitlement_tests {
     fn without_an_app_file_the_profile_set_stands() {
         let (signed, dropped) =
             ios_signing_entitlements(&dev_profile(), None, "org.example.B").expect("profile set");
-        assert!(dropped.is_empty());
+        assert_eq!(dropped, [] as [std::string::String; 0]);
         assert!(signed.contains_key("com.apple.developer.game-center"));
         assert_eq!(
             signed

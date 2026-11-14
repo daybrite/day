@@ -56,12 +56,13 @@ fn with_formatter<R>(
 ///
 /// Grouping follows the locale's CLDR rule rather than a fixed every-three: `en-IN` groups the
 /// lakh way, and several locales suppress grouping for four-digit numbers entirely.
+#[must_use]
 pub fn format_decimal_in(locale: &str, v: f64, fraction_digits: usize) -> String {
     if !v.is_finite() {
         return format!("{v}");
     }
     let Ok(mut d) = Decimal::try_from_f64(v, FloatPrecision::RoundTrip) else {
-        return format!("{v:.*}", fraction_digits);
+        return format!("{v:.fraction_digits$}");
     };
     let places = fraction_digits.min(20) as i16;
     d.round(-places);
@@ -71,12 +72,13 @@ pub fn format_decimal_in(locale: &str, v: f64, fraction_digits: usize) -> String
     d.pad_end(-places);
     with_formatter(locale, true, |f| match f {
         Some(f) => f.format_to_string(&d),
-        None => format!("{v:.*}", fraction_digits),
+        None => format!("{v:.fraction_digits$}"),
     })
 }
 
 /// Render `v` in the current locale (tracked, like [`crate::compare`]), so a label inside a
 /// reactive closure re-renders when the locale switches.
+#[must_use]
 pub fn format_decimal(v: f64, fraction_digits: usize) -> String {
     let locale = crate::locale().get();
     format_decimal_in(&locale, v, fraction_digits)
@@ -117,6 +119,7 @@ pub(crate) fn percent_affixes(locale: &str, number: &str) -> (&'static str, &'st
 /// Render the fraction `v` as a percentage in `locale` (`0.5` is `50%` in `en`, `50 %` in `fr`,
 /// `%50` in `tr`), rounded to `fraction_digits` places of the percentage and grouped by the
 /// locale's rule (untracked).
+#[must_use]
 pub fn format_percent_in(locale: &str, v: f64, fraction_digits: usize) -> String {
     let number = format_decimal_in(locale, v * 100.0, fraction_digits);
     if !v.is_finite() {
@@ -128,6 +131,7 @@ pub fn format_percent_in(locale: &str, v: f64, fraction_digits: usize) -> String
 
 /// [`format_percent_in`] in the current locale (tracked), so a label inside a reactive closure
 /// re-renders when the locale switches.
+#[must_use]
 pub fn format_percent(v: f64, fraction_digits: usize) -> String {
     let locale = crate::locale().get();
     format_percent_in(&locale, v, fraction_digits)

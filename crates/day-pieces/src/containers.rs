@@ -38,6 +38,7 @@ pub enum VAlign {
     FirstBaseline,
 }
 
+#[must_use]
 pub struct Column<C: PieceSeq> {
     children: C,
     spacing: f64,
@@ -122,6 +123,7 @@ pub enum RowFit {
     Scroll,
 }
 
+#[must_use]
 pub struct Row<C: PieceSeq> {
     children: C,
     spacing: f64,
@@ -229,6 +231,7 @@ impl<C: PieceSeq> Piece for Row<C> {
     }
 }
 
+#[must_use]
 pub struct Grid<C: PieceSeq> {
     children: C,
     row_spacing: f64,
@@ -293,6 +296,7 @@ impl<C: PieceSeq> Piece for Grid<C> {
     }
 }
 
+#[must_use]
 pub struct GridRow<C: PieceSeq> {
     children: C,
     valign: Option<CrossAlign>,
@@ -348,6 +352,7 @@ impl<C: PieceSeq> Piece for GridRow<C> {
     }
 }
 
+#[must_use]
 pub struct Scroll<P: Piece> {
     child: P,
     axis: Axis,
@@ -437,6 +442,7 @@ impl<P: Piece> Piece for Scroll<P> {
 /// the union (max width/height) of its children; contrast [`Decorate::overlay`](crate::decorators::Decorate::overlay), which sizes to
 /// its content and treats the overlaid piece as a non-sizing annotation. Pure composition: it is
 /// the same native panel as [`column()`]/[`row()`], so there is no per-backend work.
+#[must_use]
 pub struct ZStack<C: PieceSeq> {
     children: C,
     align: Alignment,

@@ -31,9 +31,9 @@ pub(crate) fn parse(line: &str) -> Result<Fix, LocationError> {
         Some("error") => Err(match parts.next().and_then(|c| c.parse::<i64>().ok()) {
             Some(201) => LocationError::PermissionDenied,
             // The location switch is off.
-            Some(3301100) => LocationError::Disabled,
+            Some(3_301_100) => LocationError::Disabled,
             // Positioning failed, or timed out, before a fix.
-            Some(3301200) => LocationError::Timeout,
+            Some(3_301_200) => LocationError::Timeout,
             Some(code) => LocationError::Io(format!("location error {code}")),
             None => LocationError::Io(line.to_string()),
         }),

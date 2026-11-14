@@ -29,9 +29,9 @@ struct OhUdsPlainText {
     _opaque: [u8; 0],
 }
 
-/// UDMF_META_PLAIN_TEXT (udmf_meta.h), the plain-text uniform type id.
+/// `UDMF_META_PLAIN_TEXT` (`udmf_meta.h`), the plain-text uniform type id.
 const PLAIN_TEXT_TYPE: &CStr = c"general.plain-text";
-/// ERR_OK / UDMF_E_OK: both APIs return 0 on success.
+/// `ERR_OK` / `UDMF_E_OK`: both APIs return 0 on success.
 const OK: c_int = 0;
 
 #[link(name = "pasteboard")]
@@ -108,7 +108,7 @@ pub fn get_text() -> Option<String> {
             return None;
         }
         let mut status: c_int = 0;
-        let data = OH_Pasteboard_GetData(pb, &mut status);
+        let data = OH_Pasteboard_GetData(pb, &raw mut status);
         let mut out = None;
         if !data.is_null() {
             if status == OK {
@@ -234,7 +234,7 @@ pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error>
             return Err(Error::Unavailable);
         }
         let mut status = 0;
-        let data = OH_Pasteboard_GetData(pb, &mut status);
+        let data = OH_Pasteboard_GetData(pb, &raw mut status);
         let result = (|| {
             if data.is_null() {
                 return if status == OK {
@@ -244,7 +244,7 @@ pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error>
                 };
             }
             let mut count = 0;
-            let records = OH_UdmfData_GetRecords(data, &mut count);
+            let records = OH_UdmfData_GetRecords(data, &raw mut count);
             if records.is_null() {
                 return Ok(None);
             }
@@ -278,8 +278,8 @@ pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error>
                     if OH_UdmfRecord_GetGeneralEntry(
                         *records.add(i),
                         type_id(mime).as_ptr(),
-                        &mut bytes,
-                        &mut len,
+                        &raw mut bytes,
+                        &raw mut len,
                     ) == OK
                         && !bytes.is_null()
                     {

@@ -238,7 +238,7 @@ label = "play_label"
             fixture.git(&["status", "--porcelain", "--untracked-files=all"]),
             before
         );
-        assert!(fixture.git(&["diff", "--exit-code"]).is_empty());
+        assert_eq!(fixture.git(&["diff", "--exit-code"]), [] as [u8; 0]);
         assert!(
             !harmony_dir(&fixture.0)
                 .join("entry/src/main/resources/fr")
@@ -286,7 +286,7 @@ label = "play_label"
         fs::remove_dir_all(fixture.0.root.join("resource/locales/fr")).unwrap();
         fs::remove_file(fixture.0.root.join("resource/assets/rules.txt")).unwrap();
         fs::remove_file(harmony_dir(&fixture.0).join("entry/src/main/ets/Removed.ets")).unwrap();
-        fixture.0.manifest.permissions = Default::default();
+        fixture.0.manifest.permissions = crate::meta::Permissions::default();
         fixture.0.manifest.shortcuts.clear();
         stage_host(&fixture.0).unwrap();
         assert!(!staged.join("entry/src/main/resources/fr").exists());

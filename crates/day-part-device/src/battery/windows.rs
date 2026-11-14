@@ -31,14 +31,14 @@ pub fn status() -> Option<BatteryStatus> {
         battery_life_time: 0,
         battery_full_life_time: 0,
     };
-    if unsafe { GetSystemPowerStatus(&mut sps) } == 0 {
+    if unsafe { GetSystemPowerStatus(&raw mut sps) } == 0 {
         return None;
     }
     if sps.battery_flag == 128 {
         return None; // no system battery
     }
     let level = if sps.battery_life_percent <= 100 {
-        Some(sps.battery_life_percent as f32 / 100.0)
+        Some(f32::from(sps.battery_life_percent) / 100.0)
     } else {
         None
     };

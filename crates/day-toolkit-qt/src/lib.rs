@@ -3,7 +3,7 @@
 
 //! day-toolkit-qt — the Qt 6 Widgets backend (linux-qt / macos-qt; DESIGN.md §9), over
 //! the day-toolkit-qt-sys C++ shim. `Handle = QtHandle(*mut QWidget)`; absolute geometry; toggle is a
-//! QCheckBox (Qt Widgets has no native switch — an explicitly documented divergence).
+//! `QCheckBox` (Qt Widgets has no native switch — an explicitly documented divergence).
 
 mod controls;
 
@@ -28,7 +28,7 @@ pub struct QtHandle(pub *mut c_void);
 
 /// Lower an `AnimSpec` to `(duration_ms, curve_code)` for the Qt shim (§8.4). `None` ⇒ `(0, 0)`
 /// (instant). Curve codes match the shim's `day_qt_easing`: 0 linear, 1 easeIn, 2 easeOut,
-/// 3 easeInOut, 4 spring (OutBack overshoot).
+/// 3 easeInOut, 4 spring (`OutBack` overshoot).
 fn qt_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
     match anim {
         None => (0, 0),
@@ -173,12 +173,12 @@ pub fn emit(id: NodeId, ev: Event) {
 
 /// Deliver an event to day-core on the next event-loop turn — a genuine "safe point" (§8.3) —
 /// instead of inline. A native list selection rebuilds the sidebar detail *synchronously*
-/// (dispose old widgets, create new ones); doing that inside the QListView's own key/click
+/// (dispose old widgets, create new ones); doing that inside the `QListView`'s own key/click
 /// dispatch reparents widgets mid-event and reads freed memory (`QWidget::setParent` SIGSEGV).
 /// Only `Send` data (id + event) is captured; the thread-local sink runs on the main thread.
 fn emit_deferred(id: NodeId, ev: Event) {
     let boxed: Box<dyn FnOnce() + Send> = Box::new(move || emit(id, ev));
-    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    let data = Box::into_raw(Box::new(boxed)).cast::<c_void>();
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
@@ -201,13 +201,13 @@ fn apply_button_content(
             cstr(title).as_ptr(),
             cstr(&name).as_ptr(),
             fallback,
-            icon_only as c_int,
-        )
+            c_int::from(icon_only),
+        );
     };
 }
 
-/// Hand a [`day_spec::props::ButtonStyleSpec`] to the shim, which styles the QPushButton in
-/// place. The widget stays a QPushButton, so focus, Space/Enter activation and the a11y role
+/// Hand a [`day_spec::props::ButtonStyleSpec`] to the shim, which styles the `QPushButton` in
+/// place. The widget stays a `QPushButton`, so focus, Space/Enter activation and the a11y role
 /// are unaffected whatever the style is.
 fn apply_button_style(w: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
     use day_spec::props::ButtonStyleSpec as S;
@@ -247,15 +247,20 @@ fn encode_bitmap(
     // Qt takes quality as 0..=100, with -1 meaning the format's own default.
     let quality = spec
         .quality
-        .map(|q| (q.clamp(0.0, 1.0) * 100.0).round() as c_int)
-        .unwrap_or(-1);
-    let (fit_w, fit_h) = spec.fit.map(|f| (f.width, f.height)).unwrap_or((0.0, 0.0));
+        .map_or(-1, |q| (q.clamp(0.0, 1.0) * 100.0).round() as c_int);
+    let (fit_w, fit_h) = spec.fit.map_or((0.0, 0.0), |f| (f.width, f.height));
     let mut len: c_int = 0;
     // SAFETY: the shim returns either null or a malloc'd buffer of `len` bytes; it is copied out
     // and released through the shim's own free, and `len` is written before the pointer is used.
     let bytes = unsafe {
-        let p =
-            ffi::day_qt_image_encode(id.0, cstr(format).as_ptr(), quality, fit_w, fit_h, &mut len);
+        let p = ffi::day_qt_image_encode(
+            id.0,
+            cstr(format).as_ptr(),
+            quality,
+            fit_w,
+            fit_h,
+            &raw mut len,
+        );
         if p.is_null() || len <= 0 {
             return Err(day_spec::ImageError::Encode);
         }
@@ -302,8 +307,8 @@ fn render_pdf_document(
             views.len() as c_int,
             title.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
             author.as_ref().map_or(std::ptr::null(), |a| a.as_ptr()),
-            &mut len,
-            &mut err,
+            &raw mut len,
+            &raw mut err,
         );
         if p.is_null() || len <= 0 {
             let why = if err.is_null() {
@@ -367,7 +372,7 @@ struct CellPool {
     /// A sectioned list's spare cells that last held a header (docs/list.md "Sections"), kept
     /// apart from `free`: day-core rebuilds a cell that changes kind, so a header row only ever
     /// takes a header's cell and an item row an item's, the per-kind reuse pools of
-    /// UITableView and RecyclerView. Each kind's spares stay as many as that kind ever had
+    /// `UITableView` and `RecyclerView`. Each kind's spares stay as many as that kind ever had
     /// bound at once, so the pool is a window of items plus the headers a window holds.
     free_headers: Vec<usize>,
     /// The cells holding a header now, bound or spare.
@@ -500,7 +505,7 @@ extern "C" fn on_list_selection(node: u64, rows: *const c_int, count: c_int) {
             // SAFETY: the shim hands a live array of `count` ints for the duration of the call.
             unsafe { std::slice::from_raw_parts(rows, count as usize) }
                 .iter()
-                .map(|r| *r as i64)
+                .map(|r| i64::from(*r))
                 .collect()
         };
         let multi = LIST_BY_NODE
@@ -736,7 +741,7 @@ fn list_sync(host_key: usize) {
             st.headers_for = Some(n);
         }
         let (mut w, mut h) = (0.0_f64, 0.0_f64);
-        unsafe { ffi::day_qt_widget_size(st.host, &mut w, &mut h) };
+        unsafe { ffi::day_qt_widget_size(st.host, &raw mut w, &raw mut h) };
         // Rows lay out to the VIEWPORT's width, not the host's: under a legacy scroll bar the
         // two differ by the bar, and a row framed to the host slides its trailing column under
         // it. The viewport reports nothing until Qt has laid the view out; the host stands in.
@@ -745,12 +750,12 @@ fn list_sync(host_key: usize) {
         // The rows on screen. The view reports none until Qt has laid it out — the framed
         // height stands in until then.
         let (mut first, mut last) = (0 as c_int, -1 as c_int);
-        unsafe { ffi::day_qt_list_visible_rows(st.host, &mut first, &mut last) };
+        unsafe { ffi::day_qt_list_visible_rows(st.host, &raw mut first, &raw mut last) };
         let (first, last) = if last >= first {
             (first.max(0) as usize, last.max(0) as usize + 1)
         } else {
             let vh = if st.frame_height > 0 {
-                st.frame_height as f64
+                f64::from(st.frame_height)
             } else {
                 // Never framed and never laid out: build a screen's worth so the first paint is
                 // not blank, and let the frame that follows widen the window.
@@ -819,7 +824,7 @@ fn list_sync(host_key: usize) {
             for (row, _) in &work {
                 if let Some(h) = st.heights.get(&(source.token_at)(*row)) {
                     unsafe {
-                        ffi::day_qt_list_set_row_height(st.host, *row as c_int, h.ceil() as c_int)
+                        ffi::day_qt_list_set_row_height(st.host, *row as c_int, h.ceil() as c_int);
                     };
                 }
             }
@@ -896,7 +901,16 @@ fn list_sync(host_key: usize) {
         // The view places the cell itself; before its first layout pass the frame is empty and
         // the row pitch stands in.
         let (mut x, mut y, mut cw, mut ch) = (0 as c_int, 0 as c_int, 0 as c_int, 0 as c_int);
-        unsafe { ffi::day_qt_list_cell_frame(host, i as c_int, &mut x, &mut y, &mut cw, &mut ch) };
+        unsafe {
+            ffi::day_qt_list_cell_frame(
+                host,
+                i as c_int,
+                &raw mut x,
+                &raw mut y,
+                &raw mut cw,
+                &raw mut ch,
+            );
+        };
         if cw <= 0 || ch <= 0 {
             (x, y, cw, ch) = (0, (i as f64 * rowh) as c_int, width, rowh as c_int);
         }
@@ -1001,7 +1015,7 @@ fn schedule_list_row_height(host_key: usize, cell: usize, height: f64) {
             if st.pin == Some(cell) {
                 let row = st.pin_row?;
                 unsafe {
-                    ffi::day_qt_list_pin_bound(st.host, row as c_int, height.ceil() as c_int)
+                    ffi::day_qt_list_pin_bound(st.host, row as c_int, height.ceil() as c_int);
                 };
                 return None;
             }
@@ -1025,7 +1039,7 @@ fn schedule_list_row_height(host_key: usize, cell: usize, height: f64) {
 }
 
 /// A right-click landed on a widget with a summon-time menu: ask the provider and hand Qt a
-/// fresh QMenu (null when the provider answers empty). Runs synchronously inside Qt's
+/// fresh `QMenu` (null when the provider answers empty). Runs synchronously inside Qt's
 /// customContextMenuRequested — the provider must not re-enter the event loop.
 extern "C" fn on_context_menu_summon(
     node: u64,
@@ -1047,7 +1061,7 @@ extern "C" fn on_context_menu_summon(
 }
 
 /// A menu button was clicked (`day_qt_button_menu_fn`; `key` is its widget pointer): ask the
-/// provider now and hand Qt a fresh QMenu, or null when it answers empty.
+/// provider now and hand Qt a fresh `QMenu`, or null when it answers empty.
 extern "C" fn on_button_menu(
     key: u64,
     _x: std::os::raw::c_double,
@@ -1092,7 +1106,7 @@ extern "C" fn on_link(id: u64, s: *const c_char) {
 extern "C" fn on_slider(id: u64, v: c_int, committed: c_int) {
     ffi_guard::contain((), || {
         let (min, max) = RANGES.with(|r| r.get(id as usize)).unwrap_or((0.0, 1.0));
-        let value = min + (v as f64 / 1000.0) * (max - min);
+        let value = min + (f64::from(v) / 1000.0) * (max - min);
         // The live value always; the settled one additionally, so a drag records once (the shim
         // decides which is which — see `day_qt_slider_new`).
         emit(NodeId(id), Event::ValueChanged(value));
@@ -1275,7 +1289,7 @@ fn slider_ticks(value: f64, min: f64, max: f64) -> c_int {
     (((value - min) / (max - min)) * 1000.0).round() as c_int
 }
 
-/// A `0.0..=1.0` fraction as QProgressBar ticks (0..1000), clamped.
+/// A `0.0..=1.0` fraction as `QProgressBar` ticks (0..1000), clamped.
 fn progress_ticks(fraction: f64) -> c_int {
     (fraction.clamp(0.0, 1.0) * 1000.0).round() as c_int
 }
@@ -1284,7 +1298,7 @@ fn progress_ticks(fraction: f64) -> c_int {
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Qt>];
 
-/// A live secondary window (docs/windows.md): the day root node id, the DayWindow, and
+/// A live secondary window (docs/windows.md): the day root node id, the `DayWindow`, and
 /// its inner content widget (the adopted handle).
 struct QtWin {
     #[cfg(target_os = "macos")]
@@ -1301,11 +1315,12 @@ pub struct Qt {
     secondary: Vec<QtWin>,
     /// Each window's toolbar as the shim holds it (docs/toolbars.md), by window pointer.
     toolbars: std::collections::HashMap<usize, day_spec::ToolbarMirror>,
-    /// The status items shown (docs/status-item.md): each spec and its QSystemTrayIcon.
+    /// The status items shown (docs/status-item.md): each spec and its `QSystemTrayIcon`.
     trays: Vec<(day_spec::StatusItemSpec, *mut c_void)>,
 }
 
 impl Qt {
+    #[must_use]
     pub fn new() -> Self {
         register_resources();
         let mut registry = Registry::default();
@@ -1321,8 +1336,8 @@ impl Qt {
         }
     }
 
-    /// The DayWindow whose content container is `host`: a secondary window by its content, or
-    /// the primary, which `ready` handed out as the DayWindow itself.
+    /// The `DayWindow` whose content container is `host`: a secondary window by its content, or
+    /// the primary, which `ready` handed out as the `DayWindow` itself.
     fn qt_window_for(&self, host: &QtHandle) -> Option<*mut c_void> {
         match self.secondary.iter().find(|w| w.content == host.0) {
             Some(w) => Some(w.win),
@@ -1337,8 +1352,7 @@ impl Qt {
         self.secondary
             .iter()
             .find(|w| unsafe { ffi::day_qt_window_is_active(w.win) } != 0)
-            .map(|w| w.win)
-            .unwrap_or(self.window)
+            .map_or(self.window, |w| w.win)
     }
 }
 
@@ -1358,11 +1372,11 @@ fn register_resources() {
 fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
     let respath = format!(":/day/assets/{name}");
     let mut len: usize = 0;
-    let ptr = unsafe { ffi::day_qt_resource_data(cstr(&respath).as_ptr(), &mut len) };
+    let ptr = unsafe { ffi::day_qt_resource_data(cstr(&respath).as_ptr(), &raw mut len) };
     if ptr.is_null() {
         return None;
     }
-    Some(unsafe { day_spec::resource::Resource::from_raw(ptr as *const u8, len, Box::new(())) })
+    Some(unsafe { day_spec::resource::Resource::from_raw(ptr.cast::<u8>(), len, Box::new(())) })
 }
 
 impl Default for Qt {
@@ -1380,8 +1394,13 @@ fn content_of(parent: &QtHandle) -> *mut c_void {
 /// Point size + the style's inherent weight for a logical [`Font`] (Qt has no semantic text styles;
 /// we approximate the platform typographic scale, matching Apple's text-style sizes for consistency).
 /// Public for standalone pieces (docs/extending.md), which have to resolve the same scale.
+#[must_use]
+#[expect(
+    clippy::match_same_arms,
+    reason = "one row per text style, in the order of the type scale it approximates"
+)]
 pub fn qt_style(f: Font) -> (f64, day_spec::FontWeight) {
-    use day_spec::FontWeight::*;
+    use day_spec::FontWeight::{Regular, Semibold};
     match f {
         Font::LargeTitle => (26.0, Regular),
         Font::Title => (22.0, Regular),
@@ -1394,8 +1413,7 @@ pub fn qt_style(f: Font) -> (f64, day_spec::FontWeight) {
         Font::Footnote => (10.0, Regular),
         Font::Caption => (10.0, Regular),
         Font::Caption2 => (10.0, Regular),
-        Font::System(pt) => (pt, Regular),
-        Font::Custom(_, pt) => (pt, Regular),
+        Font::System(pt) | Font::Custom(_, pt) => (pt, Regular),
     }
 }
 
@@ -1423,7 +1441,7 @@ fn remember_label_pt(w: *mut c_void, f: day_spec::FontSpec) {
 }
 
 /// Apply a `Font::Custom` family on top of `day_qt_label_set_font` (which set size/weight/italic).
-/// The family was registered with the QFontDatabase in `run()`; an unknown name falls back to the
+/// The family was registered with the `QFontDatabase` in `run()`; an unknown name falls back to the
 /// default family inside Qt.
 unsafe fn apply_custom_family(w: *mut c_void, spec: day_spec::FontSpec) {
     if let Font::Custom(family, _) = spec.style {
@@ -1431,7 +1449,7 @@ unsafe fn apply_custom_family(w: *mut c_void, spec: day_spec::FontSpec) {
     }
 }
 
-/// Day weight → QFont::Weight numeric value (Thin=100 … Black=900).
+/// Day weight → `QFont::Weight` numeric value (Thin=100 … Black=900).
 fn qt_weight(w: day_spec::FontWeight) -> c_int {
     use day_spec::FontWeight as W;
     match w {
@@ -1447,11 +1465,16 @@ fn qt_weight(w: day_spec::FontWeight) -> c_int {
     }
 }
 
-/// (point size, QFont weight, italic flag) for the C++ shim.
+/// (point size, `QFont` weight, italic flag) for the C++ shim.
 fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int, c_int) {
     let (pt, inherent) = qt_style(spec.style);
     let weight = qt_weight(spec.weight.unwrap_or(inherent));
-    (pt, weight, spec.italic as c_int, spec.tabular as c_int)
+    (
+        pt,
+        weight,
+        c_int::from(spec.italic),
+        c_int::from(spec.tabular),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1525,7 +1548,7 @@ extern "C" fn nav_back_clicked(id: u64) {
             Event::NavBack {
                 already_popped: false,
             },
-        )
+        );
     });
 }
 
@@ -1543,7 +1566,7 @@ fn nav_sync_header(host: *mut std::os::raw::c_void) {
         )
     });
     unsafe {
-        ffi::day_qt_nav_header_update(host, visible as c_int, cstr(&title).as_ptr());
+        ffi::day_qt_nav_header_update(host, c_int::from(visible), cstr(&title).as_ptr());
     }
     nav_sync_panes(host);
 }
@@ -1597,7 +1620,7 @@ fn nav_present(host: *mut std::os::raw::c_void, split: bool) {
             let detail: Vec<QtHandle> = s
                 .pages
                 .iter()
-                .filter(|(p, _)| !(split && is_sidebar_page(p.0)) && !is_list_page(p.0))
+                .filter(|(p, _)| !(split && is_sidebar_page(p.0) || is_list_page(p.0)))
                 .map(|(p, _)| *p)
                 .collect();
             let last = detail.len().saturating_sub(1);
@@ -1611,11 +1634,11 @@ fn nav_present(host: *mut std::os::raw::c_void, split: bool) {
     // detail width and leave the page laid out for a window that still had a sidebar.
     let host_addr = host as usize;
     <Qt as Platform>::post(Box::new(move || {
-        nav_sync_header(host_addr as *mut std::os::raw::c_void)
+        nav_sync_header(host_addr as *mut std::os::raw::c_void);
     }));
 }
 
-/// Report both pane sizes so NavLayout re-lays page content (enqueue-only, §8.3).
+/// Report both pane sizes so `NavLayout` re-lays page content (enqueue-only, §8.3).
 fn nav_sync_panes(host: *mut std::os::raw::c_void) {
     let reports: Vec<(NodeId, Size)> = NAV_STATE.with(|m| {
         let m = m.borrow();
@@ -1624,9 +1647,9 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
         };
         let (mut sw, mut sh, mut lw, mut lh, mut dw, mut dh) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         unsafe {
-            ffi::day_qt_widget_size(state.sidebar_pane, &mut sw, &mut sh);
-            ffi::day_qt_widget_size(state.list_pane, &mut lw, &mut lh);
-            ffi::day_qt_widget_size(state.detail_pane, &mut dw, &mut dh);
+            ffi::day_qt_widget_size(state.sidebar_pane, &raw mut sw, &raw mut sh);
+            ffi::day_qt_widget_size(state.list_pane, &raw mut lw, &raw mut lh);
+            ffi::day_qt_widget_size(state.detail_pane, &raw mut dw, &raw mut dh);
         }
         if sh <= 0.0 && dh <= 0.0 {
             return Vec::new();
@@ -1686,8 +1709,8 @@ fn inspector_sync_panes(host: *mut std::os::raw::c_void) {
         };
         let (mut cw, mut ch, mut pw, mut ph) = (0.0, 0.0, 0.0, 0.0);
         unsafe {
-            ffi::day_qt_widget_size(state.content_pane, &mut cw, &mut ch);
-            ffi::day_qt_widget_size(state.panel_pane, &mut pw, &mut ph);
+            ffi::day_qt_widget_size(state.content_pane, &raw mut cw, &raw mut ch);
+            ffi::day_qt_widget_size(state.panel_pane, &raw mut pw, &raw mut ph);
         }
         let _ = ph;
         if ch <= 0.0 {
@@ -1750,8 +1773,8 @@ fn split_sync_panes(host: *mut std::os::raw::c_void) {
         };
         let (mut aw, mut ah, mut bw, mut bh) = (0.0, 0.0, 0.0, 0.0);
         unsafe {
-            ffi::day_qt_widget_size(state.first_pane, &mut aw, &mut ah);
-            ffi::day_qt_widget_size(state.second_pane, &mut bw, &mut bh);
+            ffi::day_qt_widget_size(state.first_pane, &raw mut aw, &raw mut ah);
+            ffi::day_qt_widget_size(state.second_pane, &raw mut bw, &raw mut bh);
         }
         if aw <= 0.0 || ah <= 0.0 {
             return Vec::new();
@@ -1782,7 +1805,7 @@ extern "C" fn split_resized(host: *mut std::os::raw::c_void) {
             let mut m = m.borrow_mut();
             let state = m.get_mut(&(host as usize))?;
             let (mut w, mut h) = (0.0, 0.0);
-            unsafe { ffi::day_qt_widget_size(host, &mut w, &mut h) };
+            unsafe { ffi::day_qt_widget_size(host, &raw mut w, &raw mut h) };
             if state.placed || w <= 0.0 || h <= 0.0 {
                 return None;
             }
@@ -1826,9 +1849,9 @@ extern "C" fn split_moved(host: *mut std::os::raw::c_void) {
 // The navigation suite (docs/navigation.md): a QTabWidget host that owns its page widgets.
 // ---------------------------------------------------------------------------
 
-/// The navigation suite (`NavPresentation::Tabs`): a QTabWidget whose bar IS the host's row list.
+/// The navigation suite (`NavPresentation::Tabs`): a `QTabWidget` whose bar IS the host's row list.
 struct NavSuite {
-    /// The host's own node — what the QTabWidget's signal carries, so a click can find its suite
+    /// The host's own node — what the `QTabWidget`'s signal carries, so a click can find its suite
     /// even when a window holds more than one.
     host: NodeId,
     /// The nav menu's node. A tab click reports against it, exactly as a sidebar row click does,
@@ -1875,8 +1898,8 @@ fn suite_apply_rows(host: *mut std::os::raw::c_void) {
     });
 }
 
-/// Report each destination's content size so NavLayout re-lays it (enqueue-only, §8.3) — the
-/// suite's counterpart of the list's own sizing, and for the same reason: QTabWidget owns page
+/// Report each destination's content size so `NavLayout` re-lays it (enqueue-only, §8.3) — the
+/// suite's counterpart of the list's own sizing, and for the same reason: `QTabWidget` owns page
 /// geometry.
 fn nav_suite_sync(host: *mut std::os::raw::c_void) {
     let reports: Vec<(NodeId, Size)> = NAV_SUITES.with(|m| {
@@ -1885,7 +1908,7 @@ fn nav_suite_sync(host: *mut std::os::raw::c_void) {
             return Vec::new();
         };
         let (mut w, mut h) = (0.0, 0.0);
-        unsafe { ffi::day_qt_tabs_content_size(host, &mut w, &mut h) };
+        unsafe { ffi::day_qt_tabs_content_size(host, &raw mut w, &raw mut h) };
         if w <= 0.0 || h <= 0.0 {
             return Vec::new();
         }
@@ -1914,7 +1937,7 @@ extern "C" fn nav_suite_changed(id: u64, index: c_int) {
         });
         emit(
             node.unwrap_or(NodeId(id)),
-            Event::SelectionChanged(index as i64),
+            Event::SelectionChanged(i64::from(index)),
         );
     });
 }
@@ -1939,14 +1962,14 @@ extern "C" fn document_tab_event(id: u64, action: c_int, index: c_int, to: c_int
             NodeId(id),
             Event::Custom {
                 tag,
-                num: (to - 1).max(0) as f64,
+                num: f64::from((to - 1).max(0)),
                 text: key,
             },
         );
     });
 }
 
-/// Report each tab page's content size so NavLayout re-lays it (enqueue-only, §8.3).
+/// Report each tab page's content size so `NavLayout` re-lays it (enqueue-only, §8.3).
 extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
     ffi_guard::contain((), || {
         let text = if text.is_null() {
@@ -1973,8 +1996,8 @@ extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
     ffi_guard::contain((), || {
         emit(
             day_spec::NodeId(node),
-            Event::WindowResized(Size::new(w as f64, h as f64)),
-        )
+            Event::WindowResized(Size::new(f64::from(w), f64::from(h))),
+        );
     });
 }
 extern "C" fn win_closed(node: u64) {
@@ -1989,7 +2012,7 @@ extern "C" fn win_closed(node: u64) {
 }
 extern "C" fn win_focused(node: u64, active: c_int) {
     ffi_guard::contain((), || {
-        emit(day_spec::NodeId(node), Event::WindowFocused(active != 0))
+        emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
     });
 }
 
@@ -2010,7 +2033,7 @@ extern "C" fn win_state(node: u64, code: c_int) {
 
 extern "C" fn window_resized(w: c_int, h: c_int) {
     ffi_guard::contain((), || {
-        let size = Size::new(w as f64, h as f64);
+        let size = Size::new(f64::from(w), f64::from(h));
         LAST_WINDOW_SIZE.with(|c| c.set(size));
         emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
         // Presented emulated covers track the content area (docs/cover.md: the frame is
@@ -2025,7 +2048,7 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
                         y as c_int,
                         size.width as c_int,
                         size.height as c_int,
-                    )
+                    );
                 };
                 emit(*node, Event::FrameChanged(size));
             }
@@ -2050,7 +2073,7 @@ extern "C" fn nav_menu_changed(id: u64, row: std::os::raw::c_int) {
     // rebuilds the detail, which must not run inside the list's own event dispatch.
     ffi_guard::contain((), || {
         if row >= 0 {
-            emit_deferred(NodeId(id), Event::SelectionChanged(row as i64));
+            emit_deferred(NodeId(id), Event::SelectionChanged(i64::from(row)));
         }
     });
 }
@@ -2072,7 +2095,7 @@ fn icon_file_path(name: &str) -> String {
 }
 
 /// Build the nav list's per-row context menus (docs/menus.md) and hand them to the shim:
-/// one QMenu per row with entries (null where a row has none), the same
+/// one `QMenu` per row with entries (null where a row has none), the same
 /// [`build_qt_menu`] walk the piece decorator uses.
 fn navlist_apply_row_menus(w: *mut c_void, menus: &[Vec<day_spec::MenuItem>]) {
     let ptrs: Vec<*mut c_void> = menus
@@ -2106,7 +2129,7 @@ fn nav_sections_joined(sections: &[Option<String>]) -> (String, usize) {
 /// row tint, the shim falls back to the palette text color), parallel to the icon list
 /// (docs/vectors.md).
 /// A color as the `"#aarrggbb"` the shim's `QColor` parses. The alpha is kept: the shim's
-/// SourceIn fill multiplies it into the glyph's own coverage, as every other toolkit's tint does.
+/// `SourceIn` fill multiplies it into the glyph's own coverage, as every other toolkit's tint does.
 fn hex_argb(c: day_spec::Color) -> String {
     format!(
         "#{:02x}{:02x}{:02x}{:02x}",
@@ -2154,13 +2177,14 @@ fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
 
 /// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
 /// `const` so `day::require_lifecycle!` can reject unsupported phases at compile time.
+#[must_use]
 pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
     phase.is_universal()
 }
 
-/// Phase codes (from the Qt shim's QApplication signals) → day lifecycle events.
+/// Phase codes (from the Qt shim's `QApplication` signals) → day lifecycle events.
 extern "C" fn on_lifecycle(code: c_int) {
-    use day_spec::Lifecycle::*;
+    use day_spec::Lifecycle::{DidBecomeActive, WillResignActive, WillTerminate};
     ffi_guard::contain((), || {
         let phase = match code {
             2 => DidBecomeActive,
@@ -2207,7 +2231,10 @@ fn qt_shortcut(sc: &day_spec::Shortcut) -> String {
 
 /// Default label for a standard role when the app left the entry's label empty.
 fn qt_role_label(role: day_spec::MenuRole) -> &'static str {
-    use day_spec::MenuRole::*;
+    use day_spec::MenuRole::{
+        About, CheckForUpdates, CloseWindow, Copy, Cut, Delete, Fullscreen, Minimize, NewWindow,
+        Paste, Preferences, Quit, Redo, SelectAll, Undo,
+    };
     match role {
         Cut => "Cut",
         Copy => "Copy",
@@ -2229,7 +2256,10 @@ fn qt_role_label(role: day_spec::MenuRole) -> &'static str {
 
 /// Default portable shortcut for a role (Qt maps `Ctrl` → ⌘ on macOS).
 fn qt_role_shortcut(role: day_spec::MenuRole) -> Option<&'static str> {
-    use day_spec::MenuRole::*;
+    use day_spec::MenuRole::{
+        About, CheckForUpdates, CloseWindow, Copy, Cut, Delete, Fullscreen, Minimize, NewWindow,
+        Paste, Preferences, Quit, Redo, SelectAll, Undo,
+    };
     Some(match role {
         Cut => "Ctrl+X",
         Copy => "Ctrl+C",
@@ -2246,7 +2276,7 @@ fn qt_role_shortcut(role: day_spec::MenuRole) -> Option<&'static str> {
     })
 }
 
-/// Walk the day-neutral menu tree, issuing flat builder calls against a QMenu pointer.
+/// Walk the day-neutral menu tree, issuing flat builder calls against a `QMenu` pointer.
 pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
     for item in items {
         match item {
@@ -2287,11 +2317,11 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                             cstr(&text).as_ptr(),
                             *action,
                             cstr(&sc).as_ptr(),
-                            *enabled as c_int,
+                            c_int::from(*enabled),
                             cstr(&ic).as_ptr(),
                             ic_fallback,
                             checked.map_or(-1, c_int::from),
-                        )
+                        );
                     };
                 } else if let Some(role) = role {
                     let text = if label.is_empty() {
@@ -2310,7 +2340,7 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                             cstr(&text).as_ptr(),
                             *role as c_int,
                             cstr(&sc).as_ptr(),
-                        )
+                        );
                     };
                 }
             }
@@ -2374,10 +2404,14 @@ impl Toolkit for Qt {
 
     fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
         unsafe {
-            day_toolkit_qt_sys::day_qt_set_visible(handle.0, visible as i32);
+            day_toolkit_qt_sys::day_qt_set_visible(handle.0, i32::from(visible));
         }
     }
 
+    #[expect(
+        clippy::match_same_arms,
+        reason = "one arm per capability, each documented with the Qt mechanism behind it"
+    )]
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             // A reordering sidebar is Day's own list standing in for the native one: the rows
@@ -2544,16 +2578,16 @@ impl Toolkit for Qt {
         unsafe {
             match Builtin::from_key(kind) {
                 Some(Builtin::Inspector) => {
-                    let (visible, width, leading) = props
-                        .downcast_ref::<InspectorProps>()
-                        .map(|p| {
-                            (
-                                p.visible,
-                                p.width,
-                                p.edge == day_spec::props::PaneEdge::Leading,
-                            )
-                        })
-                        .unwrap_or((false, 280.0, false));
+                    let (visible, width, leading) =
+                        props
+                            .downcast_ref::<InspectorProps>()
+                            .map_or((false, 280.0, false), |p| {
+                                (
+                                    p.visible,
+                                    p.width,
+                                    p.edge == day_spec::props::PaneEdge::Leading,
+                                )
+                            });
                     let host = ffi::day_qt_inspector_new(width, c_int::from(leading));
                     // Positional panes, role-mapped: the LEADING arrangement holds the panel
                     // first (docs/inspector.md `.edge`).
@@ -2583,8 +2617,9 @@ impl Toolkit for Qt {
                 Some(Builtin::Split) => {
                     let (axis, fraction, min_pane) = props
                         .downcast_ref::<SplitProps>()
-                        .map(|p| (p.axis, p.fraction, p.min_pane))
-                        .unwrap_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0));
+                        .map_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0), |p| {
+                            (p.axis, p.fraction, p.min_pane)
+                        });
                     let vertical = axis == day_spec::props::SplitAxis::Vertical;
                     let host = ffi::day_qt_split_new(c_int::from(vertical), min_pane);
                     let first_pane = ffi::day_qt_splitter_pane(host, 0);
@@ -2612,8 +2647,7 @@ impl Toolkit for Qt {
                     let w = ffi::day_qt_container_new();
                     let second = props
                         .downcast_ref::<SplitPaneProps>()
-                        .map(|p| p.second)
-                        .unwrap_or(false);
+                        .is_some_and(|p| p.second);
                     SPLIT_PANE_IDS.with(|m| m.borrow_mut().insert(w as usize, (id, second)));
                     QtHandle(w)
                 }
@@ -2621,8 +2655,7 @@ impl Toolkit for Qt {
                     let w = ffi::day_qt_container_new();
                     let panel = props
                         .downcast_ref::<InspectorPaneProps>()
-                        .map(|p| p.panel)
-                        .unwrap_or(false);
+                        .is_some_and(|p| p.panel);
                     INSPECTOR_PANE_IDS.with(|m| m.borrow_mut().insert(w as usize, (id, panel)));
                     QtHandle(w)
                 }
@@ -2653,7 +2686,7 @@ impl Toolkit for Qt {
                             bg.b,
                             bg.a,
                             p.corner_radius,
-                            p.clips as c_int,
+                            c_int::from(p.clips),
                         );
                     }
                     QtHandle(w)
@@ -2689,13 +2722,13 @@ impl Toolkit for Qt {
                                 id.0,
                                 cstr(&config.new_label).as_ptr(),
                                 cstr(&config.close_label).as_ptr(),
-                                config.can_add as c_int,
+                                c_int::from(config.can_add),
                                 document_tab_event,
                             );
                         }
                         return QtHandle(w);
                     }
-                    let is_split = nav_props.map(|p| p.presentation.is_split()).unwrap_or(true);
+                    let is_split = nav_props.is_none_or(|p| p.presentation.is_split());
                     // The content-list pane (docs/navigation.md): pane 1 of the same splitter,
                     // hidden on a host that declared none — the same shape either way, so the
                     // header and the pane indices never move.
@@ -2793,7 +2826,7 @@ impl Toolkit for Qt {
                                 id,
                                 p.items.clone(),
                                 p.icons.clone(),
-                                p.document_keys.to_vec(),
+                                p.document_keys.clone(),
                             ),
                         )
                     });
@@ -2830,10 +2863,7 @@ impl Toolkit for Qt {
                         cstr(&sections_joined).as_ptr(),
                     );
                     navlist_apply_row_menus(w, &p.menus);
-                    ffi::day_qt_navlist_set_selected(
-                        w,
-                        p.selected.map(|i| i as c_int).unwrap_or(-1),
-                    );
+                    ffi::day_qt_navlist_set_selected(w, p.selected.map_or(-1, |i| i as c_int));
                     NAV_MENU_ROWS
                         .with(|m| m.borrow_mut().insert(w as usize, (p.items.len(), headings)));
                     QtHandle(w)
@@ -2841,15 +2871,14 @@ impl Toolkit for Qt {
                 Some(Builtin::Scroll) => {
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
-                        .map(|p| p.horizontal)
-                        .unwrap_or(false);
-                    QtHandle(ffi::day_qt_scroll_new(horizontal as c_int))
+                        .is_some_and(|p| p.horizontal);
+                    QtHandle(ffi::day_qt_scroll_new(c_int::from(horizontal)))
                 }
                 Some(Builtin::Label) => {
                     let Some(p) = props_of::<LabelProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
-                    let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr(), p.wraps as c_int);
+                    let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr(), c_int::from(p.wraps));
                     ffi::day_qt_label_set_align(
                         w,
                         match p.align {
@@ -2879,8 +2908,8 @@ impl Toolkit for Qt {
                         return placeholder_handle(kind);
                     };
                     let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
-                    ffi::day_qt_set_enabled(w, p.enabled as c_int);
-                    ffi::day_qt_button_set_selected(w, p.selected as c_int);
+                    ffi::day_qt_set_enabled(w, c_int::from(p.enabled));
+                    ffi::day_qt_button_set_selected(w, c_int::from(p.selected));
                     apply_button_style(w, p.style);
                     if p.icon.is_some() {
                         apply_button_content(w, &p.title, p.icon.as_ref(), p.icon_only);
@@ -2892,8 +2921,8 @@ impl Toolkit for Qt {
                     let Some(p) = props_of::<ToggleProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
-                    let w = ffi::day_qt_checkbox_new(p.on as c_int, id.0, on_toggle);
-                    ffi::day_qt_set_enabled(w, p.enabled as c_int);
+                    let w = ffi::day_qt_checkbox_new(c_int::from(p.on), id.0, on_toggle);
+                    ffi::day_qt_set_enabled(w, c_int::from(p.enabled));
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
@@ -3086,7 +3115,7 @@ impl Toolkit for Qt {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell) | Some(Builtin::ListItem) | None => {
+                Some(Builtin::ListCell | Builtin::ListItem) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }
@@ -3184,8 +3213,8 @@ impl Toolkit for Qt {
                     {
                         NAV_SUITE_ROWS.with(|m| {
                             if let Some(row) = m.borrow_mut().get_mut(&(h.0 as usize)) {
-                                row.1 = items.clone();
-                                row.2 = icons.clone();
+                                row.1.clone_from(items);
+                                row.2.clone_from(icons);
                                 row.3 = document_keys.to_vec();
                             }
                         });
@@ -3193,8 +3222,8 @@ impl Toolkit for Qt {
                         if !host.is_null() {
                             NAV_SUITES.with(|m| {
                                 if let Some(s) = m.borrow_mut().get_mut(&(host as usize)) {
-                                    s.titles = items.clone();
-                                    s.icons = icons.clone();
+                                    s.titles.clone_from(items);
+                                    s.icons.clone_from(icons);
                                     s.keys = document_keys.to_vec();
                                 }
                             });
@@ -3220,7 +3249,7 @@ impl Toolkit for Qt {
                         if let Some(rows) = rows_changed {
                             let rows_joined = rows
                                 .iter()
-                                .map(|i| i.to_string())
+                                .map(std::string::ToString::to_string)
                                 .collect::<Vec<_>>()
                                 .join(",");
                             ffi::day_qt_navlist_update_rows(
@@ -3247,19 +3276,13 @@ impl Toolkit for Qt {
                             cstr(&sections_joined).as_ptr(),
                         );
                         navlist_apply_row_menus(h.0, menus);
-                        ffi::day_qt_navlist_set_selected(
-                            h.0,
-                            selected.map(|i| i as c_int).unwrap_or(-1),
-                        );
+                        ffi::day_qt_navlist_set_selected(h.0, selected.map_or(-1, |i| i as c_int));
                         NAV_MENU_ROWS
                             .with(|m| m.borrow_mut().insert(h.0 as usize, (items.len(), headings)));
                     } else if let Some(NavMenuPatch::Selected(sel)) =
                         patch.downcast_ref::<NavMenuPatch>()
                     {
-                        ffi::day_qt_navlist_set_selected(
-                            h.0,
-                            sel.map(|i| i as c_int).unwrap_or(-1),
-                        );
+                        ffi::day_qt_navlist_set_selected(h.0, sel.map_or(-1, |i| i as c_int));
                     }
                 }
                 // Emulated cover (docs/cover.md): present = re-home + raise + opaque default
@@ -3280,7 +3303,7 @@ impl Toolkit for Qt {
                                 let opaque = background.is_none_or(|bg| bg.a > 0.0);
                                 ffi::day_qt_cover_top(h.0, c_int::from(opaque));
                                 let (y, size) =
-                                    cover_frame(h.0, LAST_WINDOW_SIZE.with(|c| c.get()));
+                                    cover_frame(h.0, LAST_WINDOW_SIZE.with(std::cell::Cell::get));
                                 ffi::day_qt_set_geometry(
                                     h.0,
                                     0,
@@ -3347,7 +3370,7 @@ impl Toolkit for Qt {
                         // does not resize its sibling until Qt runs its own layout pass.
                         let host_addr = h.0 as usize;
                         <Qt as Platform>::post(Box::new(move || {
-                            inspector_sync_panes(host_addr as *mut std::os::raw::c_void)
+                            inspector_sync_panes(host_addr as *mut std::os::raw::c_void);
                         }));
                     }
                 }
@@ -3363,7 +3386,7 @@ impl Toolkit for Qt {
                             if let Some(s) = m.get_mut(&(h.0 as usize)) {
                                 let old = s.pages.clone();
                                 s.pages =
-                                    order.iter().filter_map(|i| old.get(*i).cloned()).collect();
+                                    order.iter().filter_map(|i| old.get(*i).copied()).collect();
                                 for (i, (page, _)) in s.pages.iter().enumerate() {
                                     ffi::day_qt_tabs_move_page(h.0, page.0, i as c_int);
                                 }
@@ -3415,7 +3438,7 @@ impl Toolkit for Qt {
                                 .pages
                                 .iter()
                                 .filter(|(p, _)| {
-                                    !(split_now && is_sidebar_page(p.0)) && !is_list_page(p.0)
+                                    !(split_now && is_sidebar_page(p.0) || is_list_page(p.0))
                                 })
                                 .copied()
                                 .collect();
@@ -3424,7 +3447,7 @@ impl Toolkit for Qt {
                                 NavPatch::Pushed { title, .. } => {
                                     let last = detail.len().saturating_sub(1);
                                     for (i, (page, _)) in detail.iter().enumerate() {
-                                        ffi::day_qt_set_visible(page.0, (i == last) as _);
+                                        ffi::day_qt_set_visible(page.0, (i == last).into());
                                     }
                                     state.titles.push(title.clone());
                                 }
@@ -3442,13 +3465,21 @@ impl Toolkit for Qt {
                                 }
                                 NavPatch::Title(t) => {
                                     if let Some(last) = state.titles.last_mut() {
-                                        *last = t.clone();
+                                        last.clone_from(t);
                                     }
                                 }
                                 // Custom back header → always NavBack{already_popped:false};
                                 // no native auto-pop to suppress (docs/navigation.md).
+                                #[expect(
+                                    clippy::match_same_arms,
+                                    reason = "each group of no-op patches keeps its own arm and the comment saying why"
+                                )]
                                 NavPatch::GuardTop(_) | NavPatch::Reorder(_) => {}
                                 // Handled before this borrow (it re-parents widgets).
+                                #[expect(
+                                    clippy::match_same_arms,
+                                    reason = "each group of no-op patches keeps its own arm and the comment saying why"
+                                )]
                                 NavPatch::Presentation(_) => {}
                                 // The resident-page switch (docs/navigation.md): the app moved the
                                 // selection, so the suite shows that destination.
@@ -3500,7 +3531,7 @@ impl Toolkit for Qt {
                         // deferral gives a shown or hidden list pane its settled sizes.
                         let host = h.0 as usize;
                         <Qt as Platform>::post(Box::new(move || {
-                            nav_sync_header(host as *mut std::os::raw::c_void)
+                            nav_sync_header(host as *mut std::os::raw::c_void);
                         }));
                     }
                 }
@@ -3508,7 +3539,7 @@ impl Toolkit for Qt {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
                             LabelPatch::Text(t) => {
-                                ffi::day_qt_label_set_text(h.0, cstr(t).as_ptr())
+                                ffi::day_qt_label_set_text(h.0, cstr(t).as_ptr());
                             }
                             LabelPatch::Font(f) => {
                                 let (pt, weight, italic, tabular) = font_params(*f);
@@ -3528,14 +3559,16 @@ impl Toolkit for Qt {
                     if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                         match p {
                             ButtonPatch::Content(c) => {
-                                apply_button_content(h.0, &c.title, c.icon.as_ref(), c.icon_only)
+                                apply_button_content(h.0, &c.title, c.icon.as_ref(), c.icon_only);
                             }
                             ButtonPatch::Title(t) => {
-                                ffi::day_qt_button_set_title(h.0, cstr(t).as_ptr())
+                                ffi::day_qt_button_set_title(h.0, cstr(t).as_ptr());
                             }
-                            ButtonPatch::Enabled(e) => ffi::day_qt_set_enabled(h.0, *e as c_int),
+                            ButtonPatch::Enabled(e) => {
+                                ffi::day_qt_set_enabled(h.0, c_int::from(*e));
+                            }
                             ButtonPatch::Selected(on) => {
-                                ffi::day_qt_button_set_selected(h.0, *on as c_int)
+                                ffi::day_qt_button_set_selected(h.0, c_int::from(*on));
                             }
                             ButtonPatch::Style(s) => apply_button_style(h.0, *s),
                         }
@@ -3544,8 +3577,10 @@ impl Toolkit for Qt {
                 kinds::TOGGLE => {
                     if let Some(p) = patch.downcast_ref::<TogglePatch>() {
                         match p {
-                            TogglePatch::On(on) => ffi::day_qt_checkbox_set(h.0, *on as c_int),
-                            TogglePatch::Enabled(e) => ffi::day_qt_set_enabled(h.0, *e as c_int),
+                            TogglePatch::On(on) => ffi::day_qt_checkbox_set(h.0, c_int::from(*on)),
+                            TogglePatch::Enabled(e) => {
+                                ffi::day_qt_set_enabled(h.0, c_int::from(*e));
+                            }
                         }
                     }
                 }
@@ -3558,7 +3593,9 @@ impl Toolkit for Qt {
                                     .unwrap_or((0.0, 1.0));
                                 ffi::day_qt_slider_set(h.0, slider_ticks(*v, min, max));
                             }
-                            SliderPatch::Enabled(e) => ffi::day_qt_set_enabled(h.0, *e as c_int),
+                            SliderPatch::Enabled(e) => {
+                                ffi::day_qt_set_enabled(h.0, c_int::from(*e));
+                            }
                         }
                     }
                 }
@@ -3576,8 +3613,8 @@ impl Toolkit for Qt {
                         ffi::day_qt_progress_set(h.0, progress_ticks(*v));
                     }
                 }
-                kinds::PICKER => picker::update_any(self, h, patch),
-                kinds::TEXT_AREA => textarea::update_any(self, h, patch),
+                kinds::PICKER => picker::update_any(self, *h, patch),
+                kinds::TEXT_AREA => textarea::update_any(self, *h, patch),
                 kinds::TEXT_FIELD => {
                     if let Some(p) = patch.downcast_ref::<TextFieldPatch>() {
                         match p {
@@ -3587,9 +3624,11 @@ impl Toolkit for Qt {
                                 }
                             }
                             TextFieldPatch::Placeholder(t) => {
-                                ffi::day_qt_lineedit_set_placeholder(h.0, cstr(t).as_ptr())
+                                ffi::day_qt_lineedit_set_placeholder(h.0, cstr(t).as_ptr());
                             }
-                            TextFieldPatch::Enabled(e) => ffi::day_qt_set_enabled(h.0, *e as c_int),
+                            TextFieldPatch::Enabled(e) => {
+                                ffi::day_qt_set_enabled(h.0, c_int::from(*e));
+                            }
                             TextFieldPatch::Select(sel) => {
                                 let at = |n: usize| n.min(c_int::MAX as usize) as c_int;
                                 ffi::day_qt_lineedit_select(h.0, at(sel.start), at(sel.end));
@@ -3601,11 +3640,11 @@ impl Toolkit for Qt {
                     Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
                     // Row deltas as model deltas: selection and the current row follow.
                     Some(ListPatch::Splice(deltas)) => {
-                        schedule_list_splice(h.0 as usize, deltas.clone())
+                        schedule_list_splice(h.0 as usize, deltas.clone());
                     }
                     Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
                     Some(ListPatch::ScrollToRow(row)) => {
-                        schedule_list_scroll_row(h.0 as usize, *row)
+                        schedule_list_scroll_row(h.0 as usize, *row);
                     }
                     Some(ListPatch::Selected(rows)) => {
                         // Programmatic selection sync (empty = clear): the view repaints and
@@ -3614,7 +3653,7 @@ impl Toolkit for Qt {
                         ffi::day_qt_list_set_selected(h.0, rows.as_ptr(), rows.len() as c_int);
                     }
                     Some(ListPatch::RowSizeInvalidated { cell, height }) => {
-                        schedule_list_row_height(h.0 as usize, *cell, *height)
+                        schedule_list_row_height(h.0 as usize, *cell, *height);
                     }
                     // No editing mode (Cap::ListEditing is Unsupported).
                     Some(ListPatch::Editing(_)) | None => {}
@@ -3913,7 +3952,7 @@ impl Toolkit for Qt {
         // A label's sizeHint() is a full rich-text layout at Qt's own wrap heuristic, and the
         // label arm below never uses it except as a last resort: ask only then.
         if kind != kinds::LABEL {
-            unsafe { ffi::day_qt_size_hint(h.0, &mut w, &mut hh) };
+            unsafe { ffi::day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
         }
         match kind {
             kinds::NAV_MENU => {
@@ -3933,7 +3972,7 @@ impl Toolkit for Qt {
                 // "readable column" for word-wrapped labels, which is not day's contract
                 // (natural = unwrapped). Height always via heightForWidth at the width day
                 // actually grants; sizeHint's heuristic height is never mixed in.
-                let nat_w = unsafe { ffi::day_qt_label_natural_width(h.0) } as f64;
+                let nat_w = f64::from(unsafe { ffi::day_qt_label_natural_width(h.0) });
                 let width = match p.width {
                     Some(pw) => nat_w.min(pw),
                     None => nat_w,
@@ -3942,9 +3981,9 @@ impl Toolkit for Qt {
                     ffi::day_qt_label_height_for_width(h.0, width.round().max(1.0) as c_int)
                 };
                 if hfw > 0 {
-                    Size::new(width.ceil(), hfw as f64)
+                    Size::new(width.ceil(), f64::from(hfw))
                 } else {
-                    unsafe { ffi::day_qt_size_hint(h.0, &mut w, &mut hh) };
+                    unsafe { ffi::day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
                     Size::new(width.ceil(), hh.ceil())
                 }
             }
@@ -3953,8 +3992,8 @@ impl Toolkit for Qt {
             // and stretch the button across the full content span.
             kinds::BUTTON => Size::new(w.ceil(), hh.ceil()),
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), hh.max(20.0)),
-            kinds::PICKER => picker::measure_any(self, h, p),
-            kinds::TEXT_AREA => textarea::measure_any(self, h, p),
+            kinds::PICKER => picker::measure_any(self, *h, p),
+            kinds::TEXT_AREA => textarea::measure_any(self, *h, p),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(180.0), hh.max(24.0)),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 2.0),
             kinds::PROGRESS => Size::new(p.width.unwrap_or(180.0), hh.max(16.0)),
@@ -4001,17 +4040,17 @@ impl Toolkit for Qt {
         unsafe {
             ffi::day_qt_lineedit_set_traits(
                 h.0,
-                traits.secure as c_int,
-                traits.read_only as c_int,
+                c_int::from(traits.secure),
+                c_int::from(traits.read_only),
                 qt_input_purpose(traits.purpose),
-            )
+            );
         };
         None
     }
 
     fn set_selectable(&mut self, h: &QtHandle, selectable: bool) -> Option<QtHandle> {
         // The shim qobject_casts to QLabel, so a non-label handle is a safe no-op (docs/text.md).
-        unsafe { ffi::day_qt_label_set_selectable(h.0, selectable as c_int) };
+        unsafe { ffi::day_qt_label_set_selectable(h.0, c_int::from(selectable)) };
         None
     }
 
@@ -4034,7 +4073,7 @@ impl Toolkit for Qt {
                 frame.origin.y.round() as c_int,
                 frame.size.width.round() as c_int,
                 frame.size.height.round() as c_int,
-            )
+            );
         };
         // Nav host resized (window resize): re-report page sizes for relayout.
         if NAV_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
@@ -4056,8 +4095,7 @@ impl Toolkit for Qt {
         let width_changed = LIST_STATE.with(|m| {
             m.borrow()
                 .get(&(h.0 as usize))
-                .map(|st| st.last_width != frame.size.width.round() as c_int)
-                .unwrap_or(false)
+                .is_some_and(|st| st.last_width != frame.size.width.round() as c_int)
         });
         // A taller host shows more rows, and the ones it grew into are not built yet — so a
         // height change refills the window even though every built row is still valid. Width is
@@ -4089,7 +4127,7 @@ impl Toolkit for Qt {
                 h.0,
                 content.width.round() as c_int,
                 content.height.round() as c_int,
-            )
+            );
         };
     }
 
@@ -4115,7 +4153,7 @@ impl Toolkit for Qt {
                 target.origin.y.round() as c_int,
                 target.size.width.round() as c_int,
                 target.size.height.round() as c_int,
-            )
+            );
         };
     }
 
@@ -4131,7 +4169,7 @@ impl Toolkit for Qt {
                     cstr(&spec.buttons_joined()).as_ptr(),
                     cstr(&spec.roles_joined()).as_ptr(),
                     parent,
-                )
+                );
             },
             PresentSpec::Prompt {
                 placeholder,
@@ -4149,19 +4187,19 @@ impl Toolkit for Qt {
                     cstr(ok).as_ptr(),
                     cstr(cancel).as_ptr(),
                     parent,
-                )
+                );
             },
             PresentSpec::OpenFile { multiple, .. } => unsafe {
                 ffi::day_qt_present_file_open(
                     req,
                     cstr(spec.title()).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
-                    *multiple as c_int,
+                    c_int::from(*multiple),
                     parent,
-                )
+                );
             },
             PresentSpec::OpenFolder { .. } => unsafe {
-                ffi::day_qt_present_folder_open(req, cstr(spec.title()).as_ptr(), parent)
+                ffi::day_qt_present_folder_open(req, cstr(spec.title()).as_ptr(), parent);
             },
             PresentSpec::SaveFile { suggested_name, .. } => unsafe {
                 // The pieces layer copies the staged bytes to the chosen path.
@@ -4171,7 +4209,7 @@ impl Toolkit for Qt {
                     cstr(suggested_name).as_ptr(),
                     cstr(&spec.filters_joined()).as_ptr(),
                     parent,
-                )
+                );
             },
         }
     }
@@ -4206,7 +4244,7 @@ impl Toolkit for Qt {
     fn focus(&mut self, h: &QtHandle, _node: NodeId, focused: bool) {
         // The shim clears only while this widget still owns focus, so a stale release
         // can't blur a sibling.
-        unsafe { ffi::day_qt_widget_focus(h.0, focused as c_int) };
+        unsafe { ffi::day_qt_widget_focus(h.0, c_int::from(focused)) };
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {
@@ -4214,11 +4252,11 @@ impl Toolkit for Qt {
     }
 
     fn enable_gesture(&mut self, h: &QtHandle, node: NodeId, kind: day_spec::GestureKind) {
+        use day_spec::GestureKind as K;
         let key = (h.0 as usize, kind);
         if !GESTURES.with(|g| g.borrow_mut().insert(key)) {
             return; // already wired
         }
-        use day_spec::GestureKind as K;
         let code: c_int = match kind {
             K::Tap | K::LongPress => 0,
             K::Drag => 1,
@@ -4368,8 +4406,8 @@ impl Toolkit for Qt {
         }
     }
 
-    /// The widget's own state (docs/testing.md), all of it read in the shim from the QWidget and
-    /// its QAccessibleInterface. Slider and progress ticks go back through the range Day built
+    /// The widget's own state (docs/testing.md), all of it read in the shim from the `QWidget` and
+    /// its `QAccessibleInterface`. Slider and progress ticks go back through the range Day built
     /// them from; a slider whose range was never recorded reports no number.
     fn read_native(&self, h: &QtHandle) -> day_spec::NativeSnapshot {
         if h.0.is_null() {
@@ -4436,7 +4474,7 @@ impl Toolkit for Qt {
             frame: (n.frame_ok != 0).then(|| Rect::new(n.x, n.y, n.w, n.h)),
         };
         // SAFETY: `n` holds the strings the shim allocated above, released exactly once.
-        unsafe { ffi::day_qt_native_free(&mut n) };
+        unsafe { ffi::day_qt_native_free(&raw mut n) };
         snapshot
     }
 
@@ -4466,7 +4504,7 @@ impl Toolkit for Qt {
         let (nums, texts) = day_spec::encode_ops(ops);
         let joined = cstr(&texts.join("\u{1f}"));
         unsafe {
-            ffi::day_qt_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr())
+            ffi::day_qt_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr());
         };
     }
 
@@ -4517,7 +4555,7 @@ impl Toolkit for Qt {
                 c_int::from(font.italic),
                 family.as_ptr(),
                 out.as_mut_ptr(),
-            )
+            );
         };
         Some(day_spec::TextMetrics::from_slots(&out))
     }
@@ -4591,21 +4629,23 @@ impl Toolkit for Qt {
         let joined = cstr(&texts.join("\u{1f}"));
         let result = match (c_int::try_from(pw), c_int::try_from(ph)) {
             // SAFETY: both op channels outlive the call; the shim copies what it keeps.
-            (Ok(w), Ok(h)) => match unsafe {
-                ffi::day_qt_canvas_render_image(
-                    id.0,
-                    nums.as_ptr(),
-                    nums.len() as c_int,
-                    joined.as_ptr(),
-                    w,
-                    h,
-                    scale,
-                )
-            } {
-                0 => Err(day_spec::ExportError::Failed(format!(
-                    "QImage could not allocate {pw} × {ph} pixels"
-                ))),
-                _ => {
+            (Ok(w), Ok(h)) => {
+                if unsafe {
+                    ffi::day_qt_canvas_render_image(
+                        id.0,
+                        nums.as_ptr(),
+                        nums.len() as c_int,
+                        joined.as_ptr(),
+                        w,
+                        h,
+                        scale,
+                    )
+                } == 0
+                {
+                    Err(day_spec::ExportError::Failed(format!(
+                        "QImage could not allocate {pw} × {ph} pixels"
+                    )))
+                } else {
                     let info = day_spec::BitmapInfo {
                         pixels: Size::new(f64::from(pw), f64::from(ph)),
                         scale,
@@ -4615,7 +4655,7 @@ impl Toolkit for Qt {
                     BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
                     Ok(info)
                 }
-            },
+            }
             _ => Err(day_spec::ExportError::TooLarge {
                 width: pw,
                 height: ph,
@@ -4690,7 +4730,7 @@ impl Toolkit for Qt {
         options: &WindowOptions,
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<QtHandle> {
-        let fixed = kind.is_panel() as c_int;
+        let fixed = c_int::from(kind.is_panel());
         let win = unsafe {
             ffi::day_qt_window_new2(
                 cstr(&options.title).as_ptr(),
@@ -4898,12 +4938,12 @@ fn apply_property(win: *mut c_void, change: &day_spec::WindowChange) {
                 c_int::from(size.is_some()),
                 size.map_or(0.0, |s| s.width),
                 size.map_or(0.0, |s| s.height),
-            )
+            );
         },
         C::Limits { min, max } => unsafe {
             let min = min.unwrap_or(Size::new(-1.0, -1.0));
             let max = max.unwrap_or(Size::new(-1.0, -1.0));
-            ffi::day_qt_window_set_limits(win, min.width, min.height, max.width, max.height)
+            ffi::day_qt_window_set_limits(win, min.width, min.height, max.width, max.height);
         },
         C::Level(level) => switch(0, *level == day_spec::WindowLevel::Floating),
         C::SkipTaskbar(skip) => switch(1, *skip),
@@ -4913,7 +4953,7 @@ fn apply_property(win: *mut c_void, change: &day_spec::WindowChange) {
         C::Resizable(on) => switch(5, *on),
         C::Visible(on) => switch(6, *on),
         C::RequestAttention(a) => unsafe {
-            ffi::day_qt_window_alert(win, c_int::from(*a == day_spec::Attention::Critical))
+            ffi::day_qt_window_alert(win, c_int::from(*a == day_spec::Attention::Critical));
         },
         _ => {}
     }
@@ -4962,7 +5002,7 @@ fn qt_monitors() -> Vec<day_spec::Monitor> {
         .collect()
 }
 
-/// Apply a status item's spec to its QSystemTrayIcon: icon, hover text, menu, click action.
+/// Apply a status item's spec to its `QSystemTrayIcon`: icon, hover text, menu, click action.
 fn update_tray(tray: *mut c_void, spec: &day_spec::StatusItemSpec) {
     let (icon, fallback) = crate::toolbar::icon_args(spec.icon.as_ref());
     let tip = if spec.tooltip.is_empty() {
@@ -4984,7 +5024,7 @@ fn update_tray(tray: *mut c_void, spec: &day_spec::StatusItemSpec) {
             cstr(tip).as_ptr(),
             menu,
             spec.activate,
-        )
+        );
     };
     log::debug!("qt: status item {} shown", spec.id);
 }
@@ -5007,7 +5047,7 @@ fn snapshot_qt_widget(widget: *mut c_void) -> Result<Vec<u8>, String> {
 extern "C" fn run_posted(data: *mut c_void) {
     // The posted-closure trampoline runs arbitrary Rust (deferred emits, list populates) —
     // contained like every other FFI entry (day-spec's ffi_guard).
-    let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data as *mut _) };
+    let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data.cast()) };
     ffi_guard::contain((), f);
 }
 
@@ -5079,7 +5119,7 @@ impl Platform for Qt {
     }
 
     fn post(f: Box<dyn FnOnce() + Send>) {
-        let data = Box::into_raw(Box::new(f)) as *mut c_void;
+        let data = Box::into_raw(Box::new(f)).cast::<c_void>();
         unsafe { ffi::day_qt_post(run_posted, data) };
     }
 
@@ -5093,7 +5133,7 @@ impl Platform for Qt {
             Self::post_delayed(STEP, Box::new(move || Self::post_delayed(ms - STEP, f)));
             return;
         }
-        let data = Box::into_raw(Box::new(f)) as *mut c_void;
+        let data = Box::into_raw(Box::new(f)).cast::<c_void>();
         unsafe { ffi::day_qt_post_delayed(ms as c_int, run_posted, data) };
     }
 }
@@ -5109,7 +5149,7 @@ fn release_bitmap(id: day_spec::BitmapId) {
     });
 }
 
-/// Qt's macOS QFileOpenEvent; command-line activations on other OSes use day-core.
+/// Qt's macOS `QFileOpenEvent`; command-line activations on other OSes use day-core.
 ///
 /// # Safety
 /// `url` is null or a NUL-terminated C string that stays readable for the length of this call.
@@ -5224,7 +5264,7 @@ mod cell_pool_tests {
     fn a_scroll_reuses_the_cells_that_left() {
         let mut pool = CellPool::default();
         let mut next = 0;
-        assert!(sync(&mut pool, 0..10, &mut next).is_empty());
+        assert_eq!(sync(&mut pool, 0..10, &mut next), [] as [usize; 0]);
         assert_eq!(pool.len(), 10);
         // Five rows scroll out at the top, five come in at the bottom: no new cell.
         let parked = sync(&mut pool, 5..15, &mut next);
@@ -5310,7 +5350,7 @@ mod cell_pool_tests {
         sync(&mut pool, 3..9, &mut next);
         let before: Vec<(usize, usize)> = pool.bound.iter().map(|(r, c)| (*r, *c)).collect();
         let parked = sync(&mut pool, 3..9, &mut next);
-        assert!(parked.is_empty());
+        assert_eq!(parked, [] as [usize; 0]);
         let after: Vec<(usize, usize)> = pool.bound.iter().map(|(r, c)| (*r, *c)).collect();
         assert_eq!(before, after);
     }

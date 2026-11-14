@@ -267,7 +267,7 @@ pub fn emit(id: NodeId, ev: Event) {
 }
 
 fn ptr_of(v: &NSView) -> usize {
-    (v as *const NSView).cast::<()>() as usize
+    std::ptr::from_ref::<NSView>(v).cast::<()>() as usize
 }
 
 /// Open a menu button's menu under it (docs/menus.md "Menu buttons"): asks the provider now, so
@@ -606,10 +606,10 @@ fn cg_add_shape(cg: &objc2_core_graphics::CGContext, shape: &day_spec::Shape) ->
                     PathSeg::Move(a) => CGContext::move_to_point(Some(cg), a.x, a.y),
                     PathSeg::Line(a) => CGContext::add_line_to_point(Some(cg), a.x, a.y),
                     PathSeg::Quad(c, a) => {
-                        CGContext::add_quad_curve_to_point(Some(cg), c.x, c.y, a.x, a.y)
+                        CGContext::add_quad_curve_to_point(Some(cg), c.x, c.y, a.x, a.y);
                     }
                     PathSeg::Cubic(c1, c2, a) => {
-                        CGContext::add_curve_to_point(Some(cg), c1.x, c1.y, c2.x, c2.y, a.x, a.y)
+                        CGContext::add_curve_to_point(Some(cg), c1.x, c1.y, c2.x, c2.y, a.x, a.y);
                     }
                     PathSeg::Close => CGContext::close_path(Some(cg)),
                 }
@@ -652,7 +652,7 @@ fn cg_stroke_style(cg: &objc2_core_graphics::CGContext, style: &day_spec::Stroke
         let pattern: Vec<objc2_core_foundation::CGFloat> = style.dash.clone();
         // SAFETY: `pattern` outlives the call, and `count` is its length.
         unsafe {
-            CGContext::set_line_dash(Some(cg), style.dash_phase, pattern.as_ptr(), pattern.len())
+            CGContext::set_line_dash(Some(cg), style.dash_phase, pattern.as_ptr(), pattern.len());
         };
     }
 }
@@ -806,7 +806,7 @@ fn render_bitmap_cgimage(
         day_spec::ExportError::Failed(format!("CGBitmapContextCreate refused {pw}x{ph}"))
     })?;
     // A new bitmap context starts zeroed, which is the transparent background.
-    paint_flipped(&cg, ph as f64, scale, ops);
+    paint_flipped(&cg, f64::from(ph), scale, ops);
     CGBitmapContextCreateImage(Some(&cg))
         .ok_or_else(|| failed("CGBitmapContextCreateImage returned nothing"))
 }
@@ -884,12 +884,13 @@ fn render_pdf_bytes(
     let first_box = media(first.size);
     // SAFETY: `first_box` outlives the call, and the dictionary maps the documented
     // auxiliary-info string keys to strings, which is the type those keys take.
-    let pdf = unsafe { CGPDFContextCreate(Some(&consumer), &first_box, Some(aux.as_opaque())) }
-        .ok_or_else(|| failed("CGPDFContextCreate refused the document"))?;
+    let pdf =
+        unsafe { CGPDFContextCreate(Some(&consumer), &raw const first_box, Some(aux.as_opaque())) }
+            .ok_or_else(|| failed("CGPDFContextCreate refused the document"))?;
     for page in pages {
         let page_box = media(page.size);
         // SAFETY: `page_box` outlives the call; in a PDF context it becomes the page's MediaBox.
-        unsafe { CGContext::begin_page(Some(&pdf), &page_box) };
+        unsafe { CGContext::begin_page(Some(&pdf), &raw const page_box) };
         paint_flipped(&pdf, page.size.height, 1.0, &page.ops);
         CGContext::end_page(Some(&pdf));
     }
@@ -920,6 +921,12 @@ thread_local! {
 /// so Auto Layout settled it from whatever the row's last layout had been: a checkmark landed
 /// beside the title in one row and at the trailing edge in the next, and stayed put.
 fn make_list_item(p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) -> Retained<NSView> {
+    const ACROSS: objc2_app_kit::NSLayoutConstraintOrientation =
+        objc2_app_kit::NSLayoutConstraintOrientation::Horizontal;
+    // Hugging: the words stretch (1), the trailing parts hold their size (750), and the stack
+    // keeps its edges on its first and last parts (750), so exactly one part takes the slack.
+    const STRETCH: f32 = 1.0;
+    const HOLD: f32 = 750.0;
     use objc2_app_kit::{
         NSImageView, NSLayoutAttribute, NSStackView, NSUserInterfaceLayoutOrientation,
     };
@@ -936,12 +943,6 @@ fn make_list_item(p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) -> 
     };
     let size = unsafe { objc2_app_kit::NSFont::systemFontSize() };
     let small = unsafe { objc2_app_kit::NSFont::smallSystemFontSize() };
-    const ACROSS: objc2_app_kit::NSLayoutConstraintOrientation =
-        objc2_app_kit::NSLayoutConstraintOrientation::Horizontal;
-    // Hugging: the words stretch (1), the trailing parts hold their size (750), and the stack
-    // keeps its edges on its first and last parts (750), so exactly one part takes the slack.
-    const STRETCH: f32 = 1.0;
-    const HOLD: f32 = 750.0;
     let stack = NSStackView::new(mtm);
     stack.setOrientation(NSUserInterfaceLayoutOrientation::Horizontal);
     stack.setDistribution(objc2_app_kit::NSStackViewDistribution::Fill);
@@ -1189,7 +1190,7 @@ define_class!(
             item: Option<&objc2_app_kit::NSTabViewItem>,
         ) {
             ffi_guard::contain((), || {
-                if TAB_PICK_SUPPRESS.with(|s| s.get()) {
+                if TAB_PICK_SUPPRESS.with(std::cell::Cell::get) {
                     return;
                 }
                 if let Some(item) = item {
@@ -1198,7 +1199,7 @@ define_class!(
                         emit(self.ivars().node, Event::SelectionChanged(idx as i64));
                     }
                 }
-            })
+            });
         }
     }
 
@@ -1242,11 +1243,11 @@ define_class!(
                                 NSControlStateValueOn
                             } else {
                                 NSControlStateValueOff
-                            })
+                            });
                         };
                     }
                 }
-            })
+            });
         }
 
         /// The stack-nav back header's button (docs/navigation.md): a day-initiated pop. The
@@ -1260,7 +1261,7 @@ define_class!(
                         already_popped: false,
                     },
                 );
-            })
+            });
         }
     }
 
@@ -1273,7 +1274,7 @@ define_class!(
                     && let Ok(tf) = obj.downcast::<NSTextField>() {
                         emit(node, Event::TextChanged(unsafe { tf.stringValue() }.to_string()));
                     }
-            })
+            });
         }
 
         /// The field editor's commands for a text field with a key handler
@@ -1317,14 +1318,13 @@ define_class!(
                 let movement = unsafe { notification.userInfo() }
                     .and_then(|ui| ui.objectForKey(unsafe { NSTextMovementUserInfoKey }.as_ref()))
                     .and_then(|n| n.downcast::<NSNumber>().ok())
-                    .map(|n| NSTextMovement(n.integerValue()))
-                    .unwrap_or(NSTextMovement::Other);
+                    .map_or(NSTextMovement::Other, |n| NSTextMovement(n.integerValue()));
                 if movement == NSTextMovement::Return {
                     emit(node, Event::Submitted);
                 } else {
                     emit(node, Event::FocusChanged(false));
                 }
-            })
+            });
         }
     }
 );
@@ -1406,6 +1406,10 @@ impl DayCursorOwner {
 // `resizeLeftRightCursor` and `resizeUpDownCursor` are deprecated in favor of the macOS 15
 // column/row resize cursors, which are probed above them; below 15 they are the shape.
 #[allow(deprecated)]
+#[expect(
+    clippy::match_same_arms,
+    reason = "each macOS 15 cursor keeps its older fallback arm directly below its probe"
+)]
 fn ns_cursor(c: &Cursor) -> Option<Retained<NSCursor>> {
     let has = |sel: objc2::runtime::Sel| <NSCursor as objc2::ClassType>::class().responds_to(sel);
     Some(match c {
@@ -1454,7 +1458,7 @@ fn ns_cursor(c: &Cursor) -> Option<Retained<NSCursor>> {
     })
 }
 
-/// Whether the NSEvent currently being dispatched ends a slider's interaction (see the
+/// Whether the `NSEvent` currently being dispatched ends a slider's interaction (see the
 /// `ValueCommitted` emission in `DayTarget::action:`). AppKit gives a continuous slider no
 /// "drag ended" callback, so the event that provoked the action is what says where in the gesture
 /// we are: a mouse-up ends a drag, an arrow key moves one discrete step and is already settled,
@@ -1610,7 +1614,7 @@ thread_local! {
 /// Report a text field's focus gain, unless it is a class swap handing focus to the
 /// replacement of a field that already had it.
 fn field_gained_focus(node: NodeId) {
-    if FIELD_SWAP.with(|s| s.get()) {
+    if FIELD_SWAP.with(std::cell::Cell::get) {
         return;
     }
     // Guard only the sink dispatch: the responder change already happened, so a contained
@@ -1655,12 +1659,12 @@ fn new_text_field(mtm: MainThreadMarker, node: NodeId, secure: bool) -> Retained
 /// the field via its delegate.
 fn owns_first_responder(window: &NSWindow, h: &NSView) -> bool {
     window.firstResponder().is_some_and(|fr| {
-        if Retained::as_ptr(&fr) as *const () as usize == ptr_of(h) {
+        if Retained::as_ptr(&fr).cast::<()>() as usize == ptr_of(h) {
             return true;
         }
         fr.downcast::<NSText>().is_ok_and(|text| {
             unsafe { text.delegate() }
-                .is_some_and(|d| Retained::as_ptr(&d) as *const () as usize == ptr_of(h))
+                .is_some_and(|d| Retained::as_ptr(&d).cast::<()>() as usize == ptr_of(h))
         })
     })
 }
@@ -1699,7 +1703,7 @@ fn rekey<V>(table: &SideTable<V>, old: usize, new: usize) {
 }
 
 /// A label is the shared field editor's delegate. AppKit does not forward
-/// `textView:clickedOnLink:atIndex:` to an NSTextField's separate control delegate, so the
+/// `textView:clickedOnLink:atIndex:` to an `NSTextField`'s separate control delegate, so the
 /// label itself must handle it to prevent the field editor from opening the target externally.
 /// See Apple's "Working With the Field Editor" and docs/text-runs.md.
 struct LabelIvars {
@@ -1948,17 +1952,17 @@ fn install_container_pan_monitor() {
 // DayFlipped: top-left-origin container view
 // ---------------------------------------------------------------------------
 
-/// A `background(..)` fill: `(r, g, b, a, corner_radius)`, painted in `drawRect` with NSColor.
+/// A `background(..)` fill: `(r, g, b, a, corner_radius)`, painted in `drawRect` with `NSColor`.
 type Surface = (f64, f64, f64, f64, f64);
 
 #[derive(Default)]
 struct FlippedIvars {
     surface: Cell<Option<Surface>>,
-    /// SurfaceRole::SectionCard: `(radius,)`, drawn with a dynamic system fill resolved at
+    /// `SurfaceRole::SectionCard`: `(radius,)`, drawn with a dynamic system fill resolved at
     /// draw time, so the card tracks light/dark appearance changes automatically.
     section_card: Cell<Option<f64>>,
     /// Paint the whole view with the dynamic window background before anything else: the
-    /// inspector panel wrap (docs/inspector.md). The inspector NSSplitViewItem backs its pane
+    /// inspector panel wrap (docs/inspector.md). The inspector `NSSplitViewItem` backs its pane
     /// with a vibrancy material, and the section cards' thin quaternary fill composites over
     /// it into near-black in dark mode (and the material itself captures black offscreen; see
     /// the sidebar-screenshot rule, docs/navigation.md). An opaque appearance-resolved
@@ -1992,7 +1996,7 @@ define_class!(
         // before (refuses first responder, forwards every key).
         #[unsafe(method(acceptsFirstResponder))]
         fn accepts_first_responder(&self) -> bool {
-            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
             FOCUSABLE_NODES.with(|t| t.get(ptr)).is_some()
         }
 
@@ -2002,7 +2006,7 @@ define_class!(
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &objc2_app_kit::NSEvent) {
             if transfer::pressed(self, event) { return; }
-            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
             if FOCUSABLE_NODES.with(|t| t.get(ptr)).is_some()
                 && let Some(window) = self.window()
             {
@@ -2013,7 +2017,7 @@ define_class!(
 
         #[unsafe(method(becomeFirstResponder))]
         fn become_first_responder(&self) -> bool {
-            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
             if let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) {
                 ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
             }
@@ -2022,7 +2026,7 @@ define_class!(
 
         #[unsafe(method(resignFirstResponder))]
         fn resign_first_responder(&self) -> bool {
-            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
             if let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) {
                 ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
             }
@@ -2034,7 +2038,7 @@ define_class!(
         /// to `super`, which walks the responder chain exactly as it would have without us.
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &objc2_app_kit::NSEvent) {
-            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
             let handled = ffi_guard::contain(false, || {
                 let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) else {
                     return false;
@@ -2066,7 +2070,7 @@ define_class!(
         fn right_mouse_down(&self, event: &objc2_app_kit::NSEvent) {
             if let Some(menu) = self.menuForEvent(event) {
                 unsafe {
-                    objc2_app_kit::NSMenu::popUpContextMenu_withEvent_forView(&menu, event, self)
+                    objc2_app_kit::NSMenu::popUpContextMenu_withEvent_forView(&menu, event, self);
                 };
             } else {
                 let _: () = unsafe { msg_send![super(self), rightMouseDown: event] };
@@ -2173,10 +2177,10 @@ impl DayFlipped {
     }
 
     /// Apply a `background`/`corner_radius` surface. The fill (rounded by `corner_radius`) is
-    /// drawn in `drawRect` with NSColor, not via the layer's `backgroundColor`, whose CGColorRef
-    /// argument objc2's `msg_send` cannot type-check. A rounded child clip does use the CALayer
-    /// (`cornerRadius` + `masksToBounds` are a CGFloat + `BOOL`, which are fine).
-    /// SurfaceRole::SectionCard: the fill resolves dynamically in drawRect (theme-adaptive).
+    /// drawn in `drawRect` with `NSColor`, not via the layer's `backgroundColor`, whose `CGColorRef`
+    /// argument objc2's `msg_send` cannot type-check. A rounded child clip does use the `CALayer`
+    /// (`cornerRadius` + `masksToBounds` are a `CGFloat` + `BOOL`, which are fine).
+    /// `SurfaceRole::SectionCard`: the fill resolves dynamically in drawRect (theme-adaptive).
     fn set_section_card(&self, corner_radius: f64) {
         self.ivars().section_card.set(Some(corner_radius));
         unsafe {
@@ -2237,7 +2241,7 @@ define_class!(
             &self,
             event: &objc2_app_kit::NSEvent,
         ) -> Option<Retained<NSMenu>> {
-            let f = CTX_MENU_FNS.with(|t| t.get(self as *const Self as usize));
+            let f = CTX_MENU_FNS.with(|t| t.get(std::ptr::from_ref::<Self>(self) as usize));
             let Some(f) = f else {
                 return unsafe { msg_send![super(self), menuForEvent: event] };
             };
@@ -2276,7 +2280,7 @@ define_class!(
         // `assert_focused` can see it.
         #[unsafe(method(becomeFirstResponder))]
         fn become_first_responder(&self) -> bool {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                 ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
             }
@@ -2285,7 +2289,7 @@ define_class!(
 
         #[unsafe(method(resignFirstResponder))]
         fn resign_first_responder(&self) -> bool {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             // A composition in progress goes with the focus: the input method is told, so it
             // does not commit into whatever is focused next.
             if MARKED.with(|t| t.remove(ptr)).is_some()
@@ -2306,7 +2310,7 @@ define_class!(
         /// to `super`, which walks the responder chain exactly as it would have without us.
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &objc2_app_kit::NSEvent) {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             let handled = ffi_guard::contain(false, || {
                 let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
                     return false;
@@ -2343,7 +2347,7 @@ define_class!(
         /// field to it.
         #[unsafe(method_id(inputContext))]
         fn input_context(&self) -> Option<Retained<objc2_app_kit::NSTextInputContext>> {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             let takes_keyboard = KEY_NODES
                 .with(|t| t.get(ptr))
                 .is_some_and(|node| ffi_guard::contain(false, || day_spec::keys::text(node)));
@@ -2356,7 +2360,7 @@ define_class!(
 
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
             paint_ops(&ops);
         }
@@ -2384,7 +2388,7 @@ define_class!(
         /// event with no phase is a lone `Changed` carrying its own angle.
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &objc2_app_kit::NSEvent) {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             let Some(node) = ROTATE_NODES.with(|t| t.get(ptr)) else {
                 let _: () = unsafe { msg_send![super(self), rotateWithEvent: event] };
                 return;
@@ -2423,12 +2427,12 @@ define_class!(
                         location: Point::new(loc.x, loc.y),
                     },
                 );
-            })
+            });
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &objc2_app_kit::NSEvent) {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             let Some(node) = PAN_NODES.with(|t| t.get(ptr)) else {
                 let _: () = unsafe { msg_send![super(self), scrollWheel: event] };
                 return;
@@ -2459,7 +2463,7 @@ define_class!(
                         location: Point::new(loc.x, loc.y),
                     },
                 );
-            })
+            });
         }
     }
 
@@ -2471,7 +2475,7 @@ define_class!(
     unsafe impl NSTextInputClient for DayCanvas {
         #[unsafe(method(insertText:replacementRange:))]
         unsafe fn insert_text(&self, string: &AnyObject, _replacement: NSRange) {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             MARKED.with(|t| t.remove(ptr));
             let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
                 return;
@@ -2504,7 +2508,7 @@ define_class!(
 
         #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
         unsafe fn set_marked_text(&self, string: &AnyObject, _selected: NSRange, _replacement: NSRange) {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             let text = text_of_input_string(string);
             if text.is_empty() {
                 MARKED.with(|t| t.remove(ptr));
@@ -2515,7 +2519,7 @@ define_class!(
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             MARKED.with(|t| t.remove(ptr));
         }
 
@@ -2526,7 +2530,7 @@ define_class!(
 
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             match MARKED.with(|t| t.get(ptr)) {
                 Some(marked) => NSRange::new(0, marked.encode_utf16().count()),
                 None => NSRange::new(objc2_foundation::NSNotFound as usize, 0),
@@ -2535,7 +2539,7 @@ define_class!(
 
         #[unsafe(method(hasMarkedText))]
         fn has_marked_text(&self) -> bool {
-            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             MARKED.with(|t| t.contains(ptr))
         }
 
@@ -2586,7 +2590,7 @@ impl DayCanvas {
     /// reports a hover for a pointer that is nowhere near it (measured: a pointer parked outside
     /// the window entirely still produced hover positions).
     fn report_hover(&self, event: &objc2_app_kit::NSEvent, phase: day_spec::DragPhase) {
-        let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+        let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
         let Some(node) = HOVER_NODES.with(|t| t.get(ptr)) else {
             return;
         };
@@ -2693,7 +2697,7 @@ define_class!(
                     }
                     _ => emit(node, Event::Tap(at)),
                 }
-            })
+            });
         }
     }
 );
@@ -2712,7 +2716,7 @@ impl DayGesture {
 // ---------------------------------------------------------------------------
 
 /// The stack presentation's back header (desktop has no system back affordance — this bar
-/// gives a pushed page its way out, like AdwNavigationView's header on GTK). Hidden at root.
+/// gives a pushed page its way out, like `AdwNavigationView`'s header on GTK). Hidden at root.
 struct NavHeader {
     bar: Retained<NSView>,
     title: Retained<NSTextField>,
@@ -2748,7 +2752,7 @@ const NAV_TABVIEW_INSET_TOP: f64 = 8.0;
 /// The `NavPresentation::Tabs` container: a real `NSTabView` — the Mac's own tab control, top
 /// tabs on a bezel — whose items own the detail pages. The page frames stay native-owned
 /// exactly as in a split: the tab view frames the selected item's view, and the page's
-/// `setFrameSize:` reports it. The labels come from the NAV_MENU's rows, which arrive after
+/// `setFrameSize:` reports it. The labels come from the `NAV_MENU`'s rows, which arrive after
 /// the pages' host (day-core mounts top-down: the rows page joins the host before its menu is
 /// built), so `adopt_menu_for_tabs` runs when the menu is inserted and whenever its rows are
 /// rebuilt.
@@ -2758,7 +2762,7 @@ const NAV_TABVIEW_INSET_TOP: f64 = 8.0;
 /// ever built and a tabs host showed its first page alone.
 struct TabHost {
     view: Retained<objc2_app_kit::NSTabView>,
-    /// The delegate reporting a native tab pick against the NAV_MENU's node; set once the menu
+    /// The delegate reporting a native tab pick against the `NAV_MENU`'s node; set once the menu
     /// is known.
     target: Option<Retained<DayTarget>>,
 }
@@ -2789,7 +2793,7 @@ fn sync_tab_labels(tabs: &TabHost, titles: &[String], selected: usize) {
     }
 }
 
-/// A NAV_MENU reached a tabs host (its rows page sits in the host's collapsed sidebar pane):
+/// A `NAV_MENU` reached a tabs host (its rows page sits in the host's collapsed sidebar pane):
 /// the menu's rows become the tab labels and its node the delegate's target. Walks up from the
 /// menu, so the innermost host — the one whose rows these are — is the one that takes them.
 fn adopt_menu_for_tabs(mtm: MainThreadMarker, menu: &NSView) {
@@ -2801,7 +2805,7 @@ fn adopt_menu_for_tabs(mtm: MainThreadMarker, menu: &NSView) {
                     .items
                     .borrow()
                     .iter()
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .collect::<Vec<String>>(),
                 ivars.node,
             )
@@ -2822,7 +2826,7 @@ fn adopt_menu_for_tabs(mtm: MainThreadMarker, menu: &NSView) {
                     let target = DayTarget::new(mtm, node);
                     unsafe {
                         tabs.view
-                            .setDelegate(Some(ProtocolObject::from_ref(&*target)))
+                            .setDelegate(Some(ProtocolObject::from_ref(&*target)));
                     };
                     tabs.target = Some(target);
                 }
@@ -2844,7 +2848,7 @@ struct NavState {
     /// and the split view controller is what owns the items, their holding priorities, the
     /// sidebar's material and the split's delegate duties — so it has to be retained here or
     /// the sidebar loses its treatment the moment this realize returns.
-    _split_vc: Retained<objc2_app_kit::NSSplitViewController>,
+    split_vc: Retained<objc2_app_kit::NSSplitViewController>,
     /// The sidebar item, for the `SidebarToggle` duty (docs/toolbars.md). AppKit's own
     /// `NSToolbarToggleSidebarItem` reaches the controller through the responder chain; this is
     /// the path dayscript and any non-toolbar caller take.
@@ -2888,7 +2892,7 @@ struct NavState {
     selected: usize,
     /// The tab view (`NavPresentation::Tabs` only), holding the detail pages as its items and
     /// labeled from the same rows the sidebar's outline view shows; a pick emits
-    /// `SelectionChanged` against the same NAV_MENU node.
+    /// `SelectionChanged` against the same `NAV_MENU` node.
     tabs: Option<TabHost>,
     /// Back header (stack presentation only).
     header: Option<NavHeader>,
@@ -2915,7 +2919,7 @@ struct NavState {
 /// the treatment lands on the bar, the sidebar's material runs to the top of the window as
 /// `allowsFullHeightLayout` intends, and every page still starts where Day laid it out.
 fn pane_under_title_bar(mtm: MainThreadMarker, wrap: &NSView) -> Retained<NSView> {
-    let pane = view_of(DayFlipped::new(mtm));
+    let pane = view_of(&DayFlipped::new(mtm));
     unsafe {
         wrap.setFrame(pane.bounds());
         wrap.setAutoresizingMask(
@@ -2937,7 +2941,7 @@ fn place_below_strip(wrap: &NSView, strip: f64) {
         wrap.setFrame(NSRect::new(
             NSPoint::new(0.0, strip),
             NSSize::new(b.size.width, (b.size.height - strip).max(0.0)),
-        ))
+        ));
     };
 }
 
@@ -2954,7 +2958,7 @@ fn build_nav_header(
     detail_wrap: &NSView,
     root_title: &str,
 ) -> NavHeader {
-    let bar = view_of(DayFlipped::new(mtm));
+    let bar = view_of(&DayFlipped::new(mtm));
     let target = DayTarget::new(mtm, id);
     let back = unsafe {
         // Invariant: NSImageNameGoBackTemplate is one of AppKit's own named images, present
@@ -3013,9 +3017,9 @@ fn nav_page_frame(wrap: &NSView, header_visible: bool) -> NSRect {
     )
 }
 
-/// The row titles and the NAV_MENU node of the menu inside `page`, if it has one.
+/// The row titles and the `NAV_MENU` node of the menu inside `page`, if it has one.
 ///
-/// The tab bar needs the same rows the sidebar shows, and they arrive at the NAV_MENU rather
+/// The tab bar needs the same rows the sidebar shows, and they arrive at the `NAV_MENU` rather
 /// than at the host. Rather than plumb a second copy through the props, this walks down to the
 /// menu that is already there — the sidebar page is Day-built and shallow, so the search is a
 /// handful of views — and reads the titles it has stored for its own outline view.
@@ -3026,11 +3030,16 @@ fn nav_menu_rows(page: &NSView) -> Option<(Vec<String>, NodeId)> {
         }
         let found = NAV_MENUS.with(|m| {
             m.borrow()
-                .get(&(v as *const NSView as usize))
+                .get(&(std::ptr::from_ref::<NSView>(v) as usize))
                 .map(|(_, d)| {
                     let ivars = d.ivars();
                     (
-                        ivars.items.borrow().iter().map(|s| s.to_string()).collect(),
+                        ivars
+                            .items
+                            .borrow()
+                            .iter()
+                            .map(std::string::ToString::to_string)
+                            .collect(),
                         ivars.node,
                     )
                 })
@@ -3039,7 +3048,7 @@ fn nav_menu_rows(page: &NSView) -> Option<(Vec<String>, NodeId)> {
             *out = found;
             return;
         }
-        for sub in unsafe { v.subviews() }.iter() {
+        for sub in &unsafe { v.subviews() } {
             walk(&sub, out);
         }
     }
@@ -3056,17 +3065,12 @@ fn apply_sidebar_item(item: &objc2_app_kit::NSSplitViewItem, pres: NavPresentati
         item.setCanCollapse(shown);
         item.setCollapsed(!shown);
         match pres {
-            NavPresentation::Split => {
-                item.setAllowsFullHeightLayout(true);
-                item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
-                item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
-            }
             // macOS has no rail: nothing in AppKit is a vertical strip of icon-only
             // destinations, and a source list pinned to icon width just truncates every row to an
             // ellipsis. `NavPresentation::Rail` is explicitly ROUNDABLE for exactly this case, so
             // it lands on the neighbor a Mac does have — an ordinary sidebar. Windows rounds the
             // other way (`PaneDisplayMode = LeftCompact` is a real rail there).
-            NavPresentation::Rail => {
+            NavPresentation::Split | NavPresentation::Rail => {
                 item.setAllowsFullHeightLayout(true);
                 item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
                 item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
@@ -3097,7 +3101,7 @@ pub(crate) fn list_split_view(window: usize) -> Option<Retained<objc2_app_kit::N
                         .window()
                         .is_some_and(|w| Retained::as_ptr(&w) as usize == window)
             })
-            .map(|st| unsafe { st._split_vc.splitView() })
+            .map(|st| unsafe { st.split_vc.splitView() })
     })
 }
 
@@ -3106,7 +3110,7 @@ fn sync_nav_header(hdr: &NavHeader, wrap: &NSView, pages: &[Retained<NSView>]) {
     hdr.bar.setHidden(!visible);
     unsafe {
         hdr.title.setStringValue(&NSString::from_str(
-            hdr.titles.last().map(String::as_str).unwrap_or(""),
+            hdr.titles.last().map_or("", String::as_str),
         ));
     }
     let frame = nav_page_frame(wrap, visible);
@@ -3158,7 +3162,7 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
     // the patch returns) and which a user crossing a breakpoint sees as a stutter.
     NAV_STATE.with(|m| {
         if let Some(s) = m.borrow().get(&ptr_of(host)) {
-            unsafe { s._split_vc.splitView().layoutSubtreeIfNeeded() };
+            unsafe { s.split_vc.splitView().layoutSubtreeIfNeeded() };
         }
     });
     // A stack needs a back header; nothing else may show one. Built on demand and kept
@@ -3298,7 +3302,7 @@ define_class!(
                     self.ivars().node,
                     Event::FrameChanged(Size::new(size.width, (size.height - inset).max(0.0))),
                 );
-            })
+            });
         }
     }
 );
@@ -3328,7 +3332,7 @@ struct InspectorState {
     content_wrap: Handle,
     panel_wrap: Handle,
     /// Retained so the controller (the split's delegate) lives as long as its split.
-    _split_vc: Retained<objc2_app_kit::NSSplitViewController>,
+    split_vc: Retained<objc2_app_kit::NSSplitViewController>,
     panel_item: Retained<objc2_app_kit::NSSplitViewItem>,
 }
 
@@ -3404,7 +3408,7 @@ define_class!(
                     iv.share.set(share);
                     emit(iv.node, Event::ValueChanged(share));
                 }
-            })
+            });
         }
 
         #[unsafe(method(splitView:constrainMinCoordinate:ofSubviewAt:))]
@@ -3491,7 +3495,7 @@ struct NavMenuIvars {
     badge_icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
     /// Tint for `badge_icons`; `None` keeps the neutral template tint.
     badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
-    /// Per-row context menu (docs/menus.md), empty = none. Built into an NSMenu and attached
+    /// Per-row context menu (docs/menus.md), empty = none. Built into an `NSMenu` and attached
     /// to the row's cell view, so a secondary click pops it like any native sidebar menu.
     menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
     /// Which items drag to reorder (`NavMenuProps::movable`); empty when none do.
@@ -3504,14 +3508,14 @@ struct NavMenuIvars {
     /// header. Day addresses rows by ITEM index, so every selection crossing the boundary
     /// goes through this map — a header must never shift what index 3 means.
     rows: RefCell<Vec<Option<usize>>>,
-    /// One retained NSString per outline row: the row's text (a header's or an item's).
+    /// One retained `NSString` per outline row: the row's text (a header's or an item's).
     row_objects: RefCell<Vec<Retained<NSString>>>,
-    /// One NSNumber per outline row, holding the row's index: the outline's item IDENTITY.
-    /// NSOutlineView matches items with `isEqual:`, so an NSString cannot be the identity —
+    /// One `NSNumber` per outline row, holding the row's index: the outline's item IDENTITY.
+    /// `NSOutlineView` matches items with `isEqual:`, so an `NSString` cannot be the identity —
     /// a section header titled "Controls" and an item titled "Controls" would collapse into one
     /// row, and the header would wear the item's icon. Row indexes are unique by construction.
     row_ids: RefCell<Vec<Retained<NSNumber>>>,
-    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    /// Programmatic selection in flight: don't re-emit `SelectionChanged`.
     suppress: std::cell::Cell<bool>,
 }
 
@@ -3567,7 +3571,12 @@ impl DayNavCell {
             let size = unsafe { label.font() }.map_or(NSFont::smallSystemFontSize(), |f| {
                 (f.pointSize() - 2.0).max(9.0)
             });
-            if unsafe { count.font() }.is_none_or(|f| f.pointSize() != size) {
+            #[expect(
+                clippy::float_cmp,
+                reason = "unchanged-value check against the exact size set below"
+            )]
+            let resize = unsafe { count.font() }.is_none_or(|f| f.pointSize() != size);
+            if resize {
                 unsafe {
                     count.setFont(Some(&NSFont::monospacedDigitSystemFontOfSize_weight(
                         size,
@@ -3686,7 +3695,7 @@ define_class!(
             ffi_guard::contain(None, || {
                 let point = self.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
                 let row = unsafe { self.rowAtPoint(point) };
-                let data = NAV_OUTLINE_MENUS.with(|t| t.get(self as *const _ as usize));
+                let data = NAV_OUTLINE_MENUS.with(|t| t.get(std::ptr::from_ref(self) as usize));
                 // `define_class!` rewrites the return, so no early `return` — one expression.
                 match data {
                     None => None,
@@ -3893,7 +3902,7 @@ define_class!(
                     let label = unsafe { NSTextField::labelWithString(text, mtm) };
                     unsafe {
                         label.cell().inspect(|c| {
-                            c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail)
+                            c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
                         });
                         cell.addSubview(&label);
                         cell.setTextField(Some(&label));
@@ -3905,19 +3914,19 @@ define_class!(
                     .icons
                     .borrow()
                     .get(index)
-                    .and_then(|o| o.clone());
+                    .and_then(std::clone::Clone::clone);
                 let badge = self
                     .ivars()
                     .badges
                     .borrow()
                     .get(index)
-                    .and_then(|o| o.clone());
+                    .and_then(std::clone::Clone::clone);
                 let badge_icon = self
                     .ivars()
                     .badge_icons
                     .borrow()
                     .get(index)
-                    .and_then(|o| o.clone());
+                    .and_then(std::clone::Clone::clone);
                 let badge_tint = self
                     .ivars()
                     .badge_tints
@@ -3934,7 +3943,7 @@ define_class!(
                     // Feed titles are arbitrarily long, so the label truncates with an
                     // ellipsis within the frame the cell gives it.
                     label.cell().inspect(|c| {
-                        c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail)
+                        c.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
                     });
                     cell.addSubview(&label);
                     cell.setTextField(Some(&label));
@@ -4069,7 +4078,7 @@ define_class!(
                 if let Some(item) = self.item_of_row(row) {
                     emit(self.ivars().node, Event::SelectionChanged(item as i64));
                 }
-            })
+            });
         }
     }
 );
@@ -4144,11 +4153,11 @@ fn resolve_nav_icons(icons: &[Option<String>]) -> Vec<Option<Retained<objc2_app_
     icons
         .iter()
         .map(|ic| {
+            use objc2::AllocAnyThread as _;
             let name = ic.as_deref()?;
             // Prefer the glyph SVG (docs/vectors.md): NSImage renders it at display size.
             let path = day_spec::resource::resolve_vector_svg(name)
                 .or_else(|| day_spec::resource::resolve_image_file(name))?;
-            use objc2::AllocAnyThread as _;
             let img = unsafe {
                 objc2_app_kit::NSImage::initWithContentsOfFile(
                     objc2_app_kit::NSImage::alloc(),
@@ -4229,7 +4238,7 @@ impl DayNavMenuData {
     }
 
     /// Flatten items + section headers into the outline's display rows. Each row gets its own
-    /// retained NSString so the outline can tell two rows apart by identity even when their
+    /// retained `NSString` so the outline can tell two rows apart by identity even when their
     /// labels match (two feeds legitimately share a title).
     fn rebuild_rows(&self, items: &[String], sections: &[Option<String>]) {
         let mut rows = Vec::with_capacity(items.len());
@@ -4250,12 +4259,11 @@ impl DayNavMenuData {
         *self.ivars().row_ids.borrow_mut() = ids;
     }
 
-    /// The outline row an item object names — the index its NSNumber identity carries — or
+    /// The outline row an item object names — the index its `NSNumber` identity carries — or
     /// `-1` for anything that is not one of ours (a stale query racing a reload).
     fn outline_row(item: &objc2::runtime::AnyObject) -> isize {
         item.downcast_ref::<NSNumber>()
-            .map(|n| n.integerValue())
-            .unwrap_or(-1)
+            .map_or(-1, objc2_foundation::NSNumber::integerValue)
     }
 
     /// Outline row → day item index.
@@ -4476,12 +4484,12 @@ mod nav_gap_tests {
     const SORTED: [bool; 7] = [false, true, true, true, true, true, false];
     const UNSORTED: [bool; 7] = [false; 7];
 
-    fn regroup(from: usize, section: usize, before: Option<usize>) -> Option<NavMove> {
-        Some(NavMove::Regroup {
+    fn regroup(from: usize, section: usize, before: Option<usize>) -> NavMove {
+        NavMove::Regroup {
             from,
             section,
             before,
-        })
+        }
     }
 
     #[test]
@@ -4493,14 +4501,14 @@ mod nav_gap_tests {
             Some(NavDrop {
                 gap: 6,
                 retarget: false,
-                moves: regroup(1, 4, Some(4)),
+                moves: Some(regroup(1, 4, Some(4))),
             })
         );
         // c, into the gap above tech's header: the end of news.
-        assert_eq!(at(6, 5).and_then(|d| d.moves), regroup(4, 1, None));
+        assert_eq!(at(6, 5).and_then(|d| d.moves), Some(regroup(4, 1, None)));
         // a, between c and d, and at tech's end above smart's header.
-        assert_eq!(at(2, 7).and_then(|d| d.moves), regroup(1, 4, Some(5)));
-        assert_eq!(at(2, 8).and_then(|d| d.moves), regroup(1, 4, None));
+        assert_eq!(at(2, 7).and_then(|d| d.moves), Some(regroup(1, 4, Some(5))));
+        assert_eq!(at(2, 8).and_then(|d| d.moves), Some(regroup(1, 4, None)));
     }
 
     #[test]
@@ -4524,9 +4532,9 @@ mod nav_gap_tests {
     fn regroup_gaps_reorder_an_unsorted_row_in_its_own_section() {
         let at = |from_row, gap| regroup_gap(&ROWS, &MOVABLE, &UNSORTED, from_row, gap, false);
         // a, between b and e.
-        assert_eq!(at(2, 4).and_then(|d| d.moves), regroup(1, 1, Some(3)));
+        assert_eq!(at(2, 4).and_then(|d| d.moves), Some(regroup(1, 1, Some(3))));
         // a, at news's end above tech's header.
-        assert_eq!(at(2, 5).and_then(|d| d.moves), regroup(1, 1, None));
+        assert_eq!(at(2, 5).and_then(|d| d.moves), Some(regroup(1, 1, None)));
         // Back in place, either side of itself: a drop that reports nothing.
         for gap in [2, 3] {
             let drop = at(2, gap).expect("offered");
@@ -4542,7 +4550,7 @@ mod nav_gap_tests {
             Some(NavDrop {
                 gap: 6,
                 retarget: true,
-                moves: regroup(1, 4, Some(4)),
+                moves: Some(regroup(1, 4, Some(4))),
             })
         );
         assert_eq!(
@@ -4550,7 +4558,7 @@ mod nav_gap_tests {
             Some(NavDrop {
                 gap: 7,
                 retarget: true,
-                moves: regroup(1, 4, Some(5)),
+                moves: Some(regroup(1, 4, Some(5))),
             })
         );
     }
@@ -4564,8 +4572,8 @@ mod nav_gap_tests {
         assert_eq!(at(0), None);
         assert_eq!(at(1).map(|d| d.moves), Some(None));
         assert_eq!(at(2).map(|d| d.moves), Some(None));
-        assert_eq!(at(3).and_then(|d| d.moves), regroup(0, 1, Some(1)));
-        assert_eq!(at(4).and_then(|d| d.moves), regroup(0, 1, None));
+        assert_eq!(at(3).and_then(|d| d.moves), Some(regroup(0, 1, Some(1))));
+        assert_eq!(at(4).and_then(|d| d.moves), Some(regroup(0, 1, None)));
     }
 
     #[test]
@@ -4764,7 +4772,9 @@ define_class!(
 /// The cell can wrap its decorated row in layout containers. Search only this visible
 /// cell, not other rows; cloning the provider releases the registry borrow before app code.
 fn list_row_menu_provider(view: &NSView) -> Option<(Retained<NSView>, day_spec::ContextMenuFn)> {
-    if let Some(provider) = CTX_MENU_FNS.with(|t| t.get(view as *const NSView as usize)) {
+    if let Some(provider) =
+        CTX_MENU_FNS.with(|t| t.get(std::ptr::from_ref::<NSView>(view) as usize))
+    {
         return Some((view.retain(), provider));
     }
     view.subviews()
@@ -4775,6 +4785,10 @@ fn list_row_menu_provider(view: &NSView) -> Option<(Retained<NSView>, day_spec::
 /// Plain labels receive the mouse event before their row does. Resolve the nearest dynamic
 /// owner without copying providers onto descendants (which would go stale on recycling).
 /// `Some(None)` means an owner deliberately returned no menu; do not fall through to a parent.
+#[expect(
+    clippy::option_option,
+    reason = "`None` defers to AppKit's own menu while `Some(None)` is an owner's deliberate no-menu answer"
+)]
 fn inherited_context_menu(
     view: &NSView,
     event: &objc2_app_kit::NSEvent,
@@ -4810,14 +4824,14 @@ struct ListIvars {
     selectable: std::cell::Cell<bool>,
     /// Multi-select mode (docs/list.md): every change reports the FULL selected set.
     multi: std::cell::Cell<bool>,
-    /// Programmatic selection in flight: don't re-emit SelectionChanged.
+    /// Programmatic selection in flight: don't re-emit `SelectionChanged`.
     suppress: std::cell::Cell<bool>,
     /// The row-token order this table currently displays — the baseline `permutation_moves`
     /// diffs a Reload against (docs/list.md: a same-set reorder animates as row moves).
     tokens: RefCell<Vec<u64>>,
     /// `RowHeight::Automatic` (docs/list.md "Row heights"): each row is as tall as Day laid
     /// it, through `tableView:heightOfRow:`. A uniform list never answers that selector, so
-    /// NSTableView keeps its fixed-pitch fast path.
+    /// `NSTableView` keeps its fixed-pitch fast path.
     automatic: bool,
     /// The list has section headers (docs/list.md "Sections"): AppKit group rows, which float
     /// at the top as their section scrolls under them. A header sizes to its content in any
@@ -4906,8 +4920,7 @@ define_class!(
                     .source
                     .borrow()
                     .as_ref()
-                    .map(|s| (s.len)() as isize)
-                    .unwrap_or(0)
+                    .map_or(0, |s| (s.len)() as isize)
             })
         }
 
@@ -5133,11 +5146,10 @@ define_class!(
             ffi_guard::contain((), || {
                 let Some(cell) = row_view.subviews().iter().find(|sub| {
                     sub.identifier()
-                        .map(|i| {
+                        .is_some_and(|i| {
                             let i = i.to_string();
                             i == DAY_ROW_CELL || i == DAY_HEADER_CELL
                         })
-                        .unwrap_or(false)
                 }) else {
                     return;
                 };
@@ -5145,7 +5157,7 @@ define_class!(
                 // not; everything stays on the main thread). AppKit may free a removed row view.
                 let cell = Retained::into_raw(cell) as usize;
                 let Some(this) = (unsafe {
-                    Retained::retain(self as *const DayListData as *mut DayListData)
+                    Retained::retain(std::ptr::from_ref::<DayListData>(self).cast_mut())
                 }) else {
                     return;
                 };
@@ -5170,7 +5182,7 @@ define_class!(
                         recycle(Retained::as_ptr(&cell) as RawHandle);
                     }
                 }));
-            })
+            });
         }
 
         #[unsafe(method(tableViewSelectionDidChange:))]
@@ -5210,7 +5222,7 @@ define_class!(
                         emit(self.ivars().node, Event::SelectionSet(Vec::new()));
                     }
                 }
-            })
+            });
         }
 
         // --- swipe actions (docs/list.md): NSTableView's row-action pipeline. AppKit calls
@@ -5269,7 +5281,7 @@ define_class!(
                                     // A button press leaves the buttons revealed; close
                                     // them (a full slide already closed itself).
                                     unsafe { table.setRowActionsVisible(false) };
-                                })
+                                });
                             },
                         );
                         let action =
@@ -5331,7 +5343,7 @@ impl DayListData {
 
     /// A self-sizing row was just bound to `cell`: record the height Day laid it at, and if
     /// the table drew the row at another height (the estimate, or the row's old content),
-    /// correct it on the next turn. Not here: this runs inside NSTableView's own tiling.
+    /// correct it on the next turn. Not here: this runs inside `NSTableView`'s own tiling.
     fn note_row_height(
         &self,
         table: &NSTableView,
@@ -5392,7 +5404,8 @@ impl DayListData {
         }
         // Raw +1 pointers across the post (the closure must be Send, which Retained is not;
         // everything stays on the main thread).
-        let Some(this) = (unsafe { Retained::retain(self as *const Self as *mut Self) }) else {
+        let Some(this) = (unsafe { Retained::retain(std::ptr::from_ref::<Self>(self).cast_mut()) })
+        else {
             return;
         };
         let this = Retained::into_raw(this) as usize;
@@ -5443,7 +5456,7 @@ impl DayListData {
     }
 
     /// If this Reload is the same row set in a new order, the incremental `moveRowAtIndex`
-    /// steps (each `(from, to)` interpreted against the already-moved rows, NSTableView's
+    /// steps (each `(from, to)` interpreted against the already-moved rows, `NSTableView`'s
     /// semantics) that transform the displayed order into the new one — and `None` for
     /// anything else (insert/remove/content change/no change), which reloads flat. Always
     /// refreshes the displayed-order cache.
@@ -5498,8 +5511,8 @@ impl DayListData {
         info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
     ) -> Option<(usize, usize)> {
         let src = unsafe { info.draggingSource() }?;
-        if Retained::as_ptr(&src) as *const std::ffi::c_void
-            != tv as *const NSTableView as *const std::ffi::c_void
+        if Retained::as_ptr(&src).cast::<std::ffi::c_void>()
+            != std::ptr::from_ref::<NSTableView>(tv).cast::<std::ffi::c_void>()
         {
             return None;
         }
@@ -5530,7 +5543,7 @@ const DAY_HEADER_CELL: &str = "day.header";
 /// The private pasteboard type carrying a dragged day list row's index (local reorder only).
 const DAY_ROW_PASTEBOARD_TYPE: &str = "dev.daybrite.day.row";
 
-/// An NSTableView drop lands at an INSERTION point (`row` with `.Above` semantics, 0..=len);
+/// An `NSTableView` drop lands at an INSERTION point (`row` with `.Above` semantics, 0..=len);
 /// day's seam speaks post-removal target indices. Dropping `from` at insertion `ins`:
 fn insertion_to_target(from: usize, ins: usize, len: usize) -> usize {
     let to = if ins > from { ins - 1 } else { ins };
@@ -5542,7 +5555,7 @@ fn target_to_insertion(from: usize, to: usize) -> usize {
     if to > from { to + 1 } else { to }
 }
 
-/// A realized LIST's scroll view ptr → (table, data source) for attach_list / update / measure.
+/// A realized LIST's scroll view ptr → (table, data source) for `attach_list` / update / measure.
 type ListEntry = (Retained<NSTableView>, Retained<DayListData>);
 
 /// Clone a list's (table, data) out of `LIST_STATE` under a SHORT borrow. Every caller then
@@ -5550,7 +5563,7 @@ type ListEntry = (Retained<NSTableView>, Retained<DayListData>);
 /// tiling, `viewAtColumn:row:makeIfNecessary:`, even `layoutSubtreeIfNeeded`) can synchronously
 /// re-enter `viewForRow` → `bind_row` → a flush that tears nodes down — and `release` must be
 /// able to take its own borrow at that depth. Holding the map across any of them was the
-/// "RefCell already borrowed" contained panic every list walkthrough used to log, 24 a run.
+/// "`RefCell` already borrowed" contained panic every list walkthrough used to log, 24 a run.
 fn list_entry(key: usize) -> Option<ListEntry> {
     LIST_STATE.with(|m| m.borrow().get(&key).cloned())
 }
@@ -5566,7 +5579,7 @@ struct TreeIvars {
     selectable: std::cell::Cell<bool>,
     /// Programmatic selection/disclosure in flight: don't re-emit the event (echo rule).
     suppress: std::cell::Cell<bool>,
-    /// token → its interned NSNumber. NSOutlineView tracks items (selection, expansion,
+    /// token → its interned `NSNumber`. `NSOutlineView` tracks items (selection, expansion,
     /// rowForItem) by object identity/equality, so every query for a token must answer with
     /// the same object — which is also what preserves expansion across reloadData.
     items: RefCell<HashMap<u64, Retained<NSNumber>>>,
@@ -5600,8 +5613,7 @@ define_class!(
                     .source
                     .borrow()
                     .as_ref()
-                    .map(|s| (s.children_len)(parent) as isize)
-                    .unwrap_or(0)
+                    .map_or(0, |s| (s.children_len)(parent) as isize)
             })
         }
 
@@ -5621,8 +5633,7 @@ define_class!(
                     .source
                     .borrow()
                     .as_ref()
-                    .map(|s| (s.child_token)(parent, index.max(0) as usize))
-                    .unwrap_or(0)
+                    .map_or(0, |s| (s.child_token)(parent, index.max(0) as usize))
             });
             let ns = self.intern(token);
             unsafe { objc2::rc::Retained::cast_unchecked(ns) }
@@ -5642,8 +5653,7 @@ define_class!(
                     .source
                     .borrow()
                     .as_ref()
-                    .map(|s| (s.expandable)(token))
-                    .unwrap_or(false)
+                    .is_some_and(|s| (s.expandable)(token))
             })
         }
 
@@ -5689,14 +5699,15 @@ define_class!(
             item: Option<&objc2::runtime::AnyObject>,
             child_index: isize,
         ) -> objc2_app_kit::NSDragOperation {
-            ffi_guard::contain(objc2_app_kit::NSDragOperation::None, || {
-                match self.drop_proposal(ov, info, item, child_index) {
+            ffi_guard::contain(
+                objc2_app_kit::NSDragOperation::None,
+                || match Self::drop_proposal(ov, info, item, child_index) {
                     Some((token, parent, index)) if self.can_move(token, parent, index) => {
                         objc2_app_kit::NSDragOperation::Move
                     }
                     _ => objc2_app_kit::NSDragOperation::None,
-                }
-            })
+                },
+            )
         }
 
         #[unsafe(method(outlineView:acceptDrop:item:childIndex:))]
@@ -5708,7 +5719,7 @@ define_class!(
             child_index: isize,
         ) -> bool {
             let drop = || {
-                let Some((token, parent, index)) = self.drop_proposal(ov, info, item, child_index)
+                let Some((token, parent, index)) = Self::drop_proposal(ov, info, item, child_index)
                 else {
                     return false;
                 };
@@ -5797,7 +5808,7 @@ define_class!(
                     // apply group typography and source-list background styles normally.
                     if (source.section_header)(token) {
                         fn label_in(view: &NSView) -> Option<Retained<NSTextField>> {
-                            for child in unsafe { view.subviews() }.iter() {
+                            for child in &unsafe { view.subviews() } {
                                 if let Ok(label) = child.clone().downcast::<NSTextField>() {
                                     return Some(label);
                                 }
@@ -5882,7 +5893,7 @@ define_class!(
                     i = unsafe { idx.indexGreaterThanIndex(i) };
                 }
                 emit(self.ivars().node, Event::TreeSelection(tokens));
-            })
+            });
         }
 
         #[unsafe(method(outlineView:didRemoveRowView:forRow:))]
@@ -5899,11 +5910,10 @@ define_class!(
             // fresh ids must survive.
             ffi_guard::contain((), || {
                 let mut cell_ptr: Option<usize> = None;
-                for sub in row_view.subviews().iter() {
+                for sub in &row_view.subviews() {
                     let is_cell = sub
                         .identifier()
-                        .map(|i| i.to_string() == "day.tree.cell")
-                        .unwrap_or(false);
+                        .is_some_and(|i| i.to_string() == "day.tree.cell");
                     if is_cell {
                         cell_ptr = Some(Retained::as_ptr(&sub) as usize);
                     }
@@ -5940,7 +5950,7 @@ define_class!(
                     }
                     recycle(cell as RawHandle);
                 }));
-            })
+            });
         }
 
         #[unsafe(method(outlineViewItemDidExpand:))]
@@ -5967,7 +5977,7 @@ impl DayTreeData {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// The same NSNumber for a token, every time — NSOutlineView's item identity.
+    /// The same `NSNumber` for a token, every time — `NSOutlineView`'s item identity.
     fn intern(&self, token: u64) -> Retained<NSNumber> {
         self.ivars()
             .items
@@ -5978,7 +5988,8 @@ impl DayTreeData {
     }
 
     fn token_of_item(item: &objc2::runtime::AnyObject) -> Option<u64> {
-        item.downcast_ref::<NSNumber>().map(|n| n.as_u64())
+        item.downcast_ref::<NSNumber>()
+            .map(objc2_foundation::NSNumber::as_u64)
     }
 
     /// A native disclosure (user click, keyboard left/right) → `Event::TreeExpanded`.
@@ -5994,22 +6005,21 @@ impl DayTreeData {
             if let Some(token) = token {
                 emit(self.ivars().node, Event::TreeExpanded { token, expanded });
             }
-        })
+        });
     }
 
     /// The full drop proposal — `(dragged token, parent token, index)` — for a LOCAL drag
     /// from this outline; `None` for a foreign drag or an unparseable one. `index: None`
-    /// means "ONTO the parent" (NSOutlineView's childIndex -1, `NSOutlineViewDropOnItemIndex`).
+    /// means "ONTO the parent" (`NSOutlineView`'s childIndex -1, `NSOutlineViewDropOnItemIndex`).
     fn drop_proposal(
-        &self,
         ov: &objc2_app_kit::NSOutlineView,
         info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
         item: Option<&objc2::runtime::AnyObject>,
         child_index: isize,
     ) -> Option<(u64, Option<u64>, Option<usize>)> {
         let src = unsafe { info.draggingSource() }?;
-        if Retained::as_ptr(&src) as *const std::ffi::c_void
-            != ov as *const objc2_app_kit::NSOutlineView as *const std::ffi::c_void
+        if Retained::as_ptr(&src).cast::<std::ffi::c_void>()
+            != std::ptr::from_ref::<objc2_app_kit::NSOutlineView>(ov).cast::<std::ffi::c_void>()
         {
             return None;
         }
@@ -6033,8 +6043,7 @@ impl DayTreeData {
             .borrow()
             .as_ref()
             .and_then(|s| s.moves.as_ref().map(|m| (m.can_move)(token, parent, index)))
-            .map(|v| v == MoveVerdict::Allow)
-            .unwrap_or(false)
+            .is_some_and(|v| v == MoveVerdict::Allow)
     }
 }
 
@@ -6179,9 +6188,9 @@ define_class!(
                             .map(|s| s.layout_cell_size.clone())
                     });
                 if let Some(f) = f {
-                    f(self as *const Self as RawHandle, Size::new(width, self.bounds().size.height));
+                    f(std::ptr::from_ref::<Self>(self) as RawHandle, Size::new(width, self.bounds().size.height));
                 }
-            })
+            });
         }
     }
 );
@@ -6207,7 +6216,7 @@ fn tree_entry(key: usize) -> Option<TreeEntry> {
     TREE_STATE.with(|m| m.borrow().get(&key).cloned())
 }
 
-/// Keep the outline exactly as wide as its clip — DayOutlineView calls this on every layout
+/// Keep the outline exactly as wide as its clip — `DayOutlineView` calls this on every layout
 /// pass (its comment has the why). The list never noticed the width drift because it lays
 /// row content at the HOST's width; tree rows lay out at the CELL's, which exposes it.
 fn sync_tree_width(outline: &objc2_app_kit::NSOutlineView) {
@@ -6238,7 +6247,7 @@ fn post_realize_visible_tree_rows(key: usize) {
     }));
 }
 
-/// A realized NAV_MENU's native outline view paired with its data-source object.
+/// A realized `NAV_MENU`'s native outline view paired with its data-source object.
 type NavMenuEntry = (
     Retained<objc2_app_kit::NSOutlineView>,
     Retained<DayNavMenuData>,
@@ -6332,30 +6341,25 @@ fn draw_op(op: &DrawOp) {
             DrawOp::Stroke(shape, paint, style) => {
                 if let Some(p) = bezier(shape) {
                     apply_stroke_style(&p, style);
-                    match paint {
-                        day_spec::Paint::Solid(color) => {
-                            nscolor(*color).setStroke();
-                            p.stroke();
-                        }
+                    if let day_spec::Paint::Solid(color) = paint {
+                        nscolor(*color).setStroke();
+                        p.stroke();
+                    } else {
                         // No gradient-stroke primitive here either: turn the stroke into the
                         // region it covers and draw the gradient through that clip.
                         // No gradient-stroke primitive: convert the stroke into the REGION it
                         // covers (CoreGraphics can, and NSGraphicsContext hands us its context),
                         // clip to that, then draw the gradient through it.
-                        _ => {
-                            let Some(ctx) = NSGraphicsContext::currentContext() else {
-                                return;
-                            };
-                            let cg = ctx.CGContext();
-                            NSGraphicsContext::saveGraphicsState_class();
-                            objc2_core_graphics::CGContext::add_path(Some(&cg), Some(&p.CGPath()));
-                            objc2_core_graphics::CGContext::replace_path_with_stroked_path(Some(
-                                &cg,
-                            ));
-                            objc2_core_graphics::CGContext::clip(Some(&cg));
-                            draw_gradient_in(paint, shape.bounds());
-                            NSGraphicsContext::restoreGraphicsState_class();
-                        }
+                        let Some(ctx) = NSGraphicsContext::currentContext() else {
+                            return;
+                        };
+                        let cg = ctx.CGContext();
+                        NSGraphicsContext::saveGraphicsState_class();
+                        objc2_core_graphics::CGContext::add_path(Some(&cg), Some(&p.CGPath()));
+                        objc2_core_graphics::CGContext::replace_path_with_stroked_path(Some(&cg));
+                        objc2_core_graphics::CGContext::clip(Some(&cg));
+                        draw_gradient_in(paint, shape.bounds());
+                        NSGraphicsContext::restoreGraphicsState_class();
                     }
                 }
             }
@@ -6523,13 +6527,13 @@ fn apply_stroke_style(p: &objc2_app_kit::NSBezierPath, style: &day_spec::StrokeS
         });
         p.setMiterLimit(style.miter_limit);
         if !style.dash.is_empty() {
-            let pattern: Vec<objc2_core_foundation::CGFloat> = style.dash.to_vec();
+            let pattern: Vec<objc2_core_foundation::CGFloat> = style.dash.clone();
             p.setLineDash_count_phase(pattern.as_ptr(), pattern.len() as isize, style.dash_phase);
         }
     }
 }
 
-/// Draw a gradient through whatever clip is installed, in AppKit's own NSGradient terms.
+/// Draw a gradient through whatever clip is installed, in AppKit's own `NSGradient` terms.
 /// Shared by the gradient FILL arms and the gradient STROKE arm, which differ only in what they
 /// clipped to first.
 fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
@@ -6544,7 +6548,7 @@ fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
                         NSPoint::new(s.x, s.y),
                         NSPoint::new(e.x, e.y),
                         opts,
-                    )
+                    );
                 };
             }
         }
@@ -6554,7 +6558,7 @@ fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
                 concat_unit_to_bounds(bounds);
                 let c = NSPoint::new(g.center.x, g.center.y);
                 unsafe {
-                    grad.drawFromCenter_radius_toCenter_radius_options(c, 0.0, c, g.radius, opts)
+                    grad.drawFromCenter_radius_toCenter_radius_options(c, 0.0, c, g.radius, opts);
                 };
                 NSGraphicsContext::restoreGraphicsState_class();
             }
@@ -6584,7 +6588,7 @@ fn apply_button_content(
         .with(|m| m.borrow().get(&ptr_of(btn)).copied())
         .unwrap_or_default();
     BUTTON_IMAGES.with(|images| {
-        images.remove(ptr_of(btn));
+        let _ = images.remove(ptr_of(btn));
         if let Some(image) = &image {
             images.insert(ptr_of(btn), image.clone());
         }
@@ -6678,7 +6682,7 @@ fn set_button_image(btn: &NSButton, style: day_spec::props::ButtonStyleSpec) {
     }
 }
 
-/// Put `ButtonProps::selected` on an `NSButton`, keeping it an NSButton. A momentary button
+/// Put `ButtonProps::selected` on an `NSButton`, keeping it an `NSButton`. A momentary button
 /// shows no state, so the first `true` makes it push-on/push-off, whose on state AppKit draws
 /// as the bezel's highlighted fill and VoiceOver reads as selected; a button that never
 /// selects keeps its momentary type. A click toggles the state natively before the action
@@ -6701,7 +6705,7 @@ fn set_button_selected(btn: &objc2_app_kit::NSButton, on: bool) {
 /// bezel's own, so the fill reads as the bezel rather than as a box around it.
 const TINT_CORNER_RADIUS: f64 = 6.0;
 
-/// Put a [`day_spec::props::ButtonStyleSpec`] on an `NSButton`, keeping it an NSButton.
+/// Put a [`day_spec::props::ButtonStyleSpec`] on an `NSButton`, keeping it an `NSButton`.
 ///
 /// Prominent = the return-key default button. Tinted = `bezelColor`, which AppKit composites
 /// through the button's own bezel — so the pressed darkening, the focus ring and the disabled
@@ -6984,12 +6988,12 @@ define_class!(
 
         #[unsafe(method(undo))]
         fn do_undo(&self) {
-            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Undo { redo: false }))
+            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Undo { redo: false }));
         }
 
         #[unsafe(method(redo))]
         fn do_redo(&self) {
-            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Undo { redo: true }))
+            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Undo { redo: true }));
         }
 
         #[unsafe(method_id(undoMenuItemTitle))]
@@ -7101,7 +7105,7 @@ define_class!(
         #[unsafe(method(validateMenuItem:))]
         fn validate_menu_item(&self, item: &NSMenuItem) -> bool {
             ffi_guard::contain(false, || {
-                let state = EDIT_STATE.with(|s| s.get());
+                let state = EDIT_STATE.with(std::cell::Cell::get);
                 match unsafe { item.action() } {
                     // The undo pair enables from the acting manager and takes its titles
                     // ("Undo Move Shape"), exactly as AppKit's own windows do.
@@ -7147,7 +7151,7 @@ define_class!(
                 }
                 // Zooming is a resize with no notification of its own.
                 self.report_state_of(notification);
-            })
+            });
         }
 
         #[unsafe(method(windowShouldClose:))]
@@ -7172,7 +7176,7 @@ define_class!(
                         unsafe { app.terminate(None) };
                     }
                 }
-            })
+            });
         }
 
         #[unsafe(method_id(windowWillReturnUndoManager:))]
@@ -7198,7 +7202,7 @@ define_class!(
                 if let Some(node) = self.ivars().node {
                     emit(node, Event::WindowFocused(true));
                 }
-            })
+            });
         }
 
         #[unsafe(method(windowDidResignKey:))]
@@ -7207,27 +7211,27 @@ define_class!(
                 if let Some(node) = self.ivars().node {
                     emit(node, Event::WindowFocused(false));
                 }
-            })
+            });
         }
 
         #[unsafe(method(windowDidMiniaturize:))]
         fn window_did_miniaturize(&self, notification: &NSNotification) {
-            ffi_guard::contain((), || self.report_state_of(notification))
+            ffi_guard::contain((), || self.report_state_of(notification));
         }
 
         #[unsafe(method(windowDidDeminiaturize:))]
         fn window_did_deminiaturize(&self, notification: &NSNotification) {
-            ffi_guard::contain((), || self.report_state_of(notification))
+            ffi_guard::contain((), || self.report_state_of(notification));
         }
 
         #[unsafe(method(windowDidEnterFullScreen:))]
         fn window_did_enter_full_screen(&self, notification: &NSNotification) {
-            ffi_guard::contain((), || self.report_state_of(notification))
+            ffi_guard::contain((), || self.report_state_of(notification));
         }
 
         #[unsafe(method(windowDidExitFullScreen:))]
         fn window_did_exit_full_screen(&self, notification: &NSNotification) {
-            ffi_guard::contain((), || self.report_state_of(notification))
+            ffi_guard::contain((), || self.report_state_of(notification));
         }
     }
 
@@ -7244,7 +7248,7 @@ define_class!(
                     Some(group) => day_core::windows::open_new_window_for_group(group),
                     None => day_core::windows::open_new_window(),
                 };
-            })
+            });
         }
     }
 );
@@ -7336,7 +7340,7 @@ fn named_key(event: &objc2_app_kit::NSEvent) -> Option<&'static str> {
 /// with what it typed (⌥ types on a Mac: ⌥8 is "{" on a German layout; the piece still sees
 /// [`day_spec::KeyEvent::ALT`] and decides).
 fn full_route_key_down(view: &DayCanvas, node: NodeId, event: &objc2_app_kit::NSEvent) -> bool {
-    let ptr = (view as *const DayCanvas).cast::<NSView>() as usize;
+    let ptr = std::ptr::from_ref::<DayCanvas>(view).cast::<NSView>() as usize;
     let flags = event.modifierFlags();
     let mods = key_modifiers(flags);
     if flags.contains(NSEventModifierFlags::Command) {
@@ -7485,7 +7489,7 @@ fn set_ns_window_state(window: &NSWindow, state: day_spec::WindowState) {
             S::Minimized => window.miniaturize(None),
             S::Maximized => {
                 if !window.isZoomed() {
-                    window.zoom(None)
+                    window.zoom(None);
                 }
             }
             S::Fullscreen => window.toggleFullScreen(None),
@@ -7599,7 +7603,7 @@ impl AppKit {
             }
         }
         // Recognizers and the cursor's tracking area move as objects, keeping their targets.
-        for r in unsafe { h.gestureRecognizers() }.iter() {
+        for r in &unsafe { h.gestureRecognizers() } {
             unsafe {
                 h.removeGestureRecognizer(&r);
                 new.addGestureRecognizer(&r);
@@ -7661,6 +7665,12 @@ impl AppKit {
         new
     }
 
+    /// Create the AppKit toolkit with every registered renderer.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called off the main thread.
+    #[must_use]
     pub fn new() -> Self {
         let mtm =
             MainThreadMarker::new().expect("day-toolkit-appkit must start on the main thread");
@@ -7684,6 +7694,7 @@ impl AppKit {
     }
 
     /// Public helper for external renderers.
+    #[must_use]
     pub fn mtm(&self) -> MainThreadMarker {
         self.mtm
     }
@@ -7705,7 +7716,7 @@ impl AppKit {
             .filter(|m| {
                 self.secondary
                     .iter()
-                    .any(|w| std::ptr::eq(&*w.window, &**m))
+                    .any(|w| std::ptr::eq(&raw const *w.window, &raw const **m))
             })
             .or_else(|| {
                 self.secondary
@@ -7719,7 +7730,7 @@ impl AppKit {
             .unwrap_or(anchor);
         self.secondary
             .iter()
-            .find(|w| std::ptr::eq(&*w.window, &*shown) && w.window.isVisible())
+            .find(|w| std::ptr::eq(&raw const *w.window, &raw const *shown) && w.window.isVisible())
             .map(|w| w.content.clone())
     }
 
@@ -7748,6 +7759,8 @@ impl AppKit {
         prefs_style: bool,
         node: Option<NodeId>,
     ) -> (Retained<NSWindow>, Retained<DayWinDelegate>, Handle) {
+        use day_spec::WindowTabbing as T;
+        use objc2_app_kit::NSWindowTabbingMode as M;
         let mtm = self.mtm;
         let (title, size, min_size, tabbing) = (
             options.title.as_str(),
@@ -7773,8 +7786,6 @@ impl AppKit {
         if let Some(max) = options.max_size {
             unsafe { window.setContentMaxSize(NSSize::new(max.width, max.height)) };
         }
-        use day_spec::WindowTabbing as T;
-        use objc2_app_kit::NSWindowTabbingMode as M;
         let group = match tabbing {
             T::Group(g) | T::Preferred(g) => Some(g.clone()),
             T::Automatic | T::Disallowed => None,
@@ -7786,7 +7797,7 @@ impl AppKit {
             // View ▸ Show Tab Bar, Merge All Windows) — meaningful once a second Normal
             // window can exist; inert while automatic tabbing is globally off (see `run`).
             T::Automatic => unsafe {
-                window.setTabbingIdentifier(&NSString::from_str("day.normal"))
+                window.setTabbingIdentifier(&NSString::from_str("day.normal"));
             },
             T::Group(g) => unsafe { window.setTabbingIdentifier(&NSString::from_str(g)) },
             T::Preferred(g) => {
@@ -7801,7 +7812,7 @@ impl AppKit {
         }
         let delegate = DayWinDelegate::new(mtm, node, group);
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-        let content = view_of(DayFlipped::new(mtm));
+        let content = view_of(&DayFlipped::new(mtm));
         window.setContentView(Some(&content));
         window_chrome::apply(&window, &content, options);
         // Tab / Shift-Tab (docs/focus.md). AppKit does NOT derive the key view loop from the view
@@ -7823,8 +7834,8 @@ impl Default for AppKit {
     }
 }
 
-fn view_of<T: AsRef<NSView>>(x: Retained<T>) -> Handle {
-    Retained::from(x.as_ref())
+fn view_of<T: AsRef<NSView>>(x: &Retained<T>) -> Handle {
+    Retained::from((**x).as_ref())
 }
 
 fn nscolor(c: day_spec::Color) -> Retained<NSColor> {
@@ -7974,41 +7985,36 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
         Font::System(pt) => {
             let w = spec
                 .weight
-                .map(ns_weight)
-                .unwrap_or(unsafe { NSFontWeightRegular });
+                .map_or(unsafe { NSFontWeightRegular }, ns_weight);
             unsafe { NSFont::systemFontOfSize_weight(pt, w) }
         }
         // A bundled family (§18.4), registered with CoreText in run(). fontWithName resolves
         // family, full, and PostScript names. A weight override maps to the bold trait (the
         // family decides what it can supply); unknown families fall back to the system font.
         Font::Custom(name, pt) => {
-            match unsafe { NSFont::fontWithName_size(&NSString::from_str(name), pt) } {
-                Some(f) => {
-                    if spec
-                        .weight
-                        .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
-                    {
-                        let mtm = objc2::MainThreadMarker::new()
-                            .expect("labels realize on the main thread");
-                        unsafe {
-                            NSFontManager::sharedFontManager(mtm)
-                                .convertFont_toHaveTrait(&f, NSFontTraitMask::BoldFontMask)
-                        }
-                    } else {
-                        f
+            if let Some(f) = unsafe { NSFont::fontWithName_size(&NSString::from_str(name), pt) } {
+                if spec
+                    .weight
+                    .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
+                {
+                    let mtm =
+                        objc2::MainThreadMarker::new().expect("labels realize on the main thread");
+                    unsafe {
+                        NSFontManager::sharedFontManager(mtm)
+                            .convertFont_toHaveTrait(&f, NSFontTraitMask::BoldFontMask)
                     }
+                } else {
+                    f
                 }
-                None => {
-                    log::warn!(
-                        "unknown font family {name:?} — falling back to the system font \
-                         (is the file in the project's fonts/ directory?)"
-                    );
-                    let w = spec
-                        .weight
-                        .map(ns_weight)
-                        .unwrap_or(unsafe { NSFontWeightRegular });
-                    unsafe { NSFont::systemFontOfSize_weight(pt, w) }
-                }
+            } else {
+                log::warn!(
+                    "unknown font family {name:?} — falling back to the system font \
+                     (is the file in the project's fonts/ directory?)"
+                );
+                let w = spec
+                    .weight
+                    .map_or(unsafe { NSFontWeightRegular }, ns_weight);
+                unsafe { NSFont::systemFontOfSize_weight(pt, w) }
             }
         }
         style => {
@@ -8031,8 +8037,7 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
     let base = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
         let w = spec
             .weight
-            .map(ns_weight)
-            .unwrap_or(unsafe { NSFontWeightRegular });
+            .map_or(unsafe { NSFontWeightRegular }, ns_weight);
         unsafe { NSFont::monospacedDigitSystemFontOfSize_weight(base.pointSize(), w) }
     } else {
         base
@@ -8043,8 +8048,7 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
     let base = if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
         let w = spec
             .weight
-            .map(ns_weight)
-            .unwrap_or(unsafe { NSFontWeightRegular });
+            .map_or(unsafe { NSFontWeightRegular }, ns_weight);
         unsafe { NSFont::monospacedSystemFontOfSize_weight(base.pointSize(), w) }
     } else {
         base
@@ -8052,12 +8056,16 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
     // Relative size (`FontSpec::scale`). Applied last, over whatever face the traits above
     // settled on, and through `convertFont_toSize` so a bundled family keeps its typeface —
     // re-picking the system font here would undo the Custom/monospace/tabular work above.
-    let base = if spec.scale != 1.0 {
+    #[expect(
+        clippy::float_cmp,
+        reason = "1.0 is the exact unscaled default of `FontSpec::scale`"
+    )]
+    let base = if spec.scale == 1.0 {
+        base
+    } else {
         let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
         let pts = spec.resolved_points(base.pointSize());
         unsafe { NSFontManager::sharedFontManager(mtm).convertFont_toSize(&base, pts) }
-    } else {
-        base
     };
     if spec.italic {
         let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
@@ -8123,10 +8131,15 @@ fn attributed_label(
         // Both are adaptive, which is the point of asking for a role instead of a grey: the
         // secondary label is legible against either appearance's background, and a literal one
         // cannot be.
-        let fg = color.map(nscolor).unwrap_or_else(|| match role {
-            day_spec::props::TextRole::Secondary => objc2_app_kit::NSColor::secondaryLabelColor(),
-            day_spec::props::TextRole::Primary => objc2_app_kit::NSColor::labelColor(),
-        });
+        let fg = color.map_or_else(
+            || match role {
+                day_spec::props::TextRole::Secondary => {
+                    objc2_app_kit::NSColor::secondaryLabelColor()
+                }
+                day_spec::props::TextRole::Primary => objc2_app_kit::NSColor::labelColor(),
+            },
+            nscolor,
+        );
         s.addAttribute_value_range(objc2_app_kit::NSForegroundColorAttributeName, &fg, whole);
     }
     for r in runs {
@@ -8217,7 +8230,7 @@ fn register_bundled_fonts() {
         };
         let ok = unsafe {
             CTFontManagerRegisterFontsForURL(
-                Retained::as_ptr(&url) as *const std::ffi::c_void,
+                Retained::as_ptr(&url).cast::<std::ffi::c_void>(),
                 1,
                 std::ptr::null_mut(),
             )
@@ -8319,7 +8332,7 @@ fn warn_missing_renderer(kind: PieceKind) {
 /// the [`props_of`] mismatch fallback, so a wrong props payload degrades to the same surface
 /// (the warning is already reported by `props_of` itself).
 pub(crate) fn placeholder_view(mtm: MainThreadMarker, kind: PieceKind) -> Handle {
-    view_of(unsafe {
+    view_of(&unsafe {
         NSTextField::labelWithString(&NSString::from_str(&format!("⟨{kind}⟩")), mtm)
     })
 }
@@ -8371,7 +8384,7 @@ impl Toolkit for AppKit {
             .contains("Dark")
     }
 
-    /// System Settings › Accessibility › Display › "Reduce motion", as NSWorkspace reports it
+    /// System Settings › Accessibility › Display › "Reduce motion", as `NSWorkspace` reports it
     /// (docs/accessibility.md). `install_reduce_motion_observer` re-reads it on a flip.
     fn reduce_motion(&mut self) -> bool {
         objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
@@ -8383,9 +8396,8 @@ impl Toolkit for AppKit {
     fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
         use day_spec::AppBadge;
         let label = match badge {
-            AppBadge::None => None,
             // Zero clears, matching the platform convention the doc states.
-            AppBadge::Count(0) => None,
+            AppBadge::None | AppBadge::Count(0) => None,
             AppBadge::Count(n) => Some(n.to_string()),
             AppBadge::Text(t) if t.is_empty() => None,
             AppBadge::Text(t) => Some(t.clone()),
@@ -8423,6 +8435,10 @@ impl Toolkit for AppKit {
         }
     }
 
+    #[expect(
+        clippy::match_same_arms,
+        reason = "one arm per capability, each documented with the AppKit mechanism behind it"
+    )]
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             // An `NSSharingService` per app action, from the picker's delegate.
@@ -8582,13 +8598,12 @@ impl Toolkit for AppKit {
                         v.set_surface(p.background, p.corner_radius, p.clips);
                     }
                 }
-                view_of(v)
+                view_of(&v)
             }
             Some(Builtin::Scroll) => {
                 let horizontal = props
                     .downcast_ref::<day_spec::props::ScrollProps>()
-                    .map(|p| p.horizontal)
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.horizontal);
                 let sv = unsafe { NSScrollView::new(mtm) };
                 unsafe {
                     sv.setHasVerticalScroller(!horizontal);
@@ -8603,7 +8618,7 @@ impl Toolkit for AppKit {
                 }
                 let doc = DayFlipped::new(mtm);
                 unsafe { sv.setDocumentView(Some(doc.as_ref())) };
-                view_of(sv)
+                view_of(&sv)
             }
             Some(Builtin::Label) => {
                 // `props_of`, not a panicking downcast, for every typed-props arm: a mismatch
@@ -8631,7 +8646,7 @@ impl Toolkit for AppKit {
                 match (p.color, p.role) {
                     (Some(c), _) => unsafe { tf.setTextColor(Some(&nscolor(c))) },
                     (None, day_spec::props::TextRole::Secondary) => unsafe {
-                        tf.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()))
+                        tf.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
                     },
                     (None, day_spec::props::TextRole::Primary) => {}
                 }
@@ -8651,7 +8666,7 @@ impl Toolkit for AppKit {
                         set_paragraph_alignment(&tf, nstextalign(p.align));
                     }
                 }
-                view_of(Retained::into_super(tf))
+                view_of(&Retained::into_super(tf))
             }
             Some(Builtin::Button) => {
                 let Some(p) = props_of::<ButtonProps>(kind, "appkit", props) else {
@@ -8672,7 +8687,7 @@ impl Toolkit for AppKit {
                 }
                 unsafe { btn.setEnabled(p.enabled) };
                 set_button_selected(&btn, p.selected);
-                let view = view_of(btn);
+                let view = view_of(&btn);
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
@@ -8683,12 +8698,12 @@ impl Toolkit for AppKit {
                 let target = DayTarget::new(mtm, id);
                 let sw = unsafe { NSSwitch::new(mtm) };
                 unsafe {
-                    sw.setState(if p.on { 1 } else { 0 });
+                    sw.setState(isize::from(p.on));
                     sw.setEnabled(p.enabled);
                     sw.setTarget(Some(&*target));
                     sw.setAction(Some(sel!(action:)));
                 }
-                let view = view_of(sw);
+                let view = view_of(&sw);
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
@@ -8708,7 +8723,7 @@ impl Toolkit for AppKit {
                     )
                 };
                 unsafe { sl.setContinuous(true) };
-                let view = view_of(sl);
+                let view = view_of(&sl);
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
             }
@@ -8723,12 +8738,12 @@ impl Toolkit for AppKit {
                     tf.setStringValue(&NSString::from_str(&p.text));
                     tf.setPlaceholderString(Some(&NSString::from_str(&p.placeholder)));
                 }
-                view_of(tf)
+                view_of(&tf)
             }
             Some(Builtin::Divider) => {
                 let b = unsafe { NSBox::new(mtm) };
                 unsafe { b.setBoxType(NSBoxType::Separator) };
-                view_of(b)
+                view_of(&b)
             }
             Some(Builtin::Progress) => {
                 let Some(p) = props_of::<ProgressProps>(kind, "appkit", props) else {
@@ -8739,46 +8754,43 @@ impl Toolkit for AppKit {
                 }
                 let pi = unsafe { NSProgressIndicator::new(mtm) };
                 unsafe {
-                    match p.value {
-                        Some(v) => {
-                            pi.setStyle(NSProgressIndicatorStyle::Bar);
-                            pi.setIndeterminate(false);
-                            pi.setMinValue(0.0);
-                            pi.setMaxValue(1.0);
-                            pi.setDoubleValue(v);
-                        }
-                        None => {
-                            pi.setStyle(NSProgressIndicatorStyle::Spinning);
-                            pi.setIndeterminate(true);
-                            pi.startAnimation(None);
-                        }
+                    if let Some(v) = p.value {
+                        pi.setStyle(NSProgressIndicatorStyle::Bar);
+                        pi.setIndeterminate(false);
+                        pi.setMinValue(0.0);
+                        pi.setMaxValue(1.0);
+                        pi.setDoubleValue(v);
+                    } else {
+                        pi.setStyle(NSProgressIndicatorStyle::Spinning);
+                        pi.setIndeterminate(true);
+                        pi.startAnimation(None);
                     }
                 }
-                view_of(pi)
+                view_of(&pi)
             }
             Some(Builtin::Canvas) => {
                 let canvas = DayCanvas::new(mtm);
                 KEY_NODES.with(|t| t.insert(Retained::as_ptr(&canvas) as usize, id));
-                view_of(canvas)
+                view_of(&canvas)
             }
             Some(Builtin::Inspector) => {
-                let (visible, width, leading) = props
-                    .downcast_ref::<InspectorProps>()
-                    .map(|p| {
-                        (
-                            p.visible,
-                            p.width,
-                            p.edge == day_spec::props::PaneEdge::Leading,
-                        )
-                    })
-                    .unwrap_or((false, 280.0, false));
-                let content_wrap = view_of(DayFlipped::new(mtm));
+                let (visible, width, leading) =
+                    props
+                        .downcast_ref::<InspectorProps>()
+                        .map_or((false, 280.0, false), |p| {
+                            (
+                                p.visible,
+                                p.width,
+                                p.edge == day_spec::props::PaneEdge::Leading,
+                            )
+                        });
+                let content_wrap = view_of(&DayFlipped::new(mtm));
                 let panel_flipped = DayFlipped::new(mtm);
                 // The panel draws an opaque window-background backdrop over the item's
                 // vibrancy material — without it the section cards' thin quaternary fill
                 // composites into near-black in dark mode (see `FlippedIvars`).
                 panel_flipped.set_pane_backdrop();
-                let panel_wrap = view_of(panel_flipped);
+                let panel_wrap = view_of(&panel_flipped);
                 let split_vc = unsafe { objc2_app_kit::NSSplitViewController::new(mtm) };
                 // Force loadView before the items go in — the same lifecycle rule the nav
                 // host below documents.
@@ -8829,14 +8841,14 @@ impl Toolkit for AppKit {
                     // doing the pane sizing inside it.
                     split.setTranslatesAutoresizingMaskIntoConstraints(true);
                 }
-                let view = view_of(split);
+                let view = view_of(&split);
                 INSPECTOR_STATE.with(|m| {
                     m.borrow_mut().insert(
                         ptr_of(&view),
                         InspectorState {
                             content_wrap,
                             panel_wrap,
-                            _split_vc: split_vc,
+                            split_vc,
                             panel_item,
                         },
                     )
@@ -8847,24 +8859,24 @@ impl Toolkit for AppKit {
                 // A DayNavPage for its `setFrameSize:` → `FrameChanged` report: the pane's
                 // frame is native-owned (the split sizes it), exactly like a nav page —
                 // NAV_PAGES membership is what makes `set_frame` skip it.
-                let pane = view_of(DayNavPage::new(mtm, id));
+                let pane = view_of(&DayNavPage::new(mtm, id));
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&pane)));
                 let panel = props
                     .downcast_ref::<InspectorPaneProps>()
-                    .map(|p| p.panel)
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.panel);
                 INSPECTOR_PANES.with(|t| t.insert(ptr_of(&pane), panel));
                 pane
             }
             Some(Builtin::Split) => {
                 let (axis, fraction, min_pane) = props
                     .downcast_ref::<SplitProps>()
-                    .map(|p| (p.axis, p.fraction, p.min_pane))
-                    .unwrap_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0));
-                let wrap = view_of(DayFlipped::new(mtm));
+                    .map_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0), |p| {
+                        (p.axis, p.fraction, p.min_pane)
+                    });
+                let wrap = view_of(&DayFlipped::new(mtm));
                 let split = unsafe { objc2_app_kit::NSSplitView::new(mtm) };
-                let first_wrap = view_of(DayFlipped::new(mtm));
-                let second_wrap = view_of(DayFlipped::new(mtm));
+                let first_wrap = view_of(&DayFlipped::new(mtm));
+                let second_wrap = view_of(&DayFlipped::new(mtm));
                 unsafe {
                     // AppKit's "vertical" is the divider's orientation: panes side by side.
                     split.setVertical(axis == day_spec::props::SplitAxis::Horizontal);
@@ -8896,20 +8908,18 @@ impl Toolkit for AppKit {
             Some(Builtin::SplitPane) => {
                 // A DayNavPage, as an inspector pane: the splitter owns its frame, and its
                 // `setFrameSize:` reports `FrameChanged`.
-                let pane = view_of(DayNavPage::new(mtm, id));
+                let pane = view_of(&DayNavPage::new(mtm, id));
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&pane)));
                 let second = props
                     .downcast_ref::<SplitPaneProps>()
-                    .map(|p| p.second)
-                    .unwrap_or(false);
+                    .is_some_and(|p| p.second);
                 SPLIT_PANES.with(|t| t.insert(ptr_of(&pane), second));
                 pane
             }
             Some(Builtin::Nav) => {
                 let presentation = props
                     .downcast_ref::<NavProps>()
-                    .map(|p| p.presentation)
-                    .unwrap_or(NavPresentation::Split);
+                    .map_or(NavPresentation::Split, |p| p.presentation);
                 let is_split = presentation.is_split();
                 // The host is an NSSplitViewController, not a bare NSSplitView. Handing the
                 // sidebar pane to `NSSplitViewItem::sidebarWithViewController:` is what buys
@@ -8919,8 +8929,8 @@ impl Toolkit for AppKit {
                 // separator. Day still owns the CONTENT of each pane — the two wraps below are
                 // the item view controllers' views, so `insert`/`remove`/the NAV patches are
                 // unchanged.
-                let sidebar_wrap = view_of(DayFlipped::new(mtm));
-                let detail_wrap = view_of(DayFlipped::new(mtm));
+                let sidebar_wrap = view_of(&DayFlipped::new(mtm));
+                let detail_wrap = view_of(&DayFlipped::new(mtm));
                 let split_vc = unsafe { objc2_app_kit::NSSplitViewController::new(mtm) };
                 // Force loadView/viewDidLoad before the items go in. NSSplitViewController
                 // installs an item's view into the split as the item is added, which it can
@@ -8958,7 +8968,7 @@ impl Toolkit for AppKit {
                     .is_none_or(|p| p.list_visible);
                 let (list_wrap, list_item) = match list_width {
                     Some(w) => {
-                        let wrap = view_of(DayFlipped::new(mtm));
+                        let wrap = view_of(&DayFlipped::new(mtm));
                         let vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
                         unsafe { vc.setView(&pane_under_title_bar(mtm, &wrap)) };
                         let item = unsafe {
@@ -9025,7 +9035,7 @@ impl Toolkit for AppKit {
                         r
                     };
                     let upstream = after.filter(|a| {
-                        let p: *const objc2_app_kit::NSResponder = &**a;
+                        let p: *const objc2_app_kit::NSResponder = &raw const **a;
                         p != vc_resp && p != view_resp
                     });
                     split_vc.setNextResponder(upstream.as_deref());
@@ -9096,14 +9106,14 @@ impl Toolkit for AppKit {
                         target: None,
                     }
                 });
-                let view = view_of(split);
+                let view = view_of(&split);
                 NAV_STATE.with(|m| {
                     m.borrow_mut().insert(
                         ptr_of(&view),
                         NavState {
                             sidebar_wrap,
                             detail_wrap,
-                            _split_vc: split_vc,
+                            split_vc,
                             sidebar_item,
                             list_wrap,
                             list_item,
@@ -9127,7 +9137,7 @@ impl Toolkit for AppKit {
                 view
             }
             Some(Builtin::NavPage) => {
-                let page = view_of(DayNavPage::new(mtm, id));
+                let page = view_of(&DayNavPage::new(mtm, id));
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
                 if let Some(p) = props.downcast_ref::<day_spec::props::NavPageProps>() {
                     PAGE_PANE.with(|t| t.insert(ptr_of(&page), p.pane));
@@ -9148,7 +9158,7 @@ impl Toolkit for AppKit {
                 page.ivars().half.set(cover_props.is_some_and(|p| p.half));
                 page.ivars().large.set(cover_props.is_some_and(|p| p.large));
                 unsafe { page.setHidden(true) };
-                view_of(page)
+                view_of(&page)
             }
             Some(Builtin::NavMenu) => {
                 let Some(p) = props_of::<NavMenuProps>(kind, "appkit", props) else {
@@ -9166,9 +9176,9 @@ impl Toolkit for AppKit {
                     &p.tints,
                     &p.menus,
                 );
-                *data.ivars().movable.borrow_mut() = p.movable.clone();
+                (*data.ivars().movable.borrow_mut()).clone_from(&p.movable);
                 data.ivars().regroup.set(p.regroup);
-                *data.ivars().sorted.borrow_mut() = p.sorted.clone();
+                (*data.ivars().sorted.borrow_mut()).clone_from(&p.sorted);
                 // The Day subclass serves per-row context menus via menuForEvent:.
                 let outline: Retained<objc2_app_kit::NSOutlineView> = {
                     let o: Retained<DayNavOutlineView> =
@@ -9249,7 +9259,7 @@ impl Toolkit for AppKit {
                     );
                     scroll.setDocumentView(Some(&outline));
                 }
-                let view = view_of(scroll);
+                let view = view_of(&scroll);
                 // Day selects by ITEM index; section headers make that differ from the
                 // outline's row index, so every programmatic selection maps through `rows`.
                 if let Some(row) = p.selected.and_then(|sel| data.row_of_item(sel)) {
@@ -9258,7 +9268,7 @@ impl Toolkit for AppKit {
                         outline.selectRowIndexes_byExtendingSelection(
                             &objc2_foundation::NSIndexSet::indexSetWithIndex(row),
                             false,
-                        )
+                        );
                     };
                     data.ivars().suppress.set(false);
                 }
@@ -9386,7 +9396,7 @@ impl Toolkit for AppKit {
                             Some(&clip),
                         );
                 }
-                let view = view_of(scroll);
+                let view = view_of(&scroll);
                 LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
                 view
             }
@@ -9476,7 +9486,7 @@ impl Toolkit for AppKit {
                     );
                     scroll.setDocumentView(Some(&outline));
                 }
-                let view = view_of(scroll);
+                let view = view_of(&scroll);
                 TREE_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (outline, data)));
                 view
             }
@@ -9523,7 +9533,7 @@ impl Toolkit for AppKit {
                         },
                     )
                 });
-                view_of(iv)
+                view_of(&iv)
             }
             Some(Builtin::ListItem) => {
                 let Some(p) = props_of::<day_spec::props::ListItemProps>(kind, "appkit", props)
@@ -9554,14 +9564,14 @@ impl Toolkit for AppKit {
                     return;
                 };
                 let props = LIST_ITEMS.with(|m| {
+                    use day_spec::props::ListItemPatch as P;
                     let mut m = m.borrow_mut();
                     let props = m.get_mut(&ptr_of(h))?;
-                    use day_spec::props::ListItemPatch as P;
                     match p {
-                        P::Title(t) => props.title = t.clone(),
-                        P::Subtitle(t) => props.subtitle = t.clone(),
-                        P::Detail(t) => props.detail = t.clone(),
-                        P::Icon(i) => props.icon = i.clone(),
+                        P::Title(t) => props.title.clone_from(t),
+                        P::Subtitle(t) => props.subtitle.clone_from(t),
+                        P::Detail(t) => props.detail.clone_from(t),
+                        P::Icon(i) => props.icon.clone_from(i),
                         P::IconTint(c) => props.icon_tint = *c,
                         P::Checked(on) => props.checked = *on,
                     }
@@ -9607,7 +9617,7 @@ impl Toolkit for AppKit {
                                 if let Some(img) = appkit_image_for(source) {
                                     let template = IMAGE_MODES
                                         .with(|t| t.get(ptr_of(&iv)))
-                                        .is_some_and(|m| m.renders_template());
+                                        .is_some_and(ImageMode::renders_template);
                                     unsafe {
                                         img.setTemplate(template);
                                         iv.setImage(Some(&img));
@@ -9647,7 +9657,7 @@ impl Toolkit for AppKit {
                             }
                         }
                         LabelPatch::Color(c) => unsafe {
-                            tf.setTextColor(c.map(nscolor).as_deref())
+                            tf.setTextColor(c.map(nscolor).as_deref());
                         },
                         LabelPatch::Font(f) => unsafe { tf.setFont(Some(&nsfont(*f))) },
                         LabelPatch::Runs(text, runs) => {
@@ -9657,13 +9667,13 @@ impl Toolkit for AppKit {
                             let base = unsafe { tf.font() };
                             let s = match base.as_deref() {
                                 Some(f) => {
-                                    attributed_label(text, f, None, Default::default(), runs)
+                                    attributed_label(text, f, None, TextRole::default(), runs)
                                 }
                                 None => attributed_label(
                                     text,
                                     &nsfont(day_spec::FontSpec::default()),
                                     None,
-                                    Default::default(),
+                                    TextRole::default(),
                                     runs,
                                 ),
                             };
@@ -9686,7 +9696,7 @@ impl Toolkit for AppKit {
                 ) {
                     match p {
                         ButtonPatch::Content(c) => {
-                            apply_button_content(&btn, &c.title, c.icon.as_ref(), c.icon_only)
+                            apply_button_content(&btn, &c.title, c.icon.as_ref(), c.icon_only);
                         }
                         ButtonPatch::Title(t) => {
                             let style = BUTTON_STYLES
@@ -9707,7 +9717,7 @@ impl Toolkit for AppKit {
                 ) {
                     match p {
                         TogglePatch::On(on) => {
-                            let want = if *on { 1 } else { 0 };
+                            let want = isize::from(*on);
                             if unsafe { sw.state() } != want {
                                 unsafe { sw.setState(want) };
                             }
@@ -9743,24 +9753,21 @@ impl Toolkit for AppKit {
                     h.clone().downcast::<NSProgressIndicator>(),
                 ) {
                     unsafe {
-                        match v {
-                            Some(val) => {
-                                if pi.isIndeterminate() {
-                                    pi.stopAnimation(None);
-                                    pi.setIndeterminate(false);
-                                    pi.setStyle(NSProgressIndicatorStyle::Bar);
-                                    pi.setMinValue(0.0);
-                                    pi.setMaxValue(1.0);
-                                }
-                                if (pi.doubleValue() - val).abs() > 0.0001 {
-                                    pi.setDoubleValue(*val);
-                                }
+                        if let Some(val) = v {
+                            if pi.isIndeterminate() {
+                                pi.stopAnimation(None);
+                                pi.setIndeterminate(false);
+                                pi.setStyle(NSProgressIndicatorStyle::Bar);
+                                pi.setMinValue(0.0);
+                                pi.setMaxValue(1.0);
                             }
-                            None => {
-                                pi.setIndeterminate(true);
-                                pi.setStyle(NSProgressIndicatorStyle::Spinning);
-                                pi.startAnimation(None);
+                            if (pi.doubleValue() - val).abs() > 0.0001 {
+                                pi.setDoubleValue(*val);
                             }
+                        } else {
+                            pi.setIndeterminate(true);
+                            pi.setStyle(NSProgressIndicatorStyle::Spinning);
+                            pi.startAnimation(None);
                         }
                     }
                 }
@@ -9787,8 +9794,8 @@ impl Toolkit for AppKit {
                         let Some((outline, data)) = m.get(&ptr_of(h)) else {
                             return;
                         };
-                        *data.ivars().movable.borrow_mut() = movable.clone();
-                        *data.ivars().sorted.borrow_mut() = sorted.clone();
+                        (*data.ivars().movable.borrow_mut()).clone_from(movable);
+                        (*data.ivars().sorted.borrow_mut()).clone_from(sorted);
                         data.set_items(
                             items,
                             icons,
@@ -9811,7 +9818,7 @@ impl Toolkit for AppKit {
                                 outline.reloadDataForRowIndexes_columnIndexes(
                                     &set,
                                     &objc2_foundation::NSIndexSet::indexSetWithIndex(0),
-                                )
+                                );
                             };
                             data.ivars().suppress.set(false);
                             return;
@@ -9971,7 +9978,7 @@ impl Toolkit for AppKit {
                             NavPatch::Title(t) => {
                                 if let Some(hdr) = state.header.as_mut() {
                                     if let Some(last) = hdr.titles.last_mut() {
-                                        *last = t.clone();
+                                        last.clone_from(t);
                                     }
                                     unsafe {
                                         hdr.title.setStringValue(&NSString::from_str(t));
@@ -9981,6 +9988,10 @@ impl Toolkit for AppKit {
                             // The custom back header always routes back through Day
                             // (NavBack{already_popped:false}), so there is no native auto-pop to
                             // suppress; the guard runs in the pieces layer (docs/navigation.md).
+                            #[expect(
+                                clippy::match_same_arms,
+                                reason = "each no-op patch keeps its own arm and the comment saying why it is one"
+                            )]
                             NavPatch::GuardTop(_) => {}
                             NavPatch::Reorder(order) => {
                                 let old = state.pages.clone();
@@ -9990,7 +10001,7 @@ impl Toolkit for AppKit {
                                     TAB_PICK_SUPPRESS.with(|s| s.set(true));
                                     unsafe {
                                         let items = tabs.view.tabViewItems();
-                                        for item in items.iter() {
+                                        for item in &items {
                                             tabs.view.removeTabViewItem(&item);
                                         }
                                         for i in order {
@@ -10003,6 +10014,10 @@ impl Toolkit for AppKit {
                                 }
                             }
                             // Handled outside this borrow (it re-homes views and builds chrome).
+                            #[expect(
+                                clippy::match_same_arms,
+                                reason = "each no-op patch keeps its own arm and the comment saying why it is one"
+                            )]
                             NavPatch::Presentation(_) => {}
                             // Resident-page switch (docs/navigation.md): every page stays in the
                             // view hierarchy and only one is unhidden, so switching tabs keeps
@@ -10016,7 +10031,7 @@ impl Toolkit for AppKit {
                                         if (*i as isize) < n {
                                             TAB_PICK_SUPPRESS.with(|s| s.set(true));
                                             unsafe {
-                                                tabs.view.selectTabViewItemAtIndex(*i as isize)
+                                                tabs.view.selectTabViewItemAtIndex(*i as isize);
                                             };
                                             TAB_PICK_SUPPRESS.with(|s| s.set(false));
                                         }
@@ -10037,7 +10052,7 @@ impl Toolkit for AppKit {
                                 state.list_visible = *v;
                                 if let Some(item) = state.list_item.as_ref() {
                                     item.setCollapsed(!*v);
-                                    let split = unsafe { state._split_vc.splitView() };
+                                    let split = unsafe { state.split_vc.splitView() };
                                     unsafe { split.layoutSubtreeIfNeeded() };
                                     // First time this pane is actually on screen: give it the
                                     // width the app asked for. The frame pass that would
@@ -10231,7 +10246,7 @@ impl Toolkit for AppKit {
                             }
                         }
                         TextFieldPatch::Placeholder(t) => unsafe {
-                            tf.setPlaceholderString(Some(&NSString::from_str(t)))
+                            tf.setPlaceholderString(Some(&NSString::from_str(t)));
                         },
                         TextFieldPatch::Enabled(e) => unsafe { tf.setEnabled(*e) },
                         // A selection lives in the field editor, which a field has only while
@@ -10273,7 +10288,7 @@ impl Toolkit for AppKit {
                                             NSTableViewAnimationOptions::SlideUp,
                                         ),
                                     day_spec::props::RowDelta::Move(from, to) => {
-                                        table.moveRowAtIndex_toIndex(*from as isize, *to as isize)
+                                        table.moveRowAtIndex_toIndex(*from as isize, *to as isize);
                                     }
                                 }
                                 table.endUpdates();
@@ -10529,12 +10544,12 @@ impl Toolkit for AppKit {
                 // be yourself" NSException, foreign to Rust, so it aborts the process
                 // instead of unwinding (the Stack-page teardown crash, 2026-08).
                 unsafe {
-                    nav._split_vc.setNextResponder(None);
-                    let split = nav._split_vc.splitView();
+                    nav.split_vc.setNextResponder(None);
+                    let split = nav.split_vc.splitView();
                     if split.nextResponder().is_some_and(|r| {
                         core::ptr::eq::<objc2::runtime::AnyObject>(
                             r.as_ref(),
-                            nav._split_vc.as_ref(),
+                            nav.split_vc.as_ref(),
                         )
                     }) {
                         split.setNextResponder(None);
@@ -10555,12 +10570,12 @@ impl Toolkit for AppKit {
                 // The same dealloc-splice guard as the nav host above: never let the
                 // controller (or its split) dealloc aiming at itself.
                 unsafe {
-                    insp._split_vc.setNextResponder(None);
-                    let split = insp._split_vc.splitView();
+                    insp.split_vc.setNextResponder(None);
+                    let split = insp.split_vc.splitView();
                     if split.nextResponder().is_some_and(|r| {
                         core::ptr::eq::<objc2::runtime::AnyObject>(
                             r.as_ref(),
-                            insp._split_vc.as_ref(),
+                            insp.split_vc.as_ref(),
                         )
                     }) {
                         split.setNextResponder(None);
@@ -10816,8 +10831,7 @@ impl Toolkit for AppKit {
                 let indeterminate = h
                     .clone()
                     .downcast::<NSProgressIndicator>()
-                    .map(|pi| unsafe { pi.isIndeterminate() })
-                    .unwrap_or(false);
+                    .is_ok_and(|pi| unsafe { pi.isIndeterminate() });
                 if indeterminate {
                     let large = h
                         .downcast_ref::<NSProgressIndicator>()
@@ -10832,8 +10846,7 @@ impl Toolkit for AppKit {
                 let rows = NAV_MENUS.with(|m| {
                     m.borrow()
                         .get(&ptr_of(h))
-                        .map(|(_, d)| d.ivars().items.borrow().len())
-                        .unwrap_or(0)
+                        .map_or(0, |(_, d)| d.ivars().items.borrow().len())
                 });
                 Size::new(
                     p.width.unwrap_or(220.0),
@@ -10920,7 +10933,7 @@ impl Toolkit for AppKit {
         }
         // No on-screen keyboard, so no action key to label; and no native length limit:
         // day-pieces holds `max_length`.
-        swapped.map(view_of)
+        swapped.as_ref().map(view_of)
     }
 
     fn set_cursor(&mut self, h: &Handle, cursor: Cursor) {
@@ -11048,7 +11061,7 @@ impl Toolkit for AppKit {
                     // check misses them and puts AppKit's frosted pocket over page text.
                     let mut ancestor = Some(sup.clone());
                     while let Some(view) = ancestor {
-                        if std::ptr::eq(&*view, &*content) {
+                        if std::ptr::eq(&raw const *view, &raw const *content) {
                             break;
                         }
                         if view.downcast_ref::<objc2_app_kit::NSSplitView>().is_some() {
@@ -11071,7 +11084,12 @@ impl Toolkit for AppKit {
             );
             let wraps = NAV_STATE.with(|m| {
                 m.borrow_mut().get_mut(&ptr_of(h)).and_then(|s| {
-                    (s.title_strip != strip).then(|| {
+                    #[expect(
+                        clippy::float_cmp,
+                        reason = "unchanged-value check against the strip stored last time"
+                    )]
+                    let changed = s.title_strip != strip;
+                    changed.then(|| {
                         s.title_strip = strip;
                         let mut w = vec![s.sidebar_wrap.clone(), s.detail_wrap.clone()];
                         w.extend(s.list_wrap.clone());
@@ -11082,7 +11100,7 @@ impl Toolkit for AppKit {
             let first = NAV_STATE.with(|m| {
                 m.borrow_mut()
                     .get_mut(&ptr_of(h))
-                    .map(|s| {
+                    .map_or((false, None), |s| {
                         if !s.presentation.is_split() {
                             return (false, None);
                         }
@@ -11093,7 +11111,6 @@ impl Toolkit for AppKit {
                         // placement the pane gets, leaving it at the solver's width later on.
                         (sidebar, take_list_placement(s))
                     })
-                    .unwrap_or((false, None))
             });
             unsafe {
                 split.setFrame(r);
@@ -11187,7 +11204,7 @@ impl Toolkit for AppKit {
             Some((table, _)) => table,
             None => h,
         };
-        let responder_ptr = responder as *const NSResponder as usize;
+        let responder_ptr = std::ptr::from_ref::<NSResponder>(responder) as usize;
         if focused {
             window.makeFirstResponder(Some(responder));
             return;
@@ -11269,7 +11286,7 @@ impl Toolkit for AppKit {
         // A recycling NSTableView cell view; Day builds/rebinds its row content in place.
         // Invariant, not app input: day-core only passes back the cell pointer this backend
         // itself vended through `bind_row`, so a null here is a framework bug worth stopping on.
-        let ptr = raw as *mut NSView;
+        let ptr = raw.cast::<NSView>();
         unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
     }
 
@@ -11278,7 +11295,7 @@ impl Toolkit for AppKit {
     }
 
     fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {
-        self.patch_toolbar(h, patch);
+        Self::patch_toolbar(h, patch);
     }
 
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
@@ -11377,6 +11394,12 @@ impl Toolkit for AppKit {
     }
 
     fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
+        fn apply_to_subviews(v: &NSView, menu: &NSMenu) {
+            for sub in v.subviews() {
+                unsafe { sub.setMenu(Some(menu)) };
+                apply_to_subviews(&sub, menu);
+            }
+        }
         let Some(view) = h.downcast_ref::<NSView>() else {
             return;
         };
@@ -11391,12 +11414,6 @@ impl Toolkit for AppKit {
         // DayFlipped's `rightMouseDown:` pops the menu explicitly; native controls (labels)
         // show their `.menu` through their own default path.
         unsafe { view.setMenu(Some(&menu)) };
-        fn apply_to_subviews(v: &NSView, menu: &NSMenu) {
-            for sub in v.subviews() {
-                unsafe { sub.setMenu(Some(menu)) };
-                apply_to_subviews(&sub, menu);
-            }
-        }
         apply_to_subviews(view, &menu);
     }
 
@@ -11576,8 +11593,7 @@ impl Toolkit for AppKit {
         unsafe {
             let role = h
                 .accessibilityRole()
-                .map(|r| day_role_from_ns(&r.to_string()))
-                .unwrap_or(day_spec::Role::None);
+                .map_or(day_spec::Role::None, |r| day_role_from_ns(&r.to_string()));
             // A picker answers its displayed selection and its enabled state itself: the
             // inline style is a stack of radios, not one control.
             let picker = picker::read_native(h);
@@ -11585,9 +11601,10 @@ impl Toolkit for AppKit {
                 found: true,
                 role,
                 label: h.accessibilityLabel().map(|s| s.to_string()),
-                value: h
-                    .accessibilityValue()
-                    .and_then(|v| v.downcast_ref::<NSString>().map(|s| s.to_string())),
+                value: h.accessibilityValue().and_then(|v| {
+                    v.downcast_ref::<NSString>()
+                        .map(std::string::ToString::to_string)
+                }),
                 identifier: h
                     .accessibilityIdentifier()
                     .map(|s| s.to_string())
@@ -11755,7 +11772,7 @@ impl Toolkit for AppKit {
         // `DowncastTarget`.
         if let Some(exif) = rep.valueForProperty(unsafe { objc2_app_kit::NSImageEXIFData }) {
             let keys: Retained<NSArray<NSString>> = unsafe { msg_send![&*exif, allKeys] };
-            for key in keys.iter() {
+            for key in &keys {
                 let value: Option<Retained<objc2::runtime::AnyObject>> =
                     unsafe { msg_send![&*exif, objectForKey: &*key] };
                 let Some(value) = value else { continue };
@@ -11861,32 +11878,30 @@ impl Toolkit for AppKit {
             objc2::MainThreadMarker::new().expect("day-toolkit-appkit runs on the main thread");
         let manager = unsafe { objc2_app_kit::NSFontManager::sharedFontManager(mtm) };
         let mut out = Vec::new();
-        for family in unsafe { manager.availableFontFamilies() }.iter() {
+        for family in &unsafe { manager.availableFontFamilies() } {
             let name = family.to_string();
             if name.starts_with('.') {
                 continue;
             }
             let mut faces = Vec::new();
             if let Some(members) = unsafe { manager.availableMembersOfFontFamily(&family) } {
-                for member in members.iter() {
+                for member in &members {
                     if member.count() < 4 {
                         continue;
                     }
                     let style = member
                         .objectAtIndex(1)
                         .downcast_ref::<NSString>()
-                        .map(|s| s.to_string())
+                        .map(std::string::ToString::to_string)
                         .unwrap_or_default();
                     let weight = member
                         .objectAtIndex(2)
                         .downcast_ref::<objc2_foundation::NSNumber>()
-                        .map(|n| n.integerValue())
-                        .unwrap_or(5);
+                        .map_or(5, objc2_foundation::NSNumber::integerValue);
                     let traits = member
                         .objectAtIndex(3)
                         .downcast_ref::<objc2_foundation::NSNumber>()
-                        .map(|n| n.integerValue())
-                        .unwrap_or(0);
+                        .map_or(0, objc2_foundation::NSNumber::integerValue);
                     let weight = match weight {
                         ..=2 => W::UltraLight,
                         3 => W::Thin,
@@ -11991,17 +12006,13 @@ impl Toolkit for AppKit {
             // on top of the primary, which is the bug this replaces.
             let from = match self.cascade {
                 Some(p) => p,
-                None => self
-                    .window
-                    .as_ref()
-                    .map(|w| {
-                        let f = w.frame();
-                        let top_left = NSPoint::new(f.origin.x, f.origin.y + f.size.height);
-                        // Asking the primary to cascade from where it already is leaves it
-                        // there and answers the next slot — the offset the first new window wants.
-                        unsafe { w.cascadeTopLeftFromPoint(top_left) }
-                    })
-                    .unwrap_or(NSPoint::new(0.0, 0.0)),
+                None => self.window.as_ref().map_or(NSPoint::new(0.0, 0.0), |w| {
+                    let f = w.frame();
+                    let top_left = NSPoint::new(f.origin.x, f.origin.y + f.size.height);
+                    // Asking the primary to cascade from where it already is leaves it
+                    // there and answers the next slot — the offset the first new window wants.
+                    unsafe { w.cascadeTopLeftFromPoint(top_left) }
+                }),
             };
             self.cascade = Some(unsafe { window.cascadeTopLeftFromPoint(from) });
         }
@@ -12083,7 +12094,7 @@ impl Toolkit for AppKit {
             .filter_map(|window| {
                 self.secondary
                     .iter()
-                    .find(|w| std::ptr::eq(&*w.window, &*window))
+                    .find(|w| std::ptr::eq(&raw const *w.window, &raw const *window))
                     .and_then(|w| w.delegate.ivars().node)
             })
             .collect()
@@ -12231,11 +12242,11 @@ impl Toolkit for AppKit {
             }
             self.window
                 .as_deref()
-                .is_some_and(|w| std::ptr::eq(w, &*owner))
+                .is_some_and(|w| std::ptr::eq(w, &raw const *owner))
                 || self
                     .secondary
                     .iter()
-                    .any(|s| std::ptr::eq(&*s.window, &*owner))
+                    .any(|s| std::ptr::eq(&raw const *s.window, &raw const *owner))
         });
         let Some(mut window) = key.or_else(|| self.window.clone()) else {
             emit(
@@ -12344,7 +12355,7 @@ impl Toolkit for AppKit {
                         PRESENT_ALERTS.with(|m| {
                             m.borrow_mut().remove(&req);
                         });
-                    })
+                    });
                 })
             }
             PresentSpec::Prompt {
@@ -12379,7 +12390,7 @@ impl Toolkit for AppKit {
                         PRESENT_ALERTS.with(|m| {
                             m.borrow_mut().remove(&req);
                         });
-                    })
+                    });
                 })
             }
             // File pickers returned early above.
@@ -12457,21 +12468,20 @@ impl Toolkit for AppKit {
             let _: () = msg_send![&*picker, setDelegate: &*delegate];
             // Pointing at the control that asked, under it; without one, at the window's top
             // trailing corner.
-            let (view, rect, edge) = match anchor {
-                Some(view) => (view.clone(), view.bounds(), 1usize),
-                None => {
-                    let bounds = window_view.bounds();
-                    let y = if window_view.isFlipped() {
-                        30.0
-                    } else {
-                        bounds.size.height - 30.0
-                    };
-                    let rect = NSRect::new(
-                        NSPoint::new(bounds.size.width - 30.0, y),
-                        NSSize::new(1.0, 1.0),
-                    );
-                    (window_view, rect, 3usize)
-                }
+            let (view, rect, edge) = if let Some(view) = anchor {
+                (view.clone(), view.bounds(), 1usize)
+            } else {
+                let bounds = window_view.bounds();
+                let y = if window_view.isFlipped() {
+                    30.0
+                } else {
+                    bounds.size.height - 30.0
+                };
+                let rect = NSRect::new(
+                    NSPoint::new(bounds.size.width - 30.0, y),
+                    NSSize::new(1.0, 1.0),
+                );
+                (window_view, rect, 3usize)
             };
             let _: () =
                 msg_send![&*picker, showRelativeToRect: rect, ofView: &*view, preferredEdge: edge];
@@ -12510,13 +12520,13 @@ fn apply_allowed_file_types(
     }
 }
 
-/// Turn an open panel completion into a `PresentResult` and enqueue it (NSModalResponseOK = 1):
+/// Turn an open panel completion into a `PresentResult` and enqueue it (`NSModalResponseOK` = 1):
 /// every chosen URL, so a multiple-selection pick reports all of its files (and a folder
 /// chooser its one directory).
 fn emit_open_panel_result(req: u64, resp: isize, panel: &objc2_app_kit::NSOpenPanel) {
     let mut paths = Vec::new();
     if resp == 1 {
-        for url in unsafe { panel.URLs() }.iter() {
+        for url in &unsafe { panel.URLs() } {
             if let Some(p) = unsafe { url.path() } {
                 paths.push(p.to_string());
             }
@@ -12533,13 +12543,14 @@ fn emit_open_panel_result(req: u64, resp: isize, panel: &objc2_app_kit::NSOpenPa
     });
 }
 
-/// Turn a save panel completion into a `PresentResult` and enqueue it (NSModalResponseOK = 1).
+/// Turn a save panel completion into a `PresentResult` and enqueue it (`NSModalResponseOK` = 1).
 fn emit_panel_result(req: u64, resp: isize, panel: &objc2_app_kit::NSSavePanel) {
     let result = if resp == 1 {
         unsafe { panel.URL() }
             .and_then(|url| unsafe { url.path() })
-            .map(|p| present::PresentResult::Files(vec![p.to_string()]))
-            .unwrap_or(present::PresentResult::Dismissed)
+            .map_or(present::PresentResult::Dismissed, |p| {
+                present::PresentResult::Files(vec![p.to_string()])
+            })
     } else {
         present::PresentResult::Dismissed
     };
@@ -13006,13 +13017,13 @@ fn snapshot_view_cache(content: &NSView) -> Result<Vec<u8>, String> {
     png_of_rep(&rep)
 }
 
-/// The screen a scripted run asked to open on: `DAY_WINDOW_SCREEN`, the CGDirectDisplayID of the
+/// The screen a scripted run asked to open on: `DAY_WINDOW_SCREEN`, the `CGDirectDisplayID` of the
 /// capture display `day launch --script` provides when no attached display has the capture's
 /// scale. `None` when unset or when no screen has that id, which leaves the window where it was.
 /// Center `window` on `primary`'s screen when `center` put it on another, as high as `center`
 /// places a window (a third of the free height above it, two below).
 fn center_on_screen_of(window: &NSWindow, primary: Option<&NSWindow>) {
-    let Some(screen) = primary.and_then(|w| w.screen()) else {
+    let Some(screen) = primary.and_then(objc2_app_kit::NSWindow::screen) else {
         return;
     };
     if window.screen().is_some_and(|s| s.frame() == screen.frame()) {
@@ -13053,12 +13064,13 @@ fn mark_tree_needs_display(view: &NSView) {
 /// macOS has no true background/foreground or memory-warning lifecycle. `const` so
 /// `day::require_lifecycle!` can reject unsupported phases at compile time. Must agree with the
 /// `Toolkit::supports_lifecycle` default (which also returns `is_universal`).
+#[must_use]
 pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
     phase.is_universal()
 }
 
 /// Follow the SYSTEM appearance while the app runs: macOS posts the distributed
-/// "AppleInterfaceThemeChangedNotification" on a theme switch, and AppKit updates
+/// "`AppleInterfaceThemeChangedNotification`" on a theme switch, and AppKit updates
 /// `effectiveAppearance` just after — so re-read on the next main-queue turn and refresh
 /// day-core's reactive dark-mode signal (palette closures recolor live instead of going
 /// stale until the next rebuild). The token is leaked to observe for the app's lifetime.
@@ -13083,7 +13095,7 @@ fn install_appearance_observer() {
     std::mem::forget(token);
 }
 
-/// Follow the SYSTEM reduce-motion switch while the app runs: NSWorkspace posts
+/// Follow the SYSTEM reduce-motion switch while the app runs: `NSWorkspace` posts
 /// `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification` on its own notification
 /// center when any Accessibility › Display option flips, and
 /// `accessibilityDisplayShouldReduceMotion` already answers the new value by then. The
@@ -13108,7 +13120,7 @@ fn install_reduce_motion_observer() {
     std::mem::forget(token);
 }
 
-/// Bridge the NSApplication activation/termination notifications to day lifecycle events
+/// Bridge the `NSApplication` activation/termination notifications to day lifecycle events
 /// (docs/lifecycle.md). The observer tokens are leaked to live for the whole app.
 fn install_lifecycle_observers() {
     use objc2_foundation::{NSNotification, NSNotificationCenter, NSNotificationName};
@@ -13158,8 +13170,8 @@ fn install_application_menu(
     prefs: Option<day_spec::MenuItem>,
     quit: Option<day_spec::MenuItem>,
 ) -> Retained<NSMenu> {
-    let app = NSApplication::sharedApplication(mtm);
     use day_spec::{MenuItem as M, MenuRole as R};
+    let app = NSApplication::sharedApplication(mtm);
     let standard = |role, label| M::Action {
         id: None,
         action: 0,
@@ -13278,7 +13290,7 @@ fn install_application_menu(
 }
 
 /// The default main menu (§21.2 M2): standard application menu; Edit menu wired to the responder
-/// chain so Cmd+C/V/X/A work in NSTextFields; Window menu basics.
+/// chain so Cmd+C/V/X/A work in `NSTextFields`; Window menu basics.
 fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     let menubar = NSMenu::new(mtm);
 
@@ -13476,7 +13488,7 @@ define_class!(
                 if id != 0 {
                     emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
                 }
-            })
+            });
         }
     }
 );
@@ -13686,10 +13698,10 @@ pub(crate) fn build_ns_menu(
                     None => (String::new(), None, None),
                 };
                 if !label.is_empty() {
-                    lbl = label.clone();
+                    lbl.clone_from(label);
                 }
                 if shortcut.is_some() {
-                    sc = shortcut.clone();
+                    sc.clone_from(shortcut);
                 }
                 // Custom action (nonzero id) overrides any role nav host and targets our
                 // trampoline — except the responder-routed set (undo pair, clipboard trio),

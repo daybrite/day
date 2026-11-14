@@ -13,6 +13,10 @@ use objc2_quartz_core::{
 
 const NAME: &str = "day.nav.icon-progress";
 
+#[expect(
+    clippy::option_option,
+    reason = "outer `None` removes the ring; the inner value is day-spec's progress, where `None` is indeterminate"
+)]
 fn paint(
     parent: &CALayer,
     state: Option<Option<f64>>,
@@ -99,6 +103,10 @@ fn find_icon(view: &UIView) -> Option<Retained<UIImageView>> {
     }
     None
 }
+#[expect(
+    clippy::option_option,
+    reason = "outer `None` removes the ring; the inner value is day-spec's progress, where `None` is indeterminate"
+)]
 pub(crate) fn update(
     cell: &UICollectionViewListCell,
     state: Option<Option<f64>>,

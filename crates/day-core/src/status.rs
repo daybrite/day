@@ -46,6 +46,7 @@ struct Tracking {
 /// Backend hook: freeze a status item's installed model and handlers during native menu
 /// tracking. Updates are coalesced until [`end_menu_tracking`]. The token prevents a delayed
 /// close callback from ending a later session (including removal and recreation of the id).
+#[must_use]
 pub fn begin_menu_tracking(id: &str) -> u64 {
     let token = NEXT_TRACKING.with(|next| {
         let token = next.get();
@@ -84,8 +85,9 @@ pub fn set_keep_running(policy: KeepRunning) {
 }
 
 /// The policy as set (default [`KeepRunning::Automatic`]).
+#[must_use]
 pub fn keep_running_policy() -> KeepRunning {
-    POLICY.with(|p| p.get())
+    POLICY.with(std::cell::Cell::get)
 }
 
 /// Whether closing the last window should leave the app running right now.
@@ -125,6 +127,10 @@ fn action_ids(spec: &StatusItemSpec) -> Vec<u64> {
 /// Show `spec`, or update the shown item with the same id (docs/status-item.md). Replacing an
 /// item drops the closures its previous menu and click held. While a backend is tracking the
 /// menu, keep the installed snapshot and coalesce updates until selection has finished.
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "each `unwrap` reads the `Option` this function filled and has not yet taken"
+)]
 pub fn set_status_item(spec: StatusItemSpec) {
     let mut spec = Some(spec);
     let superseded = TRACKING.with(|tracking| {
@@ -165,17 +171,14 @@ pub fn set_status_item(spec: StatusItemSpec) {
     let ids = action_ids(&spec);
     let stale = ITEMS.with(|items| {
         let mut items = items.borrow_mut();
-        match items.iter_mut().find(|(s, _)| s.id == spec.id) {
-            Some((s, old)) => {
-                let stale: Vec<u64> = old.iter().copied().filter(|i| !ids.contains(i)).collect();
-                *s = spec;
-                *old = ids;
-                stale
-            }
-            None => {
-                items.push((spec, ids));
-                Vec::new()
-            }
+        if let Some((s, old)) = items.iter_mut().find(|(s, _)| s.id == spec.id) {
+            let stale: Vec<u64> = old.iter().copied().filter(|i| !ids.contains(i)).collect();
+            *s = spec;
+            *old = ids;
+            stale
+        } else {
+            items.push((spec, ids));
+            Vec::new()
         }
     });
     crate::menu::forget_actions(&stale);
@@ -201,6 +204,7 @@ pub fn remove_status_item(id: &str) {
 }
 
 /// The status items currently shown, in order.
+#[must_use]
 pub fn status_items() -> Vec<StatusItemSpec> {
     ITEMS.with(|i| i.borrow().iter().map(|(s, _)| s.clone()).collect())
 }

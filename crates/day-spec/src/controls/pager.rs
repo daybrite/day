@@ -9,6 +9,7 @@ pub struct PagerState {
     pub epoch: u64,
 }
 impl PagerState {
+    #[must_use]
     pub fn accepts(&self, epoch: u64, slot: usize) -> bool {
         self.epoch == epoch && self.order.contains(&slot)
     }

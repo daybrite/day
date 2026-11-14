@@ -9,6 +9,10 @@ use resvg::usvg;
 /// Parse SVG bytes into a usvg tree. Text is not compiled in (see the crate docs): a `<text>`
 /// element parses but renders as nothing, so callers that care (day-cli) probe the raw XML for
 /// `<text` and refuse with an "outline your text" message before calling this.
+///
+/// # Errors
+///
+/// Returns usvg's message when `data` is not a valid SVG.
 pub fn parse(data: &[u8]) -> Result<usvg::Tree, String> {
     usvg::Tree::from_data(data, &usvg::Options::default()).map_err(|e| e.to_string())
 }
@@ -16,12 +20,21 @@ pub fn parse(data: &[u8]) -> Result<usvg::Tree, String> {
 /// Render the tree into a `px`×`px` PNG, scaled uniformly to fit and centered. Transparent
 /// background; the caller composites/flattens where a format demands opacity (e.g. the iOS
 /// 1024 icon).
+///
+/// # Errors
+///
+/// Returns the errors of [`render_png_padded`].
 pub fn render_png(tree: &usvg::Tree, px: u32) -> Result<Vec<u8>, String> {
     render_png_padded(tree, px, 0.0)
 }
 
 /// Like [`render_png`], with `pad` (a fraction of the edge, e.g. `0.1` = 10 %) of transparent
 /// margin on every side, the macOS icon convention (art inset on the 1024 canvas).
+///
+/// # Errors
+///
+/// Returns a message when `px` is zero, the SVG's viewport is zero-sized, the pixmap cannot be
+/// allocated, or PNG encoding fails.
 pub fn render_png_padded(tree: &usvg::Tree, px: u32, pad: f32) -> Result<Vec<u8>, String> {
     if px == 0 {
         return Err("zero-size render".into());
@@ -45,6 +58,7 @@ pub fn render_png_padded(tree: &usvg::Tree, px: u32, pad: f32) -> Result<Vec<u8>
 /// The tree content's absolute bounding box (strokes included), or `None` for empty art. This
 /// is the input for safe-zone validation (an Android adaptive foreground overflowing the
 /// 66/108 zone).
+#[must_use]
 pub fn content_bbox(tree: &usvg::Tree) -> Option<tiny_skia::Rect> {
     let b = tree.root().abs_layer_bounding_box();
     tiny_skia::Rect::from_xywh(b.x(), b.y(), b.width(), b.height())

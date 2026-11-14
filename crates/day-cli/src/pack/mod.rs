@@ -23,6 +23,7 @@ mod nsis;
 pub(crate) mod ohos;
 pub mod settings;
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use crate::meta::Project;
@@ -143,7 +144,10 @@ pub fn run(
             }
             list.clone()
         }
-        None => defaults.iter().map(|s| s.to_string()).collect(),
+        None => defaults
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
     };
 
     let dist = project.root.join("build/day/dist");
@@ -394,7 +398,7 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
     let mut hasher = Sha256::new();
     // Stream the file through the hasher (sha2 0.11 dropped the `io::Write` hasher impl that let
     // `io::copy` write into it directly).
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; 64 * 1024];
     loop {
         let n = file
             .read(&mut buf)
@@ -405,11 +409,10 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
         hasher.update(&buf[..n]);
     }
     // sha2 0.11's digest output no longer implements `LowerHex`, so hex-encode by hand.
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(hasher.finalize().iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    }))
 }
 
 /// Run a command, returning a readable error with the failing tool's tail output. Under
@@ -654,7 +657,9 @@ mod repro_tests {
 
     #[test]
     fn epoch_honors_source_date_epoch_above_the_zip_floor() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
         assert_eq!(
             reproducible_epoch(),
@@ -678,7 +683,9 @@ mod repro_tests {
 
     #[test]
     fn dos_datetime_packs_the_default_epoch() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
         let (date, time) = dos_datetime();
         // 2020-01-01T00:00:00Z → year 2020, month 1, day 1, midnight.
@@ -812,8 +819,8 @@ mod input_tests {
         };
         assert_eq!(keys("android-material"), ["DAY_ANDROID_ABI"]);
         assert_eq!(keys("harmony-arkui"), ["DAY_OHOS_ARCH"]);
-        assert!(keys("macos-appkit").is_empty());
-        assert!(keys("linux-gtk").is_empty());
+        assert_eq!(keys("macos-appkit"), [] as [std::string::String; 0]);
+        assert_eq!(keys("linux-gtk"), [] as [std::string::String; 0]);
     }
 
     /// Every target that stages a payload must stage it where `day rebuild` looks.

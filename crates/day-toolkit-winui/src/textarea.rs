@@ -80,9 +80,9 @@ fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
     // The attributes are applied at build too, not only through patches: a text_area that starts
     // read-only (or with spell-check off) must come up that way rather than after its first patch.
     unsafe {
-        day_textarea_xaml_set_editable(ptr, p.editable as c_int);
-        day_textarea_xaml_set_selectable(ptr, p.selectable as c_int);
-        day_textarea_xaml_set_spellcheck(ptr, p.spellcheck as c_int);
+        day_textarea_xaml_set_editable(ptr, c_int::from(p.editable));
+        day_textarea_xaml_set_selectable(ptr, c_int::from(p.selectable));
+        day_textarea_xaml_set_spellcheck(ptr, c_int::from(p.spellcheck));
     }
     DIMS.with(|m| m.insert(ptr as usize, (p.min_lines, p.max_lines)));
     WinHandle(ptr)
@@ -91,14 +91,16 @@ fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &TextPatch) {
     match patch {
         TextPatch::SetText(t) => unsafe { day_textarea_xaml_set_text(h.0, cstr(t).as_ptr()) },
-        TextPatch::SetEditable(v) => unsafe { day_textarea_xaml_set_editable(h.0, *v as c_int) },
+        TextPatch::SetEditable(v) => unsafe {
+            day_textarea_xaml_set_editable(h.0, c_int::from(*v));
+        },
         // Emulated, not native: TextBox has no IsTextSelectionEnabled (that is TextBlock's), so the
         // shim collapses selections as they form and suppresses the context menu (docs/textarea.md).
         TextPatch::SetSelectable(v) => unsafe {
-            day_textarea_xaml_set_selectable(h.0, *v as c_int)
+            day_textarea_xaml_set_selectable(h.0, c_int::from(*v));
         },
         TextPatch::SetSpellCheck(v) => unsafe {
-            day_textarea_xaml_set_spellcheck(h.0, *v as c_int)
+            day_textarea_xaml_set_spellcheck(h.0, c_int::from(*v));
         },
     }
 }
@@ -108,10 +110,10 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     let avail_w = p.width.unwrap_or(300.0).max(160.0);
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_xaml_measure(h.0, avail_w, -1.0, &mut w, &mut hh) };
-    let min_h = (min_lines as f64) * LINE_H + PAD;
+    unsafe { day_xaml_measure(h.0, avail_w, -1.0, &raw mut w, &raw mut hh) };
+    let min_h = f64::from(min_lines) * LINE_H + PAD;
     let max_h = if max_lines > 0 {
-        (max_lines as f64) * LINE_H + PAD
+        f64::from(max_lines) * LINE_H + PAD
     } else {
         f64::MAX
     };
@@ -132,12 +134,20 @@ pub(crate) fn realize_any(
     }
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the handle arrives by reference from the `Toolkit` method that dispatches here"
+)]
 pub(crate) fn update_any(b: &mut crate::Xaml, h: &crate::WinHandle, patch: &dyn std::any::Any) {
     if let Some(p) = patch.downcast_ref::<TextPatch>() {
         update(b, h, p);
     }
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "the handle arrives by reference from the `Toolkit` method that dispatches here"
+)]
 pub(crate) fn measure_any(
     b: &mut crate::Xaml,
     h: &crate::WinHandle,

@@ -47,7 +47,7 @@ fn make(_backend: &mut Qt, p: &ColorProps, id: NodeId) -> QtHandle {
             p.color.g,
             p.color.b,
             p.color.a,
-            p.alpha as c_int,
+            c_int::from(p.alpha),
             title.as_ptr(),
             id.0,
             on_pick,
@@ -63,7 +63,7 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &ColorPatch) {
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_qt_size_hint(h.0, &mut w, &mut hh) };
+    unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(72.0), hh.max(24.0))
 }
 

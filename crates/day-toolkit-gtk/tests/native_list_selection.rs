@@ -99,7 +99,7 @@ fn main() {
     assert!(!selection.is_selected(3));
     let cells = |binds: &[(usize, usize)]| {
         let mut cells = binds.to_vec();
-        cells.sort();
+        cells.sort_unstable();
         cells
     };
     let before = cells(&binds.borrow());

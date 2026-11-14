@@ -1,6 +1,6 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! Desktop sharing through DataTransferManager, shared by WinUI, GTK and Qt.
+//! Desktop sharing through `DataTransferManager`, shared by WinUI, GTK and Qt.
 use std::cell::RefCell;
 use windows::{
     ApplicationModel::DataTransfer::{DataRequestedEventArgs, DataTransferManager},
@@ -21,6 +21,7 @@ thread_local! {
 /// Call from the toolkit's UI thread, with its COM/WinRT apartment initialized and
 /// a live active window. Returns `false` if Windows cannot present the share UI.
 /// A new presentation replaces the previous payload and its event registration.
+#[must_use]
 pub fn share(url: &str, title: &str) -> bool {
     fn present(url: &str, title: &str) -> Result<()> {
         let interop: IDataTransferManagerInterop =

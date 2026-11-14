@@ -55,6 +55,7 @@ pub enum Importance {
 
 impl Importance {
     /// A stable ASCII id, locale-independent, so it is safe to assert on in dayscript and to log.
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Importance::Min => "min",
@@ -141,6 +142,7 @@ impl std::error::Error for NotifyError {}
 /// Register every channel before posting to it. Registration is idempotent, and on Android the
 /// importance is fixed the first time (see [`Importance`]).
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct Channel {
     id: String,
     name: String,
@@ -178,18 +180,22 @@ impl Channel {
     }
 
     /// The channel key.
+    #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }
     /// The user-visible name.
+    #[must_use]
     pub fn display_name(&self) -> &str {
         &self.name
     }
     /// The channel's importance.
+    #[must_use]
     pub fn importance(&self) -> Importance {
         self.importance
     }
     /// Whether this channel plays a sound.
+    #[must_use]
     pub fn plays_sound(&self) -> bool {
         self.sound
     }
@@ -202,6 +208,7 @@ impl Channel {
 /// receiver runs in a fresh process), so the content cannot be a signal or a closure. This is the
 /// one place Day's reactivity does not reach (docs/notify.md).
 #[derive(Clone, Debug)]
+#[must_use]
 pub struct Notification {
     id: Option<NotifId>,
     title: String,
@@ -283,6 +290,12 @@ impl Notification {
 
     /// Post (or schedule) the notification. Returns the id it was posted under, so it can be
     /// cancelled or replaced.
+    ///
+    /// # Errors
+    ///
+    /// [`NotifyError::Unsupported`] on a target without local notifications,
+    /// [`NotifyError::PermissionDenied`] when the user has not granted permission, and
+    /// [`NotifyError::Failed`] when the platform refuses the post.
     pub fn post(self) -> Result<NotifId, NotifyError> {
         let id = self.id.unwrap_or_else(next_id);
         let n = Notification {
@@ -343,15 +356,14 @@ impl Notification {
             Trigger::In(d) => d.as_secs_f64(),
             Trigger::At(t) => t
                 .duration_since(SystemTime::now())
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(0.0),
+                .map_or(0.0, |d| d.as_secs_f64()),
         }
     }
 
     /// The absolute fire time in epoch milliseconds given the current wall clock, or `None` for an
     /// immediate post, the form the Android arm wants (`AlarmManager.RTC_WAKEUP` takes absolute
     /// time, and the boot receiver has to know when, not "how long from some forgotten start").
-    /// An [`Trigger::At`] instant in the past answers its real (past) millis; AlarmManager fires
+    /// An [`Trigger::At`] instant in the past answers its real (past) millis; `AlarmManager` fires
     /// past alarms immediately, which is the alarm-clock semantic we want.
     #[allow(dead_code)]
     pub(crate) fn fire_at_ms(&self, now_ms: i64) -> Option<i64> {
@@ -360,8 +372,7 @@ impl Notification {
             Trigger::In(d) => Some(now_ms.saturating_add((d.as_secs_f64() * 1000.0) as i64)),
             Trigger::At(t) => Some(
                 t.duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .unwrap_or(0),
+                    .map_or(0, |d| d.as_millis() as i64),
             ),
         }
     }
@@ -380,11 +391,13 @@ fn next_id() -> NotifId {
 // ---------------------------------------------------------------------------
 
 /// What this platform can do (see [`Capabilities`]).
+#[must_use]
 pub fn capabilities() -> Capabilities {
     imp::capabilities()
 }
 
 /// Whether local notifications work at all here, shorthand for `capabilities().post`.
+#[must_use]
 pub fn is_supported() -> bool {
     imp::capabilities().post
 }
@@ -430,7 +443,9 @@ pub(crate) mod channels {
     fn with<T>(f: impl FnOnce(&mut HashMap<String, (Importance, bool)>) -> T) -> T {
         // Poison recovery: the map is plain data, so a panic elsewhere must not wedge every later
         // post.
-        let mut guard = CHANNELS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = CHANNELS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         f(guard.get_or_insert_with(HashMap::new))
     }
 

@@ -33,7 +33,7 @@ fn native(mime: &str) -> Retained<NSString> {
     unsafe {
         Retained::from_raw(UTTypeCreatePreferredIdentifierForTag(
             kUTTagClassMIMEType,
-            (&*s as *const NSString).cast(),
+            (&raw const *s).cast(),
             std::ptr::null(),
         ))
     }
@@ -42,7 +42,7 @@ fn native(mime: &str) -> Retained<NSString> {
 fn mime(uti: &NSString) -> Option<String> {
     unsafe {
         Retained::from_raw(UTTypeCopyPreferredTagWithClass(
-            (uti as *const NSString).cast(),
+            std::ptr::from_ref::<NSString>(uti).cast(),
             kUTTagClassMIMEType,
         ))
     }
@@ -71,8 +71,8 @@ fn location(
     let view = interaction.view()?;
     let p = unsafe { session.locationInView(&view) };
     let mut types = Vec::new();
-    for item in unsafe { session.items() }.iter() {
-        for ty in item.itemProvider().registeredTypeIdentifiers().iter() {
+    for item in &unsafe { session.items() } {
+        for ty in &item.itemProvider().registeredTypeIdentifiers() {
             if let Some(m) = mime(&ty)
                 && !types.contains(&m)
             {
@@ -117,7 +117,7 @@ fn finish(token: u64, index: usize, mime: String, bytes: Option<Vec<u8>>) {
                 Some(Offer { items })
             };
             if let Some(offer) = offer {
-                p.target.deliver(p.at, offer);
+                let _ = p.target.deliver(p.at, offer);
             }
         }
     }
@@ -227,7 +227,7 @@ define_class!(
                     return;
                 }
                 let mut reads = Vec::new();
-                for item in items.iter() {
+                for item in &items {
                     let provider = item.itemProvider();
                     let types = provider.registeredTypeIdentifiers();
                     let found = std::iter::once(BUNDLE_MIME)
@@ -292,7 +292,7 @@ define_class!(
     }
 );
 fn delegate(view: &UIView) -> Retained<Delegate> {
-    let key = view as *const UIView as usize;
+    let key = std::ptr::from_ref::<UIView>(view) as usize;
     if let Some(d) = DELEGATES.with(|t| t.get(key)) {
         return d;
     }

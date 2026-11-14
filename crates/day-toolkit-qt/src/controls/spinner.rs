@@ -21,14 +21,16 @@ unsafe extern "C" {
 }
 
 pub(crate) fn make(_backend: &mut Qt, p: &ActivityProps, _id: NodeId) -> QtHandle {
-    let w = QtHandle(unsafe { day_activity_qt_new(p.large as c_int) });
-    unsafe { day_activity_qt_set_animating(w.0, p.animating as c_int) };
+    let w = QtHandle(unsafe { day_activity_qt_new(c_int::from(p.large)) });
+    unsafe { day_activity_qt_set_animating(w.0, c_int::from(p.animating)) };
     w
 }
 
 pub(crate) fn update(_backend: &mut Qt, h: &QtHandle, patch: &ActivityPatch) {
     match patch {
         ActivityPatch::Value(_) => {}
-        ActivityPatch::Animating(on) => unsafe { day_activity_qt_set_animating(h.0, *on as c_int) },
+        ActivityPatch::Animating(on) => unsafe {
+            day_activity_qt_set_animating(h.0, c_int::from(*on));
+        },
     }
 }

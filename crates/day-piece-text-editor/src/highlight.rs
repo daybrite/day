@@ -18,6 +18,7 @@ use day_spec::{Color, Font, FontWeight, RunStyle, TextRun};
 /// which matters because the editor's background is the platform's and changes with the theme
 /// while the runs do not.
 #[derive(Clone, Debug, PartialEq)]
+#[must_use]
 pub struct Palette {
     /// The style plain text takes: the font every run is set in (monospace by default) and the
     /// color unclaimed text keeps (`None` = the platform's label color).
@@ -41,14 +42,14 @@ impl Default for Palette {
         base.font.monospace = true;
         Palette {
             base,
-            keyword: Color::hex(0x7C5CD6),
-            string: Color::hex(0x1E9E86),
-            number: Color::hex(0xE86A3C),
-            comment: Color::hex(0x64748B),
-            key: Color::hex(0x2F6FDE),
-            name: Color::hex(0xC2491D),
+            keyword: Color::hex(0x007C_5CD6),
+            string: Color::hex(0x001E_9E86),
+            number: Color::hex(0x00E8_6A3C),
+            comment: Color::hex(0x0064_748B),
+            key: Color::hex(0x002F_6FDE),
+            name: Color::hex(0x00C2_491D),
             template: Color::rgba(0.94, 0.65, 0.30, 0.28),
-            template_text: Color::hex(0xB45309),
+            template_text: Color::hex(0x00B4_5309),
         }
     }
 }
@@ -87,6 +88,7 @@ pub enum Language {
 impl Language {
     /// The language a MIME type names, for a response body: `application/json` and its `+json`
     /// suffixes, XML and HTML, GraphQL, else plain.
+    #[must_use]
     pub fn for_mime(mime: &str) -> Language {
         let essence = mime
             .split(';')
@@ -110,6 +112,7 @@ impl Language {
 /// between them in the palette's base style. Byte offsets throughout, which is what the document
 /// indexes by, and why a multi-byte character in a comment cannot shift the styling of what
 /// follows it.
+#[must_use]
 pub fn highlight(language: Language, text: &str, palette: &Palette) -> Vec<TextRun> {
     let mut sink = Sink::new(palette);
     match language {
@@ -123,6 +126,7 @@ pub fn highlight(language: Language, text: &str, palette: &Palette) -> Vec<TextR
 }
 
 /// [`highlight`], then every `${[ … ]}` template tag painted over whatever token it sits in.
+#[must_use]
 pub fn highlight_with_templates(language: Language, text: &str, palette: &Palette) -> Vec<TextRun> {
     let runs = highlight(language, text, palette);
     template_tags(text, runs, palette)
@@ -131,6 +135,7 @@ pub fn highlight_with_templates(language: Language, text: &str, palette: &Palett
 /// Paint every `${[ … ]}` tag in `text` over `runs`, splitting the runs it overlaps. The tag is
 /// what a Yaak-style client renders a variable or a function call as; an unclosed `${[` is left
 /// as it was typed.
+#[must_use]
 pub fn template_tags(text: &str, runs: Vec<TextRun>, palette: &Palette) -> Vec<TextRun> {
     let mut tags: Vec<std::ops::Range<usize>> = Vec::new();
     let mut from = 0usize;
@@ -649,7 +654,7 @@ mod tests {
     /// The tokenizer's cost on a large body, printed rather than asserted: run with
     /// `cargo test -p day-piece-text-editor highlight_cost -- --ignored --nocapture`.
     #[test]
-    #[ignore]
+    #[ignore = "prints a timing rather than asserting; run it by hand"]
     fn highlight_cost_on_a_large_body() {
         let p = Palette::default();
         let item = "  {\"id\": 12345, \"name\": \"${[ user ]}\", \"tags\": [\"a\", \"b\"], \"ok\": true, \"note\": null},\n";

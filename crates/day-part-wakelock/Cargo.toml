@@ -43,3 +43,6 @@ frameworks = ["IOKit"]
 
 [build-dependencies]
 day-build = { workspace = true }
+
+[lints]
+workspace = true

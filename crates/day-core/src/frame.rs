@@ -62,6 +62,7 @@ day_reactive::tls_slots! {
 /// How long the app has run, from the frame clock: the span between the first and the latest
 /// frame timestamp a backend delivered. The exit line uses it on wasm, where `Instant` does not
 /// exist; `None` before any frame.
+#[must_use]
 pub fn uptime_secs() -> Option<u64> {
     STAMPS.with(|s| {
         s.get()
@@ -73,6 +74,7 @@ pub fn uptime_secs() -> Option<u64> {
 /// builds read `Instant`; the web, where `Instant` is unavailable, reads the clock the facade
 /// installed with [`install_monotonic_clock`] (`performance.now()`), and `0.0` before one is
 /// installed.
+#[must_use]
 pub fn now_secs() -> f64 {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -115,6 +117,7 @@ pub struct FrameClock {
 }
 impl FrameClock {
     /// The current page's window (the initial window outside a page build).
+    #[must_use]
     pub fn current() -> Self {
         Self::for_root(crate::toolbar::current_page_window())
     }
@@ -184,6 +187,7 @@ impl FrameHandle {
     pub fn resume(&self) {
         set_active(self.id, true);
     }
+    #[must_use]
     pub fn is_active(&self) -> bool {
         DRIVER.with(|d| d.borrow().consumers.get(&self.id).is_some_and(|c| c.active))
     }
@@ -358,7 +362,7 @@ pub(crate) fn lifecycle(phase: day_spec::Lifecycle) {
     match phase {
         day_spec::Lifecycle::DidEnterBackground => suspend(true),
         day_spec::Lifecycle::WillEnterForeground | day_spec::Lifecycle::DidBecomeActive => {
-            suspend(false)
+            suspend(false);
         }
         _ => {}
     }
@@ -431,6 +435,7 @@ pub fn remove_frame_consumer(c: FrameConsumer) {
     remove(c.0);
 }
 /// Number of active subscriptions and pending single-frame clients (paused handles excluded).
+#[must_use]
 pub fn frame_consumer_count() -> usize {
     DRIVER.with(|d| d.borrow().consumers.values().filter(|c| c.active).count())
 }
@@ -439,7 +444,8 @@ pub fn frame_consumer_count() -> usize {
 /// a cancelled or late native callback cannot dereference freed memory. UI-thread only.
 #[doc(hidden)]
 pub mod native {
-    use super::*;
+    use super::{FrameCallback, FrameStamp, NATIVE_CALLBACKS};
+    #[must_use]
     pub fn register(cb: FrameCallback) -> u64 {
         NATIVE_CALLBACKS.with(|c| {
             let mut c = c.borrow_mut();
@@ -501,7 +507,7 @@ mod tests {
                 target_timestamp: Some(ts + 1.0 / 120.0),
             });
         }
-        fn clock(&self) -> FrameClock {
+        fn clock() -> FrameClock {
             FrameClock::for_root(RNode::default())
         }
     }
@@ -510,9 +516,9 @@ mod tests {
         let m = Manual::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let s = seen.clone();
-        let a = m.clock().request(move |f| s.borrow_mut().push(f));
+        let a = Manual::clock().request(move |f| s.borrow_mut().push(f));
         let s = seen.clone();
-        let b = m.clock().request(move |f| s.borrow_mut().push(f));
+        let b = Manual::clock().request(move |f| s.borrow_mut().push(f));
         assert_eq!(m.requests.get(), 1);
         m.fire(10.0);
         assert_eq!(seen.borrow().len(), 2);
@@ -525,7 +531,7 @@ mod tests {
     #[test]
     fn dropping_last_client_cancels_and_late_delivery_is_harmless() {
         let m = Manual::new();
-        let a = m.clock().request(|_| panic!("cancelled callback ran"));
+        let a = Manual::clock().request(|_| panic!("cancelled callback ran"));
         drop(a);
         assert_eq!(m.cancellations.get(), 1);
         m.fire(10.0); // emulate a callback already queued before native cancellation
@@ -537,10 +543,11 @@ mod tests {
         let m = Manual::new();
         let later = Rc::new(RefCell::new(None::<FrameHandle>));
         let l = later.clone();
-        let _first = m.clock().request(move |_| {
+        let _first = Manual::clock().request(move |_| {
             l.borrow_mut().take();
         });
-        *later.borrow_mut() = Some(m.clock().request(|_| panic!("cancelled during dispatch")));
+        *later.borrow_mut() =
+            Some(Manual::clock().request(|_| panic!("cancelled during dispatch")));
         m.fire(1.0);
         assert!(m.pending.borrow().is_empty());
     }
@@ -551,7 +558,7 @@ mod tests {
         let l = later.clone();
         let seen = Rc::new(Cell::new(false));
         let s = seen.clone();
-        let clock = m.clock();
+        let clock = Manual::clock();
         let _first = clock.request(move |_| {
             *l.borrow_mut() = Some(clock.request(move |_| s.set(true)));
         });
@@ -566,7 +573,7 @@ mod tests {
         let m = Manual::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let s = seen.clone();
-        let handle = m.clock().subscribe(move |f| {
+        let handle = Manual::clock().subscribe(move |f| {
             s.borrow_mut().push(f.delta);
             ControlFlow::Continue(())
         });
@@ -584,7 +591,7 @@ mod tests {
         let m = Manual::new();
         let calls = Rc::new(Cell::new(0));
         let c = calls.clone();
-        let handle = m.clock().subscribe(move |_| {
+        let handle = Manual::clock().subscribe(move |_| {
             c.set(c.get() + 1);
             ControlFlow::Break(())
         });
@@ -619,7 +626,7 @@ mod tests {
         let m = Manual::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let s = seen.clone();
-        let _handle = m.clock().subscribe(move |f| {
+        let _handle = Manual::clock().subscribe(move |f| {
             s.borrow_mut().push(f.delta);
             ControlFlow::Continue(())
         });
@@ -636,7 +643,7 @@ mod tests {
         let m = Manual::new();
         let seen = Rc::new(RefCell::new(Vec::new()));
         let s = seen.clone();
-        let _handle = m.clock().subscribe(move |f| {
+        let _handle = Manual::clock().subscribe(move |f| {
             s.borrow_mut().push(f.delta);
             ControlFlow::Continue(())
         });
@@ -656,7 +663,7 @@ mod tests {
         lifecycle(day_spec::Lifecycle::DidEnterBackground);
         let seen = Rc::new(Cell::new(false));
         let s = seen.clone();
-        let _handle = m.clock().request(move |frame| {
+        let _handle = Manual::clock().request(move |frame| {
             assert_eq!(frame.delta, Duration::ZERO);
             s.set(true);
         });
@@ -682,8 +689,8 @@ mod tests {
     #[test]
     fn dropping_callbacks_can_cancel_other_handles() {
         let m = Manual::new();
-        let inner = m.clock().request(|_| panic!("cancelled inner callback"));
-        let outer = m.clock().subscribe(move |_| {
+        let inner = Manual::clock().request(|_| panic!("cancelled inner callback"));
+        let outer = Manual::clock().subscribe(move |_| {
             let _ = &inner;
             ControlFlow::Continue(())
         });
@@ -695,12 +702,12 @@ mod tests {
     #[test]
     fn closing_a_window_drops_nested_handles_outside_the_driver_borrow() {
         let m = Manual::new();
-        let inner = m.clock().request(|_| panic!("closed window"));
-        let _outer = m.clock().subscribe(move |_| {
+        let inner = Manual::clock().request(|_| panic!("closed window"));
+        let _outer = Manual::clock().subscribe(move |_| {
             let _ = &inner;
             ControlFlow::Continue(())
         });
-        forget_window(m.clock().root);
+        forget_window(Manual::clock().root);
         assert_eq!(frame_consumer_count(), 0);
         m.fire(1.0);
     }
@@ -722,14 +729,14 @@ mod tests {
             }
             let (dropped, observed) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
-                let m = Manual::new();
-                let paused = m.clock().subscribe(|_| ControlFlow::Continue(()));
+                let _m = Manual::new();
+                let paused = Manual::clock().subscribe(|_| ControlFlow::Continue(()));
                 paused.pause();
                 let held = TeardownHandle {
                     handle: Some(paused),
                     dropped: dropped.clone(),
                 };
-                let active = m.clock().subscribe(move |_| {
+                let active = Manual::clock().subscribe(move |_| {
                     let _ = &held;
                     ControlFlow::Continue(())
                 });
@@ -740,7 +747,7 @@ mod tests {
                 // The driver owns the paused handle's capture; the native registry owns
                 // the active handle's capture. Both drop with core TLS unavailable, before
                 // and after the driver finishes destruction, regardless of TLS key order.
-                native::register(Box::new(move |_| drop(held)));
+                let _ = native::register(Box::new(move |_| drop(held)));
             })
             .join()
             .unwrap();

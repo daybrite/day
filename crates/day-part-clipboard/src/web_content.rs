@@ -68,7 +68,13 @@ pub unsafe extern "C" fn day_clipboard_result(req: u32, status: u32, p: *mut u8,
     let bytes = if len == 0 {
         Vec::new()
     } else {
-        unsafe { Vec::from_raw_parts(p, len, len) }
+        #[expect(
+            clippy::same_length_and_capacity,
+            reason = "`day_dom_alloc(len)` allocates exactly `len` bytes, all initialized by the caller"
+        )]
+        unsafe {
+            Vec::from_raw_parts(p, len, len)
+        }
     };
     let pending = REQUESTS.with(|r| r.borrow_mut().1.remove(&req));
     if let Some(pending) = pending {
@@ -90,10 +96,14 @@ pub unsafe extern "C" fn day_clipboard_result(req: u32, status: u32, p: *mut u8,
 pub fn read(preferred: &[&str]) -> ClipboardFuture<Option<Representation>> {
     let preferred = preferred.join("\n");
     let future = request(|req| unsafe {
-        day_dom_clipboard_read_bytes(req, preferred.as_ptr(), preferred.len())
+        day_dom_clipboard_read_bytes(req, preferred.as_ptr(), preferred.len());
     });
     Box::pin(async move { Ok(crate::content::unpack(&future.await?)?.0.into_iter().next()) })
 }
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "shares its signature with the native arms, which move the content into their future"
+)]
 pub fn write(content: Content) -> ClipboardFuture<Vec<String>> {
     let data = crate::content::pack(&content);
     let future =

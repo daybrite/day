@@ -4,10 +4,10 @@
 //! day-toolkit-arkui: the HarmonyOS Next **ArkUI** backend (target `harmony-arkui`; DESIGN.md §9).
 //!
 //! HarmonyOS has no AOSP layer; its UI framework is ArkUI. Day drives it through the **ArkUI
-//! Native NodeAPI**, bound by openharmony-rs's `ohos-sys` (src/node.rs): every Piece becomes a
-//! real `ArkUI_NodeHandle` (Text / Button / TextInput / Toggle / Slider / Stack), built natively
+//! Native `NodeAPI`**, bound by openharmony-rs's `ohos-sys` (src/node.rs): every Piece becomes a
+//! real `ArkUI_NodeHandle` (Text / Button / `TextInput` / Toggle / Slider / Stack), built natively
 //! and mounted into an ArkTS `NodeContent` slot. The ArkTS host reaches the native side through
-//! the NAPI module ohos-rs's `napi-ohos` registers (src/host_api.rs). Architecturally it mirrors
+//! the NAPI module ohos-rs's `napi-ohos` registers (`src/host_api.rs`). Architecturally it mirrors
 //! `day-toolkit-material`: a managed UI runtime (ArkTS) hosts the window, native code (Rust) builds the
 //! tree, and **day owns absolute layout**: containers are `ARKUI_NODE_STACK` and each child gets
 //! an explicit position + size (in vp = day points).
@@ -619,7 +619,7 @@ mod imp {
         });
     }
 
-    /// Build a NAV_MENU: a scrollable column of conventional navigation rows (an optional
+    /// Build a `NAV_MENU`: a scrollable column of conventional navigation rows (an optional
     /// leading icon, leading-aligned label, trailing chevron, hairline separators, the
     /// HarmonyOS settings-list idiom), not buttons. Each row's tap becomes a synthetic click
     /// that [`on_event`] translates to `SelectionChanged(index)` against `menu`.
@@ -658,7 +658,7 @@ mod imp {
         scroll
     }
 
-    /// The rows column for a NAV_MENU (see [`build_nav_menu`]): registers one synthetic click
+    /// The rows column for a `NAV_MENU` (see [`build_nav_menu`]): registers one synthetic click
     /// id per row in [`MENU_ROWS`]. Rebuilt wholesale on `NavMenuPatch::Items`.
     ///
     /// A section title (docs/navigation.md) is a plain text node ahead of its group's first row.
@@ -826,12 +826,12 @@ mod imp {
     ///
     /// The ArkUI C node API has no node kind for the declarative `Web` or `Map` components, so a
     /// piece wrapping one ships an `.ets` (staged into the hvigor project by `day build`) that
-    /// builds it in a `BuilderNode`; this module mounts that FrameNode in a native Stack and hands
+    /// builds it in a `BuilderNode`; this module mounts that `FrameNode` in a native Stack and hands
     /// the Stack back as an [`AHandle`] Day mounts like any other node.
     ///
     /// The wrapper is what makes Day's layout reach the component. The C API refuses to set
     /// attributes on a BuilderNode-generated node (`ARKUI_ERROR_CODE_NOT_SUPPROTED_FOR_ARKTS_NODE`),
-    /// so `set_frame` on the FrameNode itself was silently dropped: the component kept ArkUI's
+    /// so `set_frame` on the `FrameNode` itself was silently dropped: the component kept ArkUI's
     /// default layout, filling its parent from (0, 0) and covering the siblings Day had laid out
     /// around it (the web view over its URL bar). Day positions and sizes the wrapper, which it
     /// created, and the component fills it. `props`, `cmd`, and `arg` are opaque strings the piece
@@ -843,6 +843,7 @@ mod imp {
         /// Build the ArkTS component registered for `kind`. A null handle means no ArkTS piece
         /// factory is registered (or it declined `kind`); the caller should fall back to Day's
         /// placeholder leaf, exactly as an unregistered renderer does.
+        #[must_use]
         pub fn make(kind: day_spec::PieceKind, id: NodeId, props: &str) -> AHandle {
             try_make(kind, id, props).unwrap_or_else(|| {
                 // No ArkTS module claimed the kind (or building it threw). Hand back a real empty
@@ -857,6 +858,7 @@ mod imp {
         /// [`make`], answering `None` where no ArkTS module claims `kind`, for a caller with a
         /// native fallback of its own (the menu-style picker keeps the wheel on a host too old
         /// to register its `Select`).
+        #[must_use]
         pub fn try_make(kind: &str, id: NodeId, props: &str) -> Option<AHandle> {
             let h = crate::host_api::piece_make(kind, id.0, props);
             if h.is_null() {
@@ -898,12 +900,17 @@ mod imp {
 
     /// Semantic [`Font`] → a vp point size (ArkUI's default length unit is vp ≈ day points).
     /// Public for standalone pieces (docs/extending.md), which resolve the same scale.
+    #[must_use]
     pub fn font_vp(f: FontSpec) -> f64 {
         match f.style {
             Font::LargeTitle => 34.0,
             Font::Title => 28.0,
             Font::Title2 => 22.0,
             Font::Title3 => 20.0,
+            #[expect(
+                clippy::match_same_arms,
+                reason = "one row per text style, in the order of the type scale it mirrors"
+            )]
             Font::Headline => 17.0,
             Font::Body => 17.0,
             Font::Callout => 16.0,
@@ -911,13 +918,12 @@ mod imp {
             Font::Footnote => 13.0,
             Font::Caption => 12.0,
             Font::Caption2 => 11.0,
-            Font::System(pt) => pt,
-            Font::Custom(_, pt) => pt,
+            Font::System(pt) | Font::Custom(_, pt) => pt,
         }
     }
 
     /// Apply a `Font::Custom` family (§18.4): the family was registered by the
-    /// platform/harmony scaffold's EntryAbility (from rawfile `day/fonts.json`), so NODE_FONT_FAMILY resolves it
+    /// platform/harmony scaffold's `EntryAbility` (from rawfile `day/fonts.json`), so `NODE_FONT_FAMILY` resolves it
     /// by name; ArkUI falls back to the default family when it doesn't.
     fn apply_font_attrs(n: Handle, spec: FontSpec) {
         if let Font::Custom(family, _) = spec.style {
@@ -1014,8 +1020,8 @@ mod imp {
     }
 
     /// An icon as an image URI ArkUI loads: a standard symbol staged into the app's sandbox
-    /// cache (a file URI, since NODE_IMAGE_SRC reads a bare path as the name of a bundled asset:
-    /// "GetAsset failed"), or a bundled image from the app's rawfiles.
+    /// cache (a file URI, since `NODE_IMAGE_SRC` reads a bare path as the name of a bundled asset:
+    /// "`GetAsset` failed"), or a bundled image from the app's rawfiles.
     fn icon_source(icon: &day_spec::Icon) -> Option<String> {
         match icon {
             day_spec::Icon::Symbol(s) => day_spec::resource::stage_symbol_svg(*s)
@@ -1151,7 +1157,7 @@ mod imp {
         day_core::note_motion_changed();
     }
 
-    /// Move IS_DARK to `dark`, repainting every theme-following paint if it changed.
+    /// Move `IS_DARK` to `dark`, repainting every theme-following paint if it changed.
     fn repaint_themed(dark: bool) {
         if IS_DARK.with(|d| d.replace(dark)) == dark {
             return;
@@ -1269,7 +1275,7 @@ mod imp {
 
     /// Enable or disable a menu or segmented picker. The C API cannot set attributes on the
     /// ArkTS-built Select or buttons, so DaySelect.ets applies `.enabled()` to each of them; the
-    /// wrapper Day created carries NODE_ENABLED too, which is what `read_native` reports.
+    /// wrapper Day created carries `NODE_ENABLED` too, which is what `read_native` reports.
     fn set_picker_piece_enabled(h: &AHandle, enabled: bool) {
         node::set_enabled(h.0, enabled);
         piece::update(h, "enabled", if enabled { "1" } else { "0" });
@@ -1285,7 +1291,7 @@ mod imp {
 
     /// The theme-adaptive pick: `light` under the light theme, `dark` under dark.
     fn theme_color(light: u32, dark: u32) -> u32 {
-        if IS_DARK.with(|d| d.get()) {
+        if IS_DARK.with(std::cell::Cell::get) {
             dark
         } else {
             light
@@ -1370,7 +1376,7 @@ mod imp {
     /// `WINDOW_NODE`) and consume it; otherwise let the system leave the app
     /// (docs/navigation.md "Handling the system Back").
     pub(crate) fn app_back_requested() -> bool {
-        if !SYSTEM_BACK.with(|b| b.get()) {
+        if !SYSTEM_BACK.with(std::cell::Cell::get) {
             return false;
         }
         emit(
@@ -1384,7 +1390,7 @@ mod imp {
 
     /// Native back targets the top cover, leaving the underlying navigation path intact.
     pub(crate) fn cover_back_requested() -> bool {
-        let Some((root, _, _)) = COVER_ROOT.with(|r| r.get()) else {
+        let Some((root, _, _)) = COVER_ROOT.with(std::cell::Cell::get) else {
             return false;
         };
         let count = node::child_count(root as Handle);
@@ -1404,8 +1410,8 @@ mod imp {
         true
     }
 
-    /// A secondary DayWindowAbility's page connected (the host's `windowStart` export): mount a
-    /// Stack into its NodeContent and complete the pending open (docs/windows.md). False = closed
+    /// A secondary `DayWindowAbility`'s page connected (the host's `windowStart` export): mount a
+    /// Stack into its `NodeContent` and complete the pending open (docs/windows.md). False = closed
     /// before connecting; the ability terminates itself.
     pub fn window_start(
         node_id: u64,
@@ -1462,13 +1468,16 @@ mod imp {
     }
 
     /// An app lifecycle phase from the entry ability (docs/lifecycle.md), coded in
-    /// `day_spec::Lifecycle` order like the Android bridge: 2 DidBecomeActive, 3
-    /// WillResignActive, 4 WillEnterForeground, 5 DidEnterBackground, 6 DidReceiveMemoryWarning,
-    /// 7 WillTerminate, 8 DidExit. The launch phases are day-core's own. Delivered on the primary window
+    /// `day_spec::Lifecycle` order like the Android bridge: 2 `DidBecomeActive`, 3
+    /// `WillResignActive`, 4 `WillEnterForeground`, 5 `DidEnterBackground`, 6 `DidReceiveMemoryWarning`,
+    /// 7 `WillTerminate`, 8 `DidExit`. The launch phases are day-core's own. Delivered on the primary window
     /// node, where the tree turns it into the app's `on_lifecycle` handlers and pauses the
     /// frame clock across the background.
     pub fn lifecycle(code: i32) {
-        use day_spec::Lifecycle::*;
+        use day_spec::Lifecycle::{
+            DidBecomeActive, DidEnterBackground, DidExit, DidReceiveMemoryWarning,
+            WillEnterForeground, WillResignActive, WillTerminate,
+        };
         let phase = match code {
             2 => DidBecomeActive,
             3 => WillResignActive,
@@ -1486,6 +1495,7 @@ mod imp {
 
     /// The entry ability reports every phase (docs/lifecycle.md). `const` for
     /// `day::require_lifecycle!` compile-time guards.
+    #[must_use]
     pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
         true
     }
@@ -1517,9 +1527,9 @@ mod imp {
         watched: bool,
         /// The text a read-only field shows; `None` while the field takes edits.
         held: Option<String>,
-        /// `Some` for a TextArea, carrying its live selection policy; `None` for TextInput.
+        /// `Some` for a `TextArea`, carrying its live selection policy; `None` for `TextInput`.
         area_selectable: Option<bool>,
-        /// Only TextAreas built with `.on_submit` handle the native submit action.
+        /// Only `TextAreas` built with `.on_submit` handle the native submit action.
         submit_on_enter: bool,
     }
 
@@ -1638,7 +1648,7 @@ mod imp {
     }
 
     /// The native event trampoline: `kind` is `day_spec::bridge::BridgeKind`, the same wire
-    /// table as the Android bridge; `id` is the day NodeId the event was registered against.
+    /// table as the Android bridge; `id` is the day `NodeId` the event was registered against.
     pub fn on_event(id: u64, kind: i32, num: f64, text: &str) {
         day_spec::ffi_guard::contain((), || on_event_inner(id, kind, num, text));
     }
@@ -1660,7 +1670,7 @@ mod imp {
     /// the composed menu opens (docs/menus.md "Menu buttons"). The origin when the layout
     /// cannot be read, so the menu still opens.
     fn menu_button_anchor(button: usize) -> Point {
-        let root = ROOT_KEEP.with(|r| r.get()).map(|(ptr, _, _)| ptr);
+        let root = ROOT_KEEP.with(std::cell::Cell::get).map(|(ptr, _, _)| ptr);
         if let Some(root) = root
             && let Some((x, y, _, h)) = node::layout_frame_px(button as Handle)
             && let Some((rx, ry, _, _)) = node::layout_frame_px(root as Handle)
@@ -1873,15 +1883,10 @@ mod imp {
         emit(node_id, ev);
     }
 
-    /// Recycling-list row count, asked by the NodeAdapter (docs/list.md).
+    /// Recycling-list row count, asked by the `NodeAdapter` (docs/list.md).
     pub(crate) fn list_count(host_id: u64) -> u32 {
         day_spec::ffi_guard::contain(0, || {
-            LIST_SOURCES.with(|m| {
-                m.borrow()
-                    .get(&host_id)
-                    .map(|s| (s.len)() as u32)
-                    .unwrap_or(0)
-            })
+            LIST_SOURCES.with(|m| m.borrow().get(&host_id).map_or(0, |s| (s.len)() as u32))
         })
     }
 
@@ -1931,7 +1936,7 @@ mod imp {
         })
     }
 
-    /// Give a section-header cell (a header row's LIST_ITEM, or the pinned copy) the header
+    /// Give a section-header cell (a header row's `LIST_ITEM`, or the pinned copy) the header
     /// band's opaque ground, following the color mode for as long as the list `owner` lives:
     /// the rows scrolling under the pin must not show through it (docs/list.md "Sections").
     pub(crate) fn list_header_ground(owner: Handle, cell: Handle) {
@@ -2030,8 +2035,8 @@ mod imp {
         })
     }
 
-    /// A NavDestination disappeared on the ArkTS side (docs/navigation.md). For a pop DAY
-    /// initiated (NavPatch::Popped) this is just the acknowledgment; for a NATIVE back
+    /// A `NavDestination` disappeared on the ArkTS side (docs/navigation.md). For a pop DAY
+    /// initiated (`NavPatch::Popped`) this is just the acknowledgment; for a NATIVE back
     /// (system gesture / title-bar back button) sync the route state: the toolkit already
     /// popped, so the host receives `NavBack { already_popped: true }`.
     pub fn nav_popped(owner: u64, key: u64) {
@@ -2099,7 +2104,7 @@ mod imp {
         }
     }
 
-    /// A guarded NavDestination consumed its back (ArkTS onBackPressed) and asks Day's guard to
+    /// A guarded `NavDestination` consumed its back (ArkTS onBackPressed) and asks Day's guard to
     /// decide: emit `NavBack { already_popped: false }` (the native stack did NOT pop, unlike an
     /// unguarded back's [`nav_popped`]).
     pub fn nav_back_requested(owner: u64) {
@@ -2412,7 +2417,7 @@ mod imp {
                     };
                 match &item.kind {
                     K::Button | K::Toggle { .. } => {
-                        add(item.icon.as_ref(), &item.label, item.action, item.enabled)
+                        add(item.icon.as_ref(), &item.label, item.action, item.enabled);
                     }
                     // The choice in force names the control and lends it its glyph, the way a
                     // Material bar folds one (day-toolkit-material).
@@ -2420,10 +2425,10 @@ mod imp {
                         let seg = segments.get(*selected);
                         add(
                             seg.and_then(|s| s.icon.as_ref()).or(item.icon.as_ref()),
-                            seg.map(|s| s.title.as_str()).unwrap_or(&item.label),
+                            seg.map_or(item.label.as_str(), |s| s.title.as_str()),
                             item.action,
                             item.enabled,
-                        )
+                        );
                     }
                     K::Menu { items } => {
                         for entry in items {
@@ -2451,7 +2456,7 @@ mod imp {
         );
     }
 
-    /// Whether `h` is a secondary window's root (a DayWindowAbility page). The title-bar actions
+    /// Whether `h` is a secondary window's root (a `DayWindowAbility` page). The title-bar actions
     /// belong to the primary window's `Navigation`; a secondary page has no such bar, so its
     /// toolbar is not drawn, and its edits must not land in the primary's model (docs/toolbars.md).
     fn is_secondary_root(h: &AHandle) -> bool {
@@ -2565,7 +2570,7 @@ mod imp {
         // inspection runs after that handoff, so use the lifetime-long root record,
         // as window snapshots do, or every primary-window frame stays unread.
         let primary = ROOT_KEEP.with(|r| r.get().map(|(root, _, _)| root));
-        let cover = COVER_ROOT.with(|r| r.get()).map(|(p, _, _)| p);
+        let cover = COVER_ROOT.with(std::cell::Cell::get).map(|(p, _, _)| p);
         let secondaries: Vec<usize> =
             SECONDARY.with(|s| s.borrow().iter().map(|(_, p)| *p).collect());
         let visible = ArkUI_Visibility::ARKUI_VISIBILITY_VISIBLE.0 as i32;
@@ -2694,6 +2699,7 @@ mod imp {
     pub static RENDERERS: [fn() -> Renderer<ArkUi>];
 
     impl ArkUi {
+        #[must_use]
         pub fn new() -> Self {
             let mut registry = Registry::default();
             for f in RENDERERS {
@@ -2762,8 +2768,7 @@ mod imp {
                     let n = new_node(node::SCROLL);
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
-                        .map(|p| p.horizontal)
-                        .unwrap_or(false);
+                        .is_some_and(|p| p.horizontal);
                     node::scroll_direction(n.0, horizontal);
                     // The one real child ArkUI's Scroll measures its extent from (see
                     // [`SCROLL_CONTENT`]); day children land inside it via `insert`.
@@ -3120,7 +3125,7 @@ mod imp {
                     // Inside a suite the rows are the bar. The list is still built (it lives in
                     // the sidebar page, which the suite keeps but never shows) so nothing else
                     // has to know which presentation it is in.
-                    if let Some(host) = SUITE_AWAITING_MENU.with(|c| c.take()) {
+                    if let Some(host) = SUITE_AWAITING_MENU.with(std::cell::Cell::take) {
                         MENU_SUITE.with(|m| m.borrow_mut().insert(id.0, host));
                         suite_fill_bar(host, id, &p.items, &p.icons, 0);
                     }
@@ -3157,13 +3162,15 @@ mod imp {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell)
-                | Some(Builtin::ListItem)
-                | Some(Builtin::Tree)
-                | Some(Builtin::Inspector)
-                | Some(Builtin::InspectorPane)
-                | Some(Builtin::Split)
-                | Some(Builtin::SplitPane)
+                Some(
+                    Builtin::ListCell
+                    | Builtin::ListItem
+                    | Builtin::Tree
+                    | Builtin::Inspector
+                    | Builtin::InspectorPane
+                    | Builtin::Split
+                    | Builtin::SplitPane,
+                )
                 | None => {
                     if let Some(r) = self.registry.get(kind) {
                         let make = r.make;
@@ -3207,7 +3214,7 @@ mod imp {
                                 let last = NAV_ATTACHED.with(|v| {
                                     v.borrow_mut()
                                         .get_mut(&(h.0 as usize))
-                                        .and_then(|v| v.pop())
+                                        .and_then(std::vec::Vec::pop)
                                 });
                                 if let Some((page, key)) = last {
                                     let page = page as Handle;
@@ -3221,7 +3228,7 @@ mod imp {
                                             s.borrow_mut()
                                                 .entry(h.0 as usize)
                                                 .or_default()
-                                                .push(key)
+                                                .push(key);
                                         });
                                         NAV_PENDING_PUSH.with(|s| s.borrow_mut().insert(key));
                                     } else {
@@ -3238,7 +3245,7 @@ mod imp {
                                 let popped = NAV_STACK.with(|s| {
                                     s.borrow_mut()
                                         .get_mut(&(h.0 as usize))
-                                        .and_then(|s| s.pop())
+                                        .and_then(std::vec::Vec::pop)
                                 });
                                 if let Some(key) = popped {
                                     NAV_EXPECT_POP.with(|e| e.borrow_mut().insert(key));
@@ -3271,6 +3278,10 @@ mod imp {
                             // Emulated`. `Navigation.mode(Auto)` decides at its own threshold
                             // and is OBSERVED through `onNavigationModeChange`
                             // (`nav_presented`), never told (docs/size-classes.md).
+                            #[expect(
+                                clippy::match_same_arms,
+                                reason = "each group of no-op patches keeps its own arm and the comment saying why"
+                            )]
                             NavPatch::Presentation(_) => {}
                             // The resident-page switch (docs/navigation.md): show that
                             // destination and move the bar's accent to it.
@@ -3281,7 +3292,7 @@ mod imp {
                                         let old = s.items.clone();
                                         s.items = order
                                             .iter()
-                                            .filter_map(|i| old.get(*i).cloned())
+                                            .filter_map(|i| old.get(*i).copied())
                                             .collect();
                                     }
                                 });
@@ -3367,9 +3378,9 @@ mod imp {
                         match p {
                             CoverPatch::Present { background, .. } => {
                                 let bg = background
-                                    .map(argb)
-                                    .unwrap_or_else(|| theme_color(0xFFFF_FFFF, 0xFF1A_1A1C));
-                                let Some((root, w, hgt)) = COVER_ROOT.with(|r| r.get()) else {
+                                    .map_or_else(|| theme_color(0xFFFF_FFFF, 0xFF1A_1A1C), argb);
+                                let Some((root, w, hgt)) = COVER_ROOT.with(std::cell::Cell::get)
+                                else {
                                     return;
                                 };
                                 let key = h.0 as usize;
@@ -3425,7 +3436,7 @@ mod imp {
                             // a template's themed tint. An app color replaces the themed tint.
                             day_spec::props::ImagePatch::Tint(Some(c)) => {
                                 forget_paint(h.0 as usize, h.0, Paint::ImageFill);
-                                node::set_image_fill(h.0, argb(*c))
+                                node::set_image_fill(h.0, argb(*c));
                             }
                             day_spec::props::ImagePatch::Tint(None) => {}
                             // A source swap repaints the same node (docs/images.md).
@@ -3445,7 +3456,7 @@ mod imp {
                                     node::set_font_color(h.0, argb(*c));
                                 }
                                 None => {
-                                    themed(h.0 as usize, h.0, Paint::Font, TEXT_LIGHT, TEXT_DARK)
+                                    themed(h.0 as usize, h.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
                                 }
                             },
                             LabelPatch::Font(f) => {
@@ -3458,7 +3469,7 @@ mod imp {
                 }
                 kinds::BUTTON => match patch.downcast_ref::<ButtonPatch>() {
                     Some(ButtonPatch::Content(c)) => {
-                        apply_button_content(*h, &c.title, c.icon.as_ref(), c.icon_only)
+                        apply_button_content(*h, &c.title, c.icon.as_ref(), c.icon_only);
                     }
                     Some(ButtonPatch::Enabled(on)) => node::set_enabled(h.0, *on),
                     Some(ButtonPatch::Selected(on)) => apply_button_selected(h.0, *on),
@@ -3590,7 +3601,7 @@ mod imp {
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
+                    Some(ListPatch::Reload | ListPatch::Splice(_)) => {
                         // Deferred out of the day-core borrow: ReloadAllItems fires the
                         // adapter's ADD/REMOVE synchronously, and a bind pulled while the
                         // borrow is held SKIPS (try_with_tree) and never retries, the
@@ -3889,7 +3900,7 @@ mod imp {
                         v.borrow_mut()
                             .entry(parent.0 as usize)
                             .or_default()
-                            .push((child.0 as usize, id))
+                            .push((child.0 as usize, id));
                     });
                 }
                 return;
@@ -3981,19 +3992,19 @@ mod imp {
                     );
                     Size::new(w, hh)
                 }
-                kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 40.0),
+                kinds::TEXT_FIELD | kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 40.0),
                 kinds::TEXT_AREA => {
                     // Grow with content between the min/max line band (line ≈ 24 vp + padding).
                     let (min_lines, max_lines) = TEXTAREA_LINES
                         .with(|m| m.borrow().get(&(h.0 as usize)).copied())
                         .unwrap_or((1, 0));
                     let line = 24.0;
-                    let min_h = min_lines as f64 * line + 16.0;
+                    let min_h = f64::from(min_lines) * line + 16.0;
                     let nat = node::measure(h.0, p.width.unwrap_or(0.0), 0.0).1;
                     let capped = if max_lines == 0 {
                         nat.max(min_h)
                     } else {
-                        nat.clamp(min_h, max_lines as f64 * line + 16.0)
+                        nat.clamp(min_h, f64::from(max_lines) * line + 16.0)
                     };
                     Size::new(p.width.unwrap_or(200.0), capped)
                 }
@@ -4004,7 +4015,6 @@ mod imp {
                     .unwrap_or(Size::new(120.0, 40.0)),
                 kinds::PICKER => Size::new(p.width.unwrap_or(200.0), 200.0),
                 kinds::TOGGLE => Size::new(50.0, 30.0),
-                kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 40.0),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
                 kinds::PROGRESS => match crate::controls::spinner::side(h) {
                     Some(side) => Size::new(side, side),
@@ -4124,7 +4134,7 @@ mod imp {
             let n = h.0;
             node::set_transform_center(n, t.anchor_x, t.anchor_y);
             crate::anim::animate(n, anim, move || {
-                node::set_transform(n, t.tx, t.ty, t.sx, t.sy, t.rotate_deg)
+                node::set_transform(n, t.tx, t.ty, t.sx, t.sy, t.rotate_deg);
             });
         }
 
@@ -4216,7 +4226,7 @@ mod imp {
                 // contract is a POINT. `NODE_ON_MOUSE` carries one, but this is the one target
                 // nothing here can run, and a HarmonyOS phone has no pointer to hover with, so
                 // it degrades to no gesture rather than to a guessed position.
-                _ => {}
+                GestureKind::Hover => {}
             }
         }
 
@@ -4400,16 +4410,16 @@ mod imp {
         /// needs an answer that does not shell out, and this is it.
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             let (root, _, _) = ROOT_KEEP
-                .with(|r| r.get())
+                .with(std::cell::Cell::get)
                 .ok_or("no window root to capture")?;
             crate::images::snapshot_png(root as Handle)
                 .ok_or_else(|| "the node has no snapshot".into())
         }
 
-        /// The color mode resolved at startup (DAY_THEME override, else the host-reported
+        /// The color mode resolved at startup (`DAY_THEME` override, else the host-reported
         /// system mode): the same flag every neutral day-toolkit-arkui paint branches on.
         fn dark_mode(&mut self) -> bool {
-            IS_DARK.with(|d| d.get())
+            IS_DARK.with(std::cell::Cell::get)
         }
 
         /// The settings data's animation duration scale at zero (docs/accessibility.md), read
@@ -4432,7 +4442,7 @@ mod imp {
             }
         }
 
-        /// NotificationKit's `setBadgeNumber` (docs/badge.md): a count, which the launcher
+        /// `NotificationKit`'s `setBadgeNumber` (docs/badge.md): a count, which the launcher
         /// draws on the icon; text and a bare dot have no HarmonyOS form.
         fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
             match badge {
@@ -4483,7 +4493,7 @@ mod imp {
                 && NAV_PENDING_POP.with(|p| p.borrow().is_empty())
         }
 
-        /// Native file open/save via the ArkTS `@kit.CoreFileKit` DocumentViewPicker (docs/files.md).
+        /// Native file open/save via the ArkTS `@kit.CoreFileKit` `DocumentViewPicker` (docs/files.md).
         /// Dialogs/prompts use the ArkTS native modal host (docs/dialogs.md).
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
             use day_spec::present::PresentSpec;
@@ -4581,6 +4591,10 @@ mod imp {
             }
         }
 
+        #[expect(
+            clippy::match_same_arms,
+            reason = "one arm per capability, each documented with the ArkUI mechanism behind it"
+        )]
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 Cap::SearchField => Support::Native,
@@ -4822,10 +4836,10 @@ mod imp {
             let (mut id, mut w, mut h, mut density) = (0u64, 0i32, 0i32, 0f32);
             // SAFETY: each call writes one value through a pointer to a live local.
             let ok = unsafe {
-                OH_NativeDisplayManager_GetDefaultDisplayId(&mut id) == 0
-                    && OH_NativeDisplayManager_GetDefaultDisplayWidth(&mut w) == 0
-                    && OH_NativeDisplayManager_GetDefaultDisplayHeight(&mut h) == 0
-                    && OH_NativeDisplayManager_GetDefaultDisplayDensityPixels(&mut density) == 0
+                OH_NativeDisplayManager_GetDefaultDisplayId(&raw mut id) == 0
+                    && OH_NativeDisplayManager_GetDefaultDisplayWidth(&raw mut w) == 0
+                    && OH_NativeDisplayManager_GetDefaultDisplayHeight(&raw mut h) == 0
+                    && OH_NativeDisplayManager_GetDefaultDisplayDensityPixels(&raw mut density) == 0
             };
             if !ok || w <= 0 || h <= 0 {
                 return None;

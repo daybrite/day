@@ -24,3 +24,6 @@ icu_collator = { workspace = true }
 icu_segmenter = { workspace = true }
 icu_casemap = { workspace = true }
 intl-memoizer = { workspace = true }
+
+[lints]
+workspace = true

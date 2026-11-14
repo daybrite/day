@@ -20,6 +20,7 @@
 //! glue calls the real initializer, so the Swift compiler validates every signature this parser
 //! extracted.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// A parameter of an exported view's initializer.
@@ -36,6 +37,7 @@ pub struct SwiftParam {
 impl SwiftParam {
     /// The name shared by the JSON params object and the generated Rust argument: the external
     /// label when there is one, else the internal name.
+    #[must_use]
     pub fn key(&self) -> &str {
         self.label.as_deref().unwrap_or(&self.name)
     }
@@ -61,6 +63,7 @@ impl SwiftType {
         }
     }
     /// The Swift spelling (glue `Decodable` fields).
+    #[must_use]
     pub fn swift(self) -> &'static str {
         match self {
             SwiftType::String => "String",
@@ -70,6 +73,7 @@ impl SwiftType {
         }
     }
     /// The Rust spelling (generated binding arguments).
+    #[must_use]
     pub fn rust(self) -> &'static str {
         match self {
             SwiftType::String => "String",
@@ -96,10 +100,12 @@ pub struct SwiftView {
 
 impl SwiftView {
     /// The canonical piece name (`swiftui(...)` argument): `Module.View`.
+    #[must_use]
     pub fn piece_name(&self) -> String {
         format!("{}.{}", self.module, self.name)
     }
     /// The Objective-C class name of the generated provider: `DayView_Module_View`.
+    #[must_use]
     pub fn class_name(&self) -> String {
         format!("DayView_{}_{}", self.module, self.name)
     }
@@ -116,6 +122,11 @@ pub struct SwiftScan {
 
 /// Scan a local SwiftPM package (conventional layout: `Sources/<Module>/**/*.swift`) for
 /// exportable public SwiftUI views. Views are sorted by `(module, name)` for deterministic output.
+///
+/// # Errors
+///
+/// Returns an error when `pkg_dir` has no `Package.swift` or no `Sources/` directory, a Swift
+/// source file cannot be read, or two exported views share a name.
 pub fn scan_package(pkg_dir: &Path) -> Result<SwiftScan, String> {
     if !pkg_dir.join("Package.swift").is_file() {
         return Err(format!(
@@ -595,6 +606,7 @@ fn local_packages_from_manifest(manifest: &str) -> Result<(Vec<String>, bool), S
 /// Render `$OUT_DIR/day_swiftui.rs`: one typed constructor per exported view, mirroring the Swift
 /// identity verbatim (`crate::swiftui::MyView(…)`). `packages` pairs each package's display path
 /// (for doc comments) with its scan. Always renders a valid module, empty when nothing is exported.
+#[must_use]
 pub fn render_bindings(packages: &[(String, SwiftScan)]) -> String {
     // No inner attributes: the file is `include!`d inside a `pub mod`, where they cannot appear.
     let mut out = String::from(
@@ -626,24 +638,26 @@ pub fn render_bindings(packages: &[(String, SwiftScan)]) -> String {
                 .iter()
                 .map(|p| format!("{}: {}", p.key(), p.ty.swift()))
                 .collect();
-            out.push_str(&format!(
+            let _ = writeln!(
+                out,
                 "\n/// `{}` from `{}/{}` — `public init({})`.\n\
                  /// Each argument accepts a constant, a `Signal`, or a closure; reactive values\n\
                  /// re-invoke the view's initializer live (`@State` is preserved).\n\
                  #[allow(non_snake_case)]\n\
-                 pub fn {}{generic_list}({}) -> day_piece_swiftui::SwiftUi {{\n",
+                 pub fn {}{generic_list}({}) -> day_piece_swiftui::SwiftUi {{",
                 view.piece_name(),
                 pkg,
                 view.source,
                 sig_doc.join(", "),
                 view.name,
                 args.join(", "),
-            ));
+            );
             for p in &view.params {
-                out.push_str(&format!(
-                    "    let {k} = day_piece_swiftui::IntoReactive::into_reactive({k});\n",
+                let _ = writeln!(
+                    out,
+                    "    let {k} = day_piece_swiftui::IntoReactive::into_reactive({k});",
                     k = p.key()
-                ));
+                );
             }
             let fields: Vec<String> = view
                 .params
@@ -662,18 +676,20 @@ pub fn render_bindings(packages: &[(String, SwiftScan)]) -> String {
                 })
                 .collect();
             if fields.is_empty() {
-                out.push_str(&format!(
-                    "    day_piece_swiftui::swiftui(\"{}\")\n}}\n",
+                let _ = writeln!(
+                    out,
+                    "    day_piece_swiftui::swiftui(\"{}\")\n}}",
                     view.piece_name()
-                ));
+                );
             } else {
-                out.push_str(&format!(
+                let _ = writeln!(
+                    out,
                     "    day_piece_swiftui::swiftui(\"{}\").params(move || {{\n\
                      \x20       day_piece_swiftui::json::object(&[\n            {},\n        ])\n\
-                     \x20   }})\n}}\n",
+                     \x20   }})\n}}",
                     view.piece_name(),
                     fields.join(",\n            "),
-                ));
+                );
             }
         }
     }
@@ -684,12 +700,13 @@ pub fn render_bindings(packages: &[(String, SwiftScan)]) -> String {
 /// `DaySwiftUIProvider` subclass per view, decoding the JSON params into the real initializer.
 /// The file joins the generated `DayPieces` module (where `DaySwiftUIProvider` also lives), so the
 /// only imports are SwiftUI and the scanned modules themselves.
+#[must_use]
 pub fn render_glue(packages: &[(String, SwiftScan)]) -> String {
     let mut modules: Vec<&str> = packages
         .iter()
         .flat_map(|(_, s)| s.views.iter().map(|v| v.module.as_str()))
         .collect();
-    modules.sort();
+    modules.sort_unstable();
     modules.dedup();
 
     let mut out = String::from(
@@ -697,26 +714,26 @@ pub fn render_glue(packages: &[(String, SwiftScan)]) -> String {
          import SwiftUI\n",
     );
     for m in &modules {
-        out.push_str(&format!("import {m}\n"));
+        let _ = writeln!(out, "import {m}");
     }
     for (pkg, scan) in packages {
         for view in &scan.views {
             let class = view.class_name();
-            out.push_str(&format!("\n// {}/{}\n@objc({class})\n", pkg, view.source));
+            let _ = writeln!(out, "\n// {}/{}\n@objc({class})", pkg, view.source);
             if view.params.is_empty() {
-                out.push_str(&format!(
+                let _ = writeln!(
+                    out,
                     "final class {class}: DaySwiftUIProvider {{\n\
                      \x20   override func body(_ params: String?) -> AnyView {{\n\
-                     \x20       AnyView({}())\n    }}\n}}\n",
+                     \x20       AnyView({}())\n    }}\n}}",
                     view.name
-                ));
+                );
                 continue;
             }
-            let fields: String = view
-                .params
-                .iter()
-                .map(|p| format!("        var {}: {}\n", p.key(), p.ty.swift()))
-                .collect();
+            let fields: String = view.params.iter().fold(String::new(), |mut out, p| {
+                let _ = writeln!(out, "        var {}: {}", p.key(), p.ty.swift());
+                out
+            });
             let args: Vec<String> = view
                 .params
                 .iter()
@@ -725,18 +742,19 @@ pub fn render_glue(packages: &[(String, SwiftScan)]) -> String {
                     None => format!("p.{}", p.key()),
                 })
                 .collect();
-            out.push_str(&format!(
+            let _ = writeln!(
+                out,
                 "final class {class}: DaySwiftUIProvider {{\n\
                  \x20   struct Params: Decodable {{\n{fields}    }}\n\
                  \x20   override func body(_ params: String?) -> AnyView {{\n\
                  \x20       guard let data = params?.data(using: .utf8),\n\
                  \x20             let p = try? JSONDecoder().decode(Params.self, from: data)\n\
                  \x20       else {{ return DaySwiftUI.errorView(\"{name}\") }}\n\
-                 \x20       return AnyView({view}({args}))\n    }}\n}}\n",
+                 \x20       return AnyView({view}({args}))\n    }}\n}}",
                 name = view.piece_name(),
                 view = view.name,
                 args = args.join(", "),
-            ));
+            );
         }
     }
     out
@@ -769,7 +787,7 @@ mod tests {
         let v = &s.views[0];
         assert_eq!(v.piece_name(), "Mod.MyView");
         assert_eq!(v.class_name(), "DayView_Mod_MyView");
-        let keys: Vec<&str> = v.params.iter().map(|p| p.key()).collect();
+        let keys: Vec<&str> = v.params.iter().map(super::SwiftParam::key).collect();
         assert_eq!(keys, ["title", "count", "ratio", "on"]);
         assert_eq!(v.params[1].ty, SwiftType::Int);
     }
@@ -826,7 +844,7 @@ mod tests {
              public struct V: View { public init() {} }\n",
         );
         assert_eq!(s.views.len(), 1);
-        assert!(s.views[0].params.is_empty());
+        assert_eq!(s.views[0].params, [] as [super::SwiftParam; 0]);
     }
 
     #[test]

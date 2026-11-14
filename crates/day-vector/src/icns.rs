@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! macOS `.icns` writer in the modern PNG-chunk form: an `icns` header plus one four-cc chunk
-//! per size, each carrying a PNG verbatim. Only the documented PNG-only OSTypes are emitted
+//! per size, each carrying a PNG verbatim. Only the documented PNG-only `OSTypes` are emitted
 //! (`ic07`–`ic14`), so every reader from Finder to `iconutil` accepts the file; sizes without
 //! a PNG-only slot (bare 16 px) are skipped; the 2x members cover those densities.
 
-/// The PNG-only icns members: pixel size → OSType.
+/// The PNG-only icns members: pixel size → `OSType`.
 fn ostype(px: u32) -> Option<&'static [u8; 4]> {
     match px {
         32 => Some(b"ic11"),   // 16 pt @2x
@@ -21,6 +21,10 @@ fn ostype(px: u32) -> Option<&'static [u8; 4]> {
 
 /// Pack `(pixel_size, png_bytes)` entries into an `.icns`. Entries without a PNG-only slot are
 /// skipped; at least one must remain.
+///
+/// # Errors
+///
+/// Returns a message when no entry has a size `.icns` can hold (32, 64, 128, 256, 512 or 1024).
 pub fn pack_icns(entries: &[(u32, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let chunks: Vec<(&[u8; 4], &Vec<u8>)> = entries
         .iter()

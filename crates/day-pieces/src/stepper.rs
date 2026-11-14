@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day_pieces::stepper: a numeric stepper field, a text field with increment/decrement arrows,
+//! `day_pieces::stepper`: a numeric stepper field, a text field with increment/decrement arrows,
 //! bound two-way to any `Binding<f64>` (docs/stepper.md).
 //!
 //! Two idioms, decided automatically. `Native` realizes a leaf where the platform ships the
@@ -42,6 +42,7 @@ pub enum StepperIdiom {
 /// Whether the compiled backend has a native stepper arm, which is what
 /// [`StepperIdiom::Automatic`] resolves against. [`Support::Native`] on appkit, gtk and qt;
 /// [`Support::Emulated`] everywhere else, where `Automatic` composes the field instead.
+#[must_use]
 pub fn support() -> day_spec::Support {
     let support = day_core::capability(day_spec::Cap::Stepper);
     if support == day_spec::Support::Unsupported {
@@ -53,6 +54,7 @@ pub fn support() -> day_spec::Support {
 
 /// The display form of `v` at `decimals` fraction digits: what the field shows, what the
 /// probe's text reports, and what the composed field parses back.
+#[must_use]
 pub fn fmt_value(v: f64, decimals: u32) -> String {
     format!("{v:.prec$}", prec = decimals as usize)
 }
@@ -66,6 +68,7 @@ struct ValueFormat {
 }
 
 /// A stepper field bound two-way to a numeric binding. Build with [`stepper`].
+#[must_use]
 pub struct Stepper<V: Binding<f64>> {
     value: V,
     min: f64,
@@ -238,7 +241,7 @@ fn build_native<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode
             Event::ValueChanged(v) => value.write_preview(clamp(*v)),
             Event::ValueCommitted(v) => value.write_commit(clamp(*v)),
             _ => {}
-        };
+        }
     });
     node
 }
@@ -369,6 +372,7 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
 
 /// An editable number without step buttons. Edits commit on Return or focus loss.
 /// Incomplete or invalid input leaves the bound value unchanged and restores its display.
+#[must_use]
 pub struct NumberField<V: Binding<f64>> {
     value: V,
     min: f64,
@@ -539,7 +543,7 @@ impl<P: Piece, V: Binding<f64>, C: Fn(f64) -> f64 + 'static> Piece for Valued<P,
                                 from_native: false,
                             }),
                             false,
-                        )
+                        );
                     });
                 }
             }

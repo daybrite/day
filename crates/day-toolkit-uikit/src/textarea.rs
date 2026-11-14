@@ -126,7 +126,9 @@ fn key(v: &Retained<UIView>) -> usize {
 /// Dispatching through the raw runtime entry point skips that static check and resolves the setter
 /// exactly as UIKit itself does.
 pub fn set_text_input_trait(tv: &UITextView, sel: Sel, value: isize) {
-    let recv = (tv as *const UITextView).cast::<AnyObject>().cast_mut();
+    let recv = std::ptr::from_ref::<UITextView>(tv)
+        .cast::<AnyObject>()
+        .cast_mut();
     // SAFETY: `recv` is a live main-thread `UITextView`; `sel` names a `UITextInputTraits` setter
     // that takes a single `NSInteger` and returns `void`, matching this `(id, SEL, NSInteger) -> ()`
     // retyping of `objc_msgSend` (which is `extern "C-unwind"`).
@@ -135,12 +137,12 @@ pub fn set_text_input_trait(tv: &UITextView, sel: Sel, value: isize) {
     unsafe { send(recv, sel, value) };
 }
 
-/// Apply editable / selectable / spell-check to the UITextView. Spell-check drives both the spell
+/// Apply editable / selectable / spell-check to the `UITextView`. Spell-check drives both the spell
 /// checker and autocorrect (0 = Default/on, 1 = No/off — `UITextSpellCheckingType`/`…AutocorrectionType`).
 fn apply_attrs(tv: &UITextView, editable: bool, selectable: bool, spell: bool) {
     tv.setEditable(editable);
     tv.setSelectable(selectable);
-    let v: isize = if spell { 0 } else { 1 };
+    let v: isize = isize::from(!spell);
     set_text_input_trait(tv, sel!(setSpellCheckingType:), v);
     set_text_input_trait(tv, sel!(setAutocorrectionType:), v);
 }
@@ -211,7 +213,7 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &TextPatch) {
             TextPatch::SetEditable(v) => st.tv.setEditable(*v),
             TextPatch::SetSelectable(v) => st.tv.setSelectable(*v),
             TextPatch::SetSpellCheck(v) => {
-                let n: isize = if *v { 0 } else { 1 };
+                let n: isize = isize::from(!*v);
                 set_text_input_trait(&st.tv, sel!(setSpellCheckingType:), n);
                 set_text_input_trait(&st.tv, sel!(setAutocorrectionType:), n);
             }
@@ -224,9 +226,9 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
     STATE.with(|t| {
         t.with(key(h), |st| {
             let pad = 2.0 * INSET_TOP;
-            let min_h = (st.min_lines as f64) * st.line_h + pad;
+            let min_h = f64::from(st.min_lines) * st.line_h + pad;
             let max_h = if st.max_lines > 0 {
-                (st.max_lines as f64) * st.line_h + pad
+                f64::from(st.max_lines) * st.line_h + pad
             } else {
                 f64::MAX
             };

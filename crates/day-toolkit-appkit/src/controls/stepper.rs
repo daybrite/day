@@ -132,6 +132,10 @@ fn make(backend: &mut AppKit, p: &StepperProps, id: NodeId) -> Retained<NSView> 
     Retained::into_super(composite)
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+)]
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &StepperPatch) {
     let StepperPatch::SetValue(v) = patch;
     let Some(composite) = h.downcast_ref::<DayStepperField>() else {

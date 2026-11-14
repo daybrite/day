@@ -289,7 +289,7 @@ final class NotificationService: UNNotificationServiceExtension {
 }
 "#;
 
-const NOTIFICATION_CONTENT_IOS: &str = r#"import UIKit
+const NOTIFICATION_CONTENT_IOS: &str = r"import UIKit
 import UserNotifications
 import UserNotificationsUI
 
@@ -314,7 +314,7 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
         label.text = notification.request.content.body
     }
 }
-"#;
+";
 
 const NOTIFICATION_CONTENT_MACOS: &str = r#"import AppKit
 import UserNotifications
@@ -436,7 +436,7 @@ final class KeyboardViewController: UIInputViewController {
 }
 "#;
 
-const INTENTS: &str = r#"import Intents
+const INTENTS: &str = r"import Intents
 
 /// Returns the object that handles each SiriKit intent. List the intent classes it handles in
 /// `attributes.IntentsSupported` in Day.toml.
@@ -445,9 +445,9 @@ final class IntentHandler: INExtension {
         self
     }
 }
-"#;
+";
 
-const INTENTS_UI: &str = r#"import IntentsUI
+const INTENTS_UI: &str = r"import IntentsUI
 import UIKit
 
 /// The view Siri shows for an intent listed in `attributes.IntentsSupported` in Day.toml.
@@ -462,7 +462,7 @@ final class IntentViewController: UIViewController, INUIHostedViewControlling {
         completion(true, parameters, extensionContext?.hostedViewMaximumAllowedSize ?? .zero)
     }
 }
-"#;
+";
 
 const APP_INTENTS: &str = r#"import AppIntents
 
@@ -479,7 +479,7 @@ struct Ping__NAME__: AppIntent {
 }
 "#;
 
-const FILE_PROVIDER: &str = r#"import FileProvider
+const FILE_PROVIDER: &str = r"import FileProvider
 
 /// A replicated File Provider: the system keeps a local copy of what `enumerator(for:request:)`
 /// lists and asks for contents on demand. The app registers its domain with
@@ -553,9 +553,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         throw NSFileProviderError(.noSuchItem)
     }
 }
-"#;
+";
 
-const FILE_PROVIDER_UI: &str = r#"import FileProviderUI
+const FILE_PROVIDER_UI: &str = r"import FileProviderUI
 import UIKit
 
 /// Custom actions on File Provider items, listed as `NSExtensionFileProviderActions` under
@@ -569,9 +569,9 @@ final class FileProviderActionViewController: FPUIActionExtensionViewController 
         extensionContext.cancelRequest(withError: error)
     }
 }
-"#;
+";
 
-const PHOTO_EDITING_IOS: &str = r#"import Photos
+const PHOTO_EDITING_IOS: &str = r"import Photos
 import PhotosUI
 import UIKit
 
@@ -602,9 +602,9 @@ final class PhotoEditingViewController: UIViewController, PHContentEditingContro
 
     func cancelContentEditing() {}
 }
-"#;
+";
 
-const PHOTO_EDITING_MACOS: &str = r#"import AppKit
+const PHOTO_EDITING_MACOS: &str = r"import AppKit
 import Photos
 import PhotosUI
 
@@ -639,9 +639,9 @@ final class PhotoEditingViewController: NSViewController, PHContentEditingContro
 
     func cancelContentEditing() {}
 }
-"#;
+";
 
-const BROADCAST_UPLOAD: &str = r#"import ReplayKit
+const BROADCAST_UPLOAD: &str = r"import ReplayKit
 
 /// Receives the broadcast's samples: encode them and send them to the streaming service.
 final class SampleHandler: RPBroadcastSampleHandler {
@@ -655,7 +655,7 @@ final class SampleHandler: RPBroadcastSampleHandler {
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {}
 }
-"#;
+";
 
 const BROADCAST_SETUP_IOS: &str = r#"import ReplayKit
 import UIKit
@@ -708,7 +708,7 @@ final class CallDirectoryHandler: CXCallDirectoryProvider {
 }
 "#;
 
-const MESSAGE_FILTER: &str = r#"import IdentityLookup
+const MESSAGE_FILTER: &str = r"import IdentityLookup
 
 /// Files messages from unknown senders. Decide offline when you can; defer to the server named
 /// in `attributes.ILMessageFilterExtensionNetworkURL` when you cannot.
@@ -725,9 +725,9 @@ extension MessageFilterExtension: ILMessageFilterQueryHandling {
         completion(response)
     }
 }
-"#;
+";
 
-const CREDENTIAL_PROVIDER_IOS: &str = r#"import AuthenticationServices
+const CREDENTIAL_PROVIDER_IOS: &str = r"import AuthenticationServices
 
 /// Offers the app's saved credentials in AutoFill. Read them from the App Group container or
 /// the shared keychain group, never from the network while the sheet is up.
@@ -740,9 +740,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         )
     }
 }
-"#;
+";
 
-const CREDENTIAL_PROVIDER_MACOS: &str = r#"import AppKit
+const CREDENTIAL_PROVIDER_MACOS: &str = r"import AppKit
 import AuthenticationServices
 
 /// Offers the app's saved credentials in AutoFill. Read them from the App Group container or
@@ -760,9 +760,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         )
     }
 }
-"#;
+";
 
-const PACKET_TUNNEL: &str = r#"import NetworkExtension
+const PACKET_TUNNEL: &str = r"import NetworkExtension
 
 /// A VPN tunnel: connect to the server, apply the tunnel's network settings, then move packets
 /// between `packetFlow` and the server.
@@ -775,9 +775,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler()
     }
 }
-"#;
+";
 
-const APP_PROXY: &str = r#"import NetworkExtension
+const APP_PROXY: &str = r"import NetworkExtension
 
 /// A per-app proxy: accept each new flow and relay it.
 final class AppProxyProvider: NEAppProxyProvider {
@@ -793,9 +793,9 @@ final class AppProxyProvider: NEAppProxyProvider {
         false
     }
 }
-"#;
+";
 
-const DNS_PROXY: &str = r#"import NetworkExtension
+const DNS_PROXY: &str = r"import NetworkExtension
 
 /// A DNS proxy: receive each DNS flow and answer it.
 final class DNSProxyProvider: NEDNSProxyProvider {
@@ -811,9 +811,9 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         false
     }
 }
-"#;
+";
 
-const FILTER_DATA: &str = r#"import NetworkExtension
+const FILTER_DATA: &str = r"import NetworkExtension
 
 /// Sees each new network flow and allows or drops it.
 final class FilterDataProvider: NEFilterDataProvider {
@@ -829,9 +829,9 @@ final class FilterDataProvider: NEFilterDataProvider {
         .allow()
     }
 }
-"#;
+";
 
-const FILTER_CONTROL: &str = r#"import NetworkExtension
+const FILTER_CONTROL: &str = r"import NetworkExtension
 
 /// Updates the filter's rules; the only half of a content filter that may use the network.
 final class FilterControlProvider: NEFilterControlProvider {
@@ -843,9 +843,9 @@ final class FilterControlProvider: NEFilterControlProvider {
         completionHandler()
     }
 }
-"#;
+";
 
-const QL_PREVIEW_IOS: &str = r#"import QuickLook
+const QL_PREVIEW_IOS: &str = r"import QuickLook
 import UIKit
 
 /// Previews the document types listed in `attributes.QLSupportedContentTypes` in Day.toml.
@@ -864,7 +864,7 @@ final class PreviewViewController: UIViewController, QLPreviewingController {
         label.text = url.lastPathComponent
     }
 }
-"#;
+";
 
 const QL_PREVIEW_MACOS: &str = r#"import AppKit
 import Quartz
@@ -883,7 +883,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 }
 "#;
 
-const QL_THUMBNAIL: &str = r#"import QuickLookThumbnailing
+const QL_THUMBNAIL: &str = r"import QuickLookThumbnailing
 
 /// Draws thumbnails of the document types listed in `attributes.QLSupportedContentTypes` in
 /// Day.toml.
@@ -895,9 +895,9 @@ final class ThumbnailProvider: QLThumbnailProvider {
         handler(QLThumbnailReply(contextSize: request.maximumSize, currentContextDrawing: { true }), nil)
     }
 }
-"#;
+";
 
-const SPOTLIGHT_IMPORT: &str = r#"import CoreSpotlight
+const SPOTLIGHT_IMPORT: &str = r"import CoreSpotlight
 
 /// Fills in Spotlight's attributes for a file of a type listed in
 /// `attributes.CSSupportedContentTypes` in Day.toml.
@@ -906,9 +906,9 @@ final class ImportExtension: CSImportExtension {
         attributes.title = url.deletingPathExtension().lastPathComponent
     }
 }
-"#;
+";
 
-const SPOTLIGHT_INDEX: &str = r#"import CoreSpotlight
+const SPOTLIGHT_INDEX: &str = r"import CoreSpotlight
 
 /// Re-indexes the app's searchable items when Spotlight loses its index or asks for some again.
 final class IndexRequestHandler: CSIndexExtensionRequestHandler {
@@ -927,7 +927,7 @@ final class IndexRequestHandler: CSIndexExtensionRequestHandler {
         acknowledgementHandler()
     }
 }
-"#;
+";
 
 const IMESSAGE: &str = r#"import Messages
 import UIKit
@@ -986,7 +986,7 @@ const STICKERS_ICON_SET: &str = r#"{
 }
 "#;
 
-const LOCATION_PUSH: &str = r#"import CoreLocation
+const LOCATION_PUSH: &str = r"import CoreLocation
 
 /// Answers a location request pushed from a server: get one location, send it, then call
 /// `completion`.
@@ -997,7 +997,7 @@ final class LocationPushService: NSObject, CLLocationPushServiceExtension {
 
     func serviceExtensionWillTerminate() {}
 }
-"#;
+";
 
 const FINDER_SYNC: &str = r#"import AppKit
 import FinderSync
@@ -1027,7 +1027,7 @@ final class FinderSync: FIFinderSync {
 }
 "#;
 
-const MARKETPLACE: &str = r#"import ExtensionFoundation
+const MARKETPLACE: &str = r"import ExtensionFoundation
 import Foundation
 import MarketplaceKit
 
@@ -1052,10 +1052,10 @@ struct MarketplaceProvider: MarketplaceExtension {
         []
     }
 }
-"#;
+";
 
-const CUSTOM: &str = r#"import Foundation
+const CUSTOM: &str = r"import Foundation
 
 // The principal class (`principal-class` in Day.toml) or `@main` type for the extension point
 // this extension declares goes here.
-"#;
+";

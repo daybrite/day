@@ -40,3 +40,6 @@ arkui = ["dep:day-toolkit-arkui"]
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
 backends = ["appkit", "gtk", "material", "qt", "xaml", "winui", "arkui"]
+
+[lints]
+workspace = true

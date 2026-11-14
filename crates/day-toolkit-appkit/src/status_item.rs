@@ -13,7 +13,7 @@ struct Shown {
     /// click action (AppKit opens an attached menu on every click).
     menu: Retained<NSMenu>,
     /// Held for the button, which keeps only a weak reference to its target.
-    _target: Retained<StatusTarget>,
+    target: Retained<StatusTarget>,
 }
 
 thread_local! {
@@ -26,7 +26,7 @@ thread_local! {
 
 /// Whether closing the first window should leave the process up (the window delegate asks).
 pub(super) fn keeps_running() -> bool {
-    KEEP_RUNNING.with(|k| k.get())
+    KEEP_RUNNING.with(std::cell::Cell::get)
 }
 
 pub(super) fn set_keep_running(keep: bool) {
@@ -55,7 +55,7 @@ define_class!(
             ffi_guard::contain((), || {
                 let token = day_core::status::begin_menu_tracking(&self.ivars().id.borrow());
                 self.ivars().tracking.set(token);
-            })
+            });
         }
 
         #[unsafe(method(menuDidClose:))]
@@ -66,7 +66,7 @@ define_class!(
                 // AppKit closes the menu before firing its selection. Keep that snapshot's
                 // action ids alive until the action has reached Day's event pump.
                 AppKit::post(Box::new(move || day_core::status::end_menu_tracking(&id, token)));
-            })
+            });
         }
     }
 
@@ -107,7 +107,7 @@ define_class!(
                 } else if activate != 0 {
                     day_core::dispatch_menu_action(activate);
                 }
-            })
+            });
         }
     }
 );
@@ -186,7 +186,7 @@ fn configure(mtm: MainThreadMarker, shown: &mut Shown, spec: &day_spec::StatusIt
     shown.menu = build_ns_menu(mtm, "", &spec.menu);
     shown
         .menu
-        .setDelegate(Some(ProtocolObject::from_ref(&*shown._target)));
+        .setDelegate(Some(ProtocolObject::from_ref(&*shown.target)));
     // Without a click action the item IS its menu: attach it for good, so a click, the keyboard
     // and VoiceOver's "show menu" all open it natively. With one, the menu is attached only for
     // the duration of a right click (`clicked:`), or every left click would open it too.
@@ -238,7 +238,7 @@ pub(super) fn set_items(mtm: MainThreadMarker, items: &[day_spec::StatusItemSpec
                 spec: spec.clone(),
                 item,
                 menu: NSMenu::new(mtm),
-                _target: target,
+                target,
             };
             configure(mtm, &mut x, spec);
             shown.push(x);

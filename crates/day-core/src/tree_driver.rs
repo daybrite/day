@@ -9,7 +9,7 @@
 //!
 //! Re-entrancy follows `list.rs` exactly: `bind_row` phases the tree borrow:
 //! `with_tree` (adopt cell) → build/rebind + `flush_sync` **outside** any borrow → `with_tree`
-//! (lay the row out in its cell). Holding the borrow across the build would deadlock the RefCell.
+//! (lay the row out in its cell). Holding the borrow across the build would deadlock the `RefCell`.
 
 use crate::tree::{RNode, try_with_tree, with_tree};
 use day_reactive::Scope;
@@ -142,6 +142,7 @@ pub fn tree_reveal(node: RNode, token: u64) {
 
 /// The tree's driver, for the guard → commit paths run outside the borrow (`None` when
 /// `node` hosts no tree).
+#[must_use]
 pub fn tree_driver(node: RNode) -> Option<Rc<TreeDriver>> {
     with_tree(|t| t.tree_driver(node))
 }
@@ -150,6 +151,11 @@ pub fn tree_driver(node: RNode) -> Option<Rc<TreeDriver>> {
 /// (docs/tree.md): consult the piece's guards, defer the app's `on_move`, and tell the native
 /// host to re-query. This is how the dayscript `tree_move:` step and the mock probe drive
 /// moves without a native gesture. Call with no borrow held.
+///
+/// # Errors
+///
+/// Returns the reason when `node` has no tree, the tree is not movable, or the guard denies the
+/// move.
 pub fn tree_try_move(
     node: RNode,
     token: u64,
@@ -172,6 +178,7 @@ pub fn tree_try_move(
 /// The flattened visible rows: `(token, depth)` in display order, descending only into
 /// expanded rows (docs/tree.md). The shared substrate the emulated backends, the keyboard
 /// handler and the mock probe all read; one implementation, kind-agnostic over any token tree.
+#[must_use]
 pub fn tree_visible_rows(driver: &TreeDriver) -> Vec<(u64, u16)> {
     let mut out = Vec::new();
     // Manual stack, children pushed in reverse so pop order is display order.
@@ -263,7 +270,7 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
             move_node: {
                 let d = d_moves.clone();
                 Rc::new(move |tok, parent, idx| {
-                    (d.moves.as_ref().expect("mapped from Some").moved)(tok, parent, idx)
+                    (d.moves.as_ref().expect("mapped from Some").moved)(tok, parent, idx);
                 })
             },
         }),

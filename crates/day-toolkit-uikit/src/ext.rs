@@ -61,9 +61,10 @@ pub trait UiKitExt: Decorate + Sized {
 
 impl<P: Decorate> UiKitExt for P {}
 
-/// The `UIImage` a bundled image or vector name resolves to on this backend (the DayPieces
+/// The `UIImage` a bundled image or vector name resolves to on this backend (the `DayPieces`
 /// asset catalog, then a staged file; docs/vectors.md): for a piece that configures a native
 /// cell or bar item itself rather than showing the image through an `image()` piece.
+#[must_use]
 pub fn image_named(name: &str) -> Option<Retained<UIImage>> {
     crate::imp::uikit_image_for(&day_spec::ImageSource::Named(name.to_owned()))
 }

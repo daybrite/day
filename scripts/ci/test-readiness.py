@@ -138,7 +138,13 @@ class ReadinessTests(unittest.TestCase):
         original = manifest.read_text()
         for dependency in ("day-toolkit-winui", "day-toolkit-xaml-sys", "day-core"):
             with self.subTest(dependency=dependency):
-                manifest.write_text(original + f"\n{dependency}.workspace = true\n")
+                # Under the dependency table, not at the end of the file: the manifest closes
+                # with `[lints]`, where an appended line would be a lint setting.
+                table = "[target.'cfg(windows)'.dependencies]"
+                self.assertIn(table, original)
+                manifest.write_text(
+                    original.replace(table, f"{table}\n{dependency}.workspace = true")
+                )
                 result = self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py", ok=False)
                 self.assertIn(f"day-platform-windows -> {dependency}", result.stderr)
         manifest.write_text(original)

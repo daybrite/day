@@ -6,11 +6,11 @@
 //! Two declared buckets in a project:
 //!   * `images/`: processed images, routed into each platform's native image pipeline so
 //!     `image("name")` resolves by name (SwiftPM `.process` → `Assets.car`, Android `res/drawable`
-//!     → `R`, GResource, `.qrc`, ArkUI rawfile, …). We never touch the pixels ourselves; the native
+//!     → `R`, `GResource`, `.qrc`, ArkUI rawfile, …). We never touch the pixels ourselves; the native
 //!     build system optionally optimizes.
 //!   * `assets/`: arbitrary raw data, staged **uncompressed** into each platform's native data
 //!     store so `day::resource("name")` hands back a zero-copy random-access view (Apple bundle
-//!     file, Android `AAssetManager`, GTK GResource, Qt QResource, ArkUI rawfile).
+//!     file, Android `AAssetManager`, GTK `GResource`, Qt `QResource`, ArkUI rawfile).
 //!
 //! `stage()` runs before the platform build and dispatches to the per-toolkit stager.
 
@@ -229,7 +229,7 @@ pub fn scan_fonts(project: &Project) -> Result<Vec<FontFile>, String> {
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
+            .map(str::to_ascii_lowercase)
             .unwrap_or_default();
         if !matches!(ext.as_str(), "ttf" | "otf") {
             return Err(format!(
@@ -295,7 +295,7 @@ pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
             if p.extension().and_then(|x| x.to_str()) != Some(ext) {
                 continue;
             }
-            let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+            let size = e.metadata().map_or(0, |m| m.len());
             if best.as_ref().is_none_or(|(s, _)| size > *s) {
                 best = Some((size, p));
             }
@@ -325,6 +325,10 @@ pub const DEFAULT_ICONS: [(u32, &[u8]); 3] = [
 /// Stage a project's declared resources into the native locations for `target`, before its platform
 /// build runs. Desktop toolkits (appkit/gtk/qt on a cargo binary) load data via the mmap file opener
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).
+#[expect(
+    clippy::match_same_arms,
+    reason = "the `uikit` arm documents where iOS resources are staged instead"
+)]
 pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
     // Vectors first (docs/vectors.md): every glyph gets its raster-cache PNG, then the cache is
     // filtered to what this toolkit needs one for, which `ResourceSet::scan` below picks up
@@ -367,7 +371,7 @@ pub struct VectorAsset {
     pub glyph: String,
     /// XAML geometry was emitted for this glyph; windows-xaml draws it without a raster.
     pub xaml: bool,
-    /// The glyph converts to an Android VectorDrawable; android-material needs no raster for it.
+    /// The glyph converts to an Android `VectorDrawable`; android-material needs no raster for it.
     pub vd: bool,
 }
 
@@ -383,7 +387,7 @@ pub fn vector_raster_dir(project: &Project) -> PathBuf {
 /// On these the raster is not a shipping asset at all: bundling it would add a second copy of
 /// every glyph, and, worse, stand in silently when the vector path fails, so a broken renderer
 /// still looks right. Both XAML bugs found while building that backend (quadratics rejected by
-/// the parser, then XamlReader returning nothing under the island's metadata provider) were
+/// the parser, then `XamlReader` returning nothing under the island's metadata provider) were
 /// invisible for exactly that reason. What ships instead is per-GLYPH: art the vector pipeline
 /// could not express still needs its raster, and only that art gets one.
 fn toolkit_draws_vectors(toolkit: &str) -> bool {
@@ -464,7 +468,7 @@ pub fn write_vector_fallbacks(
 
 /// Where the prepared glyph SVGs live (docs/vectors.md): the Apple catalogs copy these in as
 /// preserve-vector imagesets, and day-toolkit-appkit's `DAY_VECTOR_SVG_ROOT` probe loads them directly
-/// (NSImage renders SVG at display size on macOS 11+).
+/// (`NSImage` renders SVG at display size on macOS 11+).
 pub fn vector_svg_dir(project: &Project) -> PathBuf {
     crate::ops::staged_root(project).join("vectors/svg")
 }
@@ -472,7 +476,7 @@ pub fn vector_svg_dir(project: &Project) -> PathBuf {
 /// Where the prepared XAML geometry lives (docs/vectors.md): day-toolkit-winui loads these as real
 /// `Path`/`PathIcon` geometry, which is what lets a Windows glyph stay vector at any size and
 /// take its tint as a brush at runtime. Converted here, in the CLI, so the backend needs no SVG
-/// parser, the same split Android's VectorDrawable emission uses. A glyph outside the
+/// parser, the same split Android's `VectorDrawable` emission uses. A glyph outside the
 /// convertible subset has no file here and falls back to the raster cache.
 pub fn vector_xaml_dir(project: &Project) -> PathBuf {
     crate::ops::staged_root(project).join("vectors/xaml")

@@ -58,6 +58,7 @@
 //! both hand the same table to that run's cargo through `--config` ([`resolve_run_patch`]).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -694,7 +695,7 @@ fn render(
                     names[0]
                 ));
             }
-            lines.push_str(&format!("[patch.{:?}]\n", source.url));
+            let _ = writeln!(lines, "[patch.{:?}]", source.url);
             let mut missing = Vec::new();
             for name in &names {
                 match available.get(name) {
@@ -752,7 +753,7 @@ fn render(
         }
     }
     if !registry.is_empty() {
-        lines.push_str(&format!("[patch.{CRATES_IO}]\n"));
+        let _ = writeln!(lines, "[patch.{CRATES_IO}]");
         lines.push_str(&registry);
         lines.push('\n');
     }
@@ -2020,11 +2021,10 @@ pub fn resolve_run_patch(
 /// alone and the framework plus a patched piece are two trees. A single checkout hashes exactly
 /// as it did before `--patch-local`, so no existing build tree is orphaned.
 fn slug(checkouts: &[PathBuf]) -> String {
-    let stem = checkouts
-        .first()
-        .and_then(|c| c.file_name())
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "day-src".to_string());
+    let stem = checkouts.first().and_then(|c| c.file_name()).map_or_else(
+        || "day-src".to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     let stem: String = stem
         .chars()
         .map(|c| {
@@ -2047,8 +2047,10 @@ fn slug(checkouts: &[PathBuf]) -> String {
         h.finalize()
             .iter()
             .take(4)
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
+            .fold(String::new(), |mut out, b| {
+                let _ = write!(out, "{b:02x}");
+                out
+            })
     };
     format!("{stem}-{digest}")
 }
@@ -2181,25 +2183,24 @@ impl LockGuard {
         };
         let guard = LockGuard::snapshot(project);
 
-        let mut relocked = RELOCKED.lock().unwrap_or_else(|e| e.into_inner());
-        match relocked.as_ref() {
-            Some(bytes) => {
-                std::fs::write(&guard.path, bytes)
-                    .map_err(|e| CliError::failure(format!("{}: {e}", guard.path.display())))?;
-            }
-            None => {
-                let config = config_path(&dir);
-                let urls = git_keys(&config);
-                let moved = relock(
-                    &project.root,
-                    &urls,
-                    &registry_entries(&config),
-                    Some(&config),
-                )
-                .map_err(CliError::failure)?;
-                if moved > 0 {
-                    *relocked = std::fs::read(&guard.path).ok();
-                }
+        let mut relocked = RELOCKED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(bytes) = relocked.as_ref() {
+            std::fs::write(&guard.path, bytes)
+                .map_err(|e| CliError::failure(format!("{}: {e}", guard.path.display())))?;
+        } else {
+            let config = config_path(&dir);
+            let urls = git_keys(&config);
+            let moved = relock(
+                &project.root,
+                &urls,
+                &registry_entries(&config),
+                Some(&config),
+            )
+            .map_err(CliError::failure)?;
+            if moved > 0 {
+                *relocked = std::fs::read(&guard.path).ok();
             }
         }
         Ok(Some(guard))
@@ -2694,15 +2695,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
                 ),
             ]
         );
-        assert!(
+        assert_eq!(
             stale_in_lock(
                 &tmp,
                 &[canon("https://github.com/nobody/x")],
                 &BTreeMap::new()
-            )
-            .is_empty()
+            ),
+            [] as [(
+                std::string::String,
+                std::string::String,
+                std::string::String
+            ); 0]
         );
-        assert!(stale_in_lock(&tmp.join("absent"), &[canon(DAY_GIT)], &BTreeMap::new()).is_empty());
+        assert_eq!(
+            stale_in_lock(&tmp.join("absent"), &[canon(DAY_GIT)], &BTreeMap::new()),
+            [] as [(
+                std::string::String,
+                std::string::String,
+                std::string::String
+            ); 0]
+        );
         // A crate the crates.io table names is stale while the lock takes it from the registry,
         // and is spelled with the registry's own source so the spec is unambiguous.
         let named = BTreeMap::from([("serde".to_string(), toml::Value::Boolean(true))]);
@@ -3018,7 +3030,7 @@ local = { path = "../local" }
         };
         let found = upstream_sources(&app.root, &[], &mut lookup, &mut fetch).expect("sources");
         let mut urls: Vec<&str> = found.iter().map(|s| s.url.as_str()).collect();
-        urls.sort();
+        urls.sort_unstable();
         assert_eq!(
             urls,
             [
@@ -3269,7 +3281,7 @@ day-build = "0.6"
         };
         let found = upstream_sources(&root, &[], &mut lookup, &mut fetch).expect("sources");
         let mut urls: Vec<&str> = found.iter().map(|s| s.url.as_str()).collect();
-        urls.sort();
+        urls.sort_unstable();
         assert_eq!(
             urls,
             [

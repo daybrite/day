@@ -12,6 +12,7 @@
 //! [`stage_piece_assets`] copies them to `build/day/android/assets/<crate>/`, so they land in the
 //! APK beside the app's own under the same names every other target uses.
 
+use std::fmt::Write as _;
 use std::fs;
 
 use super::{FontFile, ResourceSet, VectorAsset, sanitize_ident};
@@ -65,7 +66,7 @@ pub fn stage(
                 .replace('>', "&gt;")
                 .replace('"', "\\\"")
                 .replace('\'', "\\'");
-            xml.push_str(&format!("        <item>{family}</item>\n"));
+            let _ = writeln!(xml, "        <item>{family}</item>");
         }
         xml.push_str("    </string-array>\n</resources>\n");
         fs::write(values.join("day_fonts.xml"), xml)

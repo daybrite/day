@@ -42,6 +42,10 @@ fn ring_of(parent: &CALayer) -> Option<Retained<CAShapeLayer>> {
     })
 }
 
+#[expect(
+    clippy::option_option,
+    reason = "outer `None` removes the ring; the inner value is day-spec's progress, where `None` is indeterminate"
+)]
 fn paint(
     parent: &CALayer,
     state: Option<Option<f64>>,
@@ -102,6 +106,10 @@ use objc2::{MainThreadOnly, rc::Retained};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSColor, NSImageView, NSUserInterfaceItemIdentification, NSView,
 };
+#[expect(
+    clippy::option_option,
+    reason = "outer `None` removes the ring; the inner value is day-spec's progress, where `None` is indeterminate"
+)]
 pub(crate) fn update(icon: &NSImageView, state: Option<Option<f64>>) {
     // Host the animation separately from AppKit's managed image backing layer.
     unsafe {
@@ -164,7 +172,12 @@ pub(crate) fn fit(icon: &NSImageView) {
         return;
     };
     let b = icon.bounds();
-    if ring.bounds().size.width == b.size.width.min(b.size.height) {
+    #[expect(
+        clippy::float_cmp,
+        reason = "unchanged-size check against the exact value `shape` stored"
+    )]
+    let fitted = ring.bounds().size.width == b.size.width.min(b.size.height);
+    if fitted {
         return;
     }
     CATransaction::begin();

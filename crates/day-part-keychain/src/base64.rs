@@ -4,7 +4,7 @@
 //! Standard base64 (RFC 4648 §4, with padding), for the Linux arm.
 //!
 //! A Secret Service item's value may be any bytes, but some implementations behind the interface
-//! (KWallet's, historically) keep text only. Storing the secret as base64 text with the
+//! (`KWallet`'s, historically) keep text only. Storing the secret as base64 text with the
 //! `text/plain` content type is readable by every implementation, and the cost is a third more
 //! bytes on a value that is at most 64 KiB.
 

@@ -54,7 +54,7 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &StepperPatch) {
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_qt_size_hint(h.0, &mut w, &mut hh) };
+    unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(96.0), hh.max(24.0))
 }
 

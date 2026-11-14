@@ -32,6 +32,7 @@ use std::rc::Rc;
 pub use day_spec::controls::combobox::*;
 
 /// A native combo box bound two-way to `text`, with a reactive dropdown of `items`.
+#[must_use]
 pub struct ComboBox {
     items: Signal<Vec<String>>,
     text: Signal<String>,
@@ -182,6 +183,7 @@ pub mod conformance {
 }
 
 /// Whether the selected toolkit implements this control.
+#[must_use]
 pub fn support() -> day_spec::Support {
     day_core::capability(day_spec::Cap::ComboBox)
 }

@@ -182,10 +182,9 @@ impl Server {
     fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
         self.next_id += 1;
         let id = self.next_id;
-        self.send_line(
-            &serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
-                .to_string(),
-        );
+        let mut request = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method});
+        request["params"] = params;
+        self.send_line(&request.to_string());
         let reply = self.read_reply();
         assert_eq!(
             reply["jsonrpc"], "2.0",

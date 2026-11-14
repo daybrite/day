@@ -150,10 +150,10 @@ impl Stream {
                 STREAM_PLAYBACK,
                 std::ptr::null(),
                 c"sound effects".as_ptr(),
-                &spec,
+                &raw const spec,
                 std::ptr::null(),
-                &attr,
-                &mut error,
+                &raw const attr,
+                &raw mut error,
             )
         };
         if raw.is_null() {
@@ -212,7 +212,9 @@ struct State {
 impl Mixer {
     fn state(&self) -> MutexGuard<'_, State> {
         // Nothing under the lock can leave the mix half-written, so a poisoned lock is usable.
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The mixing thread. It sleeps while there is nothing to play and no stream open; otherwise
@@ -226,7 +228,10 @@ impl Mixer {
             let flush = {
                 let mut state = self.state();
                 while state.mix.voices.is_empty() && stream.is_none() {
-                    state = self.wake.wait(state).unwrap_or_else(|e| e.into_inner());
+                    state = self
+                        .wake
+                        .wait(state)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                 }
                 quiet = if state.mix.voices.is_empty() {
                     quiet + 1

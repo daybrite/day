@@ -63,7 +63,7 @@ define_class!(
                     self.ivars().placeholder.setHidden(!s.is_empty());
                     crate::emit(node, Event::TextChanged(s));
                 }
-            })
+            });
         }
     }
 
@@ -79,11 +79,10 @@ define_class!(
                 }
                 let shift = objc2_app_kit::NSApplication::sharedApplication(self.mtm())
                     .currentEvent()
-                    .map(|e| {
+                    .is_some_and(|e| {
                         e.modifierFlags()
                             .contains(objc2_app_kit::NSEventModifierFlags::Shift)
-                    })
-                    .unwrap_or(false);
+                    });
                 if shift {
                     return objc2::runtime::Bool::NO;
                 }
@@ -136,7 +135,7 @@ fn key(v: &Retained<NSView>) -> usize {
     Retained::as_ptr(v) as usize
 }
 
-/// Apply the editable / selectable / spell-check attributes to the NSTextView. Spell-check drives
+/// Apply the editable / selectable / spell-check attributes to the `NSTextView`. Spell-check drives
 /// all three of continuous spelling, autocorrect, and grammar so the squiggles fully disappear.
 fn apply_attrs(tv: &NSTextView, editable: bool, selectable: bool, spell: bool) {
     tv.setEditable(editable);
@@ -178,8 +177,7 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
         tv.setString(&NSString::from_str(&p.text));
     }
     let line_h = unsafe { tv.layoutManager() }
-        .map(|lm| lm.defaultLineHeightForFont(&font))
-        .unwrap_or(FONT_SIZE * 1.3);
+        .map_or(FONT_SIZE * 1.3, |lm| lm.defaultLineHeightForFont(&font));
 
     // Placeholder overlay (NSTextView has no native placeholder): a faint label pinned top-left, in the
     // text view's flipped coordinates, hidden while the editor has text.
@@ -239,9 +237,9 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
     STATE.with(|t| {
         t.with(key(h), |st| {
             let pad = 2.0 * INSET;
-            let min_h = (st.min_lines as f64) * st.line_h + pad;
+            let min_h = f64::from(st.min_lines) * st.line_h + pad;
             let max_h = if st.max_lines > 0 {
-                (st.max_lines as f64) * st.line_h + pad
+                f64::from(st.max_lines) * st.line_h + pad
             } else {
                 f64::MAX
             };

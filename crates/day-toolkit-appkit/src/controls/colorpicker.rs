@@ -120,7 +120,7 @@ fn make(backend: &mut AppKit, p: &ColorProps, id: NodeId) -> Retained<NSView> {
     let view: Retained<NSView> = Retained::from(<NSColorWell as AsRef<NSView>>::as_ref(&well));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((view.as_ref() as *const NSView) as usize, target)
+            .insert(std::ptr::from_ref::<NSView>(view.as_ref()) as usize, target)
     });
     view
 }
@@ -152,7 +152,7 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, _p: Proposal) -> Size {
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     TARGETS.with(|m| {
         m.borrow_mut()
-            .remove(&((h.as_ref() as *const NSView) as usize));
+            .remove(&(std::ptr::from_ref::<NSView>(h.as_ref()) as usize));
     });
 }
 

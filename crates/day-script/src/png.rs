@@ -16,6 +16,7 @@ pub struct Rgba {
 
 impl Rgba {
     /// The pixel at (`x`, `y`) as `[r, g, b, a]`, or `None` outside the image.
+    #[must_use]
     pub fn pixel(&self, x: usize, y: usize) -> Option<[u8; 4]> {
         if x >= self.width || y >= self.height {
             return None;
@@ -31,6 +32,11 @@ impl Rgba {
 }
 
 /// Decode `bytes` as a PNG.
+///
+/// # Errors
+///
+/// Returns an error when `bytes` is not a PNG, is truncated or corrupt, or uses a color type, bit
+/// depth or interlacing this decoder does not support.
 pub fn decode(bytes: &[u8]) -> Result<Rgba, String> {
     const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
     if bytes.len() < 8 || bytes[..8] != SIGNATURE {
@@ -110,7 +116,7 @@ pub fn decode(bytes: &[u8]) -> Result<Rgba, String> {
                 0 => v,
                 1 => v.wrapping_add(a),
                 2 => v.wrapping_add(b),
-                3 => v.wrapping_add(((u16::from(a) + u16::from(b)) / 2) as u8),
+                3 => v.wrapping_add(u16::midpoint(u16::from(a), u16::from(b)) as u8),
                 4 => v.wrapping_add(paeth(a, b, c)),
                 f => return Err(format!("PNG filter {f}")),
             };
@@ -241,6 +247,10 @@ const DIST_EXTRA: [u8; 30] = [
 ];
 
 /// Inflate a raw deflate stream.
+///
+/// # Errors
+///
+/// Returns an error when the stream is truncated or is not valid deflate data.
 pub fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut bits = Bits {
         data,
@@ -274,12 +284,12 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
                 codes(&mut bits, &mut out, &lit, &dist)?;
             }
             2 => {
-                let nlen = bits.need(5)? as usize + 257;
-                let ndist = bits.need(5)? as usize + 1;
-                let ncode = bits.need(4)? as usize + 4;
                 const ORDER: [usize; 19] = [
                     16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
                 ];
+                let nlen = bits.need(5)? as usize + 257;
+                let ndist = bits.need(5)? as usize + 1;
+                let ncode = bits.need(4)? as usize + 4;
                 let mut code_lengths = [0u8; 19];
                 for &i in ORDER.iter().take(ncode) {
                     code_lengths[i] = bits.need(3)? as u8;

@@ -8,6 +8,7 @@
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -147,6 +148,7 @@ fn append_manifest(wasm: &mut Vec<u8>, names: &BTreeSet<String>) {
 
 /// Configure only the final application's link, not dependency builds or build scripts.
 pub fn configure(cmd: &mut Command, root: &Path) -> Result<(), String> {
+    use sha2::Digest;
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let query = |args: &[&str]| -> Result<String, String> {
         let out = Command::new(&rustc)
@@ -188,18 +190,20 @@ pub fn configure(cmd: &mut Command, root: &Path) -> Result<(), String> {
         .and_then(|v| v.get("required-providers"));
     let providers: Vec<String> = providers
         .cloned()
-        .map(|v| v.try_into())
+        .map(toml::Value::try_into)
         .transpose()
         .map_err(|e| format!("required-providers: {e}"))?
         .unwrap_or_default();
     // Cargo does not fingerprint arbitrary linker environment variables. Put the provider
     // contract in rustc's arguments too, so changing only that contract forces a fresh link.
-    use sha2::Digest;
     let providers_json = serde_json::to_string(&providers).map_err(|e| e.to_string())?;
-    let contract_hash: String = sha2::Sha256::digest(providers_json.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let contract_hash: String =
+        sha2::Sha256::digest(providers_json.as_bytes())
+            .iter()
+            .fold(String::new(), |mut out, b| {
+                let _ = write!(out, "{b:02x}");
+                out
+            });
     cmd.arg(format!("-Cmetadata=day-web-tests-v1-{contract_hash}"));
     cmd.env(LINKER_ENV, linker)
         .env("DAY_WEB_TEST_PROVIDERS", providers_json)

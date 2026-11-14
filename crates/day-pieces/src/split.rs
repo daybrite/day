@@ -32,6 +32,7 @@ const HANDLE: f64 = 9.0;
 ///     .axis(move || if stacked.get() { SplitAxis::Vertical } else { SplitAxis::Horizontal })
 ///     .fraction(share)
 /// ```
+#[must_use]
 pub struct Split {
     first: AnyPiece,
     second: AnyPiece,

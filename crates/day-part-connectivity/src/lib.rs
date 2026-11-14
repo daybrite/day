@@ -60,6 +60,7 @@ pub struct NetworkStatus {
 /// Read a connectivity snapshot via the platform's native API. Returns `None` when there is no
 /// connectivity API on the platform (or the reading failed), as distinct from a successful reading
 /// that says offline (`Some` with `online: false`).
+#[must_use]
 pub fn status() -> Option<NetworkStatus> {
     imp::status()
 }

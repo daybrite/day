@@ -27,3 +27,6 @@ material = ["dep:day-toolkit-material", "dep:day-platform-android"]
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
 backends = ["appkit", "gtk", "material"]
+
+[lints]
+workspace = true

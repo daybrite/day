@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Mock e2e for the color picker (the day-pieces mock_e2e pattern), across both idioms.
+//! Mock e2e for the color picker (the day-pieces `mock_e2e` pattern), across both idioms.
 //!
 //! Native: the piece realizes its kind, a native pick (`Event::Custom` carrying the component
 //! form) and dayscript's `input:` step (`Event::TextChanged` carrying hex) both drive the bound
-//! signal, an app write patches through to the well, and `` refuses to let a picker
+//! signal, an app write patches through to the well, and a picker without `.alpha()` cannot
 //! clear the app's opacity.
 //!
 //! Composed: the panel realizes no native kind at all (it is ordinary pieces), so what these
@@ -17,7 +17,6 @@ use std::rc::Rc;
 
 use day_core::AnyPiece;
 use day_mock::{MockProbe, MockToolkit};
-use day_pieces::colorpicker::ColorPickerBuilder;
 use day_pieces::colorpicker::{KIND, PICK_TAG, color_picker};
 use day_pieces::prelude::*;
 use day_reactive::{Signal, flush_sync};
@@ -50,7 +49,7 @@ fn with_picker(initial: Color, alpha: bool) -> (MockProbe, Signal<Color>, NodeId
         cell2.set(Some(color));
         color_picker(color)
             .native()
-            .apply_if(alpha, |p| p.alpha())
+            .apply_if(alpha, day_pieces::ColorPickerBuilder::alpha)
             .any()
     });
     let color = cell.get().unwrap();
@@ -60,7 +59,7 @@ fn with_picker(initial: Color, alpha: bool) -> (MockProbe, Signal<Color>, NodeId
 
 #[test]
 fn picks_drive_the_signal() {
-    let (probe, color, node) = with_picker(Color::hex(0xE86A3C), true);
+    let (probe, color, node) = with_picker(Color::hex(0x00E8_6A3C), true);
 
     // A native pick: the lossless component form every arm reports.
     probe.emit(node, Event::custom(PICK_TAG, "0.25 0.5 0.75 1"));
@@ -82,19 +81,19 @@ fn picks_drive_the_signal() {
     // dayscript's `input:` step → TextChanged, where a human types hex.
     probe.emit(node, Event::TextChanged("#2f6fde".into()));
     flush_sync();
-    assert_eq!(color.get_untracked(), Color::hex(0x2F6FDE));
+    assert_eq!(color.get_untracked(), Color::hex(0x002F_6FDE));
 
     // Garbage is ignored rather than resetting the color to black.
     probe.emit(node, Event::TextChanged("chartreuse".into()));
     flush_sync();
-    assert_eq!(color.get_untracked(), Color::hex(0x2F6FDE));
+    assert_eq!(color.get_untracked(), Color::hex(0x002F_6FDE));
 }
 
 #[test]
 fn app_writes_patch_native() {
-    let (probe, color, _node) = with_picker(Color::hex(0xE86A3C), false);
+    let (probe, color, _node) = with_picker(Color::hex(0x00E8_6A3C), false);
     let mark = probe.log_len();
-    color.set(Color::hex(0x1E9E86)); // app-initiated (e.g. a "reset to brand" button)
+    color.set(Color::hex(0x001E_9E86)); // app-initiated (e.g. a "reset to brand" button)
     flush_sync();
     assert!(
         probe
@@ -107,10 +106,10 @@ fn app_writes_patch_native() {
 
 #[test]
 fn opaque_picker_cannot_clear_alpha() {
-    // `` is the default, and the promise it makes is that the bound color stays
+    // Opaque is the default, and the promise it makes is that the bound color stays
     // opaque no matter what a backend reports: an arm whose native control has a stray alpha
     // channel must not be able to make an app's brand color half-transparent.
-    let (probe, color, node) = with_picker(Color::hex(0xE86A3C), false);
+    let (probe, color, node) = with_picker(Color::hex(0x00E8_6A3C), false);
     probe.emit(node, Event::custom(PICK_TAG, "0.2 0.4 0.6 0.25"));
     flush_sync();
     assert_eq!(color.get_untracked(), Color::rgba(0.2, 0.4, 0.6, 1.0));
@@ -131,7 +130,7 @@ fn with_composed(
         cell2.set(Some(color));
         color_picker(color)
             .composed()
-            .apply_if(alpha, |p| p.alpha())
+            .apply_if(alpha, day_pieces::ColorPickerBuilder::alpha)
             .any()
     });
     let color = cell.get().unwrap();
@@ -178,7 +177,7 @@ fn press_labeled(probe: &MockProbe, text: &str) {
 
 #[test]
 fn composed_realizes_no_native_kind() {
-    let (probe, _color, _handle, _well) = with_composed(Color::hex(0xE86A3C), false);
+    let (probe, _color, _handle, _well) = with_composed(Color::hex(0x00E8_6A3C), false);
     assert!(
         probe.find_by_kind(KIND).is_empty(),
         "the composed idiom is ordinary pieces — it must not realize the native leaf, or a \
@@ -188,9 +187,9 @@ fn composed_realizes_no_native_kind() {
 
 #[test]
 fn well_shows_the_bound_color_and_follows_it() {
-    let (probe, color, handle, _well) = with_composed(Color::hex(0xE86A3C), false);
+    let (probe, color, handle, _well) = with_composed(Color::hex(0x00E8_6A3C), false);
     assert_eq!(well_caption(&probe, handle), "#e86a3c");
-    color.set(Color::hex(0x1E9E86));
+    color.set(Color::hex(0x001E_9E86));
     flush_sync();
     assert_eq!(
         well_caption(&probe, handle),
@@ -201,7 +200,7 @@ fn well_shows_the_bound_color_and_follows_it() {
 
 #[test]
 fn pressing_the_well_mounts_the_panel() {
-    let (probe, _color, _handle, well) = with_composed(Color::hex(0xE86A3C), true);
+    let (probe, _color, _handle, well) = with_composed(Color::hex(0x00E8_6A3C), true);
     assert!(
         probe.find_by_kind("day.button").is_empty(),
         "nothing but the well before the panel opens"
@@ -223,7 +222,7 @@ fn pressing_the_well_mounts_the_panel() {
 
 #[test]
 fn cancel_restores_the_color_the_panel_opened_on() {
-    let start = Color::hex(0xE86A3C);
+    let start = Color::hex(0x00E8_6A3C);
     let (probe, color, _handle, well) = with_composed(start, false);
     press_well(&probe, well);
 
@@ -258,7 +257,7 @@ fn cancel_restores_the_color_the_panel_opened_on() {
 
 #[test]
 fn done_keeps_the_pick() {
-    let (probe, color, _handle, well) = with_composed(Color::hex(0xE86A3C), false);
+    let (probe, color, _handle, well) = with_composed(Color::hex(0x00E8_6A3C), false);
     press_well(&probe, well);
     // The hue strip is the third canvas (well, shade field, hue): press partway along it, which
     // moves the hue while keeping the field's saturation and brightness.
@@ -266,7 +265,7 @@ fn done_keeps_the_pick() {
     probe.emit(NodeId(hue), Event::Tap(Point::new(90.0, 10.0)));
     flush_sync();
     let picked = color.get_untracked();
-    assert_ne!(picked, Color::hex(0xE86A3C), "the hue moved");
+    assert_ne!(picked, Color::hex(0x00E8_6A3C), "the hue moved");
 
     press_labeled(
         &probe,
@@ -285,7 +284,7 @@ fn readout_label_follows_picks() {
     // The showcase pattern: a hex readout bound to the same signal, which is what the
     // walkthrough asserts cross-platform.
     let probe = boot(|| {
-        let color = Signal::new(Color::hex(0xE86A3C));
+        let color = Signal::new(Color::hex(0x00E8_6A3C));
         column((
             color_picker(color).native(),
             label(move || color.get().to_hex_string()).id(day_core::id!(tint_value)),

@@ -181,7 +181,7 @@ unsafe extern "C" {
     pub fn day_xaml_set_forward_cb(cb: extern "C" fn(*const c_char, c_int));
     /// Claim `app_id` for this process before any window opens: 1 carry on (first instance, or
     /// no usable id); 0 the running instance took this process's arguments, so end it now. The
-    /// first instance also gets `app_id` as its AppUserModelID when it runs unpackaged.
+    /// first instance also gets `app_id` as its `AppUserModelID` when it runs unpackaged.
     pub fn day_xaml_claim_instance(app_id: *const c_char) -> c_int;
     /// Replace the jump list's Tasks with `spec`'s `label \t link` lines (empty clears it).
     pub fn day_xaml_set_jump_tasks(app_id: *const c_char, spec: *const c_char);
@@ -281,7 +281,7 @@ unsafe extern "C" {
     pub fn day_xaml_container_animate_bg(w: *mut c_void, argb: u32, dur_ms: c_int, curve: c_int);
     pub fn day_xaml_cover_ground(w: *mut c_void);
     /// Best-effort rounded clip for a `corner_radius` container: a rounded `RectangleGeometry`
-    /// Clip whose Rect tracks the element size (SizeChanged). Corner support is limited on a bare
+    /// Clip whose Rect tracks the element size (`SizeChanged`). Corner support is limited on a bare
     /// Canvas, so this is best-effort (docs).
     pub fn day_xaml_container_set_corner(w: *mut c_void, radius: c_double);
     /// A canvas that can hold keyboard focus (docs/menus.md): `handles` asks whether the app
@@ -292,7 +292,7 @@ unsafe extern "C" {
         handles_text: extern "C" fn(u64) -> c_int,
         cb: extern "C" fn(u64, *const c_char, *const c_char, c_int),
     ) -> *mut c_void;
-    /// Render a canvas display list (day_spec::encode_ops output) into the Canvas.
+    /// Render a canvas display list (`day_spec::encode_ops` output) into the Canvas.
     pub fn day_xaml_canvas_set_ops(
         w: *mut c_void,
         nums: *const c_double,
@@ -415,7 +415,7 @@ unsafe extern "C" {
         tabular: c_int,
     );
     /// Bundled custom font (§18.4): `spec` is a `FontFamily` source of the form
-    /// "ms-appx:///fonts/<file>#<family>" (the font staged under `<exe>/fonts/`).
+    /// "<ms-appx:///fonts>/<file>#<family>" (the font staged under `<exe>/fonts/`).
     pub fn day_xaml_label_set_font_family(w: *mut c_void, spec: *const c_char);
     /// Make a label's text user-selectable (the `.selectable()` modifier). No-op on non-labels.
     pub fn day_xaml_label_set_selectable(w: *mut c_void, on: c_int);
@@ -432,7 +432,7 @@ unsafe extern "C" {
         cb: extern "C" fn(u64),
     ) -> *mut c_void;
     pub fn day_xaml_button_set_style(h: *mut c_void, kind: c_int, argb: u32, fg_argb: u32);
-    /// `ButtonProps::selected`: the theme's accent fill on a plain Button (a ToggleButton's
+    /// `ButtonProps::selected`: the theme's accent fill on a plain Button (a `ToggleButton`'s
     /// `IsChecked`), kept across a restyle and read back as `checked`.
     pub fn day_xaml_button_set_selected(h: *mut c_void, on: c_int);
     pub fn day_xaml_button_set_content(
@@ -584,8 +584,8 @@ unsafe extern "C" {
     pub fn day_xaml_set_name(w: *mut c_void, name: *const c_char);
     /// A node's accessibility annotations (docs/accessibility.md), each applied only when set:
     /// a null or empty string, role 0 and hidden 0 leave the element alone. `role` is
-    /// `day_spec::Role`'s declaration order (0 None, 1 Button, 2 Toggle, 3 Slider, 4 TextInput,
-    /// 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree, 10 TreeItem, 11 Tab, 12 TabList); `level` is the 1-based
+    /// `day_spec::Role`'s declaration order (0 None, 1 Button, 2 Toggle, 3 Slider, 4 `TextInput`,
+    /// 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree, 10 `TreeItem`, 11 Tab, 12 `TabList`); `level` is the 1-based
     /// heading level, read only with role 5. The automation id stays with [`day_xaml_set_name`].
     pub fn day_xaml_set_a11y(
         w: *mut c_void,

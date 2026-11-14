@@ -37,6 +37,7 @@
 //! field names and type tokens never has to understand a type, only re-emit it.
 
 use proc_macro::{Delimiter, TokenStream, TokenTree};
+use std::fmt::Write as _;
 
 pub(crate) fn observable(input: TokenStream) -> TokenStream {
     finish(expand_observable(input))
@@ -92,37 +93,42 @@ fn emit_observable(def: &StructDef) -> String {
     if let Some(k) = def.fields.iter().find(|f| f.key) {
         // `AsKey` picks the key's form by the field type (integers pass through as their own
         // handle, `Uuid` and `String` intern), so the derive never interprets the type.
-        out.push_str(&format!(
+        let _ = writeln!(
+            out,
             "impl day_model::Identified for {name} {{\n\
              \x20   fn key(&self) -> day_model::Key {{ day_model::AsKey::as_key(&self.{}) }}\n\
-             }}\n",
+             }}",
             k.name
-        ));
+        );
     }
 
     // One accessor per observed field, for every Source of this type.
     let trait_name = format!("{name}Fields");
-    out.push_str(&format!(
-        "#[allow(non_camel_case_types)]\npub trait {trait_name}: day_model::Source<{name}> + Sized {{\n"
-    ));
+    let _ = writeln!(
+        out,
+        "#[allow(non_camel_case_types)]\npub trait {trait_name}: day_model::Source<{name}> + Sized {{"
+    );
     for f in &observed {
-        out.push_str(&format!(
+        let _ = writeln!(
+            out,
             "    fn {}(self) -> day_model::Field<Self, {name}, {}> {{\n\
              \x20       day_model::project(self, \"{}\", |s| &s.{}, |s| &mut s.{})\n\
-             \x20   }}\n",
+             \x20   }}",
             f.name, f.ty, f.name, f.name, f.name
-        ));
+        );
     }
     out.push_str("}\n");
-    out.push_str(&format!(
-        "impl<S: day_model::Source<{name}>> {trait_name} for S {{}}\n"
-    ));
+    let _ = writeln!(
+        out,
+        "impl<S: day_model::Source<{name}>> {trait_name} for S {{}}"
+    );
 
     // The `ApplyField` impl: the typed path an undo stack replays through and, since
     // `read_field`, the one label-addressed writes capture priors through and relation wiring
     // reads foreign keys through. One match arm per observed field, downcasting to the field's
     // type.
-    out.push_str(&format!(
+    let _ = writeln!(
+        out,
         "impl day_model::ApplyField for {name} {{\n\
          \x20   fn apply_field(&mut self, label: &str, value: &dyn ::core::any::Any) -> bool {{\n\
          \x20       match label {{\n{}\
@@ -135,38 +141,41 @@ fn emit_observable(def: &StructDef) -> String {
          \x20           _ => None,\n\
          \x20       }}\n\
          \x20   }}\n\
-         }}\n",
-        observed
-            .iter()
-            .map(|f| format!(
+         }}",
+        observed.iter().fold(String::new(), |mut arms, f| {
+            let _ = writeln!(
+                arms,
                 "            \"{}\" => match value.downcast_ref::<{}>() {{\n\
                  \x20               Some(v) => {{\n\
                  \x20                   self.{} = v.clone();\n\
                  \x20                   true\n\
                  \x20               }}\n\
                  \x20               None => false,\n\
-                 \x20           }},\n",
+                 \x20           }},",
                 f.name, f.ty, f.name
-            ))
-            .collect::<String>(),
-        observed
-            .iter()
-            .map(|f| format!(
-                "            \"{}\" => Some(::std::rc::Rc::new(self.{}.clone())),\n",
+            );
+            arms
+        }),
+        observed.iter().fold(String::new(), |mut arms, f| {
+            let _ = writeln!(
+                arms,
+                "            \"{}\" => Some(::std::rc::Rc::new(self.{}.clone())),",
                 f.name, f.name
-            ))
-            .collect::<String>()
-    ));
+            );
+            arms
+        })
+    );
 
     // A names list, so a test can assert what is observable without reflection.
-    out.push_str(&format!(
-        "impl {name} {{\n    pub const OBSERVED_FIELDS: &'static [&'static str] = &[{}];\n}}\n",
+    let _ = writeln!(
+        out,
+        "impl {name} {{\n    pub const OBSERVED_FIELDS: &'static [&'static str] = &[{}];\n}}",
         observed
             .iter()
             .map(|f| format!("\"{}\"", f.name))
             .collect::<Vec<_>>()
             .join(", ")
-    ));
+    );
     out
 }
 

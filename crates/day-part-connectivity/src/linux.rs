@@ -19,9 +19,7 @@ pub fn status() -> Option<NetworkStatus> {
         if name == "lo" {
             continue;
         }
-        let up = fs::read_to_string(entry.path().join("operstate"))
-            .map(|s| s.trim() == "up")
-            .unwrap_or(false);
+        let up = fs::read_to_string(entry.path().join("operstate")).is_ok_and(|s| s.trim() == "up");
         if !up {
             continue;
         }

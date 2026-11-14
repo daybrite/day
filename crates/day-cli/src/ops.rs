@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Build / launch operations. Desktop = cargo with per-(target, profile) CARGO_TARGET_DIR
+//! Build / launch operations. Desktop = cargo with per-(target, profile) `CARGO_TARGET_DIR`
 //! (§16.5; parallel targets never contend on the cargo build-dir lock). Mobile pipelines
 //! attach here at M5 (xcodebuild + simctl; gradle + adb).
 
@@ -108,7 +108,7 @@ pub(crate) fn missing_rust_targets(installed: &str, wanted: &[&str]) -> Vec<Stri
     wanted
         .iter()
         .filter(|t| !installed.lines().any(|l| l.trim() == **t))
-        .map(|t| t.to_string())
+        .map(std::string::ToString::to_string)
         .collect()
 }
 
@@ -266,20 +266,6 @@ pub fn gha_escape(msg: &str) -> String {
 /// The default (non-verbose) result is byte-identical to [`Command::output`], so callers that
 /// filter on the captured `Output` are unaffected.
 pub(crate) fn run_capture(cmd: &mut Command, what: &str) -> Result<std::process::Output, String> {
-    use std::io::{Read, Write};
-    // stdin closed to match `Command::output`'s contract (a child reading stdin gets immediate EOF
-    // rather than the parent's terminal); these tool calls never read it.
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("{what}: {e}"))?;
-    let forward = verbose();
-    // piped just above, so both handles are always Some.
-    let mut child_out = child.stdout.take().expect("stdout was piped");
-    let mut child_err = child.stderr.take().expect("stderr was piped");
-    // Byte-chunk tee (not line-based): forwards output verbatim, partial lines and `\r` progress
-    // redraws included, so `--verbose` is unfiltered, and each chunk is flushed so it lands
-    // live rather than sitting in a block buffer when the destination is a pipe.
     fn tee(src: &mut impl Read, forward: bool) -> Vec<u8> {
         let mut collected = Vec::new();
         let mut chunk = [0u8; 8192];
@@ -296,6 +282,20 @@ pub(crate) fn run_capture(cmd: &mut Command, what: &str) -> Result<std::process:
         }
         collected
     }
+    use std::io::{Read, Write};
+    // stdin closed to match `Command::output`'s contract (a child reading stdin gets immediate EOF
+    // rather than the parent's terminal); these tool calls never read it.
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("{what}: {e}"))?;
+    let forward = verbose();
+    // piped just above, so both handles are always Some.
+    let mut child_out = child.stdout.take().expect("stdout was piped");
+    let mut child_err = child.stderr.take().expect("stderr was piped");
+    // Byte-chunk tee (not line-based): forwards output verbatim, partial lines and `\r` progress
+    // redraws included, so `--verbose` is unfiltered, and each chunk is flushed so it lands
+    // live rather than sitting in a block buffer when the destination is a pipe.
     let out_reader = std::thread::spawn(move || tee(&mut child_out, forward));
     let stderr = tee(&mut child_err, forward);
     let stdout = out_reader.join().unwrap_or_default();
@@ -397,17 +397,6 @@ pub(crate) fn run_capture_within(
     what: &str,
     limit: Duration,
 ) -> Result<std::process::Output, String> {
-    use std::io::{Read, Write};
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("{what}: {e}"))?;
-    let forward = verbose();
-    // piped just above, so both handles are always Some.
-    let mut child_out = child.stdout.take().expect("stdout was piped");
-    let mut child_err = child.stderr.take().expect("stderr was piped");
-    // The same byte-chunk tee as `run_capture`, on a thread per stream; killing the child
-    // closes the pipes, which is what lets the reads (and the join below) finish.
     fn tee(src: &mut impl Read, forward: bool) -> Vec<u8> {
         let mut collected = Vec::new();
         let mut chunk = [0u8; 8192];
@@ -424,6 +413,17 @@ pub(crate) fn run_capture_within(
         }
         collected
     }
+    use std::io::{Read, Write};
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("{what}: {e}"))?;
+    let forward = verbose();
+    // piped just above, so both handles are always Some.
+    let mut child_out = child.stdout.take().expect("stdout was piped");
+    let mut child_err = child.stderr.take().expect("stderr was piped");
+    // The same byte-chunk tee as `run_capture`, on a thread per stream; killing the child
+    // closes the pipes, which is what lets the reads (and the join below) finish.
     let out_reader = std::thread::spawn(move || tee(&mut child_out, forward));
     let err_reader = std::thread::spawn(move || tee(&mut child_err, forward));
     let deadline = Instant::now() + limit;
@@ -564,7 +564,7 @@ pub fn app_identity_env(project: &Project, target: &str) -> BTreeMap<String, OsS
 ///
 /// Index-while-building is turned off, and the reason is not speed. Xcode 27 was measured emitting
 /// `-index-store-path` with an empty value, so `swiftc` took the next token on the line as the
-/// path; with a `-Xcc` from OTHER_SWIFT_FLAGS sitting there, it created a directory literally
+/// path; with a `-Xcc` from `OTHER_SWIFT_FLAGS` sitting there, it created a directory literally
 /// named `-Xcc`. It landed inside `platform/ios/DayApp.xcodeproj/`, because that is the
 /// `-working-directory` Xcode passes, which left an untracked directory in the source tree and
 /// failed the pristine check that proves a packed artifact was rebuilt from its commit.
@@ -956,7 +956,7 @@ pub struct LaunchSpec {
     /// same rule the other two runtimes follow.
     pub ohos_device: Option<String>,
     /// Portable permissions to mark granted on the device after the install and before the
-    /// start (`--grant`, crate::grant), so a scripted run never meets the OS consent prompt.
+    /// start (`--grant`, `crate::grant`), so a scripted run never meets the OS consent prompt.
     pub grants: Vec<&'static day_build::permissions::PermissionSpec>,
 }
 
@@ -1330,43 +1330,40 @@ pub fn launch(
     match target.kind {
         TargetKind::Desktop => {
             let plan = desktop_launch_plan(project, target, outcome, spec)?;
-            let mut cmd = match &plan.wrapper {
-                Some(w) => {
+            let mut cmd = if let Some(w) = &plan.wrapper {
+                status(
+                    "Headless",
+                    &format!("wrapping in {} (no DISPLAY on this host)", w.join(" ")),
+                );
+                let mut c = Command::new(&w[0]);
+                c.args(&w[1..]).arg(&plan.program).args(&plan.args);
+                c
+            } else {
+                if plan
+                    .env
+                    .get("QT_QPA_PLATFORM")
+                    .is_some_and(|v| v == "offscreen")
+                {
                     status(
                         "Headless",
-                        &format!("wrapping in {} (no DISPLAY on this host)", w.join(" ")),
+                        "QT_QPA_PLATFORM=offscreen (no DISPLAY and no xvfb-run on this host)",
                     );
-                    let mut c = Command::new(&w[0]);
-                    c.args(&w[1..]).arg(&plan.program).args(&plan.args);
-                    c
+                } else if let Some(socket) = plan
+                    .env
+                    .get("WAYLAND_DISPLAY")
+                    .filter(|_| std::env::var_os("WAYLAND_DISPLAY").is_none())
+                {
+                    status(
+                        "Display",
+                        &format!(
+                            "WAYLAND_DISPLAY={} (found the session's socket in XDG_RUNTIME_DIR; no DISPLAY in this shell)",
+                            socket.to_string_lossy()
+                        ),
+                    );
                 }
-                None => {
-                    if plan
-                        .env
-                        .get("QT_QPA_PLATFORM")
-                        .is_some_and(|v| v == "offscreen")
-                    {
-                        status(
-                            "Headless",
-                            "QT_QPA_PLATFORM=offscreen (no DISPLAY and no xvfb-run on this host)",
-                        );
-                    } else if let Some(socket) = plan
-                        .env
-                        .get("WAYLAND_DISPLAY")
-                        .filter(|_| std::env::var_os("WAYLAND_DISPLAY").is_none())
-                    {
-                        status(
-                            "Display",
-                            &format!(
-                                "WAYLAND_DISPLAY={} (found the session's socket in XDG_RUNTIME_DIR; no DISPLAY in this shell)",
-                                socket.to_string_lossy()
-                            ),
-                        );
-                    }
-                    let mut c = Command::new(&plan.program);
-                    c.args(&plan.args);
-                    c
-                }
+                let mut c = Command::new(&plan.program);
+                c.args(&plan.args);
+                c
             };
             cmd.current_dir(&plan.cwd);
             for (k, v) in &plan.env {
@@ -1479,18 +1476,15 @@ fn format_log(name: &str, stream: LogStream, line: &str) -> String {
     let leveled = line
         .split_once(' ')
         .and_then(|(word, rest)| Some((word, level_style(word)?, rest.trim_start())));
-    match leveled {
+    if let Some((word, style, rest)) = leveled {
         // Re-pad the level: splitting on the first space ate the alignment the logger wrote.
-        Some((word, style, rest)) => {
-            format!("{style}[{name}] {word:<LEVEL_WIDTH$}{style:#} {rest}")
-        }
-        None => {
-            let style = match stream {
-                LogStream::Out => LOG_OUT,
-                LogStream::Err => LOG_ERR,
-            };
-            format!("{style}[{name}]{style:#} {line}")
-        }
+        format!("{style}[{name}] {word:<LEVEL_WIDTH$}{style:#} {rest}")
+    } else {
+        let style = match stream {
+            LogStream::Out => LOG_OUT,
+            LogStream::Err => LOG_ERR,
+        };
+        format!("{style}[{name}]{style:#} {line}")
     }
 }
 
@@ -1563,7 +1557,7 @@ pub(crate) fn session_display(
             #[cfg(unix)]
             let is_socket = {
                 use std::os::unix::fs::FileTypeExt;
-                e.file_type().ok().is_some_and(|t| t.is_socket())
+                e.file_type().is_ok_and(|t| t.is_socket())
             };
             // Wayland is a unix thing; elsewhere nothing in the directory is a display.
             #[cfg(not(unix))]
@@ -1969,7 +1963,7 @@ pub fn open_native(dir: &Path, app: &str) -> Result<(), crate::cli::CliError> {
         if app != "Xcode" {
             cmd.arg("-a").arg(app);
         }
-        cmd.arg(dir).status().map(|s| s.success()).unwrap_or(false)
+        cmd.arg(dir).status().is_ok_and(|s| s.success())
     } else if app == "Android Studio" {
         ["studio", "studio.sh", "studio64"]
             .iter()
@@ -2006,7 +2000,10 @@ mod rust_target_tests {
             ["wasm32-unknown-unknown", "wasm32-unknown"],
             "a decorated line does not match, so it is re-added, which rustup treats as a no-op"
         );
-        assert!(missing_rust_targets(installed, &["aarch64-apple-darwin"]).is_empty());
+        assert_eq!(
+            missing_rust_targets(installed, &["aarch64-apple-darwin"]),
+            [] as [std::string::String; 0]
+        );
     }
 }
 
@@ -2034,7 +2031,13 @@ mod snap_env_tests {
             ("XDG_DATA_DIRS", "/usr/share:/var/lib/snapd/desktop"),
             ("PATH", "/snap/bin:/usr/bin"),
         ]);
-        assert!(snap_env_edits(&e).is_empty());
+        assert_eq!(
+            snap_env_edits(&e),
+            [] as [(
+                std::string::String,
+                std::option::Option<std::string::String>
+            ); 0]
+        );
     }
 
     /// Snap runtime entries go; the user's own entries stay in order; an emptied list goes whole.

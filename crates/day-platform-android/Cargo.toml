@@ -17,3 +17,6 @@ day-macros.workspace = true
 
 [package.metadata.day.android]
 java = ["java"]
+
+[lints]
+workspace = true

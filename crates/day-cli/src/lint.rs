@@ -367,7 +367,7 @@ fn lint_private_catalogs(project: &Path, root: &Path, findings: &mut Vec<Finding
     let default = if locales.contains_key("en") {
         "en"
     } else {
-        locales.keys().next().map(String::as_str).unwrap_or("en")
+        locales.keys().next().map_or("en", String::as_str)
     };
     let Some(reference) = locales.get(default) else {
         return;
@@ -426,7 +426,6 @@ fn scan_permission_uses(dir: &Path, out: &mut Vec<Hit>) {
 /// `games/<name>/src`). A member is any `src/` directory beside a `Cargo.toml`, found by a
 /// shallow walk that skips build products and the native host projects.
 fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
-    let mut roots = Vec::new();
     fn walk(dir: &Path, depth: usize, roots: &mut Vec<std::path::PathBuf>) {
         if depth > 3 {
             return;
@@ -453,6 +452,7 @@ fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
             walk(&p, depth + 1, roots);
         }
     }
+    let mut roots = Vec::new();
     walk(root, 0, &mut roots);
     roots.sort();
     roots
@@ -564,9 +564,8 @@ fn first_argument(args: &str) -> &str {
         match c {
             '"' => in_string = true,
             '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' if depth == 0 => return &args[..i],
+            ')' | ']' | '}' | ',' if depth == 0 => return &args[..i],
             ')' | ']' | '}' => depth -= 1,
-            ',' if depth == 0 => return &args[..i],
             _ => {}
         }
     }
@@ -728,8 +727,7 @@ fn check_android_resizability(project: &Project, findings: &mut Vec<Finding>) {
         // without it the system picks, and it picks small.
         let body_end = text[open_start..]
             .find("</activity>")
-            .map(|i| open_start + i)
-            .unwrap_or(text.len());
+            .map_or(text.len(), |i| open_start + i);
         if !text[open_start..body_end].contains("<layout") {
             findings.push(
                 Finding {
@@ -846,7 +844,7 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<Hit>) {
                             // The route half only: the lint checks route keys, not schemes;
                             // params are the destination's concern. Mirrors
                             // `day_spec::route_of_url` (day-cli doesn't link day-spec).
-                            let route = v.split_once("://").map(|(_, r)| r).unwrap_or(v);
+                            let route = v.split_once("://").map_or(v, |(_, r)| r);
                             let route = route.split('?').next().unwrap_or(route);
                             out.push(Hit::found(&p, &src, route));
                         }
@@ -1060,7 +1058,12 @@ fn lint_flavors(project: &Project, findings: &mut Vec<Finding>) {
     let base_id = std::fs::read_to_string(project.root.join("Day.toml"))
         .ok()
         .and_then(|text| toml::from_str::<toml::Value>(&text).ok())
-        .and_then(|doc| doc.get("app")?.get("id")?.as_str().map(|id| id.to_string()))
+        .and_then(|doc| {
+            doc.get("app")?
+                .get("id")?
+                .as_str()
+                .map(std::string::ToString::to_string)
+        })
         .unwrap_or_else(|| project.manifest.app.id.clone());
     let mut seen: BTreeMap<String, String> = BTreeMap::new();
     seen.insert(base_id.clone(), "Day.toml".to_string());
@@ -1636,7 +1639,7 @@ fn collect(project: &Project) -> Vec<Finding> {
         let mut installs_settings = false;
         for r in &roots {
             for_each_rs(r, &mut |_, src| {
-                installs_settings |= src.contains("Preferences::new()")
+                installs_settings |= src.contains("Preferences::new()");
             });
         }
         if installs_settings {
@@ -1761,10 +1764,10 @@ fn report(findings: &[Finding], allow: &[String], strict: bool) -> i32 {
                 eprintln!(
                     "{ERROR}error{ERROR:#}   {:<32} {}{where_}",
                     f.code, f.message
-                )
+                );
             }
             Severity::Warning => {
-                eprintln!("{WARN}warning{WARN:#} {:<32} {}{where_}", f.code, f.message)
+                eprintln!("{WARN}warning{WARN:#} {:<32} {}{where_}", f.code, f.message);
             }
         }
         if gha {
@@ -1868,10 +1871,10 @@ fn envelope(root: &Path, findings: &[Finding], allow: &[String]) -> serde_json::
 /// (above). Findings therefore go to the latter two: stdout for the highlighted PR/file
 /// annotations, the summary file for the run page.
 fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)>) {
+    use std::fmt::Write as _;
     let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") else {
         return;
     };
-    use std::fmt::Write as _;
     let mut md = String::from("## day lint\n\n");
     if active.is_empty() {
         md.push_str("✅ no findings");
@@ -2116,20 +2119,19 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
         let svg_path = if path.is_file() && fname.to_ascii_lowercase().ends_with(".svg") {
             path.clone()
         } else if path.is_dir() && fname.to_ascii_lowercase().ends_with(".symbolset") {
-            match std::fs::read_dir(&path).ok().and_then(|d| {
+            if let Some(inner) = std::fs::read_dir(&path).ok().and_then(|d| {
                 d.flatten()
                     .map(|e| e.path())
                     .find(|p| p.extension().and_then(|x| x.to_str()) == Some("svg"))
             }) {
-                Some(inner) => inner,
-                None => {
-                    findings.push(Finding {
-                        code: "day::lint::vector-empty-symbolset",
-                        message: format!("resource/vectors/{fname}: no inner .svg in the bundle"),
-                        ..Default::default()
-                    });
-                    continue;
-                }
+                inner
+            } else {
+                findings.push(Finding {
+                    code: "day::lint::vector-empty-symbolset",
+                    message: format!("resource/vectors/{fname}: no inner .svg in the bundle"),
+                    ..Default::default()
+                });
+                continue;
             }
         } else {
             continue;
@@ -3093,7 +3095,7 @@ e = { PLATFORM() }
         // The steps are on lines 2, 3 and 5 of the script, so a finding about one of them opens
         // the file there rather than at the top.
         let mut lines: Vec<usize> = out.iter().map(|h| h.line).collect();
-        lines.sort();
+        lines.sort_unstable();
         assert_eq!(lines, [2, 3, 5], "{out:?}");
         // A step carrying a filter is still a route of "webview": the value ends at the next key
         // in the inline map. Reading to the closing brace made every filtered step a finding.

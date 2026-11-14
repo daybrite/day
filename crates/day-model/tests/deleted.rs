@@ -99,7 +99,7 @@ fn exists_flips_back_when_the_key_returns() {
         k.push(Item {
             id: 7,
             name: "back".into(),
-        })
+        });
     });
     flush_sync();
     assert!(seen.get(), "the same guard saw the key return");
@@ -111,7 +111,7 @@ fn a_write_to_a_gone_row_is_a_silent_no_op() {
     store.restructure("remove", Op::Delete, 7, |k| {
         k.remove(7);
     });
-    let (_, log) = day_model::record(|| {
+    let ((), log) = day_model::record(|| {
         store.elem(7).name().update(|n| n.push('x'));
     });
     assert!(log.is_empty(), "nothing to write to, so nothing announced");
@@ -141,7 +141,7 @@ fn committing_a_session_for_a_deleted_row_records_nothing() {
         k.push(Item {
             id: 7,
             name: "back".into(),
-        })
+        });
     });
     let ((), changes) = day_model::record_changes(|| name.write("edited".into()));
     assert_eq!(

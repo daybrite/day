@@ -36,7 +36,7 @@ fn real_client_redirects_and_cookies_flow_through_handlers() {
     });
     let (tx, rx) = mpsc::channel();
     let _flight = c.fetch_async(Request::get("https://fixture.example/start"), move |r| {
-        tx.send(r).unwrap()
+        tx.send(r).unwrap();
     });
     clock.advance(Duration::ZERO);
     assert_eq!(rx.try_recv().unwrap().unwrap().text(), "done");
@@ -56,7 +56,7 @@ fn pause_cancel_and_strict_unmatched_never_reach_network() {
     });
     let (tx, rx) = mpsc::channel();
     let flight = c.fetch_async(Request::get("https://fixture.example/"), move |r| {
-        tx.send(r).unwrap()
+        tx.send(r).unwrap();
     });
     clock.advance(Duration::from_secs(1));
     assert!(rx.try_recv().is_err());
@@ -70,7 +70,7 @@ fn pause_cancel_and_strict_unmatched_never_reach_network() {
     s.set_conditions(Conditions::default());
     let (tx, rx) = mpsc::channel();
     let _f = c.fetch_async(Request::get("https://unexpected.invalid/"), move |r| {
-        tx.send(r).unwrap()
+        tx.send(r).unwrap();
     });
     clock.advance(Duration::ZERO);
     assert!(rx.try_recv().unwrap().is_err());
@@ -89,7 +89,7 @@ fn bandwidth_and_partial_failures_account_only_delivered_bytes() {
     });
     let (tx, rx) = mpsc::channel();
     let _f = c.fetch_async(Request::get("https://fixture.example/"), move |r| {
-        tx.send(r).unwrap()
+        tx.send(r).unwrap();
     });
     clock.advance(Duration::from_millis(999));
     assert!(rx.try_recv().is_err());
@@ -138,7 +138,7 @@ fn simulation_isolated_between_sessions_and_changes_apply_to_existing_client() {
     for (client, clock, body) in [(c, clock, "one"), (other, other_clock, "two")] {
         let (tx, rx) = mpsc::channel();
         let _f = client.fetch_async(Request::get("https://fixture.example/"), move |r| {
-            tx.send(r).unwrap()
+            tx.send(r).unwrap();
         });
         clock.advance(Duration::ZERO);
         assert_eq!(rx.try_recv().unwrap().unwrap().text(), body);
@@ -150,7 +150,7 @@ fn websocket_echo_respects_demand_and_updates_statistics() {
     s.websocket_echo("wss://fixture.example/echo");
     let (tx, rx) = mpsc::channel();
     c.websocket_async(Request::get("wss://fixture.example/echo"), move |r| {
-        tx.send(r).unwrap()
+        tx.send(r).unwrap();
     });
     clock.advance(Duration::ZERO);
     let socket = rx.try_recv().unwrap().unwrap();
@@ -197,7 +197,7 @@ fn switch_existing_client_between_native_and_reqwest_and_echo_websocket() {
     session.set_provider(Provider::Reqwest);
     let (tx, rx) = mpsc::channel();
     c.websocket_async(Request::get(server.ws_url("/ws/echo")), move |r| {
-        tx.send(r).unwrap()
+        tx.send(r).unwrap();
     });
     let socket = rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
     let sender = socket.sender();
@@ -285,7 +285,7 @@ fn existing_default_client_observes_global_interception() {
     global.set_simulation(Some(simulation));
     let (tx, rx) = mpsc::channel();
     let _f = client.fetch_async(Request::get("https://global-fixture.invalid/"), move |r| {
-        tx.send(r).unwrap()
+        tx.send(r).unwrap();
     });
     clock.advance(Duration::ZERO);
     assert_eq!(rx.try_recv().unwrap().unwrap().text(), "global");

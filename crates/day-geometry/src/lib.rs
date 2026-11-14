@@ -5,6 +5,7 @@
 //! Everything is in points (density-independent); backends convert to device pixels (§7.9).
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[must_use]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -23,6 +24,7 @@ impl Point {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[must_use]
 pub struct Size {
     pub width: f64,
     pub height: f64,
@@ -43,12 +45,14 @@ impl Size {
     }
     /// Approximate equality on the half-pixel epsilon used by frame diffing (§7.9).
     #[inline]
+    #[must_use]
     pub fn approx_eq(self, other: Size, eps: f64) -> bool {
         (self.width - other.width).abs() <= eps && (self.height - other.height).abs() <= eps
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[must_use]
 pub struct Rect {
     pub origin: Point,
     pub size: Size,
@@ -74,18 +78,22 @@ impl Rect {
         }
     }
     #[inline]
+    #[must_use]
     pub fn min_x(&self) -> f64 {
         self.origin.x
     }
     #[inline]
+    #[must_use]
     pub fn min_y(&self) -> f64 {
         self.origin.y
     }
     #[inline]
+    #[must_use]
     pub fn max_x(&self) -> f64 {
         self.origin.x + self.size.width
     }
     #[inline]
+    #[must_use]
     pub fn max_y(&self) -> f64 {
         self.origin.y + self.size.height
     }
@@ -108,6 +116,7 @@ impl Rect {
             (self.size.height - i.top - i.bottom).max(0.0),
         )
     }
+    #[must_use]
     pub fn intersects(&self, other: &Rect) -> bool {
         self.min_x() < other.max_x()
             && other.min_x() < self.max_x()
@@ -115,6 +124,7 @@ impl Rect {
             && other.min_y() < self.max_y()
     }
     /// Approximate equality on the half-pixel epsilon used by frame diffing (§7.9).
+    #[must_use]
     pub fn approx_eq(&self, other: &Rect, eps: f64) -> bool {
         (self.origin.x - other.origin.x).abs() <= eps
             && (self.origin.y - other.origin.y).abs() <= eps
@@ -126,6 +136,7 @@ impl Rect {
 /// `(a·p.x + c·p.y + tx, b·p.x + d·p.y + ty)`. Used by canvas transform ops for shape
 /// rotate/scale/offset; every native 2-D context concatenates it onto its CTM identically.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[must_use]
 pub struct Affine {
     pub a: f64,
     pub b: f64,
@@ -200,6 +211,7 @@ impl Affine {
         )
     }
     /// Map a point back through the inverse (for hit-testing a transformed shape). None if singular.
+    #[must_use]
     pub fn invert_apply(&self, p: Point) -> Option<Point> {
         let det = self.a * self.d - self.b * self.c;
         if det.abs() < 1e-12 {
@@ -214,10 +226,12 @@ impl Affine {
         ))
     }
     #[inline]
+    #[must_use]
     pub fn is_identity(&self) -> bool {
         *self == Affine::IDENTITY
     }
     #[inline]
+    #[must_use]
     pub fn as_array(&self) -> [f64; 6] {
         [self.a, self.b, self.c, self.d, self.tx, self.ty]
     }
@@ -252,6 +266,7 @@ impl Insets {
     };
     /// Four explicit edges, in the order they are named.
     #[inline]
+    #[must_use]
     pub const fn new(top: f64, leading: f64, bottom: f64, trailing: f64) -> Self {
         Insets {
             top,
@@ -261,6 +276,7 @@ impl Insets {
         }
     }
     #[inline]
+    #[must_use]
     pub const fn all(d: f64) -> Self {
         Insets {
             top: d,
@@ -270,6 +286,7 @@ impl Insets {
         }
     }
     #[inline]
+    #[must_use]
     pub const fn symmetric(horizontal: f64, vertical: f64) -> Self {
         Insets {
             top: vertical,
@@ -280,16 +297,19 @@ impl Insets {
     }
     /// `d` on the leading and trailing edges, nothing above or below.
     #[inline]
+    #[must_use]
     pub const fn horizontal(d: f64) -> Self {
         Insets::symmetric(d, 0.0)
     }
     /// `d` above and below, nothing on the sides.
     #[inline]
+    #[must_use]
     pub const fn vertical(d: f64) -> Self {
         Insets::symmetric(0.0, d)
     }
     /// `d` above, nothing elsewhere.
     #[inline]
+    #[must_use]
     pub const fn top(d: f64) -> Self {
         Insets {
             top: d,
@@ -298,6 +318,7 @@ impl Insets {
     }
     /// `d` below, nothing elsewhere.
     #[inline]
+    #[must_use]
     pub const fn bottom(d: f64) -> Self {
         Insets {
             bottom: d,
@@ -306,6 +327,7 @@ impl Insets {
     }
     /// `d` on the leading edge, nothing elsewhere.
     #[inline]
+    #[must_use]
     pub const fn leading(d: f64) -> Self {
         Insets {
             leading: d,
@@ -314,6 +336,7 @@ impl Insets {
     }
     /// `d` on the trailing edge, nothing elsewhere.
     #[inline]
+    #[must_use]
     pub const fn trailing(d: f64) -> Self {
         Insets {
             trailing: d,
@@ -322,11 +345,13 @@ impl Insets {
     }
     /// The width the insets take: leading plus trailing.
     #[inline]
+    #[must_use]
     pub fn horizontal_total(&self) -> f64 {
         self.leading + self.trailing
     }
     /// The height the insets take: top plus bottom.
     #[inline]
+    #[must_use]
     pub fn vertical_total(&self) -> f64 {
         self.top + self.bottom
     }
@@ -334,6 +359,7 @@ impl Insets {
 
 /// sRGB color, 0.0–1.0 components. Semantic theme tokens (§6.3) resolve to these in the backend.
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[must_use]
 pub struct Color {
     pub r: f64,
     pub g: f64,
@@ -407,11 +433,16 @@ impl Color {
     }
 
     /// Decompose to `(hue°, saturation, lightness)` (HSL). Hue is `0.0` for grays.
+    #[must_use]
+    #[expect(
+        clippy::float_cmp,
+        reason = "`max` is a copy of one of the three channels, so equality is exact"
+    )]
     pub fn to_hsl(&self) -> (f64, f64, f64) {
         let (r, g, b) = (self.r, self.g, self.b);
         let max = r.max(g).max(b);
         let min = r.min(g).min(b);
-        let l = (max + min) / 2.0;
+        let l = f64::midpoint(max, min);
         let d = max - min;
         if d.abs() < 1e-9 {
             return (0.0, 0.0, l);
@@ -430,6 +461,11 @@ impl Color {
     /// Decompose to `(hue°, saturation, value)` (HSV/HSB), the model every native color picker's
     /// spectrum tab is built on, so this is what a renderer seeds its sliders from. Hue is `0.0`
     /// for grays. Inverse of [`Color::hsv`].
+    #[must_use]
+    #[expect(
+        clippy::float_cmp,
+        reason = "`max` is a copy of one of the three channels, so equality is exact"
+    )]
     pub fn to_hsv(&self) -> (f64, f64, f64) {
         let (r, g, b) = (self.r, self.g, self.b);
         let max = r.max(g).max(b);
@@ -456,6 +492,7 @@ impl Color {
 
     /// `#rrggbb`, or `#rrggbbaa` when the color is not fully opaque. The 8-bit form every
     /// platform's own color field speaks, and what [`Color::parse`] round-trips.
+    #[must_use]
     pub fn to_hex_string(&self) -> String {
         let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         if self.a >= 1.0 {
@@ -482,11 +519,12 @@ impl Color {
     ///
     /// `None` on anything else. See [docs/color.md](https://daybrite.dev/docs/reference/color) for
     /// why the currency stays sRGB for now and what a wider one would carry.
+    #[must_use]
     pub fn parse(s: &str) -> Option<Color> {
         let s = s.trim();
         let hex = s.strip_prefix('#').unwrap_or(s);
         if !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-            let nib = |i: usize| u8::from_str_radix(&hex[i..i + 1], 16).ok().map(f64::from);
+            let nib = |i: usize| u8::from_str_radix(&hex[i..=i], 16).ok().map(f64::from);
             let byte = |i: usize| {
                 u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)
                     .ok()
@@ -587,10 +625,12 @@ impl Proposal {
         height: None,
     };
     #[inline]
+    #[must_use]
     pub const fn new(width: Option<f64>, height: Option<f64>) -> Self {
         Proposal { width, height }
     }
     #[inline]
+    #[must_use]
     pub const fn exact(size: Size) -> Self {
         Proposal {
             width: Some(size.width),
@@ -598,6 +638,7 @@ impl Proposal {
         }
     }
     /// Quantized key for the measurement cache (§7.4): tenth-of-a-point buckets.
+    #[must_use]
     pub fn cache_key(&self) -> (u64, u64) {
         #[inline]
         fn q(v: Option<f64>) -> u64 {
@@ -621,7 +662,7 @@ pub enum LayoutDirection {
 /// rotation about a unit anchor (`0.0..1.0` within the node's bounds; default center). Distinct
 /// from the layout frame: animating a `Transform` never triggers relayout, so it is the vehicle
 /// for movement/scaling animation. Each backend composes it onto the node's laid-out frame via its
-/// native transform channel (CALayer/GskTransform/RenderTransform/NODE_TRANSFORM/…).
+/// native transform channel (`CALayer/GskTransform/RenderTransform/NODE_TRANSFORM`/…).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
     pub tx: f64,
@@ -652,6 +693,7 @@ impl Transform {
     };
 
     #[inline]
+    #[must_use]
     pub const fn translate(tx: f64, ty: f64) -> Transform {
         Transform {
             tx,
@@ -660,6 +702,7 @@ impl Transform {
         }
     }
     #[inline]
+    #[must_use]
     pub const fn scale(sx: f64, sy: f64) -> Transform {
         Transform {
             sx,
@@ -668,6 +711,7 @@ impl Transform {
         }
     }
     #[inline]
+    #[must_use]
     pub const fn rotate(deg: f64) -> Transform {
         Transform {
             rotate_deg: deg,
@@ -676,6 +720,7 @@ impl Transform {
     }
     /// Whether this transform has no visual effect; backends skip applying it.
     #[inline]
+    #[must_use]
     pub fn is_identity(&self) -> bool {
         *self == Transform::IDENTITY
     }
@@ -685,6 +730,7 @@ impl Transform {
 /// self-driven** animation path (docs/shapes.md §5) and Qt's sampled spring; native-widget
 /// animation does not use it; the toolkit interpolates on its own compositor.
 pub trait Animatable: Copy {
+    #[must_use]
     fn lerp(self, to: Self, t: f64) -> Self;
 }
 
@@ -799,7 +845,7 @@ mod tests {
     #[test]
     fn color_hex_and_component_parsing() {
         // Every hex width, with and without the `#`.
-        let coral = Color::hex(0xE86A3C);
+        let coral = Color::hex(0x00E8_6A3C);
         for s in ["#e86a3c", "E86A3C", "#e86a3cff"] {
             let p = Color::parse(s).unwrap();
             assert!((p.r - coral.r).abs() < 1e-9, "{s}");

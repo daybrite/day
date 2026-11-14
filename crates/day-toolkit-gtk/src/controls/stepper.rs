@@ -53,6 +53,10 @@ fn make(_backend: &mut Gtk, p: &StepperProps, id: NodeId) -> gtk4::Widget {
     root
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+)]
 fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &StepperPatch) {
     let StepperPatch::SetValue(v) = patch;
     let Some(spin) = h.downcast_ref::<gtk4::SpinButton>() else {
@@ -69,7 +73,7 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &StepperPatch) {
 fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
     let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
     let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
-    Size::new((nat_w as f64).max(96.0), (nat_h as f64).max(24.0))
+    Size::new(f64::from(nat_w).max(96.0), f64::from(nat_h).max(24.0))
 }
 
 /// Drop the echo guard when the widget goes away. The map's key is the widget's address,

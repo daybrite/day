@@ -73,7 +73,7 @@ fn main() {
                     from_native: false,
                 },
                 None,
-            )
+            );
         };
         let select = |toolkit: &mut AppKit, start: usize, end: usize| {
             toolkit.update(
@@ -81,7 +81,7 @@ fn main() {
                 kinds::TEXT_FIELD,
                 &TextFieldPatch::Select(TextSelection::new(start, end)),
                 None,
-            )
+            );
         };
         set_text(&mut toolkit, "github.com");
         select(&mut toolkit, 3, 10);

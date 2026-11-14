@@ -11,7 +11,7 @@ fn main() {
             "network: online: {}, kind: {:?}, expensive: {}",
             n.online,
             n.kind,
-            n.expensive.map(|e| e.to_string()).unwrap_or("?".into())
+            n.expensive.map_or("?".into(), |e| e.to_string())
         ),
         None => println!("no connectivity API on this platform"),
     }

@@ -42,7 +42,7 @@ define_class!(
         fn fire(&self, sender: &AnyObject) {
             ffi_guard::contain((), || {
                 let idx = if let Some(p) = sender.downcast_ref::<NSPopUpButton>() {
-                    p.selectedItem().map(|item| item.tag()).unwrap_or(-1)
+                    p.selectedItem().map_or(-1, |item| item.tag())
                 } else if let Some(s) = sender.downcast_ref::<NSSegmentedControl>() {
                     s.selectedSegment()
                 } else if let Some(b) = sender.downcast_ref::<NSButton>() {
@@ -53,7 +53,7 @@ define_class!(
                 if idx >= 0 {
                     crate::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
                 }
-            })
+            });
         }
     }
 );
@@ -169,7 +169,7 @@ fn make(backend: &mut AppKit, p: &PickerProps, id: NodeId) -> Retained<NSView> {
         PickerStyle::Segmented => make_segmented(mtm, p, &target),
         PickerStyle::Inline => make_inline(mtm, p, &target),
     };
-    TARGETS.with(|t| t.insert((view.as_ref() as *const NSView) as usize, target));
+    TARGETS.with(|t| t.insert(std::ptr::from_ref::<NSView>(view.as_ref()) as usize, target));
     if !p.enabled {
         set_enabled(&view, false);
     }
@@ -185,7 +185,7 @@ fn radios(stack: &NSStackView) -> Vec<Retained<NSButton>> {
         .collect()
 }
 
-/// Enable or disable the picker: the pop-up and segmented control are one NSControl each;
+/// Enable or disable the picker: the pop-up and segmented control are one `NSControl` each;
 /// the inline style disables every radio, since the stack itself takes no input.
 fn set_enabled(h: &NSView, on: bool) {
     if let Some(c) = h.downcast_ref::<objc2_app_kit::NSControl>() {
@@ -201,7 +201,7 @@ fn set_enabled(h: &NSView, on: bool) {
 /// is not a picker. The text is the selected option's title as shown (`None` with nothing
 /// selected); an inline picker reads enabled only when all its radios agree.
 pub(crate) fn read_native(h: &NSView) -> Option<(Option<String>, Option<bool>)> {
-    if !TARGETS.with(|t| t.contains((h as *const NSView) as usize)) {
+    if !TARGETS.with(|t| t.contains(std::ptr::from_ref::<NSView>(h) as usize)) {
         return None;
     }
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
@@ -259,16 +259,12 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
 
 /// New option labels, in place. The selected index is preserved where it still exists:
 /// AppKit resets a rebuilt pop-up to item 0 and drops a segmented control's selection, so
-/// each arm restores it explicitly (clamped, since an NSException here would abort).
+/// each arm restores it explicitly (clamped, since an `NSException` here would abort).
 fn set_options(h: &Retained<NSView>, opts: &[String]) {
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
-        let want = popup
-            .selectedItem()
-            .map(|item| item.tag())
-            .unwrap_or(0)
-            .max(0) as usize;
+        let want = popup.selectedItem().map_or(0, |item| item.tag()).max(0) as usize;
         let separators = TARGETS
-            .with(|t| t.get((h.as_ref() as *const NSView) as usize))
+            .with(|t| t.get(std::ptr::from_ref::<NSView>(h.as_ref()) as usize))
             .map(|target| target.ivars().separators_before.clone())
             .unwrap_or_default();
         fill_menu(
@@ -295,23 +291,22 @@ fn set_options(h: &Retained<NSView>, opts: &[String]) {
             .filter_map(|v| v.downcast_ref::<NSButton>().map(Retained::from))
             .collect();
         for (i, o) in opts.iter().enumerate() {
-            match existing.get(i) {
-                Some(b) => b.setTitle(&NSString::from_str(o)),
-                None => {
-                    let Some(first) = existing.first() else { break };
-                    let radio = unsafe {
-                        NSButton::radioButtonWithTitle_target_action(
-                            &NSString::from_str(o),
-                            first.target().as_deref(),
-                            first.action(),
-                            stack.mtm(),
-                        )
-                    };
-                    radio.setTag(i as isize);
-                    // A radio added while the picker is disabled stays disabled with it.
-                    radio.setEnabled(first.isEnabled());
-                    stack.addArrangedSubview(<NSButton as AsRef<NSView>>::as_ref(&radio));
-                }
+            if let Some(b) = existing.get(i) {
+                b.setTitle(&NSString::from_str(o));
+            } else {
+                let Some(first) = existing.first() else { break };
+                let radio = unsafe {
+                    NSButton::radioButtonWithTitle_target_action(
+                        &NSString::from_str(o),
+                        first.target().as_deref(),
+                        first.action(),
+                        stack.mtm(),
+                    )
+                };
+                radio.setTag(i as isize);
+                // A radio added while the picker is disabled stays disabled with it.
+                radio.setEnabled(first.isEnabled());
+                stack.addArrangedSubview(<NSButton as AsRef<NSView>>::as_ref(&radio));
             }
         }
         for b in existing.iter().skip(opts.len()) {

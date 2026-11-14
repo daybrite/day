@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-const CRATE: &str = r###"
+const CRATE: &str = r##"
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
@@ -32,7 +32,7 @@ day_bridge::bridge! {
     #[day_bridge::impl(rust, platforms = [other])]
     fn stop_native() {}
 }
-"###;
+"##;
 
 #[test]
 fn js_arm_is_a_valid_es_module() {
@@ -83,7 +83,7 @@ fn js_arm_is_a_valid_es_module() {
 /// still has to be a module node accepts.
 #[test]
 fn js_arm_with_a_completion_is_a_valid_es_module() {
-    const CRATE: &str = r###"
+    const CRATE: &str = r##"
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
@@ -118,7 +118,7 @@ day_bridge::bridge! {
         Ok(())
     }
 }
-"###;
+"##;
     let tmp = std::env::temp_dir().join(format!("day-bridge-js-done-{}", std::process::id()));
     std::fs::create_dir_all(tmp.join("src")).unwrap();
     std::fs::write(tmp.join("src/lib.rs"), CRATE).unwrap();

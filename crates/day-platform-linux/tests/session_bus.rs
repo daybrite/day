@@ -146,13 +146,13 @@ fn bus_calls_objects_and_signals() {
         &[],
     ) {
         Err(Error::Remote { name, .. }) => {
-            assert_eq!(name, "org.freedesktop.DBus.Error.UnknownObject")
+            assert_eq!(name, "org.freedesktop.DBus.Error.UnknownObject");
         }
         other => panic!("expected UnknownObject, got {other:?}"),
     }
     match a.call("dev.daybrite.Nobody", "/", "dev.daybrite.Test", "Echo", &[]) {
         Err(Error::Remote { name, .. }) => {
-            assert_eq!(name, "org.freedesktop.DBus.Error.ServiceUnknown")
+            assert_eq!(name, "org.freedesktop.DBus.Error.ServiceUnknown");
         }
         other => panic!("expected ServiceUnknown, got {other:?}"),
     }
@@ -320,9 +320,10 @@ fn fake_watcher() -> (Connection, mpsc::Receiver<(String, String)>) {
 
 fn cli_available(tool: &str) -> bool {
     let found = Command::new(tool).arg("--help").output().is_ok();
-    if !found && std::env::var_os("DAY_DBUS_REQUIRE_CLI").is_some() {
-        panic!("{tool} is required (DAY_DBUS_REQUIRE_CLI) but not installed");
-    }
+    assert!(
+        found || std::env::var_os("DAY_DBUS_REQUIRE_CLI").is_none(),
+        "{tool} is required (DAY_DBUS_REQUIRE_CLI) but not installed"
+    );
     if !found {
         eprintln!("skipping the {tool} interop checks: not installed");
     }
@@ -781,7 +782,7 @@ fn single_instance_forwards_and_hands_over() {
     );
     match instance::claim("dev.daybrite.InstanceSquat", Vec::new(), |_| {}) {
         Err(Claimed::NoBus(Error::Remote { name, .. })) => {
-            assert_eq!(name, "org.freedesktop.DBus.Error.UnknownObject")
+            assert_eq!(name, "org.freedesktop.DBus.Error.UnknownObject");
         }
         other => panic!("expected NoBus(UnknownObject), got {other:?}"),
     }

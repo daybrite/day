@@ -6,7 +6,7 @@
 //! by `day build`.
 //!
 //! No Google dependency (neither Play services nor Firebase), so an app linking this part runs
-//! unchanged on AOSP, GrapheneOS, or a Kindle (docs/notify.md).
+//! unchanged on AOSP, `GrapheneOS`, or a Kindle (docs/notify.md).
 //!
 //! Scheduling is the half that differs most from Apple. Android has no notification scheduler, so a
 //! delayed notification is an `AlarmManager` alarm that wakes a `<receiver>` (declared through the
@@ -35,7 +35,7 @@ day_platform_android::java_class! {
     },
 }
 
-/// Mirrors the shim's OK / ERR_DENIED / ERR_FAILED.
+/// Mirrors the shim's OK / `ERR_DENIED` / `ERR_FAILED`.
 fn to_result(code: i32) -> Result<(), NotifyError> {
     match code {
         0 => Ok(()),
@@ -140,8 +140,7 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 pub(crate) fn cancel(id: NotifId) {

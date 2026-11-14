@@ -20,6 +20,7 @@ use day_spec::props::*;
 /// (docs/images.md). Scales with [`ContentMode::Fit`] by default (never stretches); tune with
 /// `.content_mode()` / `.fill()` / `.stretch()`, and optionally constrain the frame with
 /// `.aspect_ratio(w/h)`.
+#[must_use]
 pub struct Image {
     source: crate::Reactive<day_spec::ImageSource>,
     content_mode: ContentMode,
@@ -200,7 +201,7 @@ impl Piece for Image {
             move || source.get(),
             move |s: &day_spec::ImageSource| {
                 day_core::with_tree(|t| {
-                    t.patch(node, Box::new(ImagePatch::Source(s.clone())), true)
+                    t.patch(node, Box::new(ImagePatch::Source(s.clone())), true);
                 });
             },
         );
@@ -213,12 +214,13 @@ impl Piece for Image {
 // ---------------------------------------------------------------------------
 
 /// A bundled vector glyph, resolved by name through whatever form the backend loads natively
-/// (§18.3: a VectorDrawable on Android, a catalog entry on Apple, an SVG on the web, a
+/// (§18.3: a `VectorDrawable` on Android, a catalog entry on Apple, an SVG on the web, a
 /// build-rasterized PNG where the toolkit has no vector path). Distinct from [`image()`] on
 /// purpose: only a typed [`VectorName`](day_spec::VectorName) is accepted, and the modifiers
 /// are the vector-appropriate ones: [`tint`](Vector::tint) recolors a monochrome glyph where
 /// the backend can (template rendering on Apple, drawable tint on Android, pixel recolor on
 /// GTK; backends without a tint path draw the authored colors).
+#[must_use]
 pub struct Vector {
     source: crate::Reactive<day_spec::VectorName>,
     tint: Option<crate::Reactive<day_spec::Color>>,
@@ -294,7 +296,7 @@ impl Piece for Vector {
         let source = self.source;
         let source_seed = resolved(source.get_untracked());
         let tint = self.tint;
-        let seed = tint.as_ref().map(|t| t.get_untracked());
+        let seed = tint.as_ref().map(super::canvas::Reactive::get_untracked);
         let props = ImageProps {
             source: source_seed.clone(),
             decorative: self.decorative,
@@ -312,7 +314,7 @@ impl Piece for Vector {
                 move || resolved(source.get()),
                 move |s: &day_spec::ImageSource| {
                     day_core::with_tree(|t| {
-                        t.patch(node, Box::new(ImagePatch::Source(s.clone())), true)
+                        t.patch(node, Box::new(ImagePatch::Source(s.clone())), true);
                     });
                 },
             );
@@ -331,7 +333,7 @@ impl Piece for Vector {
                             node,
                             Box::new(day_spec::props::ImagePatch::Tint(Some(*c))),
                             false,
-                        )
+                        );
                     });
                 },
             );
