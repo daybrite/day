@@ -29,7 +29,6 @@ export const heroPicks = [
   { app: 'Fleet-Reader', shot: 'dashboard-unread', platform: 'macos-appkit', framed: true },
   { app: 'Day-Trader', shot: 'detail-monthly', platform: 'windows-winui', framed: true },
   { app: 'Games-Fair', shot: 'pipes', platform: 'android-material' },
-  { app: 'Games-Fair', shot: 'pacpac', platform: 'harmony-arkui' },
   { app: 'Games-Fair', shot: 'flipside', platform: 'linux-qt' },
   // Complement apps that currently publish only default-theme captures. Each dark image is
   // reviewed independently; it need not be a counterpart of a light-rotation selection.
