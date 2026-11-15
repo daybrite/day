@@ -332,11 +332,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
     };
     let mut props = CardProps {
         header: r.title.initial(),
-        description: r
-            .caption
-            .as_ref()
-            .map(TextSource::initial)
-            .unwrap_or_default(),
+        description: r.caption.as_ref().map_or_default(TextSource::initial),
         glyph: 0,
         clickable: false,
         destructive: false,

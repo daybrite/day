@@ -721,8 +721,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
         caption: r
             .caption
             .as_ref()
-            .map(TextSource::initial)
-            .unwrap_or_default(),
+            .map_or_default(TextSource::initial),
         enabled: enabled_now,
         shape,
     };
@@ -983,13 +982,11 @@ impl Piece for Shell {
                     title: s
                         .title
                         .as_ref()
-                        .map(TextSource::initial)
-                        .unwrap_or_default(),
+                        .map_or_default(TextSource::initial),
                     footer: s
                         .footer
                         .as_ref()
-                        .map(TextSource::initial)
-                        .unwrap_or_default(),
+                        .map_or_default(TextSource::initial),
                     rows,
                 });
             }

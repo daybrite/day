@@ -44,6 +44,7 @@ pub(crate) fn parse(line: &str) -> Result<Fix, LocationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn a_fix_line_keeps_unreported_fields_empty() {
@@ -58,11 +59,8 @@ mod tests {
 
     #[test]
     fn a_fix_without_a_position_is_malformed() {
-        assert!(matches!(
-            parse("fix,NaN,2.35,0,0,0,0,0,0"),
-            Err(LocationError::Io(_))
-        ));
-        assert!(matches!(parse("fix,48.85,2.35"), Err(LocationError::Io(_))));
+        assert_matches!(parse("fix,NaN,2.35,0,0,0,0,0,0"), Err(LocationError::Io(_)));
+        assert_matches!(parse("fix,48.85,2.35"), Err(LocationError::Io(_)));
     }
 
     #[test]
@@ -70,7 +68,7 @@ mod tests {
         assert_eq!(parse("error,201"), Err(LocationError::PermissionDenied));
         assert_eq!(parse("error,3301100"), Err(LocationError::Disabled));
         assert_eq!(parse("error,3301200"), Err(LocationError::Timeout));
-        assert!(matches!(parse("error,9"), Err(LocationError::Io(_))));
-        assert!(matches!(parse("garbage"), Err(LocationError::Io(_))));
+        assert_matches!(parse("error,9"), Err(LocationError::Io(_)));
+        assert_matches!(parse("garbage"), Err(LocationError::Io(_)));
     }
 }

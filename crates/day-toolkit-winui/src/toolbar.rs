@@ -201,8 +201,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
         // icon slot, which is not distinguishable from "this glyph did not convert".
         let geom = match &item.icon {
             Some(Icon::Image(name)) => crate::vector_geometry(name)
-                .map(|s| s.replace('\n', "\x1f").replace('\t', "\x1e"))
-                .unwrap_or_default(),
+                .map_or_default(|s| s.replace('\n', "\x1f").replace('\t', "\x1e")),
             _ => String::new(),
         };
         // A 14th field: where the item sits on the bar (docs/toolbars.md). A `CommandBar` splits

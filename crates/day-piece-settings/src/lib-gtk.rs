@@ -436,8 +436,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         subtitle: r
             .caption
             .as_ref()
-            .map(TextSource::initial)
-            .unwrap_or_default(),
+            .map_or_default(TextSource::initial),
         activatable,
         suffix_icon,
         secondary_title: false,
@@ -1657,8 +1656,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             subtitle: r
                 .caption
                 .as_ref()
-                .map(TextSource::initial)
-                .unwrap_or_default(),
+                .map_or_default(TextSource::initial),
             activatable,
             suffix_icon,
             destructive: false,
@@ -1931,13 +1929,11 @@ impl Piece for Shell {
                     title: s
                         .title
                         .as_ref()
-                        .map(TextSource::initial)
-                        .unwrap_or_default(),
+                        .map_or_default(TextSource::initial),
                     description: s
                         .footer
                         .as_ref()
-                        .map(TextSource::initial)
-                        .unwrap_or_default(),
+                        .map_or_default(TextSource::initial),
                     rows,
                 });
             }

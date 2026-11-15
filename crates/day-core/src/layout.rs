@@ -102,13 +102,10 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         place_node(self.tree, child, rect, self.offset, false);
     }
     fn flex_of(&self, child: RNode) -> Flex {
-        self.tree.node(child).map(|n| n.flex).unwrap_or_default()
+        self.tree.node(child).map_or_default(|n| n.flex)
     }
     fn children_of(&self, node: RNode) -> Vec<RNode> {
-        self.tree
-            .node(node)
-            .map(|n| n.children.clone())
-            .unwrap_or_default()
+        self.tree.node(node).map_or_default(|n| n.children.clone())
     }
     fn measure_leaf(&mut self, p: Proposal) -> Size {
         let Some(n) = self.tree.node(self.current) else {

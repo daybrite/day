@@ -56,7 +56,7 @@ impl<S: Binding<String>> Piece for SearchField<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let SearchField { query, placeholder } = self;
         let initial = query.peek();
-        let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
+        let ph = placeholder.map_or_default(|p| p.initial());
         let node = cx.leaf(
             KIND,
             &SearchProps {

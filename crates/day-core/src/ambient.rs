@@ -92,11 +92,10 @@ fn initial_safe_area() -> day_geometry::Insets {
     std::env::var("DAY_SAFE_AREA_TOP")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
-        .map(|top| day_geometry::Insets {
+        .map_or_default(|top| day_geometry::Insets {
             top,
             ..Default::default()
         })
-        .unwrap_or_default()
 }
 
 /// Backend-facing: the first window's safe-area insets, known before its content builds and

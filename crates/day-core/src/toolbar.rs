@@ -134,13 +134,9 @@ pub fn with_window<R>(root: RNode, f: impl FnOnce() -> R) -> R {
     // Restored on unwind too (the anim.rs `Restore` rule): a contained panic during a
     // secondary window's build would otherwise leave `BUILDING` pointing at a dead window,
     // silently redirecting every later contribution.
-    struct Restore(Option<RNode>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            BUILDING.with(|b| b.set(self.0));
-        }
-    }
-    let _restore = Restore(BUILDING.with(|b| b.replace(Some(root))));
+    let previous = BUILDING.with(|b| b.replace(Some(root)));
+    let _restore =
+        std::mem::DropGuard::new(previous, |previous| BUILDING.with(|b| b.set(previous)));
     f()
 }
 
@@ -165,14 +161,6 @@ pub fn with_page_in<R>(
     window: RNode,
     f: impl FnOnce() -> R,
 ) -> R {
-    struct Restore;
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            PAGE_STACK.with(|s| {
-                s.borrow_mut().pop();
-            });
-        }
-    }
     PAGE_STACK.with(|s| {
         s.borrow_mut().push(PageFrame {
             page,
@@ -181,7 +169,11 @@ pub fn with_page_in<R>(
             window,
         });
     });
-    let _restore = Restore;
+    let _restore = std::mem::DropGuard::new((), |()| {
+        PAGE_STACK.with(|s| {
+            s.borrow_mut().pop();
+        });
+    });
     f()
 }
 
@@ -529,18 +521,14 @@ fn recompose_windows() {
 // recording DELIVERED first: nested diffs against the old baseline insert an item twice,
 // which raises an Objective-C exception in NSToolbar.
 fn recompose_serially(mut apply: impl FnMut()) {
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            RECOMPOSING.with(|busy| busy.set(false));
-            RECOMPOSE_AGAIN.with(|again| again.set(false));
-        }
-    }
     if RECOMPOSING.with(|busy| busy.replace(true)) {
         RECOMPOSE_AGAIN.with(|again| again.set(true));
         return;
     }
-    let _reset = Reset;
+    let _reset = std::mem::DropGuard::new((), |()| {
+        RECOMPOSING.with(|busy| busy.set(false));
+        RECOMPOSE_AGAIN.with(|again| again.set(false));
+    });
     loop {
         RECOMPOSE_AGAIN.with(|again| again.set(false));
         apply();

@@ -367,7 +367,7 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
                         .iter()
                         .map(|(l, t)| {
                             (
-                                l.as_ref().map(TextSource::resolve).unwrap_or_default(),
+                                l.as_ref().map_or_default(TextSource::resolve),
                                 t.as_ref().map(TextSource::resolve),
                             )
                         })
@@ -437,7 +437,7 @@ fn lower(
                 label_style,
                 prominent,
             } = e;
-            let label = label.map(|t| t.initial()).unwrap_or_default();
+            let label = label.map_or_default(|t| t.initial());
             let extra = action;
 
             // Buttons and menus dispatch through the menu registry; toggles and search fields

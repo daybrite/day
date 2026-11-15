@@ -164,7 +164,7 @@ fn bus_calls_objects_and_signals() {
         &[],
         Duration::from_millis(150),
     );
-    assert!(matches!(slow, Err(Error::Timeout)), "{slow:?}");
+    std::assert_matches!(slow, Err(Error::Timeout), "{slow:?}");
     let nested = a
         .call(
             "dev.daybrite.DbusTest",
@@ -278,10 +278,10 @@ fn bus_calls_objects_and_signals() {
 
     // Closing fails later calls instead of hanging.
     b.close();
-    assert!(matches!(
+    std::assert_matches!(
         b.call(BUS_NAME, BUS_PATH, BUS_INTERFACE, "ListNames", &[]),
         Err(Error::Disconnected)
-    ));
+    );
 }
 
 fn day_dbus_lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

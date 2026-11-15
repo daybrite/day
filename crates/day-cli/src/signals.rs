@@ -143,8 +143,7 @@ pub fn kill_all() {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pids = CHILDREN
         .lock()
-        .map(|mut c| std::mem::take(&mut *c))
-        .unwrap_or_default();
+        .map_or_default(|mut c| std::mem::take(&mut *c));
     for child in pids {
         kill_one(child.pid);
     }
@@ -152,8 +151,7 @@ pub fn kill_all() {
     // streamed back as app output.
     let stops = REMOTE_STOPS
         .lock()
-        .map(|mut r| std::mem::take(&mut *r))
-        .unwrap_or_default();
+        .map_or_default(|mut r| std::mem::take(&mut *r));
     for argv in stops {
         if let Some((exe, args)) = argv.split_first() {
             let _ = std::process::Command::new(exe)
@@ -167,8 +165,7 @@ pub fn kill_all() {
     // mid-build may still be flushing its lockfile while its pid is being signaled.
     let restores = RESTORES
         .lock()
-        .map(|mut r| std::mem::take(&mut *r))
-        .unwrap_or_default();
+        .map_or_default(|mut r| std::mem::take(&mut *r));
     for (path, before) in restores {
         crate::patch::restore(&path, before.as_deref());
     }

@@ -147,8 +147,7 @@ pub fn set_status_item(spec: StatusItemSpec) {
                     .borrow()
                     .iter()
                     .find(|(s, _)| s.id == old.id)
-                    .map(|(_, ids)| ids.clone())
-                    .unwrap_or_default()
+                    .map_or_default(|(_, ids)| ids.clone())
             });
             TRACKING.with(|tracking| {
                 if let Some(next) = tracking

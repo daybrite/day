@@ -1188,8 +1188,7 @@ pub fn check(root: &Path) -> Result<CheckReport, String> {
                 let repo = pkg
                     .get("repository")
                     .and_then(|r| r.as_str())
-                    .map(canon)
-                    .unwrap_or_default();
+                    .map_or_default(canon);
                 if named.contains_key(name) || repos.contains(&repo) {
                     let shown = if repo.is_empty() {
                         CRATES_IO.into()

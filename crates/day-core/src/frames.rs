@@ -46,8 +46,7 @@ fn parse(line: &str) -> Option<(&str, Remembered)> {
 fn read_all() -> Vec<String> {
     store()
         .and_then(|p| std::fs::read_to_string(p).ok())
-        .map(|s| s.lines().map(str::to_owned).collect())
-        .unwrap_or_default()
+        .map_or_default(|s| s.lines().map(str::to_owned).collect())
 }
 
 /// The frame remembered under `key`, if any.

@@ -376,8 +376,7 @@ fn a_tool_call_reaches_the_cli_and_answers_about_this_project() {
     assert_eq!(meta["project"]["id"], Fixture::APP_ID);
     let targets: Vec<&str> = meta["project"]["targets"]
         .as_array()
-        .map(|a| a.iter().filter_map(|t| t.as_str()).collect())
-        .unwrap_or_default();
+        .map_or_default(|a| a.iter().filter_map(|t| t.as_str()).collect());
     assert_eq!(targets, Fixture::TARGETS);
 }
 
@@ -428,8 +427,7 @@ fn a_failing_tool_reports_in_band_rather_than_as_a_protocol_error() {
         );
         let texts: Vec<&str> = result["content"]
             .as_array()
-            .map(|b| b.iter().filter_map(|x| x["text"].as_str()).collect())
-            .unwrap_or_default();
+            .map_or_default(|b| b.iter().filter_map(|x| x["text"].as_str()).collect());
         assert!(
             texts.iter().any(|t| t.contains("error")),
             "{name} failed without saying why: {result}"
@@ -483,15 +481,12 @@ fn a_tool_call_re_invokes_the_cli_the_self_command_names() {
         "tools/call",
         serde_json::json!({"name": "day_metadata", "arguments": {}}),
     );
-    let text = result["content"]
-        .as_array()
-        .map(|b| {
-            b.iter()
-                .filter_map(|x| x["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n")
-        })
-        .unwrap_or_default();
+    let text = result["content"].as_array().map_or_default(|b| {
+        b.iter()
+            .filter_map(|x| x["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    });
     assert!(
         text.contains("failed to run day"),
         "the tool call did not go through DAY_SELF_COMMAND: {text}"

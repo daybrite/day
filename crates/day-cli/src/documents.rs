@@ -101,10 +101,7 @@ pub fn descriptions(project: &Project) -> Result<Vec<String>, String> {
             }),
             None => Ok(format!(
                 "{} document",
-                t.extensions
-                    .first()
-                    .map(|e| e.to_uppercase())
-                    .unwrap_or_default()
+                t.extensions.first().map_or_default(|e| e.to_uppercase())
             )),
         })
         .collect()
@@ -451,7 +448,7 @@ pub fn linux_mime_package(types: &[FileType], descriptions: &[String]) -> Option
             let _ = writeln!(
                 body,
                 "    <comment>{}</comment>",
-                xml(descriptions.get(i).map(String::as_str).unwrap_or_default())
+                xml(descriptions.get(i).map_or_default(String::as_str))
             );
             for ext in &t.extensions {
                 let _ = writeln!(body, "    <glob pattern=\"*.{}\"/>", xml(ext));
@@ -486,7 +483,7 @@ pub fn windows_manifest(manifest: String, types: &[FileType], descriptions: &[St
     }
     let mut s = String::from("<Extensions>");
     for (i, t) in types.iter().enumerate() {
-        let name = descriptions.get(i).map(String::as_str).unwrap_or_default();
+        let name = descriptions.get(i).map_or_default(String::as_str);
         let _ = write!(
             s,
             "<uap:Extension Category=\"windows.fileTypeAssociation\"><uap3:FileTypeAssociation Name=\"daydocument{i}\"><uap:DisplayName>{}</uap:DisplayName><uap:SupportedFileTypes>",
@@ -558,7 +555,7 @@ pub fn nsis(
     let mut uninstall = String::new();
     for (i, t) in types.iter().enumerate() {
         let prog = format!("{id}.document.{i}");
-        let name = quote(descriptions.get(i).map(String::as_str).unwrap_or_default());
+        let name = quote(descriptions.get(i).map_or_default(String::as_str));
         let _ = writeln!(
             install,
             "  WriteRegStr HKCU \"Software\\Classes\\{prog}\" \"\" \"{name}\"\n  WriteRegStr HKCU \"Software\\Classes\\{prog}\\DefaultIcon\" \"\" '$\\\"$INSTDIR\\{exe}.exe$\\\",0'"

@@ -363,9 +363,7 @@ mod button_menu_tests {
         let node = 43_u64;
         let provider: day_spec::ContextMenuFn = Rc::new(|_| vec![item()]);
         BUTTON_MENUS.with(|m| m.borrow_mut().insert(node, (0x3000, provider)));
-        assert!(
-            matches!(button_menu_for(node), ButtonMenu::Show(0x3000, items) if items.len() == 1)
-        );
+        std::assert_matches!(button_menu_for(node), ButtonMenu::Show(0x3000, items) if items.len() == 1);
         BUTTON_MENUS.with(|m| m.borrow_mut().remove(&node));
     }
 }
@@ -1828,7 +1826,7 @@ impl Toolkit for Xaml {
                         let icons_joined = p
                             .icons
                             .iter()
-                            .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
+                            .map(|ic| ic.as_deref().map_or_default(icon_file_name))
                             .collect::<Vec<_>>()
                             .join("\n");
                         // The trailing status glyph rides the same three channels the leading
@@ -1836,7 +1834,7 @@ impl Toolkit for Xaml {
                         let badge_icons_joined = p
                             .badge_icons
                             .iter()
-                            .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
+                            .map(|ic| ic.as_deref().map_or_default(icon_file_name))
                             .collect::<Vec<_>>()
                             .join("\n");
                         ffi::day_xaml_document_items(
@@ -2283,7 +2281,7 @@ impl Toolkit for Xaml {
                             if let Some(nav) = host {
                                 let icons_joined = icons
                                     .iter()
-                                    .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
+                                    .map(|ic| ic.as_deref().map_or_default(icon_file_name))
                                     .collect::<Vec<_>>()
                                     .join("\n");
                                 ffi::day_xaml_document_items(
@@ -2300,11 +2298,7 @@ impl Toolkit for Xaml {
                                     cstr(
                                         &badge_icons
                                             .iter()
-                                            .map(|ic| {
-                                                ic.as_deref()
-                                                    .map(icon_file_name)
-                                                    .unwrap_or_default()
-                                            })
+                                            .map(|ic| ic.as_deref().map_or_default(icon_file_name))
                                             .collect::<Vec<_>>()
                                             .join("\n"),
                                     )
@@ -3825,13 +3819,7 @@ impl Toolkit for Xaml {
     ) -> Option<day_spec::TextMetrics> {
         let text = cstr(text);
         // The same family form `replay` draws with, so the measurement is of the same face.
-        let family = cstr(
-            &font
-                .family
-                .as_deref()
-                .map(canvas_family)
-                .unwrap_or_default(),
-        );
+        let family = cstr(&font.family.as_deref().map_or_default(canvas_family));
         let mut out = [0.0f64; 8];
         // SAFETY: both strings outlive the call and `out` has the eight slots the shim fills.
         let rc = unsafe {
@@ -3909,8 +3897,7 @@ fn join_geoms(icons: &[Option<String>]) -> String {
         .map(|ic| {
             ic.as_deref()
                 .and_then(vector_geometry)
-                .map(|s| s.replace('\n', "\x1f"))
-                .unwrap_or_default()
+                .map_or_default(|s| s.replace('\n', "\x1f"))
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -3930,8 +3917,7 @@ fn icon_file_name(name: &str) -> String {
     day_spec::resource::resolve_image_file(name)
         .as_deref()
         .and_then(|p| p.file_name())
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 fn image_uri(source: &str) -> String {

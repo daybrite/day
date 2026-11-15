@@ -35,7 +35,7 @@ For build errors or device connection problems, see [Troubleshooting](/docs/how-
 
 | What | Version | Where |
 |---|---|---|
-| Rust | 1.89 or newer | [rustup.rs](https://rustup.rs) |
+| Rust | 1.100 or newer | [rustup.rs](https://rustup.rs) |
 | The `day` CLI | from crates.io | [Getting started](/docs/tutorials/first-app) |
 | Git | any | [git-scm.com](https://git-scm.com/downloads) |
 

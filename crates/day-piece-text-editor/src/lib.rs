@@ -397,7 +397,7 @@ impl Piece for TextEditor {
                 doc: initial.clone(),
                 base,
                 editable: editable.get_untracked(),
-                placeholder: placeholder.map(|p| p.initial()).unwrap_or_default(),
+                placeholder: placeholder.map_or_default(|p| p.initial()),
                 min_lines,
                 max_lines,
                 spellcheck,

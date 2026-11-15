@@ -227,12 +227,7 @@ fn schedule(host: usize, reload: bool) {
                 );
             }
         }
-        let active = TREES.with(|m| {
-            m.borrow()
-                .get(&host)
-                .map(|e| e.active.clone())
-                .unwrap_or_default()
-        });
+        let active = TREES.with(|m| m.borrow().get(&host).map_or_default(|e| e.active.clone()));
         for token in active {
             let mut width = 0.0;
             let visible = unsafe { tree_frame(host as *mut c_void, token, &raw mut width) } != 0;

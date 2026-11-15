@@ -1889,8 +1889,7 @@ fn suite_apply_rows(host: *mut std::os::raw::c_void) {
                 .get(i)
                 .and_then(|o| o.as_deref())
                 .filter(|n| !n.is_empty())
-                .map(icon_file_path)
-                .unwrap_or_default();
+                .map_or_default(icon_file_path);
             if !icon.is_empty() {
                 unsafe { ffi::day_qt_tabs_set_icon(host, at, cstr(&icon).as_ptr()) };
             }
@@ -2090,8 +2089,7 @@ fn icon_file_path(name: &str) -> String {
     // the fallback for names that have no vector — ordinary bundled images.
     day_spec::resource::resolve_vector_svg(name)
         .or_else(|| day_spec::resource::resolve_image_file(name))
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|p| p.to_string_lossy().into_owned())
 }
 
 /// Build the nav list's per-row context menus (docs/menus.md) and hand them to the shim:
@@ -2761,7 +2759,7 @@ impl Toolkit for Qt {
                     // Depth titles for the back header. Recorded in both presentations, so a
                     // window that narrows into a stack already knows what to put in the header
                     // (docs/size-classes.md); the header simply stays hidden while split.
-                    let titles = vec![nav_props.map(|p| p.title.clone()).unwrap_or_default()];
+                    let titles = vec![nav_props.map_or_default(|p| p.title.clone())];
                     if !is_split {
                         // A stack has no sidebar: hide the empty pane so the detail is full-width.
                         ffi::day_qt_set_visible(sidebar_pane, 0);
@@ -2837,7 +2835,7 @@ impl Toolkit for Qt {
                     let icons_joined = p
                         .icons
                         .iter()
-                        .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                        .map(|ic| ic.as_deref().map_or_default(icon_file_path))
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
                     let tints_joined = nav_tints_joined(&p.tints);
@@ -2846,7 +2844,7 @@ impl Toolkit for Qt {
                     let badge_icons_joined = p
                         .badge_icons
                         .iter()
-                        .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                        .map(|ic| ic.as_deref().map_or_default(icon_file_path))
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
                     let badge_tints_joined = nav_tints_joined(&p.badge_tints);
@@ -3234,13 +3232,13 @@ impl Toolkit for Qt {
                         let joined = items.join("\u{1f}");
                         let icons_joined = icons
                             .iter()
-                            .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                            .map(|ic| ic.as_deref().map_or_default(icon_file_path))
                             .collect::<Vec<_>>()
                             .join("\u{1f}");
                         let tints_joined = nav_tints_joined(tints);
                         let badge_icons_joined = badge_icons
                             .iter()
-                            .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                            .map(|ic| ic.as_deref().map_or_default(icon_file_path))
                             .collect::<Vec<_>>()
                             .join("\u{1f}");
                         let badge_tints_joined = nav_tints_joined(badge_tints);
@@ -4717,8 +4715,7 @@ impl Toolkit for Qt {
         self.secondary
             .iter()
             .find(|w| w.content == host.0)
-            .map(|w| day_platform_macos::window_tabs::order(w.id))
-            .unwrap_or_default()
+            .map_or_default(|w| day_platform_macos::window_tabs::order(w.id))
     }
     fn native_document_tabs(&self) -> bool {
         true

@@ -156,9 +156,7 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
                 if script::device_screenshot_public(target, &path, reply.capture_revision.is_some())
                     .is_ok()
                 {
-                    let b64 = std::fs::read(&path)
-                        .map(|b| script::b64encode_public(&b))
-                        .unwrap_or_default();
+                    let b64 = std::fs::read(&path).map_or_default(|b| script::b64encode_public(&b));
                     result["screenshot"] = serde_json::json!({
                         "path": path.display().to_string(),
                         "pngBase64": b64,

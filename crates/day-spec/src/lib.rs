@@ -253,8 +253,7 @@ pub mod placeholder {
     pub fn seen() -> Vec<PieceKind> {
         table()
             .lock()
-            .map(|s| s.iter().copied().collect())
-            .unwrap_or_default()
+            .map_or_default(|s| s.iter().copied().collect())
     }
 }
 
@@ -4318,7 +4317,7 @@ impl Shape {
     ///
     /// // A bar standing on its axis: rounded on top, square where it meets the baseline.
     /// let bar = Shape::rounded_rect(Rect::new(0.0, 0.0, 20.0, 80.0), CornerRadii::top(6.0));
-    /// assert!(matches!(bar, Shape::Path(_)));
+    /// std::assert_matches!(bar, Shape::Path(_));
     /// ```
     pub fn rounded_rect(rect: Rect, radii: CornerRadii) -> Shape {
         let r = radii.fitted(rect.size);

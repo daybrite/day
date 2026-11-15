@@ -214,12 +214,11 @@ fn call_tool(
     let str_arr = |key: &str| -> Vec<String> {
         args.get(key)
             .and_then(|v| v.as_array())
-            .map(|a| {
+            .map_or_default(|a| {
                 a.iter()
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_default()
     };
     let profile = args
         .get("profile")

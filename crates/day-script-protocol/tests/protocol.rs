@@ -3,6 +3,7 @@
 
 use day_script_protocol::{DialogMode, Reply, Request, ShotPolicy, Step};
 use serde_json::{Value, json};
+use std::assert_matches;
 
 // Synthetic protocol fixtures, not bundled app resources. Every shipped operation appears
 // once, with optional fields populated to detect lost fields during extraction or serialization.
@@ -36,17 +37,17 @@ fn operation_catalog_round_trips_requests_without_changing_wire_fields() {
 fn old_requests_keep_their_behavioral_defaults() {
     let screenshot: Step =
         serde_json::from_value(json!({"op":"screenshot","name":"fixture"})).unwrap();
-    assert!(matches!(
+    assert_matches!(
         screenshot,
         Step::Screenshot {
             in_process: true,
             window: None,
             ..
         }
-    ));
+    );
     let expand: Step =
         serde_json::from_value(json!({"op":"expand","id":"fixture","row":"child"})).unwrap();
-    assert!(matches!(expand, Step::Expand { expanded: true, .. }));
+    assert_matches!(expand, Step::Expand { expanded: true, .. });
     let back: Step = serde_json::from_value(json!({"op":"nav_back"})).unwrap();
     assert_eq!(back, Step::NavBack { native: false });
     assert_eq!(
@@ -54,28 +55,24 @@ fn old_requests_keep_their_behavioral_defaults() {
         json!({"op":"nav_back"})
     );
     let tap: Step = serde_json::from_value(json!({"op":"tap","id":"fixture"})).unwrap();
-    assert!(
-        matches!(tap, Step::Tap { if_present: false, repeat: None, at: None, modifiers, .. } if modifiers.is_empty())
-    );
+    assert_matches!(tap, Step::Tap { if_present: false, repeat: None, at: None, modifiers, .. } if modifiers.is_empty());
     // `select` gained `if_present` after it shipped: an older script means "must exist", and a
     // step that does not ask for it keeps the wire form older engines read.
     let select: Step =
         serde_json::from_value(json!({"op":"select","id":"fixture","index":1})).unwrap();
-    assert!(matches!(
+    assert_matches!(
         select,
         Step::Select {
             if_present: false,
             ..
         }
-    ));
+    );
     assert_eq!(
         serde_json::to_value(select).unwrap(),
         json!({"op":"select","id":"fixture","index":1})
     );
     let run: Step = serde_json::from_value(json!({"op":"run_tests"})).unwrap();
-    assert!(
-        matches!(run, Step::RunTests { shots: ShotPolicy::OnFailure, filter, timeout_secs: None, case_timeout_secs: None } if filter.is_empty())
-    );
+    assert_matches!(run, Step::RunTests { shots: ShotPolicy::OnFailure, filter, timeout_secs: None, case_timeout_secs: None } if filter.is_empty());
 }
 
 #[test]

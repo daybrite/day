@@ -158,9 +158,7 @@ pub fn layout_direction() -> day_geometry::LayoutDirection {
         if let Some(dir) = d.get() {
             return dir;
         }
-        let dir = std::env::var("DAY_LOCALE")
-            .map(|l| direction_of_locale(&l))
-            .unwrap_or_default();
+        let dir = std::env::var("DAY_LOCALE").map_or_default(|l| direction_of_locale(&l));
         d.set(Some(dir));
         dir
     })

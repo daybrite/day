@@ -476,9 +476,8 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
             .map_err(|e| CliError::build(format!("{}: {e}", dir.display())))?;
         // Packaging tools are warnings in doctor, so a missing one skips the pack stage with a
         // reason rather than failing the combo; `--strict` is what turns that skip red.
-        let missing_pack = lookup(doctor::group_id(target.toolkit))
-            .map(|r| r.missing_pack)
-            .unwrap_or_default();
+        let missing_pack =
+            lookup(doctor::group_id(target.toolkit)).map_or_default(|r| r.missing_pack);
         reports.push((target, check_one(target, &dir, opts, &under, &missing_pack)));
         // Delete each combo as it finishes rather than all of them at the end: a debug build tree
         // is gigabytes, and five combos held at once is disk a laptop (or a runner) may not have.

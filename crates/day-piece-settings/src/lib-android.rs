@@ -422,8 +422,7 @@ impl Piece for NativeRow {
         }
         let caption_initial = caption_src
             .as_ref()
-            .map(TextSource::initial)
-            .unwrap_or_default();
+            .map_or_default(TextSource::initial);
         let props = RowProps {
             title: title_src.initial(),
             caption: caption_initial.clone(),
@@ -466,7 +465,7 @@ impl Piece for NativeRow {
                 move || {
                     (
                         tracked(&title_src),
-                        caption_src.as_ref().map(tracked).unwrap_or_default(),
+                        caption_src.as_ref().map_or_default(tracked),
                     )
                 },
                 move |(title, caption), _| {

@@ -231,8 +231,7 @@ pub fn styled_to_markdown(doc: &StyledText, style: DocStyle) -> String {
             .paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= line_end.max(start + 1))
-            .map(super::styled::ParagraphRun::style)
-            .unwrap_or_default();
+            .map_or_default(super::styled::ParagraphRun::style);
         // A whole-line scale that matches a heading step becomes `#`s.
         let heading = doc
             .style_of(start..line_end.max(start), style.base)
@@ -353,8 +352,7 @@ pub fn styled_to_html(doc: &StyledText, style: DocStyle) -> String {
             .paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= line_end.max(start + 1))
-            .map(super::styled::ParagraphRun::style)
-            .unwrap_or_default();
+            .map_or_default(super::styled::ParagraphRun::style);
         let (open_tag, close_tag) = match para.list {
             ListStyle::None => ("p", "p"),
             _ => ("li", "li"),
@@ -912,8 +910,7 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
             .paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= line_end.max(start + 1))
-            .map(super::styled::ParagraphRun::style)
-            .unwrap_or_default();
+            .map_or_default(super::styled::ParagraphRun::style);
         body.push_str("\\pard");
         match para.align {
             ParagraphAlign::Natural => body.push_str("\\ql"),

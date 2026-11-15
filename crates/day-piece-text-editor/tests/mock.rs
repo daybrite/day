@@ -625,8 +625,7 @@ fn code_mode_keeps_the_indentation_after_enter_and_closes_a_bracket() {
 fn an_editor_built_over_text_answers_for_it_before_any_edit() {
     let probe_text = || {
         day_core::with_tree(|t| t.find_by_id("ed").and_then(|n| t.node_probe(n)))
-            .map(|p| p.text)
-            .unwrap_or_default()
+            .map_or_default(|p| p.text)
     };
     let (_probe, text, _node) = boot_text(|text| {
         text.set("{\"ok\": true}".into());

@@ -736,8 +736,7 @@ fn summarize_ips(text: &str) -> Option<String> {
             e.get("type").and_then(|t| t.as_str()).unwrap_or("?"),
             e.get("signal")
                 .and_then(|t| t.as_str())
-                .map(|sig| format!(" ({sig})"))
-                .unwrap_or_default(),
+                .map_or_default(|sig| format!(" ({sig})")),
         ));
     }
     if let Some(ind) = v.pointer("/termination/indicator").and_then(|x| x.as_str()) {
@@ -751,12 +750,11 @@ fn summarize_ips(text: &str) -> Option<String> {
     let images: Vec<&str> = v
         .get("usedImages")
         .and_then(|i| i.as_array())
-        .map(|a| {
+        .map_or_default(|a| {
             a.iter()
                 .map(|i| i.get("name").and_then(|n| n.as_str()).unwrap_or("?"))
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let frames = v
         .get("threads")
         .and_then(|t| t.as_array())

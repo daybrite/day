@@ -1085,16 +1085,8 @@ fn resolve_one(
         deployment_target,
         display_name: decl.display_name.clone().unwrap_or_else(|| name.clone()),
         principal_class,
-        attributes: decl
-            .attributes
-            .as_ref()
-            .map(toml_table_to_plist)
-            .unwrap_or_default(),
-        info: decl
-            .info
-            .as_ref()
-            .map(toml_table_to_plist)
-            .unwrap_or_default(),
+        attributes: decl.attributes.as_ref().map_or_default(toml_table_to_plist),
+        info: decl.info.as_ref().map_or_default(toml_table_to_plist),
         entitlements_file,
         app_groups: decl.app_groups.clone(),
         frameworks: decl.frameworks.clone(),
@@ -1714,9 +1706,7 @@ fn incomplete(r: &Resolved, info: &::plist::Dictionary) -> Vec<String> {
 /// App Groups an extension claims that the app's own entitlements leave out: the shared
 /// container would then exist for the extension alone.
 fn app_group_findings(project: &Project, r: &Resolved) -> Vec<crate::lint::Finding> {
-    let claimed = entitlements(r, &project.root)
-        .map(|d| groups_of(&d))
-        .unwrap_or_default();
+    let claimed = entitlements(r, &project.root).map_or_default(|d| groups_of(&d));
     if claimed.is_empty() {
         return Vec::new();
     }
@@ -1726,15 +1716,13 @@ fn app_group_findings(project: &Project, r: &Resolved) -> Vec<crate::lint::Findi
             .flatten()
             .and_then(|e| ::plist::Value::from_file(&e.path).ok())
             .and_then(plist::Value::into_dictionary)
-            .map(|d| groups_of(&d))
-            .unwrap_or_default(),
+            .map_or_default(|d| groups_of(&d)),
         Os::Macos => crate::sandbox::entitlements(project, crate::cli::Profile::Debug)
             .ok()
             .flatten()
             .and_then(|p| ::plist::Value::from_file(&p).ok())
             .and_then(plist::Value::into_dictionary)
-            .map(|d| groups_of(&d))
-            .unwrap_or_default(),
+            .map_or_default(|d| groups_of(&d)),
     };
     claimed
         .iter()
@@ -1800,13 +1788,12 @@ fn provisioning_finding(project: &Project, r: &Resolved) -> Option<crate::lint::
 fn groups_of(d: &::plist::Dictionary) -> Vec<String> {
     d.get("com.apple.security.application-groups")
         .and_then(::plist::Value::as_array)
-        .map(|a| {
+        .map_or_default(|a| {
             a.iter()
                 .filter_map(::plist::Value::as_string)
                 .map(str::to_string)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 // --- signing ------------------------------------------------------------------------------------------

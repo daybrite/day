@@ -187,7 +187,7 @@ fn cargo_components(root: &Path) -> Vec<Component> {
     let mut comps: Vec<Component> = meta
         .get("packages")
         .and_then(|p| p.as_array())
-        .map(|pkgs| {
+        .map_or_default(|pkgs| {
             pkgs.iter()
                 .filter_map(|p| {
                     let name = p.get("name")?.as_str()?.to_string();
@@ -205,8 +205,7 @@ fn cargo_components(root: &Path) -> Vec<Component> {
                     })
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     comps.sort_by(|a, b| (&a.name, &a.version).cmp(&(&b.name, &b.version)));
     comps.dedup_by(|a, b| a.purl == b.purl);
     comps

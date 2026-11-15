@@ -188,7 +188,7 @@ impl<C: Binding<Color>> Piece for ColorPicker<C> {
             presets,
             key,
         } = self;
-        let title = title.map(|t| t.initial()).unwrap_or_default();
+        let title = title.map_or_default(|t| t.initial());
         let native = match idiom {
             PickerIdiom::Composed => false,
             PickerIdiom::Native => true,

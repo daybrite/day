@@ -793,8 +793,7 @@ fn check_store_profile(
     let platforms: Vec<&str> = profile
         .get("Platform")
         .and_then(plist::Value::as_array)
-        .map(|a| a.iter().filter_map(plist::Value::as_string).collect())
-        .unwrap_or_default();
+        .map_or_default(|a| a.iter().filter_map(plist::Value::as_string).collect());
     if !platforms.contains(&"OSX") {
         return Err(format!(
             "{name} is a profile for {}, not macOS — create a Mac App Store Connect profile",
@@ -1050,8 +1049,7 @@ fn notarize(project: &Project, opts: &PackOptions, dmg: &Path) -> Result<(), Pac
             .args(["notarytool", "log", &id])
             .args(["--key", &key_path, "--key-id", &key_id, "--issuer", &issuer])
             .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-            .unwrap_or_default();
+            .map_or_default(|o| String::from_utf8_lossy(&o.stdout).to_string());
         return Err(PackError::Sign(format!(
             "notarization {notary_status} (submission {id}):\n{log}"
         )));

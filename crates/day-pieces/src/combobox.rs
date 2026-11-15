@@ -68,7 +68,7 @@ impl Piece for ComboBox {
         } = self;
         let initial_items = items.get_untracked();
         let initial_text = text.get_untracked();
-        let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
+        let ph = placeholder.map_or_default(|p| p.initial());
         let node = cx.leaf(
             KIND,
             &ComboProps {

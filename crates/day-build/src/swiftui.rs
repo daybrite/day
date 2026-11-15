@@ -153,8 +153,7 @@ pub fn scan_package(pkg_dir: &Path) -> Result<SwiftScan, String> {
     for module_dir in modules {
         let module = module_dir
             .file_name()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|s| s.to_string_lossy().into_owned());
         let mut files = Vec::new();
         collect_swift_files(&module_dir, &mut files);
         files.sort();

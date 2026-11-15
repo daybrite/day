@@ -124,22 +124,9 @@ impl StatusItem {
             icon: self.icon,
             raster: self.raster,
             template: self.template,
-            title: self
-                .title
-                .as_ref()
-                .map(TextSource::resolve)
-                .unwrap_or_default(),
-            tooltip: self
-                .tooltip
-                .as_ref()
-                .map(TextSource::resolve)
-                .unwrap_or_default(),
-            menu: lower_menu(
-                self.menu
-                    .as_ref()
-                    .map(MenuSource::entries)
-                    .unwrap_or_default(),
-            ),
+            title: self.title.as_ref().map_or_default(TextSource::resolve),
+            tooltip: self.tooltip.as_ref().map_or_default(TextSource::resolve),
+            menu: lower_menu(self.menu.as_ref().map_or_default(MenuSource::entries)),
             activate: self.on_activate.map_or(0, day_core::register_menu_action),
         }
     }

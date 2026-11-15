@@ -1715,7 +1715,7 @@ fn android_serials() -> Vec<String> {
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| {
+        .map_or_default(|o| {
             String::from_utf8_lossy(&o.stdout)
                 .lines()
                 .skip(1)
@@ -1724,7 +1724,6 @@ fn android_serials() -> Vec<String> {
                 .map(str::to_string)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// An emulator console port nothing is using, so the serial is known before the emulator starts.
@@ -2053,25 +2052,23 @@ pub(crate) fn emulator_log_excerpts(
     emulator_log_tails(tail)
         .into_iter()
         .map(|(path, t)| {
-            let opening = std::fs::read_to_string(&path)
-                .map(|text| {
-                    text.lines()
-                        .filter(|l| {
-                            let l = l.to_ascii_lowercase();
-                            l.contains("ram size")
-                                || l.contains("ramsize")
-                                || l.contains("core")
-                                || l.contains("gpu")
-                                || l.contains("gles_mode")
-                                || l.contains("feature")
-                                || l.contains("accel")
-                                || l.contains("emulator version")
-                        })
-                        .take(head)
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default();
+            let opening = std::fs::read_to_string(&path).map_or_default(|text| {
+                text.lines()
+                    .filter(|l| {
+                        let l = l.to_ascii_lowercase();
+                        l.contains("ram size")
+                            || l.contains("ramsize")
+                            || l.contains("core")
+                            || l.contains("gpu")
+                            || l.contains("gles_mode")
+                            || l.contains("feature")
+                            || l.contains("accel")
+                            || l.contains("emulator version")
+                    })
+                    .take(head)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
             (path, opening, t)
         })
         .collect()

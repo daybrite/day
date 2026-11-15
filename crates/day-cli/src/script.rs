@@ -253,9 +253,7 @@ fn android_await_display(want: Option<(f64, f64)>) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         let out = adb_for_script().args(["shell", "wm", "size"]).output();
-        let text = out
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default();
+        let text = out.map_or_default(|o| String::from_utf8_lossy(&o.stdout).into_owned());
         let override_line = text
             .lines()
             .find(|l| l.trim_start().starts_with("Override"));
@@ -1724,14 +1722,12 @@ fn run_scripts_inner(
 /// everything captured on this machine (open it with `open build/day/screenshots/index.html`).
 fn write_gallery(root: &Path) {
     fn dirs(p: &Path) -> Vec<PathBuf> {
-        let mut v: Vec<PathBuf> = std::fs::read_dir(p)
-            .map(|rd| {
-                rd.flatten()
-                    .map(|e| e.path())
-                    .filter(|p| p.is_dir())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut v: Vec<PathBuf> = std::fs::read_dir(p).map_or_default(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect()
+        });
         v.sort();
         v
     }
@@ -1785,14 +1781,12 @@ fn write_gallery(root: &Path) {
                     .to_string_lossy()
                     .into_owned(),
             };
-            let mut pngs: Vec<PathBuf> = std::fs::read_dir(&variant)
-                .map(|rd| {
-                    rd.flatten()
-                        .map(|e| e.path())
-                        .filter(|p| p.extension().is_some_and(|e| e == "png"))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let mut pngs: Vec<PathBuf> = std::fs::read_dir(&variant).map_or_default(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|e| e == "png"))
+                    .collect()
+            });
             pngs.sort();
             if pngs.is_empty() {
                 continue;
@@ -2215,9 +2209,9 @@ mod gate_tests {
         use crate::targets::TargetKind;
         for detail in ["EOF", "Broken pipe (os error 32)", "connection reset"] {
             let error = startup_catalog(Err(detail.into())).unwrap_err();
-            assert!(matches!(&error, ScriptError::EngineLost {
+            std::assert_matches!(&error, ScriptError::EngineLost {
                 steps_failed: 0, before_steps: true, detail: message,
-            } if message.contains(detail)));
+            } if message.contains(detail));
             assert!(error.retry_engine_loss(TargetKind::Android, 0));
             assert!(!error.retry_engine_loss(TargetKind::Android, 1));
             assert!(!error.retry_engine_loss(TargetKind::Desktop, 0));
@@ -2235,7 +2229,7 @@ mod gate_tests {
             r#"{"ok":true,"data":{"schema_version":999,"declarations":[]}}"#,
         ] {
             let error = startup_catalog(Ok(reply.into())).unwrap_err();
-            assert!(matches!(error, ScriptError::Other(_)));
+            std::assert_matches!(error, ScriptError::Other(_));
             assert!(!error.retry_engine_loss(TargetKind::Android, 0));
         }
         let valid = r#"{"ok":true,"data":{"schema_version":1,"declarations":[]}}"#;
@@ -2449,12 +2443,12 @@ mod gate_tests {
             let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
             let mut line = String::new();
             fixture_line(&mut reader, &mut stream, &mut line).unwrap();
-            assert!(matches!(
+            std::assert_matches!(
                 serde_json::from_str::<day_script_protocol::Request>(&line)
                     .unwrap()
                     .step,
                 day_script_protocol::Step::WaitIdle
-            ));
+            );
             writeln!(stream, "{{\"ok\":true}}").unwrap();
             line.clear();
             fixture_line(&mut reader, &mut stream, &mut line).unwrap();
@@ -2596,10 +2590,10 @@ mod gate_tests {
             "/fixture-project/file"
         );
         assert_eq!(script.steps[0].annotations["only_on"][0], "macos-appkit");
-        assert!(matches!(
+        std::assert_matches!(
             script.steps[1].step,
             day_script_protocol::Step::Resize { restore: true, .. }
-        ));
+        );
         for text in [
             "flow:\n- wait_idle:\n- tap: {}",
             "flow:\n- tap: {id: fixture, op: wait_idle}",
@@ -2685,9 +2679,7 @@ mod gate_tests {
         let seen = server.join().unwrap();
         assert_eq!(seen[0], day_script_protocol::Step::WaitIdle);
         assert_eq!(seen[1], day_script_protocol::Step::WaitIdle);
-        assert!(
-            matches!(&seen[2], day_script_protocol::Step::Screenshot { name, in_process: true, .. } if name == "fixture")
-        );
+        std::assert_matches!(&seen[2], day_script_protocol::Step::Screenshot { name, in_process: true, .. } if name == "fixture");
         assert_eq!(run.steps_total, 3);
         assert_eq!(run.steps_failed, 1);
         assert_eq!(run.retryable_failed, 0);
@@ -3320,8 +3312,7 @@ fn print_test_listing(reply: &Reply) {
         let proves: Vec<&str> = t
             .get("proves")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|p| p.as_str()).collect())
-            .unwrap_or_default();
+            .map_or_default(|a| a.iter().filter_map(|p| p.as_str()).collect());
         eprintln!("      {name:<32} {kind:<9} {}", proves.join(" "));
     }
 }

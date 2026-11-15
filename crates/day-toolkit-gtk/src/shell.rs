@@ -536,8 +536,7 @@ pub(crate) fn monitors() -> Vec<day_spec::Monitor> {
             let name = m
                 .description()
                 .or_else(|| m.model())
-                .map(|s| s.to_string())
-                .unwrap_or_default();
+                .map_or_default(|s| s.to_string());
             day_spec::Monitor {
                 id: m
                     .connector()
@@ -816,14 +815,12 @@ mod tray {
             None => (std::env::var("DAY_ICON_NAME").unwrap_or_default(), None),
         };
         let template = spec.template || matches!(spec.icon, Some(day_spec::Icon::Symbol(_)));
-        let pixmaps: Vec<Pixmap> = svg_or_file
-            .map(|src| {
-                SIZES
-                    .iter()
-                    .filter_map(|px| pixmap(&src, *px, template))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let pixmaps: Vec<Pixmap> = svg_or_file.map_or_default(|src| {
+            SIZES
+                .iter()
+                .filter_map(|px| pixmap(&src, *px, template))
+                .collect()
+        });
         // Nothing drawn (a host without gdk-pixbuf's SVG loader) and no theme name: the app's
         // own icon, rather than an invisible item.
         let name = if name.is_empty() && pixmaps.is_empty() {

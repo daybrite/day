@@ -627,8 +627,7 @@ fn plan_fonts(dir: &Path) -> Result<Vec<Entry>, String> {
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(str::to_ascii_lowercase)
-            .unwrap_or_default();
+            .map_or_default(str::to_ascii_lowercase);
         if !matches!(ext.as_str(), "ttf" | "otf") {
             continue; // non-font files are ignored (matches scan_fonts, which errors at stage time)
         }
@@ -815,7 +814,7 @@ fn plan_strings_from_files(files: &[PathBuf]) -> Result<Vec<StrEntry>, String> {
     Ok(agreed
         .into_iter()
         .map(|(key, (params, _))| {
-            let doc = docs.remove(&key).map(|(t, _)| t).unwrap_or_default();
+            let doc = docs.remove(&key).map_or_default(|(t, _)| t);
             StrEntry {
                 key,
                 params: params
@@ -876,8 +875,7 @@ fn default_locale(locales: &[LocaleEntry]) -> String {
 fn locale_of(path: &Path) -> String {
     path.parent()
         .and_then(|p| p.file_name())
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 /// One parsed Fluent message: its key, `$variables` (name → used-as-a-number), and value text.

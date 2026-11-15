@@ -90,8 +90,7 @@ pub fn artifact_file(
 pub fn sidecar(artifact: &std::path::Path, suffix: &str) -> std::path::PathBuf {
     let name = artifact
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     artifact.with_file_name(format!("{name}.{suffix}"))
 }
 

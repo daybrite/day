@@ -250,9 +250,8 @@ pub(super) fn tool(name: &str) -> Option<PathBuf> {
         let path = PathBuf::from(p);
         return path.is_file().then_some(path);
     }
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
+    let mut dirs: Vec<PathBuf> =
+        std::env::var_os("PATH").map_or_default(|p| std::env::split_paths(&p).collect());
     if name.starts_with("linuxdeploy-plugin-")
         && let Some(deploy) = tool("linuxdeploy")
         && let Some(parent) = deploy.parent()

@@ -6,6 +6,7 @@ use day_part_http::{
     simulation::{Reply, Simulation},
     transport::PreparedBody,
 };
+use std::assert_matches;
 
 const DAV: [Method; 9] = [
     Method::Options,
@@ -42,7 +43,7 @@ fn dav_methods_and_xml_survive_interception() {
                     .iter()
                     .any(|(k, v)| k == "Depth" && v == "1")
             );
-            assert!(matches!(request.body,PreparedBody::Bytes(b) if b.as_slice()==b"<propfind/>"));
+            assert_matches!(request.body,PreparedBody::Bytes(b) if b.as_slice()==b"<propfind/>");
             Ok(Reply::new(207, b"<multistatus/>".to_vec()))
         },
     );

@@ -1465,8 +1465,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.nodes
             .get(root)
             .and_then(|n| n.handle.as_ref())
-            .map(|h| self.toolkit.window_tab_order(h))
-            .unwrap_or_default()
+            .map_or_default(|h| self.toolkit.window_tab_order(h))
     }
     fn reparent(&mut self, child: RNode, parent: RNode) -> bool {
         if !self.nodes.contains_key(child) || !self.nodes.contains_key(parent) {
@@ -2799,15 +2798,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn list_cell_keys(&self, node: RNode) -> Vec<usize> {
-        self.lists
-            .get(&node)
-            .map(|s| {
-                s.cells
-                    .iter()
-                    .filter_map(|(key, cell)| cell.active.then_some(*key))
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.lists.get(&node).map_or_default(|s| {
+            s.cells
+                .iter()
+                .filter_map(|(key, cell)| cell.active.then_some(*key))
+                .collect()
+        })
     }
 
     fn list_reload(&mut self, node: RNode) {
@@ -3677,19 +3673,13 @@ pub fn label_of(node: NodeId) -> Option<String> {
 /// single backend-agnostic boundary, log it (the message carries the offending effect's source
 /// location), and reset the runtime so the app keeps running (degraded) rather than crashing.
 pub fn pump_events() {
-    struct PumpGuard;
-    impl Drop for PumpGuard {
-        fn drop(&mut self) {
-            PUMP_ACTIVE.with(|active| active.set(false));
-        }
-    }
     // Native mutations in a handler can enqueue focus, value, or dismissal
     // events. Finish that handler before dispatching them: nested dispatch can
     // dispose the signals still used by its remaining binding writes.
     if PUMP_ACTIVE.with(|active| active.replace(true)) {
         return;
     }
-    let _guard = PumpGuard;
+    let _guard = std::mem::DropGuard::new((), |()| PUMP_ACTIVE.with(|active| active.set(false)));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
             pump_events_inner();

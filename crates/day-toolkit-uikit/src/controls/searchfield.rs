@@ -39,7 +39,7 @@ define_class!(
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
             if let Some(tf) = sender.downcast_ref::<UITextField>() {
-                let s = tf.text().map(|s| s.to_string()).unwrap_or_default();
+                let s = tf.text().map_or_default(|s| s.to_string());
                 crate::emit(self.ivars().node, Event::TextChanged(s));
             }
         }
@@ -87,7 +87,7 @@ fn make(_backend: &mut Uikit, p: &SearchProps, id: NodeId) -> Retained<UIView> {
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &SearchPatch) {
     let SearchPatch::SetText(t) = patch;
     if let Some(field) = (**h).downcast_ref::<UISearchTextField>() {
-        let cur = field.text().map(|s| s.to_string()).unwrap_or_default();
+        let cur = field.text().map_or_default(|s| s.to_string());
         if cur != *t {
             field.setText(Some(&NSString::from_str(t)));
         }

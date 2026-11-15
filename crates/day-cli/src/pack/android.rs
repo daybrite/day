@@ -74,8 +74,7 @@ pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
         .map(std::path::absolute)
         .transpose()
         .map_err(|e| e.to_string())?
-        .map(|ndk| format!("ndkPath={}\n", properties_value(&ndk.to_string_lossy())))
-        .unwrap_or_default();
+        .map_or_default(|ndk| format!("ndkPath={}\n", properties_value(&ndk.to_string_lossy())));
     let content = format!(
         "applicationId={}\nnamespace={}\nversionCode={}\nversionName={}\ntitle={}\nscheme={}\n\
          windowWidth={}\nwindowHeight={}\nwindowMinWidth={}\nwindowMinHeight={}\n{}",

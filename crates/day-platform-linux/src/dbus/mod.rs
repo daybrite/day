@@ -2752,7 +2752,7 @@ mod tests {
             replies: io::Cursor::new(b"REJECTED EXTERNAL\r\n".to_vec()),
             sent: Vec::new(),
         };
-        assert!(matches!(authenticate(&mut s, Some(0)), Err(Error::Auth(_))));
+        std::assert_matches!(authenticate(&mut s, Some(0)), Err(Error::Auth(_)));
     }
 
     #[test]
@@ -2826,12 +2826,12 @@ mod tests {
             .expect("echo");
         assert_eq!(echoed, vec![Value::str("ping")]);
         let err = conn.call("x.y", "/", "x.y", "Never", &[]);
-        assert!(matches!(err, Err(Error::Disconnected)), "{err:?}");
+        std::assert_matches!(err, Err(Error::Disconnected), "{err:?}");
         peer.join().expect("peer");
         assert!(conn.is_closed());
-        assert!(matches!(
+        std::assert_matches!(
             conn.emit_signal("/", "x.y", "Z", &[]),
             Err(Error::Disconnected)
-        ));
+        );
     }
 }

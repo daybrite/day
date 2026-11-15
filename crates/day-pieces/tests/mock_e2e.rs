@@ -10,6 +10,7 @@ use day_mock::{MockHandle, MockProbe, MockToolkit};
 use day_pieces::prelude::*;
 use day_reactive::flush_sync;
 use day_spec::{Event, NodeId, Size, WindowOptions};
+use std::assert_matches;
 
 /// Serializes boots against env mutation: `launch_with` reads process-global env
 /// (`DAY_DEEPLINK`), and tests run on parallel threads.
@@ -121,12 +122,11 @@ fn menu_button_resolves_entries_on_open_and_runs_the_chosen_action() {
     flush_sync();
     let items = provider(day_spec::Point::ZERO);
     assert_eq!(items.len(), 4);
-    assert!(matches!(items[1], day_spec::MenuItem::Separator));
-    assert!(matches!(
+    assert_matches!(items[1], day_spec::MenuItem::Separator);
+    assert_matches!(
         &items[2],
-        day_spec::MenuItem::Action { checked: Some(false), id: Some(id), .. } if id == "reader"
-    ));
-    assert!(matches!(&items[3], day_spec::MenuItem::Submenu { items, .. } if items.len() == 1));
+        day_spec::MenuItem::Action { checked: Some(false), id: Some(id), .. } if id == "reader");
+    assert_matches!(&items[3], day_spec::MenuItem::Submenu { items, .. } if items.len() == 1);
     let (label, action) = take(&items);
     assert_eq!(label, "Take 2");
     day_core::dispatch_menu_action(action);
@@ -136,13 +136,13 @@ fn menu_button_resolves_entries_on_open_and_runs_the_chosen_action() {
     // The next open sees the state the last choice left: the check mark moved.
     reader.set(true);
     let items = provider(day_spec::Point::ZERO);
-    assert!(matches!(
+    assert_matches!(
         &items[2],
         day_spec::MenuItem::Action {
             checked: Some(true),
             ..
         }
-    ));
+    );
 
     // The script route: the element id names the button, and its menu answers.
     let node = day_core::with_tree(|t| t.find_by_id("more")).expect("the id names the button");
@@ -4076,14 +4076,8 @@ fn shape_records_fill_then_stroke() {
     assert_eq!(canvases.len(), 1);
     let ops = &canvases[0].1.ops;
     // A circle inscribes its frame → an Ellipse; fill records before stroke.
-    assert!(
-        matches!(ops[0], DrawOp::Fill(Shape::Ellipse(_), _)),
-        "{ops:?}"
-    );
-    assert!(
-        matches!(ops[1], DrawOp::Stroke(Shape::Ellipse(_), _, _)),
-        "{ops:?}"
-    );
+    assert_matches!(ops[0], DrawOp::Fill(Shape::Ellipse(_), _), "{ops:?}");
+    assert_matches!(ops[1], DrawOp::Stroke(Shape::Ellipse(_), _, _), "{ops:?}");
 }
 
 #[test]
@@ -4096,10 +4090,10 @@ fn shape_rotate_wraps_geometry_in_a_transform() {
             .any()
     });
     let ops = &probe.find_by_kind("day.canvas")[0].1.ops;
-    assert!(matches!(ops[0], DrawOp::Save), "{ops:?}");
-    assert!(matches!(ops[1], DrawOp::Concat(_)), "{ops:?}");
-    assert!(matches!(ops[2], DrawOp::Fill(Shape::Rect(_), _)), "{ops:?}");
-    assert!(matches!(ops[3], DrawOp::Restore), "{ops:?}");
+    assert_matches!(ops[0], DrawOp::Save, "{ops:?}");
+    assert_matches!(ops[1], DrawOp::Concat(_), "{ops:?}");
+    assert_matches!(ops[2], DrawOp::Fill(Shape::Rect(_), _), "{ops:?}");
+    assert_matches!(ops[3], DrawOp::Restore, "{ops:?}");
 }
 
 #[test]
@@ -4447,15 +4441,9 @@ fn shape_group_flattens_to_one_canvas_leaf() {
     assert_eq!(canvases.len(), 1, "a group is ONE canvas leaf");
     let ops = &canvases[0].1.ops;
     // Ops record in child order.
-    assert!(matches!(ops[0], DrawOp::Fill(Shape::Rect(_), _)), "{ops:?}");
-    assert!(
-        matches!(ops[1], DrawOp::Fill(Shape::Ellipse(_), _)),
-        "{ops:?}"
-    );
-    assert!(
-        matches!(ops[2], DrawOp::Stroke(Shape::Line(_, _), _, _)),
-        "{ops:?}"
-    );
+    assert_matches!(ops[0], DrawOp::Fill(Shape::Rect(_), _), "{ops:?}");
+    assert_matches!(ops[1], DrawOp::Fill(Shape::Ellipse(_), _), "{ops:?}");
+    assert_matches!(ops[2], DrawOp::Stroke(Shape::Line(_, _), _, _), "{ops:?}");
 }
 
 #[test]
@@ -4585,10 +4573,7 @@ fn open_file_reads_the_chosen_path() {
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
     let (req, spec) = day_core::pending_presentation().expect("open picker pending");
-    assert!(matches!(
-        spec,
-        day_spec::present::PresentSpec::OpenFile { .. }
-    ));
+    assert_matches!(spec, day_spec::present::PresentSpec::OpenFile { .. });
     let _ = day_core::respond_presentation(
         req,
         PresentResult::Files(vec![path.to_string_lossy().into_owned()]),
@@ -4627,11 +4612,9 @@ fn open_files_reads_every_chosen_path() {
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
     let (req, spec) = day_core::pending_presentation().expect("open picker pending");
-    assert!(
-        matches!(
-            spec,
-            day_spec::present::PresentSpec::OpenFile { multiple: true, .. }
-        ),
+    assert_matches!(
+        spec,
+        day_spec::present::PresentSpec::OpenFile { multiple: true, .. },
         "open_files asks for a multiple-selection picker: {spec:?}"
     );
     assert!(spec.multiple());
@@ -4702,10 +4685,7 @@ fn open_folder_resolves_to_the_chosen_directory() {
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
     let (req, spec) = day_core::pending_presentation().expect("folder picker pending");
-    assert!(matches!(
-        spec,
-        day_spec::present::PresentSpec::OpenFolder { .. }
-    ));
+    assert_matches!(spec, day_spec::present::PresentSpec::OpenFolder { .. });
     assert_eq!(spec.title(), "Add Folder");
     assert!(spec.filters().is_empty() && !spec.multiple());
     let _ = day_core::respond_presentation(
@@ -7180,10 +7160,8 @@ fn toolbar_page_change_with_same_commands_installs_nothing() {
         "a real change is one edit, not one per step"
     );
     let last = probe.toolbar_edits().last().cloned().unwrap();
-    assert!(
-        matches!(last.as_slice(), [day_spec::ToolbarOp::Insert { item, .. }] if item.id == "more"),
-        "the edit inserts the new item and touches nothing else: {last:?}"
-    );
+    assert_matches!(last.as_slice(), [day_spec::ToolbarOp::Insert { item, .. }] if item.id == "more",
+        "the edit inserts the new item and touches nothing else: {last:?}");
     assert_eq!(share(), id, "the surviving item keeps its id");
     assert_eq!(
         probe.toolbar_items(),
@@ -10507,9 +10485,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
             .iter()
             .all(|(_, w)| w.text == "Disable grid")
     );
-    assert!(
-        matches!(menu_action(), day_spec::MenuItem::Action { label, checked: Some(true), .. } if label == "Disable grid")
-    );
+    assert_matches!(menu_action(), day_spec::MenuItem::Action { label, checked: Some(true), .. } if label == "Disable grid");
     assert_eq!(
         day_core::toolbar::toolbar_model()
             .iter()
@@ -11427,13 +11403,13 @@ fn a_declined_state_request_reads_back_what_the_window_kept() {
     window.set_state(day_spec::WindowState::Fullscreen);
     flush_sync();
     // The request went out to the primary's container...
-    assert!(matches!(
+    assert_matches!(
         probe.window_changes().last(),
         Some((
             _,
             day_spec::WindowChange::State(day_spec::WindowState::Fullscreen)
         ))
-    ));
+    );
     // ...and the platform reporting the state it kept puts the signal back.
     probe.emit(
         day_spec::WINDOW_NODE,
@@ -12390,11 +12366,7 @@ fn focused_ambient_reacts_when_switching_between_unchanged_windows() {
     primary.label.set("fixture primary".into());
     let observed = Signal::new(String::new());
     day_reactive::bind(
-        || {
-            Scene::focused()
-                .map(|scene| scene.label.get())
-                .unwrap_or_default()
-        },
+        || Scene::focused().map_or_default(|scene| scene.label.get()),
         move |text| observed.set(text.clone()),
     );
     let second = day_core::open_window(win_options("fixture second", 300.0, 200.0), scene_shell);

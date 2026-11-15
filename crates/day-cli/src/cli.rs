@@ -2741,8 +2741,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     let tag = capture
                                         .variant
                                         .as_deref()
-                                        .map(|v| format!(" [{v}]"))
-                                        .unwrap_or_default();
+                                        .map_or_default(|v| format!(" [{v}]"));
                                     ops::status(
                                         "Script",
                                         &format!(

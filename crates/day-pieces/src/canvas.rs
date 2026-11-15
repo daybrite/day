@@ -1216,14 +1216,14 @@ mod arc_tests {
         };
         // Nothing before it: the arc opens the subpath.
         let s = segs(PathBuilder::new().arc_to(c, 5.0, 0.0, 90.0));
-        assert!(matches!(s[0], PathSeg::Move(_)), "{:?}", s[0]);
+        std::assert_matches!(s[0], PathSeg::Move(_), "{:?}", s[0]);
         // Something before it: the arc is reached by a line, so the figure is one contour.
         let s = segs(
             PathBuilder::new()
                 .move_to(Point::new(9.0, 9.0))
                 .arc_to(c, 5.0, 0.0, 90.0),
         );
-        assert!(matches!(s[1], PathSeg::Line(_)), "{:?}", s[1]);
+        std::assert_matches!(s[1], PathSeg::Line(_), "{:?}", s[1]);
         // After a close there is no current point, so it opens a new subpath rather than drawing
         // a stray line back from wherever the last contour ended.
         let s = segs(
@@ -1233,7 +1233,7 @@ mod arc_tests {
                 .close()
                 .arc_to(c, 5.0, 0.0, 90.0),
         );
-        assert!(matches!(s[3], PathSeg::Move(_)), "{:?}", s[3]);
+        std::assert_matches!(s[3], PathSeg::Move(_), "{:?}", s[3]);
         // A degenerate arc still reaches its start point and emits no curve.
         let s = segs(PathBuilder::new().arc_to(c, 5.0, 0.0, 0.0));
         assert_eq!(s.len(), 1);

@@ -770,14 +770,12 @@ fn capture_path(tdir: &Path, device: Option<&str>, variant: &str, file: &str) ->
 /// nothing either way.
 fn variant_dirs(tdir: &Path) -> Vec<(Option<String>, String, PathBuf)> {
     fn subdirs(p: &Path) -> Vec<(String, PathBuf)> {
-        let mut v: Vec<(String, PathBuf)> = std::fs::read_dir(p)
-            .map(|rd| {
-                rd.flatten()
-                    .filter(|e| e.path().is_dir())
-                    .filter_map(|e| e.file_name().to_str().map(|n| (n.to_string(), e.path())))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut v: Vec<(String, PathBuf)> = std::fs::read_dir(p).map_or_default(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| e.file_name().to_str().map(|n| (n.to_string(), e.path())))
+                .collect()
+        });
         v.sort();
         v
     }
@@ -1059,9 +1057,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
     // every captured target, so a consumer selects on the index alone. Per target: `website`,
     // one list per device kind and locale the target captured, for its page's rows, and
     // `stores`, the same per store it declares. Each item is a shot id and the theme to take.
-    let declared = crate::store::read(project)
-        .map(|l| l.app)
-        .unwrap_or_default();
+    let declared = crate::store::read(project).map_or_default(|l| l.app);
     // The stores' rules, for the store each target publishes through: its list is written
     // whether or not the declaration names the store.
     let loaded_rules = crate::store::StoreRules::load(project, None).ok();
@@ -1115,8 +1111,9 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             let rule_kinds: Vec<String> = store_rules
                 .store_for(platform)
                 .filter(|(key, _)| *key == store)
-                .map(|(_, r)| r.kinds().into_iter().map(|(k, _)| k.to_string()).collect())
-                .unwrap_or_default();
+                .map_or_default(|(_, r)| {
+                    r.kinds().into_iter().map(|(k, _)| k.to_string()).collect()
+                });
             let named: BTreeSet<String> = declared
                 .declared_kinds(platform, &store)
                 .into_iter()
@@ -2400,7 +2397,7 @@ impl VideoRecording {
             if exited.is_some() || std::time::Instant::now() >= deadline {
                 let _ = child.kill();
                 let _ = child.wait();
-                let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+                let said = log.lock().map_or_default(|l| l.join("\n"));
                 return Err(format!(
                     "scrcpy did not start recording {serial}{}:\n{said}",
                     match exited {
@@ -2473,7 +2470,7 @@ impl VideoRecording {
         else {
             let _ = child.kill();
             let _ = child.wait();
-            let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+            let said = log.lock().map_or_default(|l| l.join("\n"));
             return Err(format!("simctl did not start recording {udid}:\n{said}"));
         };
         crate::ops::status(
@@ -2652,7 +2649,7 @@ impl VideoRecording {
         else {
             let _ = child.kill();
             let _ = child.wait();
-            let said = log.lock().map(|l| l.join("\n")).unwrap_or_default();
+            let said = log.lock().map_or_default(|l| l.join("\n"));
             return Err(format!("ffmpeg did not start recording {display}:\n{said}"));
         };
         let stdin = child.stdin.take().ok_or("ffmpeg has no stdin")?;
@@ -2895,7 +2892,7 @@ impl VideoRecording {
             },
         };
         if !finished || !self.path.is_file() {
-            let said = self.log.lock().map(|l| l.join("\n")).unwrap_or_default();
+            let said = self.log.lock().map_or_default(|l| l.join("\n"));
             return Err(format!(
                 "{} did not finish {}:\n{said}",
                 self.recorder,

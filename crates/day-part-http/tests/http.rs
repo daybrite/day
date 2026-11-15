@@ -193,8 +193,9 @@ fn connection_refused_maps_to_connect() {
              {resp:?} — something is listening there on this machine"
         ),
     };
-    assert!(
-        matches!(err, HttpError::Connect | HttpError::Io(_)),
+    std::assert_matches!(
+        err,
+        HttpError::Connect | HttpError::Io(_),
         "expected Connect-class error, got {err:?}"
     );
 }
@@ -202,7 +203,7 @@ fn connection_refused_maps_to_connect() {
 #[test]
 fn bad_url_is_rejected() {
     let err = fetch(&Request::get("not a url")).expect_err("bad url");
-    assert!(matches!(err, HttpError::BadUrl(_)), "{err:?}");
+    std::assert_matches!(err, HttpError::BadUrl(_), "{err:?}");
 }
 
 #[test]
@@ -379,7 +380,7 @@ fn fetch_future_resolves() {
 fn fetch_future_maps_bad_url() {
     let err =
         block_on(day_part_http::fetch_future(Request::get("not a url"))).expect_err("bad url");
-    assert!(matches!(err, HttpError::BadUrl(_)), "{err:?}");
+    std::assert_matches!(err, HttpError::BadUrl(_), "{err:?}");
 }
 
 #[test]

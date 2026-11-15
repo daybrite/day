@@ -837,10 +837,10 @@ impl Manifest {
         // prefix (there is no override key), so splitting is exact there, and this method has no
         // project to resolve the external catalog through anyway.
         let platform = crate::targets::find(target).map_or_else(
-            || target.split_once('-').map(|(os, _)| os).unwrap_or_default(),
+            || target.split_once('-').map_or_default(|(os, _)| os),
             |t| t.os,
         );
-        let toolkit = target.split_once('-').map(|(_, t)| t).unwrap_or_default();
+        let toolkit = target.split_once('-').map_or_default(|(_, t)| t);
         // Increasing precedence: toolkit, platform, exact target.
         for key in [toolkit, platform, target] {
             if let Some(o) = self.app.overrides.get(key) {

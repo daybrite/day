@@ -387,7 +387,7 @@ pub const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 pub const LAUNCH_TIMEOUT: Duration = Duration::from_secs(180);
 /// gradle / hvigor assemble the whole app host project, and a first run downloads dependencies,
 /// so the ceiling is an hour: far above any real build, far below a job timeout.
-pub const BUILD_TIMEOUT: Duration = Duration::from_secs(3600);
+pub const BUILD_TIMEOUT: Duration = Duration::from_hours(1);
 
 /// [`run_capture`] with a deadline: the child is killed when `limit` passes and the timeout is
 /// reported as an error naming the tool, so a wedged device shows up in minutes instead of

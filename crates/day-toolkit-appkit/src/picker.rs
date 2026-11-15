@@ -265,8 +265,7 @@ fn set_options(h: &Retained<NSView>, opts: &[String]) {
         let want = popup.selectedItem().map_or(0, |item| item.tag()).max(0) as usize;
         let separators = TARGETS
             .with(|t| t.get(std::ptr::from_ref::<NSView>(h.as_ref()) as usize))
-            .map(|target| target.ivars().separators_before.clone())
-            .unwrap_or_default();
+            .map_or_default(|target| target.ivars().separators_before.clone());
         fill_menu(
             popup,
             opts,

@@ -1038,28 +1038,28 @@ mod tests {
     fn event_to_step_maps_actions_and_drops_the_rest() {
         use day_spec::Point;
         // Actions with an id become steps.
-        assert!(matches!(
+        std::assert_matches!(
             event_to_step(Some("inc"), &Event::Pressed),
             Some(Step::Tap { .. })
-        ));
-        assert!(matches!(
+        );
+        std::assert_matches!(
             event_to_step(Some("field"), &Event::TextChanged("hi".into())),
             Some(Step::Input { .. })
-        ));
-        assert!(matches!(
+        );
+        std::assert_matches!(
             event_to_step(Some("t"), &Event::ToggleChanged(true)),
             Some(Step::Select { index: 1, .. })
-        ));
+        );
         // Navigation is not an event-to-step concern (the nav observer captures route changes);
         // a RouteRequested must not also map to a Navigate here, or it would double-record.
         assert!(event_to_step(None, &Event::RouteRequested("home".into())).is_none());
         // A gesture `Tap` on an ID'd node records like a press: that is the only event a
         // `Button::style(…)` or any other composed `.on_tap` piece ever delivers, so dropping it
         // left those controls out of every recording (see `event_to_step`'s doc).
-        assert!(matches!(
+        std::assert_matches!(
             event_to_step(Some("list-shuffle"), &Event::Tap(Point::new(1.0, 2.0))),
             Some(Step::Tap { .. })
-        ));
+        );
         // Without an id there is still no portable step; a bare coordinate is not one.
         assert!(event_to_step(None, &Event::Tap(Point::new(1.0, 2.0))).is_none());
         assert!(event_to_step(Some("s"), &Event::ValueChanged(0.5)).is_none());
@@ -1218,8 +1218,8 @@ mod tests {
         rec.push(Step::Navigate { route: "a".into() }, None);
         rec.push(Step::Navigate { route: "b".into() }, Some("B page".into())); // consecutive nav -> replaces
         assert_eq!(rec.steps.len(), 3);
-        assert!(matches!(&rec.steps[0], Step::Input { text: Some(t), .. } if t == "Ab"));
-        assert!(matches!(&rec.steps[2], Step::Navigate { route } if route == "b"));
+        std::assert_matches!(&rec.steps[0], Step::Input { text: Some(t), .. } if t == "Ab");
+        std::assert_matches!(&rec.steps[2], Step::Navigate { route } if route == "b");
     }
 
     /// One user tap must produce one step, whatever mix of events the control delivers for it.

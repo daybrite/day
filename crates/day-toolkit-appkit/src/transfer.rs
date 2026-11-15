@@ -147,8 +147,7 @@ fn location(view: &NSView, info: &ProtocolObject<dyn objc2_app_kit::NSDraggingIn
     let pb = unsafe { info.draggingPasteboard() };
     let types = pb
         .types()
-        .map(|a| a.iter().filter_map(|s| mime(&s)).collect())
-        .unwrap_or_default();
+        .map_or_default(|a| a.iter().filter_map(|s| mime(&s)).collect());
     let allowed = if unsafe { info.draggingSourceOperationMask() }.contains(NSDragOperation::Copy) {
         vec![Operation::Copy]
     } else {

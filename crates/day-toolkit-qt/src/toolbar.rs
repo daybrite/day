@@ -137,8 +137,7 @@ pub fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
         Some(Icon::Image(name)) => (
             day_spec::resource::resolve_vector_svg(name)
                 .or_else(|| day_spec::resource::resolve_image_file(name))
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+                .map_or_default(|p| p.to_string_lossy().into_owned()),
             sp::NONE as c_int,
         ),
         None => (String::new(), sp::NONE as c_int),
@@ -328,8 +327,7 @@ impl Qt {
                     let slot = slot_of(item, columns);
                     let after = mirror
                         .prev_where(*index, |i| slot_of(i, columns) == slot)
-                        .map(|i| i.id.clone())
-                        .unwrap_or_default();
+                        .map_or_default(|i| i.id.clone());
                     let after = cstr(&after);
                     // The column as asked, not as this layout folds it: the shim re-places by it
                     // when a split arrives or leaves.

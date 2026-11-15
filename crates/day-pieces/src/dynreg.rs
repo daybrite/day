@@ -987,6 +987,7 @@ pub fn catalog() -> Vec<SpecEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn constructs_and_modifies_a_chain() {
@@ -1040,16 +1041,16 @@ mod tests {
         let err = l
             .modify("font", &[DynValue::Str("body".into())])
             .unwrap_err();
-        assert!(matches!(err, DynError::LateTyped { .. }));
+        assert_matches!(err, DynError::LateTyped { .. });
     }
 
     #[test]
     fn identity_requires_a_host_declaration() {
         let piece = construct("label", &[DynValue::Str("fixture".into())]).unwrap();
-        assert!(matches!(
+        assert_matches!(
             piece.modify("id", &[DynValue::Str("undeclared".into())]),
             Err(DynError::Type { what: "id", .. })
-        ));
+        );
     }
 
     #[test]
@@ -1059,10 +1060,7 @@ mod tests {
             Err(DynError::Unknown { .. })
         ));
         let l = construct("label", &[DynValue::Str("x".into())]).unwrap();
-        assert!(matches!(
-            l.modify("blur", &[]),
-            Err(DynError::Unknown { .. })
-        ));
+        assert_matches!(l.modify("blur", &[]), Err(DynError::Unknown { .. }));
     }
 
     #[test]

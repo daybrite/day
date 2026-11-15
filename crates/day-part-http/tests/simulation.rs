@@ -61,10 +61,7 @@ fn pause_cancel_and_strict_unmatched_never_reach_network() {
     clock.advance(Duration::from_secs(1));
     assert!(rx.try_recv().is_err());
     flight.cancel();
-    assert!(matches!(
-        rx.try_recv(),
-        Err(mpsc::TryRecvError::Disconnected)
-    ));
+    std::assert_matches!(rx.try_recv(), Err(mpsc::TryRecvError::Disconnected));
     clock.advance(Duration::from_secs(1));
     assert_eq!(session.statistics().failed, 1);
     s.set_conditions(Conditions::default());
@@ -229,10 +226,10 @@ fn manual_clock_drives_idle_and_total_deadlines() {
         },
     );
     clock.advance(Duration::from_secs(2));
-    assert!(matches!(
+    std::assert_matches!(
         rx.try_recv().unwrap(),
         Err(day_part_http::HttpError::Timeout)
-    ));
+    );
     simulation.set_conditions(Conditions {
         bytes_per_second: Some(1),
         ..Default::default()
@@ -248,10 +245,10 @@ fn manual_clock_drives_idle_and_total_deadlines() {
         },
     );
     clock.advance(Duration::from_secs(1));
-    assert!(matches!(
+    std::assert_matches!(
         rx.try_recv().unwrap(),
         Err(day_part_http::HttpError::Timeout)
-    ));
+    );
     assert_eq!(session.statistics().active, 0);
 }
 

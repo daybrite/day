@@ -336,25 +336,22 @@ fn with_page_active<R>(gate: Rc<dyn Fn() -> bool>, f: impl FnOnce() -> R) -> R {
 /// A document can leave the resident container for its own native window. Replace
 /// its selection gate while retaining enclosing navigation gates and nested-page gates.
 pub(crate) fn with_document_active<R>(gate: Rc<dyn Fn() -> bool>, f: impl FnOnce() -> R) -> R {
-    struct Restore(Option<Rc<dyn Fn() -> bool>>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            NAV_PAGE_ACTIVE.with(|s| {
-                let mut s = s.borrow_mut();
-                s.pop();
-                if let Some(previous) = self.0.take() {
-                    s.push(previous);
-                }
-            });
-        }
-    }
     let previous = NAV_PAGE_ACTIVE.with(|s| {
         let mut s = s.borrow_mut();
         let previous = s.pop();
         s.push(gate);
         previous
     });
-    let _restore = Restore(previous);
+    // Restored on unwind too.
+    let _restore = std::mem::DropGuard::new(previous, |previous| {
+        NAV_PAGE_ACTIVE.with(|s| {
+            let mut s = s.borrow_mut();
+            s.pop();
+            if let Some(previous) = previous {
+                s.push(previous);
+            }
+        });
+    });
     f()
 }
 
@@ -1510,8 +1507,7 @@ fn section_sidebar<K: Route, S: Binding<K>>(
             .get()
             .iter()
             .find(|r| &r.id == id)
-            .map(|r| r.title.clone())
-            .unwrap_or_default()
+            .map_or_default(|r| r.title.clone())
     })
     .row_id(|id| day_core::id!(sidebar, id))
     .id(day_core::id!(nav_sections))
@@ -2071,16 +2067,12 @@ pub(crate) fn install_page_search(search: Search) {
     // below when it changes, so the field's placeholder is never left in the old language.
     let prompt_source = search.prompt.clone();
     let prompt: Rc<RefCell<String>> = Rc::new(RefCell::new(
-        prompt_source
-            .as_ref()
-            .map(TextSource::initial)
-            .unwrap_or_default(),
+        prompt_source.as_ref().map_or_default(TextSource::initial),
     ));
     let suggestions = search
         .suggestions
         .as_ref()
-        .map(|f| day_reactive::untrack(|| f(&text)))
-        .unwrap_or_default();
+        .map_or_default(|f| day_reactive::untrack(|| f(&text)));
     // What the field shows, by value (see `SearchSpec::install`).
     let shown: Rc<RefCell<String>> = Rc::new(RefCell::new(text.clone()));
     let action = {
@@ -2146,8 +2138,7 @@ pub(crate) fn install_page_search(search: Search) {
                     let text = shown.borrow().clone();
                     let list = suggest
                         .as_ref()
-                        .map(|f| day_reactive::untrack(|| f(&query.get_untracked())))
-                        .unwrap_or_default();
+                        .map_or_default(|f| day_reactive::untrack(|| f(&query.get_untracked())));
                     vec![item(text, list)]
                 } else {
                     Vec::new()
@@ -2168,8 +2159,7 @@ pub(crate) fn install_page_search(search: Search) {
                     let text = shown.borrow().clone();
                     let list = suggest
                         .as_ref()
-                        .map(|f| day_reactive::untrack(|| f(&query.get_untracked())))
-                        .unwrap_or_default();
+                        .map_or_default(|f| day_reactive::untrack(|| f(&query.get_untracked())));
                     day_core::update_contribution(token, vec![item(text, list)]);
                 }
             },
@@ -2421,14 +2411,9 @@ impl SearchSpec {
             suggestions: self
                 .suggestions
                 .as_ref()
-                .map(|f| day_reactive::untrack(|| f(&text)))
-                .unwrap_or_default(),
+                .map_or_default(|f| day_reactive::untrack(|| f(&text))),
             text,
-            prompt: self
-                .prompt
-                .as_ref()
-                .map(TextSource::initial)
-                .unwrap_or_default(),
+            prompt: self.prompt.as_ref().map_or_default(TextSource::initial),
             // The resolved placement, so a backend reads a decision rather than a request.
             placement: Self::resolve(self.placement),
             hides_on_scroll: self.hides_on_scroll,
@@ -3773,16 +3758,13 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         let menus_init = rows0.menus.clone();
         let reorders_natively = native_reorder.is_some();
         let rows_script = items.clone();
-        let movable_init: Vec<bool> = movable_of
-            .as_ref()
-            .map(|r| {
-                typed
-                    .borrow()
-                    .iter()
-                    .map(|k| r.drag(k) != NavDrag::Fixed)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let movable_init: Vec<bool> = movable_of.as_ref().map_or_default(|r| {
+            typed
+                .borrow()
+                .iter()
+                .map(|k| r.drag(k) != NavDrag::Fixed)
+                .collect()
+        });
         let regroup_init = matches!(movable_of, Some(SidebarDrag::Regroup(_)));
         let sorted_init: Vec<bool> = match &movable_of {
             Some(r @ SidebarDrag::Regroup(_)) => typed
@@ -4946,12 +4928,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                                 sections: scs.clone(),
                                 tints: tns.clone(),
                                 menus: mns.clone(),
-                                movable: movable_e
-                                    .as_ref()
-                                    .map(|r| {
-                                        keys.iter().map(|k| r.drag(k) != NavDrag::Fixed).collect()
-                                    })
-                                    .unwrap_or_default(),
+                                movable: movable_e.as_ref().map_or_default(|r| {
+                                    keys.iter().map(|k| r.drag(k) != NavDrag::Fixed).collect()
+                                }),
                                 sorted: match &movable_e {
                                     Some(r @ SidebarDrag::Regroup(_)) => {
                                         keys.iter().map(|k| r.drag(k) == NavDrag::Regroup).collect()
@@ -5751,7 +5730,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                     true
                 }
             },
-            move || p_cur.peek().last().map(Route::key).unwrap_or_default(),
+            move || p_cur.peek().last().map_or_default(Route::key),
             move |k| {
                 let Some(parsed) = K::from_key(k) else {
                     return false; // not one of this stack's routes; leave it queued
@@ -6118,9 +6097,9 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     false
                 }
             },
-            move || o_cur.peek().map(|r| r.key()).unwrap_or_default(),
+            move || o_cur.peek().map_or_default(|r| r.key()),
             move |k| push2(k, &o_enter),
-            move || o_seg.peek().map(|r| vec![r.key()]).unwrap_or_default(),
+            move || o_seg.peek().map_or_default(|r| vec![r.key()]),
         );
 
         node

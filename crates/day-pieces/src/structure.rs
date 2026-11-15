@@ -1050,7 +1050,7 @@ impl Piece for ListItem {
 impl ListItem {
     /// The platform's own row content (`kinds::LIST_ITEM`), each part patched in place.
     fn build_native(self, cx: &mut BuildCx) -> RNode {
-        let text = |t: &Option<TextSource>| t.as_ref().map(TextSource::initial).unwrap_or_default();
+        let text = |t: &Option<TextSource>| t.as_ref().map_or_default(TextSource::initial);
         let props = ListItemProps {
             title: self.title.initial(),
             subtitle: text(&self.subtitle),
@@ -1632,8 +1632,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 .delete
                 .as_ref()
                 .and_then(|d| d.label.as_ref())
-                .map(TextSource::initial)
-                .unwrap_or_default(),
+                .map_or_default(TextSource::initial),
             swipe_actions: self.swipe_leading.is_some() || self.swipe_trailing.is_some(),
             separators: self.separators,
             editing: self.editing.get_untracked(),
@@ -3487,7 +3486,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
             type_select_text: {
                 let (conn, f) = (conn.clone(), self.type_ahead.clone());
                 Box::new(move |tok| match &f {
-                    Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or_default(),
+                    Some(f) => conn.key_of(tok).map_or_default(|k| f(&k)),
                     None => String::new(),
                 })
             },

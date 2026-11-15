@@ -815,7 +815,7 @@ impl MockProbe {
             .tree_sources
             .get(&host.0)
             .map(|s| s.type_select_text.clone());
-        f.map(|f| f(token)).unwrap_or_default()
+        f.map_or_default(|f| f(token))
     }
 
     /// Simulate the native tree binding `token`'s row into a physical `cell`: build on first
@@ -2460,14 +2460,13 @@ impl Toolkit for MockToolkit {
             .window_tab_groups
             .iter()
             .find(|group| group.contains(&window.node))
-            .map(|group| {
+            .map_or_default(|group| {
                 group
                     .iter()
                     .copied()
                     .filter(|id| state.windows.iter().any(|w| w.node == *id && w.open))
                     .collect()
             })
-            .unwrap_or_default()
     }
     fn open_window(
         &mut self,

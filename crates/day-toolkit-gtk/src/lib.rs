@@ -3129,43 +3129,43 @@ impl SplitState {
 /// counterpart). The panel reports its width even while hidden, so revealing it never re-lays
 /// the panel's content from zero.
 fn inspector_report(host_key: usize) {
-    let reports: Vec<(NodeId, Size)> = INSPECTOR_STATE
-        .with(|t| t.get(host_key))
-        .map(|state| {
-            let state = state.borrow();
-            let (hw, hh) = (
-                f64::from(state.paned.width()),
-                f64::from(state.paned.height()),
-            );
-            if hw <= 0.0 || hh <= 0.0 {
-                return Vec::new();
-            }
-            // The panel's allocation once it has one (the divider may have moved it), its
-            // remembered width until then and while hidden; the content gets the rest.
-            let panel_w = if state.shown && state.panel.width() > 0 {
-                f64::from(state.panel.width())
-            } else {
-                state.width
-            };
-            let shown = if state.shown {
-                panel_w + f64::from(NavSplit::HANDLE)
-            } else {
-                0.0
-            };
-            state
-                .panes
-                .iter()
-                .map(|(id, panel, _)| {
-                    let size = if *panel {
-                        Size::new(panel_w, hh)
-                    } else {
-                        Size::new((hw - shown).max(0.0), hh)
-                    };
-                    (*id, size)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let reports: Vec<(NodeId, Size)> =
+        INSPECTOR_STATE
+            .with(|t| t.get(host_key))
+            .map_or_default(|state| {
+                let state = state.borrow();
+                let (hw, hh) = (
+                    f64::from(state.paned.width()),
+                    f64::from(state.paned.height()),
+                );
+                if hw <= 0.0 || hh <= 0.0 {
+                    return Vec::new();
+                }
+                // The panel's allocation once it has one (the divider may have moved it), its
+                // remembered width until then and while hidden; the content gets the rest.
+                let panel_w = if state.shown && state.panel.width() > 0 {
+                    f64::from(state.panel.width())
+                } else {
+                    state.width
+                };
+                let shown = if state.shown {
+                    panel_w + f64::from(NavSplit::HANDLE)
+                } else {
+                    0.0
+                };
+                state
+                    .panes
+                    .iter()
+                    .map(|(id, panel, _)| {
+                        let size = if *panel {
+                            Size::new(panel_w, hh)
+                        } else {
+                            Size::new((hw - shown).max(0.0), hh)
+                        };
+                        (*id, size)
+                    })
+                    .collect()
+            });
     for (id, size) in reports {
         emit(id, Event::FrameChanged(size));
     }
@@ -3723,8 +3723,7 @@ mod day_cell {
                 child = c.next_sibling();
                 let (x, y, w, h) = frames
                     .get(&(c.as_ptr() as usize))
-                    .map(|f| (f.origin.x, f.origin.y, f.size.width, f.size.height))
-                    .unwrap_or_default();
+                    .map_or_default(|f| (f.origin.x, f.origin.y, f.size.width, f.size.height));
                 // GTK insists a child gets at least its minimum. Day's frames come from its own
                 // measure of the child, so this only matters for a child not laid out yet.
                 let (min_w, ..) = c.measure(gtk4::Orientation::Horizontal, -1);
@@ -5993,8 +5992,7 @@ impl Toolkit for Gtk {
             Some(Builtin::NavPage) => {
                 let (title, pane) = props
                     .downcast_ref::<NavPageProps>()
-                    .map(|p| (p.title.clone(), p.pane))
-                    .unwrap_or_default();
+                    .map_or_default(|p| (p.title.clone(), p.pane));
                 let page: Handle = gtk4::Fixed::new().upcast();
                 let key = widget_key(&page);
                 NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(key, id));

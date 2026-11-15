@@ -4644,10 +4644,10 @@ mod client_tests {
                 reply
             });
             let client = builder(&t).build();
-            assert!(matches!(
+            std::assert_matches!(
                 wait(client.fetch_limited_future(Request::get("http://day.test/big"), 10)),
                 Err(HttpError::BodyTooLarge { limit: 10 })
-            ));
+            );
             assert_eq!(t.cancels.load(Ordering::SeqCst), 1);
         }
         let t = Scripted::new(|_| Reply::new(200).body("exact"));
@@ -4762,7 +4762,7 @@ mod client_tests {
             .trust(Trust::system().pin("*.test", wrong))
             .build();
         let err = wait(client.fetch_future(Request::get("https://day.test/"))).unwrap_err();
-        assert!(matches!(err, HttpError::Tls(_)), "{err:?}");
+        std::assert_matches!(err, HttpError::Tls(_), "{err:?}");
         assert_eq!(*lock(&t.answers), [Answer::Reject]);
     }
 
@@ -4829,7 +4829,7 @@ mod client_tests {
         let t = Scripted::new(|_| Reply::new(200));
         let client = builder(&t).build();
         let err = wait(client.fetch_future(Request::get("ftp://day.test/"))).unwrap_err();
-        assert!(matches!(err, HttpError::BadUrl(_)), "{err:?}");
+        std::assert_matches!(err, HttpError::BadUrl(_), "{err:?}");
         assert!(t.seen().is_empty());
     }
 

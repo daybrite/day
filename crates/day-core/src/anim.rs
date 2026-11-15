@@ -22,18 +22,11 @@ pub fn current_anim() -> Option<AnimSpec> {
     CURRENT_ANIM.with(std::cell::Cell::get)
 }
 
-/// Restores the previous ambient animation on drop (panic-safe).
-struct Restore(Option<AnimSpec>);
-impl Drop for Restore {
-    fn drop(&mut self) {
-        CURRENT_ANIM.with(|c| c.set(self.0));
-    }
-}
-
 /// Run `f` with `spec` as the ambient animation, restoring the previous value afterwards.
 pub(crate) fn with_current_anim<R>(spec: AnimSpec, f: impl FnOnce() -> R) -> R {
     let prev = CURRENT_ANIM.with(|c| c.replace(Some(spec)));
-    let _restore = Restore(prev);
+    // Restored on unwind too.
+    let _restore = std::mem::DropGuard::new(prev, |prev| CURRENT_ANIM.with(|c| c.set(prev)));
     f()
 }
 

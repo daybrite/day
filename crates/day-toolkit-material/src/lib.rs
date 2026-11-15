@@ -301,17 +301,14 @@ mod imp {
                         .copied()
                 }) {
                     let selected = TREE_SOURCES.with(|m| {
-                        m.borrow_mut()
-                            .get_mut(&id)
-                            .map(|e| {
-                                e.2.clone_from(tokens);
-                                e.1.iter()
-                                    .enumerate()
-                                    .filter(|(_, t)| tokens.contains(t))
-                                    .map(|(i, _)| i)
-                                    .collect()
-                            })
-                            .unwrap_or_default()
+                        m.borrow_mut().get_mut(&id).map_or_default(|e| {
+                            e.2.clone_from(tokens);
+                            e.1.iter()
+                                .enumerate()
+                                .filter(|(_, t)| tokens.contains(t))
+                                .map(|(i, _)| i)
+                                .collect()
+                        })
                     });
                     LIST_SELECTED.with(|m| m.borrow_mut().insert(id, selected));
                 }
@@ -3181,7 +3178,7 @@ mod imp {
                     .chars()
                     .map(|c| if c == '\t' || c == '\n' { ' ' } else { c })
                     .collect();
-                let icon = a.symbol.map(symbol_drawable).unwrap_or_default();
+                let icon = a.symbol.map_or_default(symbol_drawable);
                 let _ = writeln!(out, "{}\t{icon}\t{title}", a.id);
                 out
             });

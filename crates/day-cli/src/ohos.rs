@@ -50,8 +50,7 @@ pub(crate) fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .filter(|h| !h.is_empty())
         .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_default()
+        .map_or_default(PathBuf::from)
 }
 
 /// The file names `name` may have on PATH. Windows adds `.exe`, `.bat`, and `.cmd`: the
@@ -580,9 +579,7 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
                     .filter(|v| !v.is_empty() && !v.contains("fail"))
             };
             if let Some(name) = param("const.ohos.fullname") {
-                let api = param("const.ohos.apiversion")
-                    .map(|a| format!(" (API {a})"))
-                    .unwrap_or_default();
+                let api = param("const.ohos.apiversion").map_or_default(|a| format!(" (API {a})"));
                 status("Emulator", &format!("{name}{api}"));
             }
             return Ok(());
@@ -677,12 +674,9 @@ pub(crate) fn fport_engine(port: u16) {
             );
             return;
         }
-        let text = out
-            .map(|o| {
-                String::from_utf8_lossy(&o.stdout).into_owned()
-                    + &String::from_utf8_lossy(&o.stderr)
-            })
-            .unwrap_or_default();
+        let text = out.map_or_default(|o| {
+            String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr)
+        });
         if !text.contains("[Fail]") {
             return;
         }
@@ -774,8 +768,7 @@ pub(crate) fn ohos_devices() -> Vec<OhosDevice> {
                 .args(["-t", &key, "shell", "uname", "-m"])
                 .output()
                 .ok()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .unwrap_or_default();
+                .map_or_default(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
             let (triple, abi) = arch_triple(&uname)?;
             Some(OhosDevice { key, triple, abi })
         })

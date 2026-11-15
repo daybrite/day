@@ -1367,7 +1367,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
     .unwrap_or(Size::new(800.0, 600.0));
     Some(open_window(
         WindowOptions {
-            title: launch.as_ref().map(|o| o.title.clone()).unwrap_or_default(),
+            title: launch.as_ref().map_or_default(|o| o.title.clone()),
             size,
             min_size: launch.as_ref().and_then(|o| o.min_size),
             size_to_fit: false,
@@ -1440,7 +1440,7 @@ pub fn open_new_window_for_group(group: &str) -> Option<WindowHandle> {
     .unwrap_or(Size::new(800.0, 600.0));
     Some(open_window(
         WindowOptions {
-            title: launch.as_ref().map(|o| o.title.clone()).unwrap_or_default(),
+            title: launch.as_ref().map_or_default(|o| o.title.clone()),
             size,
             min_size: launch.as_ref().and_then(|o| o.min_size),
             app_name: launch.as_ref().and_then(|o| o.app_name.clone()),

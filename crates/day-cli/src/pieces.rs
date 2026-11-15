@@ -296,8 +296,7 @@ fn direct_dependencies(meta: &Metadata) -> HashSet<String> {
         .nodes
         .iter()
         .find(|n| n.id == *root)
-        .map(|n| n.deps.iter().map(|d| d.pkg.clone()).collect())
-        .unwrap_or_default()
+        .map_or_default(|n| n.deps.iter().map(|d| d.pkg.clone()).collect())
 }
 
 /// Run `cargo metadata` for the app with a specific feature selection (no default features), so only
@@ -719,8 +718,7 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
             .resolve
             .as_ref()
             .and_then(|r| r.nodes.iter().find(|n| n.id == pkg.id))
-            .map(|n| n.features.as_slice())
-            .unwrap_or_default();
+            .map_or_default(|n| n.features.as_slice());
         pieces.disable_native_heap_pointer_tagging |= android
             .disable_native_heap_pointer_tagging
             .as_ref()
@@ -874,8 +872,7 @@ pub fn contributed_assets(
         };
         let crate_dir = Path::new(&pkg.manifest_path)
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
+            .map_or_default(Path::to_path_buf);
         for rel in &piece.assets {
             let dir = crate_dir.join(rel);
             if dir.is_dir() {
@@ -959,8 +956,7 @@ fn web_contributions(meta: &Metadata) -> Result<Vec<WebContribution>, String> {
         })?;
         let crate_dir = Path::new(&pkg.manifest_path)
             .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
+            .map_or_default(Path::to_path_buf);
         // Everything stages flat into one directory per crate, so a module reaches its
         // siblings by `new URL('./name', import.meta.url)`; two files of one name would
         // overwrite each other there.
@@ -1734,8 +1730,7 @@ fn collect_apple(meta: &Metadata, platform_key: &str) -> Result<ApplePieces, Str
             .resolve
             .as_ref()
             .and_then(|r| r.nodes.iter().find(|n| n.id == pkg.id))
-            .map(|n| n.features.as_slice())
-            .unwrap_or_default();
+            .map_or_default(|n| n.features.as_slice());
         pieces.selective_archive_loading |= apple
             .selective_archive_loading
             .as_ref()

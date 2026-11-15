@@ -66,7 +66,7 @@ struct Provenance {
 fn kv_list(doc: &serde_json::Value, array: &str, k: &str, v: &str) -> Vec<(String, String)> {
     doc.get(array)
         .and_then(|a| a.as_array())
-        .map(|arr| {
+        .map_or_default(|arr| {
             arr.iter()
                 .filter_map(|e| {
                     Some((
@@ -76,7 +76,6 @@ fn kv_list(doc: &serde_json::Value, array: &str, k: &str, v: &str) -> Vec<(Strin
                 })
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Read a JSON document, tolerating absence.
@@ -381,7 +380,7 @@ fn read_sidecar(artifact: &Path) -> Sidecar {
             let tools = v
                 .get("tools")
                 .and_then(|t| t.as_array())
-                .map(|arr| {
+                .map_or_default(|arr| {
                     arr.iter()
                         .filter_map(|t| {
                             Some((
@@ -394,8 +393,7 @@ fn read_sidecar(artifact: &Path) -> Sidecar {
                             ))
                         })
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             (
                 v.get("target").and_then(|t| t.as_str()).map(str::to_string),
                 v.get("profile")
@@ -707,8 +705,7 @@ fn compare(
                     let (pa, pb) = (ua.join(rel), ub.join(rel));
                     first_text_difference(&pa, &pb).or_else(|| first_binary_difference(&pa, &pb))
                 })
-                .map(|d| format!("\n        {}: {d}", diffs[0]))
-                .unwrap_or_default();
+                .map_or_default(|d| format!("\n        {}: {d}", diffs[0]));
             (
                 Verdict::Differs(format!(
                     "{} file(s) differ after normalization: {}{hint}",
@@ -860,13 +857,11 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
         return Err(format!(
             "the rebuild produced no {}; it made: {}",
             name.to_string_lossy(),
-            std::fs::read_dir(&rebuilt_dir)
-                .map(|rd| rd
-                    .flatten()
-                    .map(|e| e.file_name().to_string_lossy().into_owned())
-                    .collect::<Vec<_>>()
-                    .join(", "))
-                .unwrap_or_default()
+            std::fs::read_dir(&rebuilt_dir).map_or_default(|rd| rd
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(", "))
         ));
     }
 

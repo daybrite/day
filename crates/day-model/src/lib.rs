@@ -601,13 +601,11 @@ fn previewing() -> bool {
 /// Run `f` with changes stamped as `author`: how an undo replay or an importer signs its
 /// writes so consumers (a sync engine, a query) can tell them from the user's.
 pub fn with_author<R>(author: &'static str, f: impl FnOnce() -> R) -> R {
-    struct Restore(Option<&'static str>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            CURRENT_AUTHOR.with(|a| a.set(self.0));
-        }
-    }
-    let _restore = Restore(CURRENT_AUTHOR.with(|a| a.replace(Some(author))));
+    let previous = CURRENT_AUTHOR.with(|a| a.replace(Some(author)));
+    // Restored on unwind too.
+    let _restore = std::mem::DropGuard::new(previous, |previous| {
+        CURRENT_AUTHOR.with(|a| a.set(previous));
+    });
     f()
 }
 
@@ -2929,13 +2927,13 @@ impl UndoStack {
         self.inner.can_undo.set_if_changed(!undo.is_empty());
         self.inner
             .undo_label
-            .set_if_changed(undo.back().map(|u| resolver(u.label)).unwrap_or_default());
+            .set_if_changed(undo.back().map_or_default(|u| resolver(u.label)));
         drop(undo);
         let redo = self.inner.redo.borrow();
         self.inner.can_redo.set_if_changed(!redo.is_empty());
         self.inner
             .redo_label
-            .set_if_changed(redo.last().map(|u| resolver(u.label)).unwrap_or_default());
+            .set_if_changed(redo.last().map_or_default(|u| resolver(u.label)));
     }
 }
 

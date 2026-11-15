@@ -5,6 +5,7 @@
 //! "Selection" and "Keys"): the address-bar behaviors, inline completion, select-all on
 //! focus, and the arrows and Escape walking a suggestion list.
 
+use std::assert_matches;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -368,10 +369,8 @@ fn focus_requested_in_the_same_turn_lands_first() {
         .iter()
         .position(|l| l.starts_with("focus #") && l.ends_with(" true"));
     let select = log.iter().position(|l| l.ends_with("select=0..21"));
-    assert!(
-        matches!((focus, select), (Some(f), Some(s)) if f < s),
-        "focus, then select: {log:?}"
-    );
+    assert_matches!((focus, select), (Some(f), Some(s)) if f < s,
+        "focus, then select: {log:?}");
 }
 
 #[test]

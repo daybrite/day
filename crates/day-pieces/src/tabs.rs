@@ -796,7 +796,7 @@ fn install_window_tabs<K: Route>(
                         .find(|(key, _)| Some(key) == last_selected.borrow().as_ref())
                 })
                 .or_else(|| existing.first());
-            let mut target_group = target.map(|(_, w)| w.tab_order()).unwrap_or_default();
+            let mut target_group = target.map_or_default(|(_, w)| w.tab_order());
             if target_group.is_empty()
                 && let Some((_, w)) = target
             {

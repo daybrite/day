@@ -99,9 +99,7 @@ pub fn write_generated(project: &Project, platform: &str) -> Result<(), String> 
             let _ = writeln!(
                 out,
                 "CODE_SIGN_ENTITLEMENTS[config={name}] = {}",
-                path.as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default()
+                path.as_ref().map_or_default(|p| p.display().to_string())
             );
         }
         if let Some(config) = &project.manifest.sandbox.macos_appkit {

@@ -997,8 +997,7 @@ fn extension_material(
     let settings = ios_app_entitlements(project, "Release")
         .ok()
         .flatten()
-        .map(|e| e.settings)
-        .unwrap_or_default();
+        .map_or_default(|e| e.settings);
     let mut out = Vec::new();
     for r in exts {
         let declared = ios.and_then(|i| i.extensions.get(&r.name));
@@ -1723,7 +1722,7 @@ fn read_xcconfig(
         if held.get(name).is_some_and(|(s, _)| *s > specificity) {
             continue;
         }
-        let inherited = held.get(name).map(|(_, v)| v.as_str()).unwrap_or_default();
+        let inherited = held.get(name).map_or_default(|(_, v)| v.as_str());
         let value = value.replace("$(inherited)", inherited).trim().to_string();
         held.insert(name.to_string(), (specificity, value));
     }
@@ -1889,8 +1888,7 @@ pub(crate) fn ios_signing_entitlements(
     // had one; Xcode's `AppIdentifierPrefix` is the profile's, so this is too.
     let app_prefix = profile_app_id
         .split_once('.')
-        .map(|(p, _)| p.to_string())
-        .unwrap_or_default();
+        .map_or_default(|(p, _)| p.to_string());
     let team = string("com.apple.developer.team-identifier").unwrap_or_else(|| app_prefix.clone());
     let concrete_app_id = if profile_app_id.ends_with('*') || profile_app_id.is_empty() {
         format!("{app_prefix}.{bundle_id}")
@@ -2374,13 +2372,12 @@ mod ios_entitlement_tests {
     fn strings(d: &plist::Dictionary, key: &str) -> Vec<String> {
         d.get(key)
             .and_then(plist::Value::as_array)
-            .map(|a| {
+            .map_or_default(|a| {
                 a.iter()
                     .filter_map(plist::Value::as_string)
                     .map(str::to_string)
                     .collect()
             })
-            .unwrap_or_default()
     }
 
     #[test]

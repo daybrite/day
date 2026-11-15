@@ -311,8 +311,7 @@ fn fault_error() -> HttpError {
 }
 fn delay(c: &Conditions, bytes: u64) -> Duration {
     c.bytes_per_second
-        .map(|rate| Duration::from_secs_f64(bytes as f64 / rate.max(1) as f64))
-        .unwrap_or_default()
+        .map_or_default(|rate| Duration::from_secs_f64(bytes as f64 / rate.max(1) as f64))
 }
 impl Transport for Simulation {
     fn capabilities(&self) -> crate::Capabilities {
@@ -353,7 +352,7 @@ impl Transport for Simulation {
         });
         let initial = self.conditions().latency
             + delay(&self.conditions(), uploaded)
-            + result.as_ref().map(|r| r.delay).unwrap_or_default();
+            + result.as_ref().map_or_default(|r| r.delay);
         let transfer = Arc::new_cyclic(|weak| SimTransfer {
             this: weak.clone(),
             sim: self.clone(),

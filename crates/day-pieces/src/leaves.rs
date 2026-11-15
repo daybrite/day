@@ -1161,8 +1161,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
         let ph = self
             .placeholder
             .as_ref()
-            .map(super::sources::TextSource::initial)
-            .unwrap_or_default();
+            .map_or_default(super::sources::TextSource::initial);
         let node = cx.leaf(
             kinds::TEXT_FIELD,
             &TextFieldProps {

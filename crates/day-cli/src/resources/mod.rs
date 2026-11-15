@@ -229,8 +229,7 @@ pub fn scan_fonts(project: &Project) -> Result<Vec<FontFile>, String> {
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
-            .map(str::to_ascii_lowercase)
-            .unwrap_or_default();
+            .map_or_default(str::to_ascii_lowercase);
         if !matches!(ext.as_str(), "ttf" | "otf") {
             return Err(format!(
                 "fonts/{fname}: only .ttf and .otf files can be bundled (Android's res/font/ \

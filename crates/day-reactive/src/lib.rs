@@ -407,7 +407,7 @@ fn compute_in_owner<T>(key: NodeKey, f: impl FnOnce() -> T) -> Option<T> {
     };
     Some(scope.enter(|| {
         with_rt(|rt| rt.observers.push(Some(key)));
-        let _guard = RtGuard(|rt: &mut Runtime| {
+        let _guard = rt_guard(|rt: &mut Runtime| {
             rt.observers.pop();
         });
         f()
@@ -725,12 +725,8 @@ fn signal_write_boxed(key: NodeKey, apply: impl FnOnce(&mut Box<dyn Any>) -> boo
 /// lifecycle) so a panicking app callback degrades the UI instead of aborting the process; that
 /// guarantee is only worth anything if the reactive runtime is still coherent afterwards.
 /// Restoring after `f()` returns is not enough, because that line is skipped on unwind.
-struct RtGuard<F: FnMut(&mut Runtime)>(F);
-
-impl<F: FnMut(&mut Runtime)> Drop for RtGuard<F> {
-    fn drop(&mut self) {
-        with_rt(|rt| (self.0)(rt));
-    }
+fn rt_guard(f: impl FnOnce(&mut Runtime)) -> impl Drop {
+    std::mem::DropGuard::new((), |()| with_rt(f))
 }
 
 pub fn batch<R>(f: impl FnOnce() -> R) -> R {
@@ -740,7 +736,7 @@ pub fn batch<R>(f: impl FnOnce() -> R) -> R {
         // would stop every later write from scheduling a drain (a silently frozen UI). Saturating:
         // if `recover_from_panic` already zeroed the depth mid-unwind, a plain `-= 1` here would
         // underflow: a panic inside this Drop, which is a process abort.
-        let _g = RtGuard(|rt: &mut Runtime| rt.batch_depth = rt.batch_depth.saturating_sub(1));
+        let _g = rt_guard(|rt: &mut Runtime| rt.batch_depth = rt.batch_depth.saturating_sub(1));
         f()
     };
     let should_drain = with_rt(|rt| {
@@ -764,7 +760,7 @@ pub fn flush_now() {
     let saved = with_rt(|rt| std::mem::replace(&mut rt.batch_depth, 0));
     // Restored on unwind too: the debug rerun-cap panic can cross here under an event-dispatch
     // batch, and skipping the restore would hand the enclosing batch guard a zero depth.
-    let _g = RtGuard(move |rt: &mut Runtime| rt.batch_depth = saved);
+    let _g = rt_guard(move |rt: &mut Runtime| rt.batch_depth = saved);
     flush_sync();
 }
 
@@ -773,7 +769,7 @@ pub fn untrack<R>(f: impl FnOnce() -> R) -> R {
     with_rt(|rt| rt.observers.push(None));
     // Popped on unwind too: a stranded `None` observer would silently disable dependency
     // tracking for every read that followed, so nothing would ever update again.
-    let _g = RtGuard(|rt: &mut Runtime| {
+    let _g = rt_guard(|rt: &mut Runtime| {
         rt.observers.pop();
     });
     f()
@@ -997,7 +993,7 @@ impl Scope {
         // Restored on unwind too. Otherwise a contained panic leaves the runtime parented to
         // this (usually transient, soon-disposed) scope, so every later `Signal::new` is created
         // dead and its first read panics with a misleading "read of disposed Signal".
-        let _g = RtGuard(move |rt: &mut Runtime| rt.current_scope = prev);
+        let _g = rt_guard(move |rt: &mut Runtime| rt.current_scope = prev);
         f()
     }
 

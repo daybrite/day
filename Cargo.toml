@@ -95,15 +95,11 @@ default-members = [
 # and cargo passes over a patch older than what crates.io offers.
 [workspace.package]
 version = "0.7.4"
-authors = ["Daybrite <hello@daybrite.dev>"]
 edition = "2024"
 description = "Declarative app development API using native UI toolkits"
 repository = "https://github.com/daybrite/day"
 license = "MPL-2.0"
-homepage = "https://daybrite.dev"
-keywords = ["design", "graphics", "gui", "toolkit", "ui"]
-categories = ["gui", "command-line-utilities"]
-rust-version = "1.89"
+rust-version = "1.100"
 
 # Lint policy for every member (each inherits it with `[lints] workspace = true`). Clippy's
 # `pedantic` group is on for the whole workspace, and CI treats every warning as an error
@@ -154,31 +150,15 @@ day-vector = { path = "crates/day-vector", version = "0.*" }
 day-model = { path = "crates/day-model", version = "0.*" }
 day-macros = { path = "crates/day-macros", version = "0.*" }
 # Persistence is maintained separately: https://github.com/daybrite/day-persistence.
-day = { package = "day-app", path = "crates/day", version = "0.*" }
-day-part-device = { path = "crates/day-part-device", version = "0.*" }
-day-part-sensors = { path = "crates/day-part-sensors", version = "0.*" }
 day-part-clipboard = { path = "crates/day-part-clipboard", version = "0.*" }
-day-part-connectivity = { path = "crates/day-part-connectivity", version = "0.*" }
-day-part-haptics = { path = "crates/day-part-haptics", version = "0.*" }
-day-part-sound = { path = "crates/day-part-sound", version = "0.*" }
-day-part-wakelock = { path = "crates/day-part-wakelock", version = "0.*" }
 day-part-preferences = { path = "crates/day-part-preferences", version = "0.*" }
 day-part-http = { path = "crates/day-part-http", version = "0.*" }
-day-part-downloads = { path = "crates/day-part-downloads", version = "0.*" }
 day-part-permissions = { path = "crates/day-part-permissions", version = "0.*" }
-day-part-location = { path = "crates/day-part-location", version = "0.*" }
-day-part-local-notify = { path = "crates/day-part-local-notify", version = "0.*" }
 day-part-filesystem = { path = "crates/day-part-filesystem", version = "0.*" }
 day-part-biometrics = { path = "crates/day-part-biometrics", version = "0.*" }
-day-part-keychain = { path = "crates/day-part-keychain", version = "0.*" }
 day-piece-swiftui = { path = "crates/day-piece-swiftui", version = "0.*" }
 day-piece-settings = { path = "crates/day-piece-settings", version = "0.*" }
 day-piece-text-editor = { path = "crates/day-piece-text-editor", version = "0.*" }
-# Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
-day-tweak-button-bezel = { path = "crates/day-tweak-button-bezel", version = "0.*" }
-day-tweak-tooltip = { path = "crates/day-tweak-tooltip", version = "0.*" }
-day-tweak-tree-style = { path = "crates/day-tweak-tree-style", version = "0.*" }
-day-tweak-slider-tick-marks = { path = "crates/day-tweak-slider-tick-marks", version = "0.*" }
 day-toolchain = { path = "crates/day-toolchain", version = "0.*" }
 day-build = { path = "crates/day-build", version = "0.*" }
 day-async = { path = "crates/day-async", version = "0.*" }
@@ -205,7 +185,6 @@ cc = "1"
 gtk4 = "0.11"
 httpdate = "1"
 png = "0.18"
-rusqlite = "0.40"
 serde = "1"
 serde_json = "1"
 serde_norway = "0.9"
@@ -226,10 +205,8 @@ objc2-app-kit = "0.3.2"
 objc2-avf-audio = "0.3.2"
 objc2-core-foundation = { version = "0.3.2", default-features = false }
 objc2-core-graphics = "0.3.2"
-objc2-core-location = { version = "0.3.2", default-features = false }
 objc2-core-motion = { version = "0.3.2", default-features = false }
 objc2-foundation = "0.3.2"
-objc2-map-kit = { version = "0.3.2", default-features = false }
 objc2-quartz-core = "0.3.2"
 objc2-security = { version = "0.3.2", default-features = false }
 objc2-ui-kit = "0.3.2"

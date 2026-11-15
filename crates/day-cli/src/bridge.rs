@@ -390,8 +390,7 @@ pub fn unresolved_link_libs(project: &Project) -> Vec<(String, String)> {
             for lib in arm
                 .options
                 .get("link")
-                .map(|v| v.trim_matches(['[', ']']).to_string())
-                .unwrap_or_default()
+                .map_or_default(|v| v.trim_matches(['[', ']']).to_string())
                 .split(',')
                 .map(|l| l.trim().trim_matches('"').to_string())
                 .filter(|l| !l.is_empty())

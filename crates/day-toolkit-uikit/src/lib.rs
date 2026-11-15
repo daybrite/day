@@ -1186,7 +1186,7 @@ mod imp {
                     } else if let Some(sl) = obj.downcast_ref::<UISlider>() {
                         emit(node, Event::ValueChanged(f64::from(unsafe { sl.value() })));
                     } else if let Some(tf) = obj.downcast_ref::<UITextField>() {
-                        let s = unsafe { tf.text() }.map(|s| s.to_string()).unwrap_or_default();
+                        let s = unsafe { tf.text() }.map_or_default(|s| s.to_string());
                         emit(node, Event::TextChanged(s));
                     } else {
                         emit(node, Event::Pressed);
@@ -1730,10 +1730,9 @@ mod imp {
         // its bar button already draws that choice's glyph — a nameless entry in the overflow
         // is the same blank row android-material grew before `nameSegmentHead`.
         let title = match (item.label.as_str(), &item.kind) {
-            ("", K::Segmented { segments, selected }) => segments
-                .get(*selected)
-                .map(|s| s.title.clone())
-                .unwrap_or_default(),
+            ("", K::Segmented { segments, selected }) => {
+                segments.get(*selected).map_or_default(|s| s.title.clone())
+            }
             (label, _) => label.to_string(),
         };
         if title.is_empty() {
@@ -2736,9 +2735,7 @@ mod imp {
                     if self.ivars().suppress.get() {
                         return;
                     }
-                    let text = unsafe { sc.searchBar().text() }
-                        .map(|t| t.to_string())
-                        .unwrap_or_default();
+                    let text = unsafe { sc.searchBar().text() }.map_or_default(|t| t.to_string());
                     self.report_text(text);
                 });
             }
@@ -2752,9 +2749,7 @@ mod imp {
             #[unsafe(method(searchBarSearchButtonClicked:))]
             fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
                 day_spec::ffi_guard::contain((), || {
-                    let text = unsafe { bar.text() }
-                        .map(|t| t.to_string())
-                        .unwrap_or_default();
+                    let text = unsafe { bar.text() }.map_or_default(|t| t.to_string());
                     self.report_text(text.clone());
                     self.send(day_spec::ToolbarValue::Submit(text));
                     let _ = bar.resignFirstResponder();
@@ -4635,9 +4630,7 @@ mod imp {
                     if self.ivars().suppress.get() {
                         return;
                     }
-                    let text = unsafe { sc.searchBar().text() }
-                        .map(|t| t.to_string())
-                        .unwrap_or_default();
+                    let text = unsafe { sc.searchBar().text() }.map_or_default(|t| t.to_string());
                     emit(NodeId(self.ivars().node.get()), Event::SearchChanged(text));
                 });
             }
@@ -4652,9 +4645,7 @@ mod imp {
             #[unsafe(method(searchBarSearchButtonClicked:))]
             fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
                 day_spec::ffi_guard::contain((), || {
-                    let text = unsafe { bar.text() }
-                        .map(|t| t.to_string())
-                        .unwrap_or_default();
+                    let text = unsafe { bar.text() }.map_or_default(|t| t.to_string());
                     emit(
                         NodeId(self.ivars().node.get()),
                         Event::SearchSubmitted(text),
@@ -5811,7 +5802,7 @@ mod imp {
             let mut stack = entry
                 .and_then(|e| e.in_flight.clone())
                 .unwrap_or_else(|| day_pages(active, None));
-            for op in entry.map(|e| e.ops.as_slice()).unwrap_or_default() {
+            for op in entry.map_or_default(|e| e.ops.as_slice()) {
                 match op {
                     NavOp::Push(vc) => stack.push(vc.clone()),
                     NavOp::Pop(vc) => {
@@ -9763,21 +9754,13 @@ mod imp {
     /// every other view.
     fn native_text(h: &UIView) -> Option<String> {
         if let Some(label) = h.downcast_ref::<UILabel>() {
-            return Some(
-                unsafe { label.text() }
-                    .map(|s| s.to_string())
-                    .unwrap_or_default(),
-            );
+            return Some(unsafe { label.text() }.map_or_default(|s| s.to_string()));
         }
         if let Some(tf) = h.downcast_ref::<UITextField>() {
             if unsafe { is_secure_text_entry(tf) } {
                 return None;
             }
-            return Some(
-                unsafe { tf.text() }
-                    .map(|s| s.to_string())
-                    .unwrap_or_default(),
-            );
+            return Some(unsafe { tf.text() }.map_or_default(|s| s.to_string()));
         }
         // A text area, or a label with links or `.selectable()` (both read-only text views).
         if let Some(tv) = h.downcast_ref::<UITextView>() {
@@ -9792,8 +9775,7 @@ mod imp {
                 .filter(|t| !t.is_empty())
                 .or_else(|| btn.currentTitle())
         }
-        .map(|s| s.to_string())
-        .unwrap_or_default();
+        .map_or_default(|s| s.to_string());
         (!title.is_empty()).then_some(title)
     }
 
@@ -9907,8 +9889,7 @@ mod imp {
                 .configuration()
                 .and_then(|c| c.title())
                 .or_else(|| btn.titleForState(UIControlState::Normal))
-                .map(|s| s.to_string())
-                .unwrap_or_default();
+                .map_or_default(|s| s.to_string());
             if on {
                 let config = objc2_ui_kit::UIButtonConfiguration::tintedButtonConfiguration(mtm);
                 config.setTitle(Some(&NSString::from_str(&title)));
@@ -13447,9 +13428,7 @@ mod imp {
                     ) {
                         match p {
                             TextFieldPatch::Text { text, from_native } => {
-                                let cur = unsafe { tf.text() }
-                                    .map(|s| s.to_string())
-                                    .unwrap_or_default();
+                                let cur = unsafe { tf.text() }.map_or_default(|s| s.to_string());
                                 if !*from_native && cur != *text {
                                     unsafe { tf.setText(Some(&NSString::from_str(text))) };
                                 }
@@ -13463,7 +13442,7 @@ mod imp {
                             // and taking focus puts the caret at the end anyway.
                             TextFieldPatch::Select(sel) => unsafe {
                                 if tf.isFirstResponder() {
-                                    let text = tf.text().map(|s| s.to_string()).unwrap_or_default();
+                                    let text = tf.text().map_or_default(|s| s.to_string());
                                     let (start, end) = sel.utf16(&text);
                                     let begin = tf.beginningOfDocument();
                                     let at = |n: usize| {
@@ -15391,8 +15370,7 @@ mod imp {
             if log::log_enabled!(log::Level::Debug) {
                 let set: Vec<String> = app
                     .shortcutItems()
-                    .map(|items| items.iter().map(|i| i.r#type().to_string()).collect())
-                    .unwrap_or_default();
+                    .map_or_default(|items| items.iter().map(|i| i.r#type().to_string()).collect());
                 log::debug!("uikit: launcher shortcuts now {set:?}");
             }
         }
@@ -15504,8 +15482,7 @@ mod imp {
                         let text = unsafe { ac_ok.textFields() }
                             .and_then(|fs| fs.firstObject())
                             .and_then(|f| unsafe { f.text() })
-                            .map(|s| s.to_string())
-                            .unwrap_or_default();
+                            .map_or_default(|s| s.to_string());
                         emit(
                             WINDOW_NODE,
                             Event::PresentResult {

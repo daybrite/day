@@ -74,7 +74,7 @@ fn main() {
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
     let star = if profile == "debug" { "*" } else { "" };
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
-    let git_suffix = git_ref().map(|r| format!(", {r}")).unwrap_or_default();
+    let git_suffix = git_ref().map_or_default(|r| format!(", {r}"));
     // e.g. "0.0.3* (debug, branch main, 9b8c387)" · "0.0.3 (release, tag v0.0.3, 1f2e3d4)"
     //    · "0.0.3 (release, commit 9b8c387)" (detached) · "0.0.3 (release)" (no git checkout)
     println!("cargo:rustc-env=DAY_VERSION_LONG={version}{star} ({profile}{git_suffix})");

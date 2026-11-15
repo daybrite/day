@@ -1196,8 +1196,7 @@ fn serve_dayscript_ws(mut stream: TcpStream, head: &[u8]) {
     let leftover = head
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
-        .map(|i| head[i + 4..].to_vec())
-        .unwrap_or_default();
+        .map_or_default(|i| head[i + 4..].to_vec());
     *PAGE_WS.lock().expect("page slot") = stream.try_clone().ok();
     ws_read_loop(stream, leftover);
 }

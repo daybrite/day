@@ -348,8 +348,7 @@ impl Transport for AppleTransport {
         storage
             .0
             .cookies()
-            .map(|all| all.iter().map(|c| cookie_of(&c)).collect())
-            .unwrap_or_default()
+            .map_or_default(|all| all.iter().map(|c| cookie_of(&c)).collect())
     }
 
     fn clear_cookies(&self) {
@@ -657,9 +656,9 @@ impl AppleSocket {
             return;
         };
         let message = if message.r#type() == NSURLSessionWebSocketMessageType::String {
-            Message::Text(message.string().map(|s| s.to_string()).unwrap_or_default())
+            Message::Text(message.string().map_or_default(|s| s.to_string()))
         } else {
-            Message::Binary(message.data().map(|d| d.to_vec()).unwrap_or_default())
+            Message::Binary(message.data().map_or_default(|d| d.to_vec()))
         };
         if let Some(events) = events {
             events(WsEvent::Message(message));
@@ -673,8 +672,7 @@ impl AppleSocket {
             events(WsEvent::Closed {
                 code: code.clamp(0, u16::MAX as isize) as u16,
                 reason: reason
-                    .map(|r| String::from_utf8_lossy(&r.to_vec()).into_owned())
-                    .unwrap_or_default(),
+                    .map_or_default(|r| String::from_utf8_lossy(&r.to_vec()).into_owned()),
             });
         }
     }
@@ -944,8 +942,7 @@ fn head_of(response: &NSURLResponse) -> Head {
     let url = response
         .URL()
         .and_then(|u| u.absoluteString())
-        .map(|s| s.to_string())
-        .unwrap_or_default();
+        .map_or_default(|s| s.to_string());
     let mut expected = u64::try_from(response.expectedContentLength()).ok();
     let Some(http) = response.downcast_ref::<NSHTTPURLResponse>() else {
         return Head {
@@ -997,8 +994,7 @@ fn head_of(response: &NSURLResponse) -> Head {
 fn object_string(object: &AnyObject) -> String {
     object
         .downcast_ref::<NSString>()
-        .map(std::string::ToString::to_string)
-        .unwrap_or_default()
+        .map_or_default(std::string::ToString::to_string)
 }
 
 fn system_time(date: &NSDate) -> Option<SystemTime> {

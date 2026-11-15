@@ -1327,11 +1327,7 @@ fn install_about(inst: Rc<Installed>) {
             return;
         }
     }
-    let name = inst
-        .about
-        .as_ref()
-        .map(About::display_name)
-        .unwrap_or_default();
+    let name = inst.about.as_ref().map_or_default(About::display_name);
     let title = day_localization_ui::res::str::day_about_app(name);
     // Where windows open as covers (the web, a phone), About is a sheet with a title bar and a
     // Done button, as Settings is there: a bare page had no way out.

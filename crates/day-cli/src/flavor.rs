@@ -330,7 +330,7 @@ pub fn preview(text: &str) -> Result<FlavorPreview, String> {
     let flavor = parse(text)?;
     Ok(FlavorPreview {
         id: flavor.app.and_then(|a| a.id),
-        features: flavor.cargo.map(|c| c.features).unwrap_or_default(),
+        features: flavor.cargo.map_or_default(|c| c.features),
     })
 }
 
@@ -463,8 +463,7 @@ fn collect_stamp(root: &Path, dir: &Path, out: &mut Vec<(String, u64, u128)>) {
             .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos())
-            .unwrap_or_default();
+            .map_or_default(|d| d.as_nanos());
         let rel = path
             .strip_prefix(root)
             .unwrap_or(&path)

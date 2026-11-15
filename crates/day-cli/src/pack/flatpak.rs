@@ -181,15 +181,13 @@ pub(crate) fn manifest_yaml(
 ) -> String {
     let (runtime, runtime_version) = runtime_for(target);
     let sdk = runtime.replace(".Platform", ".Sdk");
-    let base = base
-        .map(|(id, version)| {
-            format!(
-                "base: {}\nbase-version: {}\n",
-                serde_json::to_string(id).expect("string"),
-                serde_json::to_string(version).expect("string")
-            )
-        })
-        .unwrap_or_default();
+    let base = base.map_or_default(|(id, version)| {
+        format!(
+            "base: {}\nbase-version: {}\n",
+            serde_json::to_string(id).expect("string"),
+            serde_json::to_string(version).expect("string")
+        )
+    });
     let mut finish = String::new();
     for arg in FINISH_ARGS {
         let _ = writeln!(finish, "  - {arg}");

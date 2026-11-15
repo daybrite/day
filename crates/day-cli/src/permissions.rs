@@ -62,8 +62,7 @@ impl Catalog {
                     continue;
                 }
                 let mut files: Vec<_> = std::fs::read_dir(e.path())
-                    .map(|d| d.flatten().map(|f| f.path()).collect())
-                    .unwrap_or_default();
+                    .map_or_default(|d| d.flatten().map(|f| f.path()).collect());
                 files.sort();
                 let map = messages.entry(tag.clone()).or_default();
                 for path in files {

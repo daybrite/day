@@ -347,8 +347,9 @@ fn a_websocket_echoes_and_closes_where_the_platform_has_them() {
     }
     socket.close(4000, "done");
     let closing = block_on(socket.next());
-    assert!(
-        matches!(closing, Some(Ok(Message::Close { code: 4000, .. }))),
+    std::assert_matches!(
+        closing,
+        Some(Ok(Message::Close { code: 4000, .. })),
         "{closing:?}"
     );
     assert_eq!(block_on(socket.next()), None);

@@ -618,7 +618,7 @@ mod tests {
     fn probes_never_panic_and_agree() {
         let s = support();
         let name = backend();
-        assert!(matches!(
+        std::assert_matches!(
             name,
             "data-protection-keychain"
                 | "login-keychain"
@@ -627,7 +627,7 @@ mod tests {
                 | "secret-service"
                 | "huks"
                 | "none"
-        ));
+        );
         #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
         assert_eq!(name, "secret-service");
         for p in [

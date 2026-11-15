@@ -1186,8 +1186,7 @@ impl Storefront {
     pub fn stores(&self, target: &str) -> Vec<String> {
         self.targets
             .get(target)
-            .map(|te| te.stores.keys().cloned().collect())
-            .unwrap_or_default()
+            .map_or_default(|te| te.stores.keys().cloned().collect())
     }
 
     /// The device kinds a target's own or a store's screenshots name explicitly.
@@ -2192,15 +2191,12 @@ pub fn screenshot_problems(
     let mut problems = Vec::new();
     // Every locale the index carries that the store knows; a capture's own locale when the
     // index lists none.
-    let mut locales: Vec<String> = index["locales"]
-        .as_array()
-        .map(|l| {
-            l.iter()
-                .filter_map(|v| v.as_str())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut locales: Vec<String> = index["locales"].as_array().map_or_default(|l| {
+        l.iter()
+            .filter_map(|v| v.as_str())
+            .map(str::to_string)
+            .collect()
+    });
     if locales.is_empty() {
         for s in &chosen {
             if !locales.contains(&s.locale) {

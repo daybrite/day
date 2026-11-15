@@ -379,8 +379,7 @@ fn lint_private_catalogs(project: &Path, root: &Path, findings: &mut Vec<Finding
         for (filename, (_, source)) in reference {
             let translated: BTreeSet<_> = files
                 .get(filename)
-                .map(|(_, s)| day_build::message_keys(s))
-                .unwrap_or_default()
+                .map_or_default(|(_, s)| day_build::message_keys(s))
                 .into_iter()
                 .collect();
             for key in day_build::message_keys(source) {
@@ -699,8 +698,7 @@ fn check_android_resizability(project: &Project, findings: &mut Vec<Finding>) {
         let declared: Vec<&str> = open_tag
             .split_once("android:configChanges=\"")
             .and_then(|(_, rest)| rest.split_once('"'))
-            .map(|(v, _)| v.split('|').map(str::trim).collect())
-            .unwrap_or_default();
+            .map_or_default(|(v, _)| v.split('|').map(str::trim).collect());
         let missing: Vec<&str> = ANDROID_CONFIG_CHANGES
             .iter()
             .copied()
@@ -1306,9 +1304,7 @@ fn lint_flavors(project: &Project, findings: &mut Vec<Finding>) {
 fn lint_app_ids(project: &Project, findings: &mut Vec<Finding>, manifest_src: Option<&str>) {
     let mut reported: BTreeSet<String> = BTreeSet::new();
     for target in &project.manifest.app.targets {
-        let os = crate::targets::find(target)
-            .map(|t| t.os)
-            .unwrap_or_default();
+        let os = crate::targets::find(target).map_or_default(|t| t.os);
         let id = project.manifest.resolve(target).id;
         if !reported.insert(format!("{os}:{id}")) {
             continue;
@@ -2502,9 +2498,8 @@ fn check_permission_reasons(
     }
     let locale_file = |locale: &str| -> Location {
         let dir = project.root.join("resource/locales").join(locale);
-        let mut files: Vec<_> = std::fs::read_dir(&dir)
-            .map(|d| d.flatten().map(|f| f.path()).collect())
-            .unwrap_or_default();
+        let mut files: Vec<_> =
+            std::fs::read_dir(&dir).map_or_default(|d| d.flatten().map(|f| f.path()).collect());
         files.sort();
         match files
             .iter()

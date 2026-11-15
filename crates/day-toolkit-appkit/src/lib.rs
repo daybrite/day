@@ -3183,8 +3183,7 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
     let mut pages = NAV_STATE.with(|m| {
         m.borrow()
             .get(&ptr_of(host))
-            .map(|s| s.pages.clone())
-            .unwrap_or_default()
+            .map_or_default(|s| s.pages.clone())
     });
     let shown_page = pages.get(sel).cloned();
     // The sidebar page is a stack ROOT only while stacked; otherwise it lives in its own pane,
@@ -5844,8 +5843,7 @@ define_class!(
                     .source
                     .borrow()
                     .as_ref()
-                    .map(|s| (s.type_select_text)(token))
-                    .unwrap_or_default();
+                    .map_or_default(|s| (s.type_select_text)(token));
                 // Empty = this row doesn't participate in type-select.
                 (!text.is_empty()).then(|| NSString::from_str(&text))
             })
@@ -7351,9 +7349,8 @@ fn full_route_key_down(view: &DayCanvas, node: NodeId, event: &objc2_app_kit::NS
         emit(node, Event::Key(day_spec::KeyEvent::named(named, mods)));
         return true;
     }
-    let unmodified = unsafe { event.charactersIgnoringModifiers() }
-        .map(|s| s.to_string())
-        .unwrap_or_default();
+    let unmodified =
+        unsafe { event.charactersIgnoringModifiers() }.map_or_default(|s| s.to_string());
     // A function or editing key the vocabulary lacks types a private-use glyph.
     let typeable = !unmodified.is_empty()
         && !unmodified
@@ -9054,8 +9051,7 @@ impl Toolkit for AppKit {
                 }
                 let root_title = props
                     .downcast_ref::<NavProps>()
-                    .map(|p| p.title.clone())
-                    .unwrap_or_default();
+                    .map_or_default(|p| p.title.clone());
                 // Stack presentation: a back header (hidden at root) — desktop has no system
                 // back affordance, so a pushed page needs its own way out (docs/navigation.md).
                 let header = if presentation == NavPresentation::Stack {
@@ -11892,8 +11888,7 @@ impl Toolkit for AppKit {
                     let style = member
                         .objectAtIndex(1)
                         .downcast_ref::<NSString>()
-                        .map(std::string::ToString::to_string)
-                        .unwrap_or_default();
+                        .map_or_default(std::string::ToString::to_string);
                     let weight = member
                         .objectAtIndex(2)
                         .downcast_ref::<objc2_foundation::NSNumber>()
@@ -13720,10 +13715,7 @@ pub(crate) fn build_ns_menu(
                     )
                 );
                 let custom = *action != 0 && !responder_role;
-                let key = sc
-                    .as_ref()
-                    .map(|s| ns_key_equivalent(&s.key))
-                    .unwrap_or_default();
+                let key = sc.as_ref().map_or_default(|s| ns_key_equivalent(&s.key));
                 let it = unsafe {
                     NSMenuItem::initWithTitle_action_keyEquivalent(
                         NSMenuItem::alloc(mtm),

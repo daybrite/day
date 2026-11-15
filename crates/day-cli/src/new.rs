@@ -225,7 +225,7 @@ impl Deps {
             Deps::Version(v) => format!("{name} = {{ {package}version = \"{v}\"{extra} }}"),
             Deps::Git(pin) => format!(
                 "{name} = {{ {package}git = \"{GIT_URL}\"{pin}{extra} }}",
-                pin = pin.as_ref().map(DaySource::git_pin).unwrap_or_default()
+                pin = pin.as_ref().map_or_default(DaySource::git_pin)
             ),
             Deps::Local(root) => format!(
                 "{name} = {{ {package}path = \"{root}/{sub}\"{extra} }}",
@@ -1119,9 +1119,7 @@ pub fn app(
     // the project adds an override. Android and HarmonyOS take a Java package name, which is the
     // strict end: AGP refuses a hyphen in a namespace, and so does HarmonyOS in `bundleName`.
     for target in &targets {
-        let os = crate::targets::find(target)
-            .map(|t| t.os)
-            .unwrap_or_default();
+        let os = crate::targets::find(target).map_or_default(|t| t.os);
         if let Err(why) = crate::meta::validate_app_id(&rid, os) {
             return Err(CliError::usage(format!(
                 "{why}\n       `--appid` names the id every target builds under; \
@@ -1841,8 +1839,7 @@ pub fn add_target(
     let first = &wanted[0];
     // `day doctor` groups by its own toolkit ids, which differ from the backend feature names
     // for the two mobile toolkits.
-    let toolkit =
-        crate::doctor::group_id(targets::find(first).map(|t| t.toolkit).unwrap_or_default());
+    let toolkit = crate::doctor::group_id(targets::find(first).map_or_default(|t| t.toolkit));
     eprintln!("\n  next:\n    day doctor --toolkit {toolkit}\n    day launch -t {first}\n");
     Ok(())
 }
@@ -2882,7 +2879,7 @@ define_class!(
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
             if let Some(tf) = sender.downcast_ref::<UITextField>() {
-                let s = tf.text().map(|s| s.to_string()).unwrap_or_default();
+                let s = tf.text().map_or_default(|s| s.to_string());
                 day_toolkit_uikit::emit(self.ivars().node, Event::TextChanged(s));
             }
         }
@@ -2928,7 +2925,7 @@ fn make(_backend: &mut Uikit, p: &__PASCAL__Props, id: NodeId) -> Retained<UIVie
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &__PASCAL__Patch) {
     let __PASCAL__Patch::SetText(t) = patch;
     if let Some(field) = (**h).downcast_ref::<UITextField>() {
-        let cur = field.text().map(|s| s.to_string()).unwrap_or_default();
+        let cur = field.text().map_or_default(|s| s.to_string());
         if cur != *t {
             field.setText(Some(&NSString::from_str(t)));
         }
@@ -4365,8 +4362,7 @@ mod scaffold_tests {
             files
                 .iter()
                 .find(|(p, _)| p == "Cargo.toml")
-                .map(|(_, t)| t.clone())
-                .unwrap_or_default()
+                .map_or_default(|(_, t)| t.clone())
         };
 
         let in_src = native_piece_files(&r, &deps, &toolkits, true);

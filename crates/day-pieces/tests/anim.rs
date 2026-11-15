@@ -10,6 +10,7 @@ use day_mock::{MockHandle, MockProbe, MockToolkit};
 use day_pieces::prelude::*;
 use day_reactive::flush_sync;
 use day_spec::{Event, NodeId, Size, WindowOptions};
+use std::assert_matches;
 
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -95,7 +96,7 @@ fn with_animation_threads_into_background_color_patch() {
         .widget(h)
         .last_anim
         .expect("with_animation threaded an AnimSpec into the ContainerPatch::Background update");
-    assert!(matches!(a.curve, Curve::Spring { .. }));
+    assert_matches!(a.curve, Curve::Spring { .. });
 }
 
 #[test]

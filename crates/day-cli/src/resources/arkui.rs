@@ -25,15 +25,15 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     // Vector glyph SVGs (docs/vectors.md): staged beside the raster under the same stem.
     // ArkUI's Image renders SVG natively and alpha-preserving SourceIn compositing tints it, so
     // day-toolkit-arkui probes `day/<name>.svg` first and falls back to the png.
-    let svgs: Vec<std::path::PathBuf> = super::vector_svg_dir(project)
-        .read_dir()
-        .map(|rd| {
-            rd.flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("svg"))
-                .collect()
-        })
-        .unwrap_or_default();
+    let svgs: Vec<std::path::PathBuf> =
+        super::vector_svg_dir(project)
+            .read_dir()
+            .map_or_default(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("svg"))
+                    .collect()
+            });
     if set.images.is_empty() && set.data.is_empty() && fonts.is_empty() && svgs.is_empty() {
         return Ok(());
     }

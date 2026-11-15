@@ -84,7 +84,7 @@ fn pango_underline(u: Underline) -> gtk4::pango::Underline {
 
 /// A canonical key for a run style, so identical styles share one tag.
 fn style_key(s: &RunStyle, base_points: f64) -> String {
-    let c = |c: Option<day_spec::Color>| c.map(|c| c.to_hex_string()).unwrap_or_default();
+    let c = |c: Option<day_spec::Color>| c.map_or_default(|c| c.to_hex_string());
     format!(
         "r|{:.2}|{}|{}|{}|{}|{}|{}|{}",
         s.font.resolved_points(base_points),

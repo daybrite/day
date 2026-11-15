@@ -1136,7 +1136,7 @@ mod imp {
     /// contain the separator, a control character no label carries; one that does loses it
     /// rather than splitting.
     fn select_props(selected: Option<usize>, options: &[String]) -> String {
-        let mut out = selected.map(|i| i.to_string()).unwrap_or_default();
+        let mut out = selected.map_or_default(|i| i.to_string());
         for o in options {
             out.push('\u{1F}');
             out.extend(o.chars().filter(|c| *c != '\u{1F}'));

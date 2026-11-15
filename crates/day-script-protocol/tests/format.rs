@@ -5,6 +5,7 @@ use day_script_protocol::{
     FailurePolicy, Request, Script, ScriptStep, Step, steps_from_yaml, steps_to_yaml,
 };
 use serde_json::{Value, json};
+use std::assert_matches;
 
 #[test]
 fn whole_catalog_round_trips_through_canonical_yaml() {
@@ -34,14 +35,14 @@ fn shorthands_and_mapping_forms_describe_identical_operations() {
     .unwrap();
     let full = steps_from_yaml("flow:\n- screenshot: {name: fixture}\n- pause: {secs: 0.125}\n- resize: {restore: true}\n- nav_back: {native: false}\n- wait_idle: {}\n").unwrap();
     assert_eq!(short, full);
-    assert!(matches!(
+    assert_matches!(
         short[2],
         Step::Resize {
             restore: true,
             width: None,
             height: None
         }
-    ));
+    );
     assert!(steps_to_yaml(&short).contains("- nav_back: null"));
 }
 

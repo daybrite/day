@@ -436,8 +436,7 @@ impl StyledText {
         self.paragraphs
             .iter()
             .find(|p| p.range.start <= start && p.range.end >= end.min(p.range.end).max(start + 1))
-            .map(ParagraphRun::style)
-            .unwrap_or_default()
+            .map_or_default(ParagraphRun::style)
     }
 
     /// Move the ranges over a character edit the native editor already made: `removed` bytes at

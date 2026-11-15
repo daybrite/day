@@ -286,7 +286,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         }
     };
     let platform = get("PLATFORM_NAME").unwrap_or_else(|| "iphonesimulator".into());
-    let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
+    let project_dir = get("PROJECT_DIR").map_or_default(PathBuf::from);
 
     // Generated hosts export the app root; persistent hosts live two levels below it.
     let root = get("DAY_PROJECT_ROOT").map_or_else(|| project_dir.join("../.."), PathBuf::from);
@@ -440,7 +440,7 @@ pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
             "day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)",
         ));
     };
-    let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
+    let project_dir = get("PROJECT_DIR").map_or_default(PathBuf::from);
     // Generated hosts export the app root; persistent hosts live two levels below it.
     let root = get("DAY_PROJECT_ROOT").map_or_else(|| project_dir.join("../.."), PathBuf::from);
     let project = find_project(Some(&root))
@@ -498,7 +498,7 @@ pub fn xcode_backend_stage_strings() -> Result<(), CliError> {
             "day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)",
         ));
     };
-    let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
+    let project_dir = get("PROJECT_DIR").map_or_default(PathBuf::from);
     // Generated hosts export the app root; persistent hosts live two levels below it.
     let root = get("DAY_PROJECT_ROOT").map_or_else(|| project_dir.join("../.."), PathBuf::from);
     let project = find_project(Some(&root))
@@ -1629,8 +1629,7 @@ fn sign_ios_bundle(
     let identities = Command::new("security")
         .args(["find-identity", "-v", "-p", "codesigning"])
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_uppercase())
-        .unwrap_or_default();
+        .map_or_default(|o| String::from_utf8_lossy(&o.stdout).to_uppercase());
     let mut sha1 = None;
     for index in 0.. {
         let b64_path = tmp.join("signer.b64");
@@ -1766,8 +1765,7 @@ fn sign_ios_extensions(
             let settings = crate::sign::ios_app_entitlements(project, configuration)
                 .ok()
                 .flatten()
-                .map(|e| e.settings)
-                .unwrap_or_default();
+                .map_or_default(|e| e.settings);
             crate::sign::AppEntitlements {
                 path: project.root.join(r.staged_entitlements()),
                 settings,
@@ -3145,8 +3143,7 @@ pub fn launch_android(
                     .args(["shell", "cmd", "uimode", "night"])
                     .output()
                     .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
-                    .unwrap_or_default();
+                    .map_or_default(|o| String::from_utf8_lossy(&o.stdout).to_lowercase());
                 if !cur.contains(&format!(": {night}")) {
                     run_logged_within(
                         adb(Some(&dev.serial)).args(["shell", "cmd", "uimode", "night", night]),
@@ -3250,8 +3247,7 @@ static LOGCAT_PUMPS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new
 pub(crate) fn stop_logcat_pumps() {
     let pumps = LOGCAT_PUMPS
         .lock()
-        .map(|mut p| std::mem::take(&mut *p))
-        .unwrap_or_default();
+        .map_or_default(|mut p| std::mem::take(&mut *p));
     for pid in pumps {
         crate::signals::kill_child(pid);
     }
@@ -3388,8 +3384,7 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
                     .args(["shell", "pidof", "-s", &app_id])
                     .output()
                     .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    .unwrap_or_default();
+                    .map_or_default(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
                 if p.is_empty() {
                     std::thread::sleep(std::time::Duration::from_millis(250));
                     None

@@ -184,7 +184,7 @@ pub fn authenticate(prompt: Prompt, on_done: OnDone) {
                     };
                     Ok(Verified {
                         method,
-                        token: bytes.get(1..).map(<[u8]>::to_vec).unwrap_or_default(),
+                        token: bytes.get(1..).map_or_default(<[u8]>::to_vec),
                     })
                 }
                 Err(e) => Err(error_from_bridge(e)),

@@ -5,6 +5,7 @@
 //! simplest shape, and the contour a mixed set of corners draws.
 
 use day_spec::{CornerRadii, PathSeg, Point, Rect, Shape, Size, arc_cubics, rounded_rect_segs};
+use std::assert_matches;
 
 fn near(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
@@ -96,10 +97,10 @@ fn the_simplest_shape_is_chosen() {
         Shape::rounded_rect(rect, CornerRadii::uniform(100.0)),
         Shape::RoundedRect(rect, 10.0)
     );
-    assert!(matches!(
+    assert_matches!(
         Shape::rounded_rect(rect, CornerRadii::top(6.0)),
         Shape::Path(_)
-    ));
+    );
     // An empty rectangle has nothing to round.
     let empty = Rect::new(0.0, 0.0, 0.0, 40.0);
     assert_eq!(
@@ -112,8 +113,8 @@ fn the_simplest_shape_is_chosen() {
 fn a_top_rounded_bar_is_square_at_its_base_and_curved_at_its_top() {
     let rect = Rect::new(10.0, 20.0, 30.0, 60.0);
     let segs = rounded_rect_segs(rect, CornerRadii::top(5.0));
-    assert!(matches!(segs.first(), Some(PathSeg::Move(_))));
-    assert!(matches!(segs.last(), Some(PathSeg::Close)));
+    assert_matches!(segs.first(), Some(PathSeg::Move(_)));
+    assert_matches!(segs.last(), Some(PathSeg::Close));
     let pts = on_curve(&segs);
     // The bottom corners are the rectangle's own corners, exactly.
     assert!(pts.iter().any(|p| near_pt(*p, Point::new(40.0, 80.0))));

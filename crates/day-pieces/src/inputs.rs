@@ -416,7 +416,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
             on_submit,
         } = self;
         let initial = text.peek();
-        let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
+        let ph = placeholder.map_or_default(|p| p.initial());
         let node = cx.leaf(
             kinds::TEXT_AREA,
             &day_spec::props::TextAreaProps {

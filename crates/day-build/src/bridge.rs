@@ -441,8 +441,7 @@ fn emit_c(bridge: &Bridge, dir: &Path, crate_name: &str) -> Result<(), String> {
         for lib in arm
             .options
             .get("link")
-            .map(|v| v.trim_matches(['[', ']']).to_string())
-            .unwrap_or_default()
+            .map_or_default(|v| v.trim_matches(['[', ']']).to_string())
             .split(',')
             .map(|l| l.trim().trim_matches('"'))
             .filter(|l| !l.is_empty())
@@ -586,8 +585,7 @@ fn parse_declare(rest: &str, line: usize, bridge: &mut Bridge) -> Result<usize, 
         let ret = sig[args_end + 1..]
             .trim()
             .strip_prefix("->")
-            .map(|r| r.trim().to_string())
-            .unwrap_or_default();
+            .map_or_default(|r| r.trim().to_string());
         bridge.decls.push(Decl {
             name,
             args,
