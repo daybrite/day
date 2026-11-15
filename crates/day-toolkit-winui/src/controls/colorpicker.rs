@@ -8,9 +8,9 @@
 // Windows-only, built in CI, not verified locally.
 // ---------------------------------------------------------------------------
 
-use day_pieces::colorpicker::*;
 use day_spec::Color;
 use day_spec::Event;
+use day_spec::controls::colorpicker::*;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
@@ -74,6 +74,6 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
     Size::new(w.max(88.0), hh.max(32.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Xaml,
+day_spec::renderer!(crate::RENDERERS, Xaml,
     kind: KIND, props: ColorProps, patch: ColorPatch,
     make: make, update: update, measure: measure);

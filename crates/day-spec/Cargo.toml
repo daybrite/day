@@ -10,6 +10,8 @@ license.workspace = true
 [dependencies]
 log = { workspace = true }
 day-geometry = { workspace = true }
+# The layer below the UI: `Support` and the FFI panic guard are re-exported from here.
+day-process = { workspace = true }
 day-fonts = { workspace = true }
 # The default resource opener mmaps the backing file for zero-copy random access (the "plain file
 # handle on Apple" path + desktop dev). Native backends (Android AAsset, GTK GResource, Qt

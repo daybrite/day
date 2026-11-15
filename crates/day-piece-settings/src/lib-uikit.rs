@@ -990,7 +990,7 @@ fn measure_row(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size 
 
 mod row_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
+    day_spec::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
         kind: ROW_KIND, props: RowProps, patch: RowPatch,
         make: make_row, update: update_row, measure: measure_row);
 }
@@ -2059,7 +2059,7 @@ fn measure_table(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Siz
 
 mod table_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
+    day_spec::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
         kind: TABLE_KIND, props: TableProps, patch: TablePatch,
         make: make_table, update: update_table, measure: measure_table);
 }
@@ -2088,7 +2088,7 @@ fn measure_cell(_backend: &mut Uikit, _h: &Retained<UIView>, p: Proposal) -> Siz
 
 mod cell_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
+    day_spec::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
         kind: CELL_KIND, props: CellProps, patch: CellPatch,
         make: make_cell, update: update_cell, measure: measure_cell);
 }

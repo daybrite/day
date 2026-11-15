@@ -10,8 +10,8 @@
 // resulting patch snaps the calendar back. Echo-guarded like the picker's GTK renderer.
 // ---------------------------------------------------------------------------
 
-use day_pieces::datetime::*;
 use day_spec::Event;
+use day_spec::controls::datetime::*;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -126,7 +126,7 @@ mod date_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
@@ -159,7 +159,7 @@ mod date_renderer {
         });
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Gtk,
+    day_spec::renderer!(crate::RENDERERS, Gtk,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make, update: update, measure: measure, release: release);
 }
@@ -183,7 +183,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the props arrive by reference"
     )]
     fn make(_backend: &mut Gtk, p: &TimeProps, id: NodeId) -> gtk4::Widget {
         // Both styles compose the same linked spin buttons, GNOME's time-setting idiom
@@ -238,7 +238,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
@@ -272,7 +272,7 @@ mod time_renderer {
         });
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Gtk,
+    day_spec::renderer!(crate::RENDERERS, Gtk,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make, update: update, measure: measure, release: release);
 }

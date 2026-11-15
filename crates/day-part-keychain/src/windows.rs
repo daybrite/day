@@ -37,11 +37,11 @@ use crate::{Entry, KeychainError, OnDone, Protection, Support};
 use day_part_biometrics::{Availability, BiometricError, Prompt};
 
 /// The store directory: `day-keychain` in the app's data directory
-/// (`day_spec::storage::data_dir()`), which is `%LOCALAPPDATA%\<app id>` unless `DAY_DATA_DIR`
+/// (`day_process::storage::data_dir()`), which is `%LOCALAPPDATA%\<app id>` unless `DAY_DATA_DIR`
 /// relocates it (tests, a host). Local, not roaming: a DPAPI blob made on this machine is
 /// unreadable on another.
 fn store_dir() -> Result<std::path::PathBuf, KeychainError> {
-    day_spec::storage::data_dir()
+    day_process::storage::data_dir()
         .map(|dir| dir.join("day-keychain"))
         .ok_or(KeychainError::Unavailable)
 }

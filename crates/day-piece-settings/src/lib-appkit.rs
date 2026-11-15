@@ -548,6 +548,6 @@ fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     }
 }
 
-day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
+day_spec::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
     kind: KIND, props: PanelProps, patch: PanelPatch,
-    make: make, update: update, measure: day_pieces::fill_measure, release: release);
+    make: make, update: update, measure: day_spec::fill_measure, release: release);

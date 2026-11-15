@@ -11,13 +11,13 @@
 //! Downcast to the concrete class for widget-specific API:
 //!
 //! ```ignore
-//! use day_toolkit_appkit::AppKitExt;
-//! button("Save").appkit(|view, class, _mtm| {
+//! use day_toolkit_appkit::{appkit, appkit_subcontrol};
+//! button("Save").tweak(appkit(|view, class, _mtm| {
 //!     // `class` is "NSButton" here; match on it when a piece has more than one backing.
 //!     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
 //!         unsafe { btn.setBezelStyle(objc2_app_kit::NSBezelStyle::Toolbar) };
 //!     }
-//! })
+//! }))
 //! ```
 //!
 //! Day may re-apply *managed* properties (title, value, enabled, frame, a11y) on its next patch;
@@ -25,7 +25,6 @@
 //! `day_core::invalidate_size(node)` (the `.tweak` docs cover the rules).
 
 use day_core::RNode;
-use day_pieces::Decorate;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::NSView;
@@ -78,28 +77,22 @@ pub fn with_native_subcontrol<R>(
 }
 
 /// The AppKit tweak modifier: runs once at mount, after the widget exists (docs/tweaks.md).
-pub trait AppKitExt: Decorate + Sized {
-    fn appkit(
-        self,
-        f: impl FnOnce(&Retained<NSView>, &str, MainThreadMarker) + 'static,
-    ) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            let _ = with_native(n, f);
-        })
-    }
-
-    /// The subcontrol form: tweak one named widget of a composite backing.
-    /// `.appkit_subcontrol(Subcontrol::Content, |view, class, mtm| …)` reaches a tree's
-    /// `NSOutlineView` where `.appkit` reaches its scroller (docs/tree.md).
-    fn appkit_subcontrol(
-        self,
-        sub: day_spec::Subcontrol,
-        f: impl FnOnce(&Retained<NSView>, &str, MainThreadMarker) + 'static,
-    ) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            let _ = with_native_subcontrol(n, sub, f);
-        })
+pub fn appkit(
+    f: impl FnOnce(&Retained<NSView>, &str, MainThreadMarker) + 'static,
+) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        let _ = with_native(n, f);
     }
 }
 
-impl<P: Decorate> AppKitExt for P {}
+/// The subcontrol form: tweak one named widget of a composite backing.
+/// `.tweak(appkit_subcontrol(Subcontrol::Content, |view, class, mtm| …))` reaches a tree's
+/// `NSOutlineView` where `.appkit` reaches its scroller (docs/tree.md).
+pub fn appkit_subcontrol(
+    sub: day_spec::Subcontrol,
+    f: impl FnOnce(&Retained<NSView>, &str, MainThreadMarker) + 'static,
+) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        let _ = with_native_subcontrol(n, sub, f);
+    }
+}

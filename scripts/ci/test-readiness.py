@@ -150,6 +150,30 @@ class ReadinessTests(unittest.TestCase):
         manifest.write_text(original)
         self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py")
 
+    def test_layers_below_the_ui_reject_ui_dependencies(self):
+        cases = (
+            # A part reaching the UI core, the process crate reaching anything of Day's, and a
+            # backend reaching the widget builders.
+            ("crates/day-part-filesystem/Cargo.toml", "day-core", "day-part-filesystem -> day-core"),
+            ("crates/day-process/Cargo.toml", "day-async", "day-process -> day-async"),
+            ("crates/day-bridge/Cargo.toml", "day-spec", "day-bridge -> day-spec"),
+            ("crates/day-toolkit-gtk/Cargo.toml", "day-pieces", "day-toolkit-gtk -> day-pieces"),
+            # Reached through another crate, not named by the backend itself.
+            ("crates/day-localization-ui/Cargo.toml", "day-pieces", "day-toolkit-appkit -> day-localization-ui -> day-pieces"),
+        )
+        for path, dependency, expected in cases:
+            with self.subTest(dependency=expected):
+                manifest = self.root / path
+                original = manifest.read_text()
+                self.assertIn("[dependencies]", original)
+                manifest.write_text(
+                    original.replace("[dependencies]", f"[dependencies]\n{dependency}.workspace = true", 1)
+                )
+                result = self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py", ok=False)
+                self.assertIn(expected, result.stderr)
+                manifest.write_text(original)
+        self.run_cmd("python3", "scripts/ci/check-platform-runtimes.py")
+
     def test_website_source_checks_rebuild_api_before_coverage(self):
         # Synthetic tools exercise the shared entry point without building a second site.
         script = self.root / "scripts/ci/check-website-source.sh"

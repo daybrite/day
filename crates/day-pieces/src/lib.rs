@@ -16,8 +16,6 @@ day_reactive::tls_root! {
     nav: crate::nav::TlsGroupSlots,
 }
 
-// External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
-// re-exports the macro expands to (so a piece needs only a `day-pieces` dependency, not linkme).
 pub mod async_image;
 pub mod colorpicker;
 pub mod combobox;
@@ -38,9 +36,6 @@ pub mod dynreg;
 /// impl (docs/api-style.md "Typed builders and erasure").
 pub use day_core::{Dimension, ElementId, IntoElementKey, id};
 pub use day_macros::builder;
-pub use day_spec::Renderer;
-pub use linkme;
-pub use render::fill_measure;
 
 // The piece vocabulary: one logical group per module, re-exported flat (see each module's docs).
 mod canvas;

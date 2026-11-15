@@ -16,9 +16,9 @@ use crate::arkui_sys::native_node::{
 };
 use crate::node;
 use crate::{AHandle, ArkUi};
-use day_pieces::pullrefresh::*;
 use day_spec::Event;
 use day_spec::NodeId;
+use day_spec::controls::pullrefresh::*;
 
 /// A user pull began on the Refresh node carrying this day `NodeId` in its event user data.
 unsafe extern "C" fn on_event(ev: *mut ArkUI_NodeEvent) {
@@ -57,13 +57,13 @@ fn make(_backend: &mut ArkUi, p: &RefreshProps, id: NodeId) -> AHandle {
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+    reason = "`day_spec::renderer!` fixes the signature: the handle arrives by reference"
 )]
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &RefreshPatch) {
     let RefreshPatch::SetRefreshing(on) = patch;
     set_refreshing(h, *on);
 }
 
-day_pieces::renderer!(crate::RENDERERS, ArkUi,
+day_spec::renderer!(crate::RENDERERS, ArkUi,
     kind: KIND, props: RefreshProps, patch: RefreshPatch,
-    make: make, update: update, measure: day_pieces::fill_measure);
+    make: make, update: update, measure: day_spec::fill_measure);

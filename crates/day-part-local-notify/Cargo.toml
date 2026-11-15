@@ -29,10 +29,9 @@ license.workspace = true
 # them separate means neither crate depends on the other, the split day-part-location keeps.
 
 [dependencies]
-# `request_route` (tap → navigation) and the main-thread door. day-core is the only day crate this
-# needs: it owns the routing rail a notification tap has to reach.
-day-core = { workspace = true }
-day-reactive = { workspace = true }
+# The route buffer a tap navigates through and the notification-delivery registry a push part
+# listens on. Both sit below the UI, so a tap is recorded in a process that has no window yet.
+day-process = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = { workspace = true }

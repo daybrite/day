@@ -111,7 +111,7 @@ impl Store for MemoryStore {
     }
 }
 
-day_core::tls_group! {
+day_reactive::tls_group! {
     /// The installed store (`None` = [`NativeStore`]).
     static STORE: RefCell<Option<Rc<dyn Store>>> = const { RefCell::new(None) };
     /// One signal per pref key, created on first use and seeded from the store.

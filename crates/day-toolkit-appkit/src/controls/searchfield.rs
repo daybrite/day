@@ -8,8 +8,8 @@
 // needed on this backend (update only writes when the value actually differs).
 // ---------------------------------------------------------------------------
 
-use day_pieces::searchfield::*;
 use day_spec::Event;
+use day_spec::controls::searchfield::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -111,6 +111,6 @@ fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, AppKit,
+day_spec::renderer!(crate::RENDERERS, AppKit,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure, release: release);

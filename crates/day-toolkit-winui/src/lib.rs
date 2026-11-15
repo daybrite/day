@@ -6,7 +6,7 @@
 //! target uses Windows.UI.Xaml through the same shim. Controls live in a
 //! `DesktopWindowXamlSource`, with Day layout placing them inside XAML Canvases.
 //! Toolkit-independent Windows services come from `day-platform-windows`.
-//! The `Xaml` and `XamlExt` type names remain shared by both target variants.
+//! The `Xaml` and `xaml_raw` type names remain shared by both target variants.
 
 #![cfg(windows)]
 

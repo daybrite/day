@@ -12,7 +12,7 @@
 // (12); `RefreshPatch` drives `setRefreshing`.
 // ---------------------------------------------------------------------------
 
-use day_pieces::pullrefresh::*;
+use day_spec::controls::pullrefresh::*;
 
 use crate::{AHandle, Material, java};
 use day_spec::NodeId;
@@ -38,6 +38,6 @@ fn update(_backend: &mut Material, h: &AHandle, patch: &RefreshPatch) {
     java(|env| DayPullRefresh::refreshCommand(env, h.0.as_obj(), *on));
 }
 
-day_pieces::renderer!(crate::RENDERERS, Material,
+day_spec::renderer!(crate::RENDERERS, Material,
     kind: KIND, props: RefreshProps, patch: RefreshPatch,
-    make: make, update: update, measure: day_pieces::fill_measure);
+    make: make, update: update, measure: day_spec::fill_measure);

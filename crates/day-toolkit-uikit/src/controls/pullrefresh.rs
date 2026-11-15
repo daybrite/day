@@ -11,8 +11,8 @@
 // `beginRefreshing`/`endRefreshing` for the programmatic path.
 // ---------------------------------------------------------------------------
 
-use day_pieces::pullrefresh::*;
 use day_spec::Event;
+use day_spec::controls::pullrefresh::*;
 
 use crate::Uikit;
 use day_spec::NodeId;
@@ -114,6 +114,6 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &RefreshPatch) {
     }
 }
 
-day_pieces::renderer!(crate::RENDERERS, Uikit,
+day_spec::renderer!(crate::RENDERERS, Uikit,
     kind: KIND, props: RefreshProps, patch: RefreshPatch,
-    make: make, update: update, measure: day_pieces::fill_measure);
+    make: make, update: update, measure: day_spec::fill_measure);

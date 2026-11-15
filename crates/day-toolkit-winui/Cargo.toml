@@ -13,18 +13,17 @@ license.workspace = true
 # Toolkit-independent Windows services live in day-platform-windows.
 
 [dependencies]
-day-reactive = { workspace = true }
-log = { workspace = true }
-day-spec = { workspace = true }
-# Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
-# extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
-day-core = { workspace = true }
-day-pieces = { workspace = true }
-# The jump list's task titles: the app's `[[shortcuts]]` label keys, resolved in its catalog.
-day-localization = { workspace = true }
-linkme = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+log = { workspace = true }
+linkme = { workspace = true }
+day-reactive = { workspace = true }
+day-spec = { workspace = true }
+# The jump list's task titles: the app's `[[shortcuts]]` label keys, resolved in its catalog.
+day-localization = { workspace = true }
+# The realized tree, events and window policy. The ext module (docs/tweaks.md) reads the tree
+# to hand a tweak the native widget; the backend needs no widget builders for that.
+day-core = { workspace = true }
 day-toolkit-xaml-sys = { workspace = true }
 day-platform-windows = { workspace = true }
 

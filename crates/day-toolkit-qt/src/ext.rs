@@ -19,11 +19,11 @@
 //! //       auto* s = static_cast<QSlider*>(w);
 //! //       s->setTickPosition(QSlider::TicksBelow); s->setTickInterval(interval);
 //! //   }
-//! use day_toolkit_qt::QtExt;
-//! slider(v).qt_raw(|w, class| {
+//! use day_toolkit_qt::qt_raw;
+//! slider(v).tweak(qt_raw(|w, class| {
 //!     let cls = std::ffi::CString::new(class).unwrap();
 //!     unsafe { my_slider_ticks(w, cls.as_ptr(), 10) };
-//! });
+//! }));
 //! ```
 //!
 //! Contract: the pointer is owned by Day/Qt — never `delete` it, never reparent it, use it only
@@ -33,7 +33,6 @@
 use std::os::raw::c_void;
 
 use day_core::RNode;
-use day_pieces::Decorate;
 use day_spec::{PieceKind, kinds};
 
 /// The Qt widget class Day's shim (`day-toolkit-qt-sys`) realizes for `kind`. `""` for container/layout
@@ -61,14 +60,10 @@ pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
 
 /// The Qt tweak modifier: runs once at mount with the raw `QWidget*` and its class name
 /// (docs/tweaks.md).
-pub trait QtExt: Decorate + Sized {
-    fn qt_raw(self, f: impl FnOnce(*mut c_void, &str) + 'static) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            if let Some((w, class)) = with_native_raw(n) {
-                f(w, class);
-            }
-        })
+pub fn qt_raw(f: impl FnOnce(*mut c_void, &str) + 'static) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        if let Some((w, class)) = with_native_raw(n) {
+            f(w, class);
+        }
     }
 }
-
-impl<P: Decorate> QtExt for P {}

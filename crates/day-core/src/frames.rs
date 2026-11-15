@@ -6,7 +6,7 @@
 //! file in the app's configuration directory.
 //!
 //! The file is `day-windows.txt` in the app's configuration directory
-//! (`day_spec::storage::config_dir()`): `~/Library/Application Support/<app id>` on macOS,
+//! (`day_process::storage::config_dir()`): `~/Library/Application Support/<app id>` on macOS,
 //! `%APPDATA%\<app id>` on Windows, `$XDG_CONFIG_HOME/<app id>` (else `~/.config/<app id>`) on
 //! Linux. One line per key: `key<TAB>x<TAB>y<TAB>width<TAB>height<TAB>maximized`.
 
@@ -22,7 +22,7 @@ pub struct Remembered {
 }
 
 fn store() -> Option<PathBuf> {
-    Some(day_spec::storage::config_dir()?.join("day-windows.txt"))
+    Some(day_process::storage::config_dir()?.join("day-windows.txt"))
 }
 
 fn parse(line: &str) -> Option<(&str, Remembered)> {

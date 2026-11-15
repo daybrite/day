@@ -24,9 +24,9 @@
 //   in Day's `Color` to put one in. docs/color.md carries that gap.
 // ---------------------------------------------------------------------------
 
-use day_pieces::colorpicker::*;
 use day_spec::Color;
 use day_spec::Event;
+use day_spec::controls::colorpicker::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -156,6 +156,6 @@ fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, AppKit,
+day_spec::renderer!(crate::RENDERERS, AppKit,
     kind: KIND, props: ColorProps, patch: ColorPatch,
     make: make, update: update, measure: measure, release: release);

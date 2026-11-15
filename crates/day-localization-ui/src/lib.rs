@@ -9,8 +9,6 @@
 //! `label(tr("greeting").arg("name", name))`, whose value re-reads the locale signal plus any signal
 //! args, so a locale switch updates every visible string fine-grained, followed by one relayout.
 
-use day_pieces::{IntoText, TextSource};
-
 // Re-export the engine so the app-facing API (`install_locales`, `set_locale`, …) is unchanged.
 pub use day_localization::{
     Catalog, DateFields, FArg, IntoFArg, IntoNumberFArg, SigM, ValM, add_launch_locales, compare,
@@ -106,13 +104,5 @@ impl LocalizedText {
 impl From<LocalizedText> for String {
     fn from(t: LocalizedText) -> String {
         t.format()
-    }
-}
-
-pub struct LocalizedMark;
-
-impl IntoText<LocalizedMark> for LocalizedText {
-    fn into_text(self) -> TextSource {
-        TextSource::Dyn(std::rc::Rc::new(move || self.format()))
     }
 }

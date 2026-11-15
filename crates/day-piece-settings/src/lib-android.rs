@@ -155,7 +155,7 @@ fn measure(_backend: &mut Material, h: &AHandle, p: Proposal) -> Size {
     Size::new(width, height)
 }
 
-day_pieces::renderer!(day_toolkit_material::RENDERERS, Material,
+day_spec::renderer!(day_toolkit_material::RENDERERS, Material,
     kind: ROW_KIND, props: RowProps, patch: RowPatch,
     make: make, update: update, measure: measure);
 

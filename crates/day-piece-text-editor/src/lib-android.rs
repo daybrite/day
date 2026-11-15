@@ -295,6 +295,6 @@ fn release(_backend: &mut Material, h: &AHandle) {
     });
 }
 
-day_pieces::renderer!(day_toolkit_material::RENDERERS, Material,
+day_spec::renderer!(day_toolkit_material::RENDERERS, Material,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

@@ -5,9 +5,9 @@ use crate::arkui_sys::native_node::{
 };
 use crate::arkui_sys::ui_input_event::OH_ArkUI_UIInputEvent_GetAction;
 use crate::{AHandle, ArkUi, node};
-use day_pieces::pager::*;
 use day_spec::Event;
 use day_spec::NodeId;
+use day_spec::controls::pager::*;
 use std::{cell::RefCell, collections::HashMap};
 struct State {
     node: NodeId,
@@ -207,4 +207,4 @@ fn release(_: &mut ArkUi, h: &AHandle) {
         states.borrow_mut().remove(&(h.0 as usize));
     });
 }
-day_pieces::renderer!(crate::RENDERERS,ArkUi,kind:KIND,props:PagerProps,patch:PagerPatch,make:make,update:update,measure:day_pieces::fill_measure,release:release);
+day_spec::renderer!(crate::RENDERERS,ArkUi,kind:KIND,props:PagerProps,patch:PagerPatch,make:make,update:update,measure:day_spec::fill_measure,release:release);

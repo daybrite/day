@@ -352,9 +352,9 @@ fn slot_release(_backend: &mut Qt, h: &QtHandle) {
 // One `renderer!` per module: each shell kind registers from a module of its own.
 mod slot_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_qt::RENDERERS, Qt,
+    day_spec::renderer!(day_toolkit_qt::RENDERERS, Qt,
         kind: SLOT_KIND, props: SlotProps, patch: (),
-        make: slot_make, update: slot_update, measure: day_pieces::fill_measure, release: slot_release);
+        make: slot_make, update: slot_update, measure: day_spec::fill_measure, release: slot_release);
 }
 
 // --- the shell: pages, groups, rows ----------------------------------------------------------
@@ -596,7 +596,7 @@ fn shell_release(_backend: &mut Qt, h: &QtHandle) {
 
 mod shell_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_qt::RENDERERS, Qt,
+    day_spec::renderer!(day_toolkit_qt::RENDERERS, Qt,
         kind: SHELL_KIND, props: ShellProps, patch: ShellPatch,
         make: shell_make, update: shell_update, measure: shell_measure, release: shell_release);
 }

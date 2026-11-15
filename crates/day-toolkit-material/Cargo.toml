@@ -10,16 +10,16 @@ license.workspace = true
 [dependencies]
 log = { workspace = true }
 day-spec = { workspace = true }
-# Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
-# extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
-day-core = { workspace = true }
-day-pieces = { workspace = true }
-# A re-mount's route restore runs one turn after the first build (`on_main`), the same
-# deferral a launch deep link takes.
-day-reactive = { workspace = true }
+day-process = { workspace = true }
 linkme = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
+# A re-mount's route restore runs one turn after the first build (`on_main`), the same
+# deferral a launch deep link takes.
+day-reactive = { workspace = true }
+# The realized tree, events and window policy. The ext module (docs/tweaks.md) reads the tree
+# to hand a tweak the native widget; the backend needs no widget builders for that.
+day-core = { workspace = true }
 day-platform-android.workspace = true
 jni = "0.22"
 

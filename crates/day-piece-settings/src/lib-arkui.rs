@@ -392,9 +392,9 @@ fn release(_backend: &mut ArkUi, h: &AHandle) {
     }
 }
 
-day_pieces::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
+day_spec::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
     kind: KIND, props: RowProps, patch: RowPatch,
-    make: make, update: update, measure: day_pieces::fill_measure, release: release);
+    make: make, update: update, measure: day_spec::fill_measure, release: release);
 
 // ---------------------------------------------------------------------------
 // Layout: a leading glyph (a root-list row), the text column, then the control, the value and
@@ -959,9 +959,9 @@ fn host_update(_backend: &mut ArkUi, h: &AHandle, patch: &HostPatch) {
 // `renderer!` registers one entry per module: each extra kind lives in a module of its own.
 mod host_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
+    day_spec::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
         kind: HOST_KIND, props: HostProps, patch: HostPatch,
-        make: host_make, update: host_update, measure: day_pieces::fill_measure,
+        make: host_make, update: host_update, measure: day_spec::fill_measure,
         release: host_release);
 }
 
@@ -1168,9 +1168,9 @@ fn group_release(_backend: &mut ArkUi, h: &AHandle) {
 
 mod group_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
+    day_spec::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
         kind: GROUP_KIND, props: GroupProps, patch: GroupPatch,
-        make: group_make, update: group_update, measure: day_pieces::fill_measure,
+        make: group_make, update: group_update, measure: day_spec::fill_measure,
         release: group_release);
 }
 
@@ -1322,9 +1322,9 @@ fn page_update(_backend: &mut ArkUi, _h: &AHandle, patch: &PagePatch) {
 
 mod page_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
+    day_spec::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
         kind: PAGE_KIND, props: PageProps, patch: PagePatch,
-        make: page_make, update: page_update, measure: day_pieces::fill_measure);
+        make: page_make, update: page_update, measure: day_spec::fill_measure);
 }
 
 /// The groups stacked inside the list's padding, a card's gap apart: the same order and

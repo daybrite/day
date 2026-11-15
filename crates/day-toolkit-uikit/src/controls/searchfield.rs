@@ -8,8 +8,8 @@
 // guard is needed here (update only writes when the value actually differs).
 // ---------------------------------------------------------------------------
 
-use day_pieces::searchfield::*;
 use day_spec::Event;
+use day_spec::controls::searchfield::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -113,6 +113,6 @@ fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, Uikit,
+day_spec::renderer!(crate::RENDERERS, Uikit,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure, release: release);

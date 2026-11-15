@@ -2656,7 +2656,7 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
     Size::new(w, fit.height.ceil().max(22.0))
 }
 
-day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
+day_spec::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -2732,7 +2732,7 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
     Size::new(w, (nat_h as f64).max(24.0))
 }
 
-day_pieces::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
+day_spec::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -2798,7 +2798,7 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(24.0))
 }
 
-day_pieces::renderer!(day_toolkit_qt::RENDERERS, Qt,
+day_spec::renderer!(day_toolkit_qt::RENDERERS, Qt,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -2938,7 +2938,7 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
     Size::new(w, fit.height.ceil().max(28.0))
 }
 
-day_pieces::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
+day_spec::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -2984,7 +2984,7 @@ fn measure(_backend: &mut Material, _h: &AHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(180.0), p.height.unwrap_or(44.0))
 }
 
-day_pieces::renderer!(day_toolkit_material::RENDERERS, Material,
+day_spec::renderer!(day_toolkit_material::RENDERERS, Material,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;
@@ -3103,7 +3103,7 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(32.0))
 }
 
-day_pieces::renderer!(day_toolkit_winui::RENDERERS, Xaml,
+day_spec::renderer!(day_toolkit_winui::RENDERERS, Xaml,
     kind: KIND, props: __PASCAL__Props, patch: __PASCAL__Patch,
     make: make, update: update, measure: measure);
 "#;

@@ -65,6 +65,7 @@ day-macros = { workspace = true }
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
+day-process = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-localization-ui = { workspace = true }

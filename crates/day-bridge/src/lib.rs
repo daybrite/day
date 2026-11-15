@@ -34,7 +34,7 @@ use std::task::{Context, Poll};
 
 /// What a target's arm promises, re-exported from day-spec so a bridged crate's `available()`
 /// answers in the same vocabulary as `day::capability()`.
-pub use day_spec::Support;
+pub use day_process::Support;
 
 /// The single error type crossing a bridge boundary (docs/bridge.md "Errors").
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -524,7 +524,7 @@ pub fn start_stream<T: Send + 'static>(
 /// Run a generated completion export's body with panics contained: the export is called from
 /// C, the JVM, or the browser, and a panic unwinding into any of them is fatal.
 pub fn guard(f: impl FnOnce()) {
-    day_spec::ffi_guard::contain((), f);
+    day_process::ffi_guard::contain((), f);
 }
 
 /// Take ownership of a buffer the web shim allocated with `day_dom_alloc(len)` and filled: the

@@ -3,7 +3,7 @@
 
 // File-backed persistent store for platforms with no in-reach system preferences API: desktop Linux,
 // Windows, and (best-effort) HarmonyOS/OpenHarmony. The store is a flat String->String map in
-// `preferences.store` in the app's configuration directory (`day_spec::storage::config_dir()`,
+// `preferences.store` in the app's configuration directory (`day_process::storage::config_dir()`,
 // a folder named for the app), serialized one entry per line as
 // `escaped_key=escaped_value`. escape() removes every raw `=`, newline, and carriage return, so the
 // first raw `=` on a line is unambiguously the separator and a value can contain anything.
@@ -178,7 +178,7 @@ fn unescape(s: &str) -> String {
 // there when the host passed none so a store is always creatable.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn config_dir() -> Option<PathBuf> {
-    let dir = day_spec::storage::config_dir();
+    let dir = day_process::storage::config_dir();
     #[cfg(target_env = "ohos")]
     let dir = dir.or_else(|| {
         Some(PathBuf::from(

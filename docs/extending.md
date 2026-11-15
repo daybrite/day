@@ -94,7 +94,7 @@ line: `day_pieces::glue_modules!(appkit, gtk, qt, uikit, material, xaml)` expand
 feature-and-target-gated `mod` block binding each `lib-<toolkit>.rs` (list only the toolkits you
 implement; a non-standard gate, like webview's Linux-only GTK, stays a hand-written block beside
 it). Then write typed `make`/`update` (no `&dyn Any`
-downcast) and one macro line; `day_pieces::renderer!` expands to the `linkme` registration + the props/
+downcast) and one macro line; `day_spec::renderer!` expands to the `linkme` registration + the props/
 patch downcast:
 
 ```rust
@@ -104,12 +104,12 @@ mod appkit_impl {
     fn make(backend: &mut AppKit, props: &MyProps, id: NodeId) -> Retained<NSView> { … }
     fn update(backend: &mut AppKit, h: &Retained<NSView>, patch: &MyPatch) { … }
 
-    day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
+    day_spec::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
         kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update);
 }
 ```
 
-Add `measure: f` for custom sizing: `measure: day_pieces::fill_measure` for a growing leaf (a web
+Add `measure: f` for custom sizing: `measure: day_spec::fill_measure` for a growing leaf (a web
 view, a canvas), or omit it for the backend's default. A **patchless** piece (configured once, e.g. Lottie)
 drops `patch:`/`update:`: `renderer!(day_toolkit_uikit::RENDERERS, Uikit, kind: KIND, props: MyProps, make: make)`.
 Do the same for `day_toolkit_gtk::RENDERERS`, `day_toolkit_qt::RENDERERS`, `day_toolkit_uikit::RENDERERS`,

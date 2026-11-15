@@ -472,22 +472,6 @@ pub fn set_launch_deeplink(route: &str) {
     LAUNCH_DEEPLINK.with(|l| *l.borrow_mut() = Some(route.to_string()));
 }
 
-/// A route requested from outside the reactive turn, at any lifecycle stage, from any thread:
-/// the rail a notification tap navigates through (docs/notify.md).
-///
-/// This is process-global rather than thread-local ([`LAUNCH_DEEPLINK`] is the latter) because the
-/// caller is usually not on the UI thread: Android delivers a tap on a JNI thread and Apple on a
-/// delegate callback, and both can arrive before `launch_with` has run at all.
-static REQUESTED_ROUTE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-fn requested_slot() -> std::sync::MutexGuard<'static, Option<String>> {
-    // A panic while holding this lock would otherwise wedge every later navigation; the buffer is
-    // one Option<String>, so recovering the value is always safe.
-    REQUESTED_ROUTE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
 /// Ask the app to navigate, from anywhere, at any time.
 ///
 /// Cold start (a tap that launches the process) and warm tap (the app is already running) are the
@@ -495,25 +479,33 @@ fn requested_slot() -> std::sync::MutexGuard<'static, Option<String>> {
 /// mount, so it lands once routes actually exist; after launch it is applied on the UI thread.
 /// An empty route is ignored, and the newest request wins: a user who taps twice gets the second
 /// destination.
+///
+/// The buffer is day-process's ([`day_process::routes`]), so a part with no UI dependency makes
+/// the same request through it.
 pub fn request_route(route: &str) {
-    if route.is_empty() {
-        return;
-    }
-    *requested_slot() = Some(route.to_string());
-    // Before a backend installs the poster there is no UI thread to post to; the launch drain
-    // picks the buffer up instead.
-    if day_reactive::has_main_poster() {
-        day_reactive::on_main(|| {
-            if let Some(route) = take_requested_route() {
-                apply_route_request(&route);
-            }
-        });
-    }
+    install_route_notifier();
+    day_process::routes::request(route);
+}
+
+/// Hear about requests made straight through `day_process::routes`. Installed at launch and on
+/// the first [`request_route`].
+pub(crate) fn install_route_notifier() {
+    day_process::routes::set_notifier(|| {
+        // Before a backend installs the poster there is no UI thread to post to; the launch
+        // drain picks the buffer up instead.
+        if day_reactive::has_main_poster() {
+            day_reactive::on_main(|| {
+                if let Some(route) = take_requested_route() {
+                    apply_route_request(&route);
+                }
+            });
+        }
+    });
 }
 
 /// Take the buffered route, if any. `launch_with` drains it after the first mount.
 pub(crate) fn take_requested_route() -> Option<String> {
-    requested_slot().take()
+    day_process::routes::take()
 }
 
 /// Apply a route the backend or a part asked for. Echoes of our own `set_route` match the current
@@ -533,7 +525,7 @@ pub fn has_launch_deeplink() -> bool {
 
 /// A key/value sink a nav surface's `.restore` persists its state through, so navigation
 /// survives a relaunch or an Android process death (docs/navigation.md). `day::launch` installs
-/// the preferences store (`day_part_preferences::install_nav_store`) unless the app installed one
+/// the preferences store (`day::prefs::install_nav_store`) unless the app installed one
 /// first; an app marks the surfaces it wants remembered with `.restore(key)`. With no store installed,
 /// `.restore` is a silent no-op, so a surface's `.restore` call never fails to build.
 ///
@@ -614,7 +606,7 @@ pub(crate) fn launch_deeplink() -> Option<String> {
         // A route buffered by `request_route` before launch: a notification tap that cold-started
         // the process. Peeked, not taken, so `has_launch_deeplink()` keeps answering true for a
         // nav surface's `.restore` (a tap must beat restored state); `launch_with` takes it.
-        .or_else(|| requested_slot().clone())
+        .or_else(day_process::routes::requested)
         .or_else(|| LAUNCH_DEEPLINK.with(|l| l.borrow().clone()))
         .filter(|r| !r.is_empty())
 }
@@ -982,7 +974,7 @@ mod tests {
         clear_controllers();
     }
 
-    /// `REQUESTED_ROUTE` is process-global (it must be; see `request_route`), so the tests that
+    /// The route buffer is process-global (it must be; see `request_route`), so the tests that
     /// touch it cannot run in parallel with each other. Serialize them rather than making the
     /// production type thread-local, which would defeat the purpose of the buffer.
     static ROUTE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -1076,6 +1068,101 @@ mod tests {
         route_test(|| {
             request_route("some/route"); // would panic if it posted unconditionally
             let _ = take_requested_route();
+        });
+
+        // A part with no UI dependency records its tap through day-process, never calling into
+        // this crate. The launch path must see that request exactly as it sees `request_route`'s.
+        route_test(|| {
+            day_process::routes::request("mail/inbox");
+            assert_eq!(launch_deeplink().as_deref(), Some("mail/inbox"));
+            assert!(has_launch_deeplink());
+            assert_eq!(take_requested_route().as_deref(), Some("mail/inbox"));
+        });
+
+        // The same holds when the request comes from another thread before launch: it is
+        // buffered, and nothing is posted because there is no UI thread to post to yet.
+        route_test(|| {
+            install_route_notifier();
+            std::thread::spawn(|| day_process::routes::request("clock/alarm"))
+                .join()
+                .expect("the requesting thread finishes");
+            assert_eq!(take_requested_route().as_deref(), Some("clock/alarm"));
+        });
+    }
+
+    /// After launch, a request made through day-process on a worker thread is handed to the UI
+    /// thread: the worker only posts, and the route is taken when the UI thread runs the post.
+    /// A child process for the same reason as above: this installs the process-wide poster.
+    #[test]
+    fn route_from_a_worker_after_launch() {
+        let exe = std::env::current_exe().expect("the running test binary has a path");
+        let out = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "nav::tests::route_handoff_in_a_launched_process",
+            ])
+            .output()
+            .expect("re-run this test binary for the child case");
+        assert!(
+            out.status.success(),
+            "the route handoff assertions failed in the child process:\n{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        );
+    }
+
+    #[test]
+    #[ignore = "installs the process-wide main poster; run by route_from_a_worker_after_launch"]
+    fn route_handoff_in_a_launched_process() {
+        type Posted = Box<dyn FnOnce() + Send>;
+        static QUEUE: std::sync::Mutex<Vec<Posted>> = std::sync::Mutex::new(Vec::new());
+
+        // What a backend does at launch: a poster that queues work for the UI thread, and the
+        // notifier that listens for requests made below the UI.
+        day_reactive::install_main_poster(|work| QUEUE.lock().unwrap().push(work));
+        install_route_notifier();
+
+        route_test(|| {
+            std::thread::spawn(|| day_process::routes::request("mail/inbox"))
+                .join()
+                .expect("the requesting thread finishes");
+
+            // The worker posted once and applied nothing itself: the route is still buffered.
+            assert_eq!(QUEUE.lock().unwrap().len(), 1);
+            assert_eq!(
+                day_process::routes::requested().as_deref(),
+                Some("mail/inbox")
+            );
+
+            // The UI thread runs the post, which takes the route to apply it.
+            let posted: Vec<Posted> = std::mem::take(&mut *QUEUE.lock().unwrap());
+            for work in posted {
+                work();
+            }
+            assert_eq!(day_process::routes::requested(), None);
+        });
+
+        // Two requests before the UI thread gets a turn: both post, the newest wins, and the
+        // second post finds nothing left to apply.
+        route_test(|| {
+            for route in ["mail/inbox", "clock/alarm"] {
+                std::thread::spawn(move || day_process::routes::request(route))
+                    .join()
+                    .expect("the requesting thread finishes");
+            }
+            assert_eq!(
+                day_process::routes::requested().as_deref(),
+                Some("clock/alarm")
+            );
+            let posted: Vec<Posted> = std::mem::take(&mut *QUEUE.lock().unwrap());
+            assert_eq!(posted.len(), 2);
+            for work in posted {
+                work();
+            }
+            assert_eq!(day_process::routes::requested(), None);
         });
     }
 }

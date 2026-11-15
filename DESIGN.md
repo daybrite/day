@@ -383,6 +383,9 @@ pillars deliberately build on each other:
 │ day-reactive (signals/memos/effects/scopes)   day-geometry (values) │
 ├─────────────────────────────────────────────────────────────────────┤
 │ day-spec: Toolkit trait · renderer registry · events · a11y · DrawOp│
+├─────────────────────────────────────────────────────────────────────┤
+│ day-process: app id · directories · startup services · route buffer │
+│              · FFI panic guard · Support   (no UI; parts link this) │
 ├────────┬───────┬────────┬───────┬───────┬───────┬────────┬──────────┤
 │ appkit │ uikit │ android│  gtk  │  qt   │ xaml │ arkui  │   mock   │
 └────────┴───────┴────────┴───────┴───────┴───────┴────────┴──────────┘
@@ -418,17 +421,18 @@ and platform contracts remain in the linked documentation.
 | `day-persistence-macros` | `#[derive(Model)]` (same no-syn construction as day-macros): the `#[model(…)]` grammar and the schema half; it expands to day-macros' `observable_impls!` for the observable half | — (proc-macro) |
 | `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), the statement protocol the main thread speaks over the SharedArrayBuffer channel, and the browser half itself: `web/day-sql.js` and `web/day-sql-worker.js`, declared in `[package.metadata.day.web]` ([§15.2](#152-package-layout-and-aggregation)) so the host page carries no SQL; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
-| `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
-| `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
-| `day-pieces` | the built-in vocabulary ([§5.3](#53-built-in-pieces-mvp-set)), the `Decorate` modifier set, `routes!`, forms, `nav`/`nav_stack` navigation, dialogs, canvas + shape pieces, the prelude | day-core |
-| `day-localization-ui` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-localization |
+| `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry, day-process |
+| `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec, day-process |
+| `day-pieces` | the built-in vocabulary ([§5.3](#53-built-in-pieces-mvp-set)), the `Decorate` modifier set, `routes!`, forms, `nav`/`nav_stack` navigation, dialogs, canvas + shape pieces, the prelude | day-core, day-localization-ui |
+| `day-localization-ui` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-core, day-localization |
 | `day-localization` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script-protocol` | shared `Step`/`Request`/`Reply`/`DialogMode`/`ShotPolicy` types, the YAML `Script` document and its validation; a publishable leaf crate with no UI, localization or transport dependencies | serde, serde_json, serde_norway |
 | `day-script` | the embedded dayscript engine: step executor, element index, recorder, localhost-TCP transport (token-gated, newline-delimited JSON); re-exports the shared protocol at its existing public paths | day-script-protocol, day-core, day-localization-ui |
 | `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day prepare`, `day icon new`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
+| `day-process` | what a process has without a user interface: `storage` (the app id and its data, cache and configuration directories, [§8.6](#86-app-directories)), `services` (the link-time registry of startup services and native notification delivery), `routes` (the buffer a notification tap or shortcut requests a route through before any window exists), `ffi_guard` (panic containment for every foreign entry point) and `Support`. A part that runs headless (background work, push, the bridged parts) depends on it and on no UI crate. Its manifest declares `links`, so Cargo refuses a graph that resolves two copies and would split the registries | log, linkme |
 | `day-async` | the std-only async support parts ([docs/async.md](docs/async.md)): a `oneshot` future any executor can await, the `TokenRegistry` a platform completion resolves through, and the process's one timer thread (`schedule`/`unschedule`) — no runtime, no reactor, no pool | — |
-| `day-bridge` | daybridge's runtime half ([§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api), [docs/bridge.md](docs/bridge.md)): the body-discarding `bridge!` macro, `Error`, the re-exported `Support`, the callback tier's `Done<T>`, `Registry<T>` and `Completion<T>`, and the stream tier's `Emit<T>`, `Streams<T>` and `Item<T>` | day-spec, day-async |
+| `day-bridge` | daybridge's runtime half ([§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api), [docs/bridge.md](docs/bridge.md)): the body-discarding `bridge!` macro, `Error`, the `Support` it re-exports from day-process, the callback tier's `Done<T>`, `Registry<T>` and `Completion<T>`, and the stream tier's `Emit<T>`, `Streams<T>` and `Item<T>` | day-process, day-async |
 | `day-platform-linux` | a std-only session-bus client for the freedesktop backends: the wire format, SASL `EXTERNAL` over a unix socket, one reader thread per `Connection` (calls with a timeout, signals, exported objects); `sni`, a `StatusNotifierItem` + `com.canonical.dbusmenu` server for the Linux status item; `launcher`, the Unity `LauncherEntry` badge/progress signal; `instance`, single-instance claim + argument forwarding for backends without `GApplication`. Compiles everywhere; off unix `Connection::session()` returns `Unsupported` | — |
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-localization |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
@@ -1927,7 +1931,10 @@ fixture creates the minimal scaffold consumed by the real generator; it also ver
 failed suite stops the completion gate before Cargo runs. Only temporary fixture copies replace
 the nested suite invocation, so the production gate has no self-test bypass.
 `check-platform-runtimes.py` rejects service dependencies on widget backends and references to
-Material Components' Java bridge, including Java embedded in Rust. Regression tests inject forbidden Rust and
+Material Components' Java bridge, including Java embedded in Rust. It also holds the layers below the
+user interface ([§3.2](#32-crates)): `day-process` depends on no Day crate, `day-bridge` and every
+part stay clear of `day-core` and `day-pieces` (a part reaches `day-spec` or `day-reactive` only when
+listed as an exception), the CLI stays clear of the UI crates, and no backend reaches `day-pieces`, directly or through another crate. Regression tests inject forbidden Rust and
 Java dependencies and require rejection.
 Its synthetic Cargo records the shared host-Clippy script's command sequence independently,
 then checks that readiness runs formatting followed by that entire sequence, including scaffold generation, and stops at each
@@ -2686,7 +2693,7 @@ report, so this policy was specified up front:
 
 ### §8.6 App directories
 
-`day_spec::storage` (re-exported as `day::storage`) is the one place a Day crate learns where
+`day_process::storage` (re-exported as `day::storage`) is the one place a Day crate learns where
 the app keeps its files: `data_dir()`, `cache_dir()` and `config_dir()`, each a folder named
 after the app id (`app_id()`: `DAY_APP_ID`, else the baked-in id, else the executable's name)
 in the platform's own place for that kind of file. Application Support and Caches on Apple
@@ -2889,7 +2896,7 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 
 `day-toolkit-winui` implements the Windows widget backend. Its `winui` feature selects WinUI 3
 for `windows-winui`; the same backend retains the deprecated `windows-xaml` build.
-`Xaml`, `XamlExt`, the `xaml`/`winui` feature names, and both target identifiers remain
+`Xaml`, the `xaml_raw` tweak adapter, the `xaml`/`winui` feature names, and both target identifiers remain
 compatible. `day-toolkit-xaml-sys` keeps its name because its C ABI still serves both XAML stacks.
 
 `day-platform-windows` owns toolkit-independent Windows services. The URL share UI,
@@ -7455,7 +7462,9 @@ Mechanism (implemented; [docs/tweaks.md](docs/tweaks.md) is normative):
   (retained, liveness-checked, reactive on mount/clear transitions), and
   `day_core::invalidate_size(node)` for native mutations that change intrinsic size ([§7.4](#74-incremental-relayout-and-the-measurement-cache)'s
   measure cache cannot see mutations Day didn't make).
-- Per-toolkit sugar: `.appkit(…)/.uikit(…)/.gtk(…)/.android(…)` typed ext traits;
+- Per-toolkit sugar: `.appkit(…)/.uikit(…)/.gtk(…)/.android(…)` typed ext traits
+  (**outcome, 2026-11:** these became adapter functions passed to the one generic modifier,
+  `.tweak(gtk(…))`, so a backend no longer depends on day-pieces; [docs/tweaks.md](docs/tweaks.md));
   `.qt_raw(…)/.xaml_raw(…)/.arkui_raw(…)` raw tiers (the `windows` crate ships no XAML
   bindings, neither `Microsoft.UI.Xaml` nor `Windows.UI.Xaml`, so XAML hands out the borrowed
   ABI pointer via the existing `day_xaml_unbox` seam; C++/WinRT recipes are the supported path).
@@ -7909,7 +7918,7 @@ $ day launch -t macos-appkit --variant dark --env DAY_THEME=dark --script dayscr
 pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> ComboBox { … }
 
 // per-backend module, e.g. cfg(feature = "appkit"):
-day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
+day_spec::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure);
 // appkit → NSComboBox; gtk → GtkComboBoxText with entry; qt → editable QComboBox (own C++

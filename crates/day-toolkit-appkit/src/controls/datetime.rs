@@ -9,8 +9,8 @@
 // locale stays the user's, so month/weekday names render localized.
 // ---------------------------------------------------------------------------
 
-use day_pieces::datetime::*;
 use day_spec::Event;
+use day_spec::controls::datetime::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -156,7 +156,7 @@ mod date_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
@@ -169,7 +169,7 @@ mod date_renderer {
         measure_picker(h)
     }
 
-    day_pieces::renderer!(crate::RENDERERS, AppKit,
+    day_spec::renderer!(crate::RENDERERS, AppKit,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make, update: update, measure: measure, release: release);
 }
@@ -179,7 +179,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the props arrive by reference"
     )]
     fn make(backend: &mut AppKit, p: &TimeProps, id: NodeId) -> Retained<NSView> {
         let (picker, view) = make_picker(
@@ -199,7 +199,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
@@ -212,7 +212,7 @@ mod time_renderer {
         measure_picker(h)
     }
 
-    day_pieces::renderer!(crate::RENDERERS, AppKit,
+    day_spec::renderer!(crate::RENDERERS, AppKit,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make, update: update, measure: measure, release: release);
 }

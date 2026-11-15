@@ -96,7 +96,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 A builder method must not throw away the piece's type. Two rules follow from that:
 
 1. **Generic modifiers return `Decorated<Self>`, never `AnyPiece`.** Every `Decorate` method,
-   and every extension trait a toolkit or `day-tweak-*` crate adds (`.gtk(…)`, `.tooltip(…)`,
+   and every extension trait a toolkit or `day-tweak-*` crate adds (`.tweak(gtk(…))`, `.tooltip(…)`,
    `.tickmarks(…)`), returns `Decorated<Self>`. `Decorated` carries an ordered op list beside
    the piece it wraps, and its inherent methods shadow the trait's, so chains stay flat rather
    than nesting `Decorated<Decorated<…>>`. The one exception is [`Decorate::modifier`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.modifier), because

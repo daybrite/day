@@ -45,7 +45,7 @@ const GLYPH_OPEN: u32 = 0xE8A7;
 /// Navigation's image channel handles bundled art. Standard symbols use Day's shared vectors
 /// here, including when a locale change replaces the NavigationViewItems.
 pub(super) fn sidebar_symbols(nav: AnyPiece, groups: &[&Group]) -> AnyPiece {
-    use day_toolkit_winui::XamlExt;
+    use day_toolkit_winui::xaml_raw;
     let paths = groups
         .iter()
         .map(|g| match &g.icon {
@@ -54,9 +54,9 @@ pub(super) fn sidebar_symbols(nav: AnyPiece, groups: &[&Group]) -> AnyPiece {
         })
         .collect::<Vec<_>>()
         .join("\u{1f}");
-    nav.xaml_raw(move |abi, _| unsafe {
+    nav.tweak(xaml_raw(move |abi, _| unsafe {
         day_settings_xaml_sidebar_symbols(abi, cstr(&paths).as_ptr());
-    })
+    }))
     .any()
 }
 
@@ -147,7 +147,7 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(w), hh)
 }
 
-day_pieces::renderer!(day_toolkit_winui::RENDERERS, Xaml,
+day_spec::renderer!(day_toolkit_winui::RENDERERS, Xaml,
     kind: KIND, props: CardProps, patch: CardPatch,
     make: make, update: update, measure: measure);
 

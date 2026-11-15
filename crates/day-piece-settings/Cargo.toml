@@ -75,7 +75,6 @@ gtk4 = { workspace = true, optional = true }
 libadwaita = { version = "0.9", features = ["v1_5"], optional = true }
 
 [build-dependencies]
-day-build = { workspace = true }
 # The XAML shim (src/lib-xaml-shim.cpp): compiled by build.rs on Windows when `xaml` is on.
 day-toolchain = { workspace = true }
 cc = { workspace = true }

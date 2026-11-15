@@ -8,16 +8,16 @@
 //! (docs/android-jni.md):
 //!
 //! ```ignore
-//! use day_toolkit_material::MaterialExt;
+//! use day_toolkit_material::android;
 //! day_toolkit_material::java_class! {
 //!     TextView => android.widget.TextView,
 //!     methods { fn setTextIsSelectable(selectable: jboolean) },
 //! }
-//! label("selectable").android(|view, _class, env| {
+//! label("selectable").tweak(android(|view, _class, env| {
 //!     day_toolkit_material::java_in(env, |env| {
 //!         day_toolkit_material::downcast::<TextView>(env, view)?.setTextIsSelectable(env, true)
 //!     });
-//! });
+//! }));
 //! ```
 //!
 //! The class is the Java class Day's `DayBridge` factory realizes for the node's kind. Day may
@@ -25,7 +25,6 @@
 //! size-affecting change, call `day_core::invalidate_size(node)`.
 
 use day_core::RNode;
-use day_pieces::Decorate;
 use day_spec::{PieceKind, kinds};
 use jni::Env;
 use jni::objects::{Global, JObject};
@@ -57,15 +56,10 @@ pub fn with_native<R>(
 }
 
 /// The Android tweak modifier: runs once at mount, after the widget exists (docs/tweaks.md).
-pub trait MaterialExt: Decorate + Sized {
-    fn android(
-        self,
-        f: impl FnOnce(&Global<JObject<'static>>, &str, &mut Env) + 'static,
-    ) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            let _ = with_native(n, f);
-        })
+pub fn android(
+    f: impl FnOnce(&Global<JObject<'static>>, &str, &mut Env) + 'static,
+) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        let _ = with_native(n, f);
     }
 }
-
-impl<P: Decorate> MaterialExt for P {}

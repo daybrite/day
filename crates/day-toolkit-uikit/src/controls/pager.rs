@@ -1,7 +1,7 @@
 use crate::Uikit;
-use day_pieces::pager::*;
 use day_spec::Event;
 use day_spec::NodeId;
+use day_spec::controls::pager::*;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -225,4 +225,4 @@ fn release(_: &mut Uikit, h: &Retained<UIView>) {
         controller.removeFromParentViewController();
     }
 }
-day_pieces::renderer!(crate::RENDERERS, Uikit, kind:KIND, props:PagerProps, patch:PagerPatch, make:make, update:update, measure:day_pieces::fill_measure, release:release);
+day_spec::renderer!(crate::RENDERERS, Uikit, kind:KIND, props:PagerProps, patch:PagerPatch, make:make, update:update, measure:day_spec::fill_measure, release:release);

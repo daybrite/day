@@ -12,9 +12,10 @@ license.workspace = true
 # generator is day-build (build-time, host-only); this crate is what the bridged crate links.
 
 [dependencies]
-# `Support` is day-spec's, not a second copy: a bridged crate's `available()` must return the same
-# type `day::capability()` does, or callers end up matching two enums that mean the same thing.
-day-spec = { workspace = true }
+# `Support` is day-process's, not a second copy: a bridged crate's `available()` must return the
+# same type `day::capability()` does, or callers end up matching two enums that mean the same
+# thing. The panic guard around a completion is day-process's too.
+day-process = { workspace = true }
 # The oneshot future behind `Completion` and the token registry behind `Done` (docs/async.md).
 day-async = { workspace = true }
 # `bridge!` emits the generated code through day-macros' `bridge_generated` (see its docs).

@@ -35,17 +35,17 @@ point. The closure gets the native widget **and its concrete class name**, so a 
 exactly what it is configuring:
 
 ```rust
-use day_toolkit_appkit::AppKitExt; // exists only in the appkit build
+use day_toolkit_appkit::appkit; // exists only in the appkit build
 
-button(res::str::save()).appkit(|view, class, _mtm| {
+button(res::str::save()).tweak(appkit(|view, class, _mtm| {
     // class == "NSButton"
     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
         unsafe { btn.setBezelStyle(objc2_app_kit::NSBezelStyle::Toolbar) };
     }
-})
+}))
 ```
 
-`.gtk(|widget, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
+[`.tweak(gtk(|widget, class| …))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak), [`.tweak(uikit(|view, class, mtm| …))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak), and [`.tweak(android(|view, class, jni_env| …))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak)
 follow the same shape with each platform's types. Qt, WinUI, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
 bring-your-own-C++ recipe (each tier is spelled out in the

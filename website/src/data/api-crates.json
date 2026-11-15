@@ -24,7 +24,7 @@
         },
         {
           "pkg": "day-pieces",
-          "blurb": "Built-in controls, layouts, drawing, and the renderer! extension macro."
+          "blurb": "Built-in controls, layouts, and drawing."
         },
         {
           "pkg": "day-geometry",
@@ -32,7 +32,7 @@
         },
         {
           "pkg": "day-spec",
-          "blurb": "The UI specification shared by pieces and toolkits."
+          "blurb": "The UI specification shared by pieces and toolkits, with the renderer! registration macro."
         },
         {
           "pkg": "day-localization-ui",
@@ -49,6 +49,10 @@
         {
           "pkg": "day-mock",
           "blurb": "A headless toolkit for tests and documentation."
+        },
+        {
+          "pkg": "day-process",
+          "blurb": "App directories, startup services, and the route buffer a headless process uses."
         },
         {
           "pkg": "day-async",

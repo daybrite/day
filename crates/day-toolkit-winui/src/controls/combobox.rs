@@ -10,8 +10,8 @@
 // reports immediately (SelectionChanged). All paths arrive here as Event::TextChanged.
 // ---------------------------------------------------------------------------
 
-use day_pieces::combobox::*;
 use day_spec::Event;
+use day_spec::controls::combobox::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
@@ -87,6 +87,6 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(32.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Xaml,
+day_spec::renderer!(crate::RENDERERS, Xaml,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure);

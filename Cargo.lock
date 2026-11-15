@@ -451,6 +451,7 @@ dependencies = [
  "day-piece-text-editor",
  "day-pieces",
  "day-platform-android",
+ "day-process",
  "day-reactive",
  "day-script",
  "day-spec",
@@ -477,7 +478,7 @@ version = "0.7.5"
 dependencies = [
  "day-async",
  "day-macros",
- "day-spec",
+ "day-process",
 ]
 
 [[package]]
@@ -499,8 +500,8 @@ dependencies = [
  "clap",
  "day-build",
  "day-fonts",
+ "day-process",
  "day-script-protocol",
- "day-spec",
  "day-toolchain",
  "day-vector",
  "filetime",
@@ -537,7 +538,7 @@ dependencies = [
  "day-localization",
  "day-macros",
  "day-mock",
- "day-platform-android",
+ "day-process",
  "day-reactive",
  "day-spec",
  "inventory",
@@ -579,7 +580,6 @@ version = "0.7.5"
 dependencies = [
  "day-core",
  "day-localization",
- "day-pieces",
 ]
 
 [[package]]
@@ -684,7 +684,7 @@ name = "day-part-filesystem"
 version = "0.7.5"
 dependencies = [
  "day-async",
- "day-spec",
+ "day-process",
 ]
 
 [[package]]
@@ -735,7 +735,7 @@ dependencies = [
  "day-build",
  "day-part-biometrics",
  "day-platform-android",
- "day-spec",
+ "day-process",
  "objc2",
  "objc2-core-foundation",
  "objc2-foundation",
@@ -750,9 +750,8 @@ dependencies = [
  "block2",
  "day-bridge",
  "day-build",
- "day-core",
  "day-platform-android",
- "day-reactive",
+ "day-process",
  "objc2",
  "objc2-foundation",
  "objc2-user-notifications",
@@ -786,10 +785,9 @@ version = "0.7.5"
 dependencies = [
  "day-bridge",
  "day-build",
- "day-core",
  "day-platform-android",
+ "day-process",
  "day-reactive",
- "day-spec",
  "log",
  "objc2",
  "objc2-foundation",
@@ -838,7 +836,6 @@ name = "day-piece-settings"
 version = "0.7.5"
 dependencies = [
  "cc",
- "day-build",
  "day-core",
  "day-localization",
  "day-localization-ui",
@@ -927,6 +924,7 @@ dependencies = [
  "day-core",
  "day-geometry",
  "day-localization",
+ "day-localization-ui",
  "day-macros",
  "day-mock",
  "day-model",
@@ -943,6 +941,7 @@ name = "day-platform-android"
 version = "0.7.5"
 dependencies = [
  "day-macros",
+ "day-process",
  "jni",
  "linkme",
  "log",
@@ -969,6 +968,14 @@ name = "day-platform-windows"
 version = "0.7.5"
 dependencies = [
  "windows",
+]
+
+[[package]]
+name = "day-process"
+version = "0.7.5"
+dependencies = [
+ "linkme",
+ "log",
 ]
 
 [[package]]
@@ -1011,6 +1018,7 @@ version = "0.7.5"
 dependencies = [
  "day-fonts",
  "day-geometry",
+ "day-process",
  "log",
  "memmap2",
 ]
@@ -1050,7 +1058,6 @@ dependencies = [
  "day-bridge",
  "day-build",
  "day-core",
- "day-pieces",
  "day-reactive",
  "day-spec",
  "libc",
@@ -1070,7 +1077,6 @@ dependencies = [
  "day-core",
  "day-geometry",
  "day-localization",
- "day-pieces",
  "day-reactive",
  "day-spec",
  "getrandom 0.4.3",
@@ -1084,7 +1090,6 @@ version = "0.7.5"
 dependencies = [
  "cairo-rs",
  "day-core",
- "day-pieces",
  "day-platform-linux",
  "day-reactive",
  "day-spec",
@@ -1107,8 +1112,8 @@ name = "day-toolkit-material"
 version = "0.7.5"
 dependencies = [
  "day-core",
- "day-pieces",
  "day-platform-android",
+ "day-process",
  "day-reactive",
  "day-spec",
  "jni",
@@ -1121,7 +1126,6 @@ name = "day-toolkit-qt"
 version = "0.7.5"
 dependencies = [
  "day-core",
- "day-pieces",
  "day-platform-linux",
  "day-platform-macos",
  "day-reactive",
@@ -1144,7 +1148,7 @@ version = "0.7.5"
 dependencies = [
  "block2",
  "day-core",
- "day-pieces",
+ "day-process",
  "day-reactive",
  "day-spec",
  "dispatch2",
@@ -1164,7 +1168,6 @@ version = "0.7.5"
 dependencies = [
  "day-core",
  "day-localization",
- "day-pieces",
  "day-platform-windows",
  "day-reactive",
  "day-spec",

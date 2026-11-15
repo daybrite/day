@@ -14,6 +14,8 @@ jni = "0.22"
 log.workspace = true
 linkme.workspace = true
 day-macros.workspace = true
+# The service registry the headless entry point below the Activity initializes.
+day-process.workspace = true
 
 [package.metadata.day.android]
 java = ["java"]

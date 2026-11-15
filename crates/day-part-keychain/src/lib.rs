@@ -446,7 +446,7 @@ type OnDone = Box<dyn FnOnce(Result<Vec<u8>, KeychainError>) + Send>;
 /// build`/`day launch` export as `DAY_APP_ID` (a dev launch sets it in the process environment; a
 /// packaged build bakes it at compile time). A binary built outside the CLI shares one id. The
 /// Android and HarmonyOS stores live in the app's own sandbox and need no id of their own, and
-/// the Windows store lives in the app's data directory (`day_spec::storage`), named for it.
+/// the Windows store lives in the app's data directory (`day_process::storage`), named for it.
 #[cfg(any(
     target_os = "ios",
     target_os = "macos",

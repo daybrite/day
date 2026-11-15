@@ -9,8 +9,8 @@
 // verified locally.
 // ---------------------------------------------------------------------------
 
-use day_pieces::searchfield::*;
 use day_spec::Event;
+use day_spec::controls::searchfield::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
@@ -75,6 +75,6 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(32.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Xaml,
+day_spec::renderer!(crate::RENDERERS, Xaml,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure);

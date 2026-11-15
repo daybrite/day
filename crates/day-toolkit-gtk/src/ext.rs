@@ -9,14 +9,14 @@
 //! widget-specific API:
 //!
 //! ```ignore
-//! use day_toolkit_gtk::GtkExt;
+//! use day_toolkit_gtk::gtk;
 //! use gtk4::prelude::*;
-//! label("Legal text").gtk(|w, class| {
+//! label("Legal text").tweak(gtk(|w, class| {
 //!     // `class` is "GtkLabel" here.
 //!     if let Some(l) = w.downcast_ref::<gtk4::Label>() {
 //!         l.set_selectable(true);
 //!     }
-//! });
+//! }));
 //! ```
 //!
 //! Day may re-apply *managed* properties (title, value, enabled, frame, a11y) on its next patch;
@@ -24,7 +24,6 @@
 //! `day_core::invalidate_size(node)`.
 
 use day_core::RNode;
-use day_pieces::Decorate;
 
 /// Run `f` with the native `gtk4::Widget` behind `node` and its `GType` class name. `None` when the
 /// node is layout-only or disposed.
@@ -39,12 +38,8 @@ pub fn with_native<R>(node: RNode, f: impl FnOnce(&gtk4::Widget, &str) -> R) -> 
 }
 
 /// The GTK tweak modifier: runs once at mount, after the widget exists (docs/tweaks.md).
-pub trait GtkExt: Decorate + Sized {
-    fn gtk(self, f: impl FnOnce(&gtk4::Widget, &str) + 'static) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            let _ = with_native(n, f);
-        })
+pub fn gtk(f: impl FnOnce(&gtk4::Widget, &str) + 'static) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        let _ = with_native(n, f);
     }
 }
-
-impl<P: Decorate> GtkExt for P {}

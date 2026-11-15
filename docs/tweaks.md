@@ -62,13 +62,13 @@ then whatever context that toolkit needs:
 
 | toolkit | accessor | closure gets | tier |
 |---|---|---|---|
-| AppKit  | `day_toolkit_appkit::with_native` / `.appkit(…)` | `&Retained<NSView>`, `class`, `MainThreadMarker` (objc2 `downcast_ref` to the class) | typed |
-| UIKit   | `day_toolkit_uikit::with_native` / `.uikit(…)`   | `&Retained<UIView>`, `class`, marker | typed |
-| GTK     | `day_toolkit_gtk::with_native` / `.gtk(…)`       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
-| Android | `day_toolkit_material::with_native` / `.android(…)` | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
-| Qt      | `day_toolkit_qt::with_native_raw` / `.qt_raw(…)` | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
-| WinUI   | `day_toolkit_winui::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
-| ArkUI   | `day_toolkit_arkui::with_native_raw` / `.arkui_raw(…)` | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
+| AppKit  | `day_toolkit_appkit::with_native` / [`.tweak(appkit(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | `&Retained<NSView>`, `class`, `MainThreadMarker` (objc2 `downcast_ref` to the class) | typed |
+| UIKit   | `day_toolkit_uikit::with_native` / [`.tweak(uikit(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak)   | `&Retained<UIView>`, `class`, marker | typed |
+| GTK     | `day_toolkit_gtk::with_native` / [`.tweak(gtk(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak)       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
+| Android | `day_toolkit_material::with_native` / [`.tweak(android(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
+| Qt      | `day_toolkit_qt::with_native_raw` / [`.tweak(qt_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
+| WinUI   | `day_toolkit_winui::with_native_raw` / [`.tweak(xaml_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
+| ArkUI   | `day_toolkit_arkui::with_native_raw` / [`.tweak(arkui_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
 
 The `windows` crate ships no XAML bindings (neither WinUI 3's `Microsoft.UI.Xaml` nor the system
 `Windows.UI.Xaml`), which is why WinUI is a raw tier: the pointer is real and the C++/WinRT recipe
@@ -76,13 +76,13 @@ below is short, but there is no typed Rust surface to hand you.
 
 ```rust
 // Inline, per-toolkit (each trait exists only under its backend's cargo feature):
-use day_toolkit_appkit::AppKitExt;
-button(res::str::save()).appkit(|view, class, _mtm| {
+use day_toolkit_appkit::appkit;
+button(res::str::save()).tweak(appkit(|view, class, _mtm| {
     // `class` is "NSButton" here — see "Knowing the native class" below.
     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
         unsafe { btn.setBezelStyle(objc2_app_kit::NSBezelStyle::Toolbar) };
     }
-})
+}))
 ```
 
 ### Knowing the native class
@@ -98,11 +98,11 @@ the accessor hands you that widget's concrete class name:
   which one you got, and a `downcast_ref` you'd have guessed wrong is avoided:
 
   ```rust
-  label(text).selectable().uikit(|view, class, _mtm| match class {
+  label(text).selectable().tweak(uikit(|view, class, _mtm| match class {
       "UILabel"    => { /* the plain backing */ }
       "UITextView" => { /* the selectable backing (and any future rich/link one) */ }
       _ => {}
-  });
+  }));
   ```
 
 - **Raw tiers** (Qt/WinUI/ArkUI) can't be introspected from Rust (the handle is an opaque
@@ -177,10 +177,10 @@ type the pointer for you, but it can tell you what it is.
 `cc` + `pkg-config Qt6Widgets` (Qt itself is already linked by day-toolkit-qt-sys):
 
 ```rust
-slider(v).qt_raw(|w, class| {
+slider(v).tweak(qt_raw(|w, class| {
     let cls = std::ffi::CString::new(class).unwrap();
     unsafe { my_ticks(w, cls.as_ptr(), 10) };
-});
+}));
 ```
 
 ```cpp

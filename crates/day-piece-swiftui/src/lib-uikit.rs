@@ -56,6 +56,6 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &SwiftUiPatch) {
 }
 
 // `name` is set once at build; only `params` patches.
-day_pieces::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
+day_spec::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
     kind: KIND, props: SwiftUiProps, patch: SwiftUiPatch, make: make, update: update,
-    measure: day_pieces::fill_measure);
+    measure: day_spec::fill_measure);

@@ -13,6 +13,7 @@ members = [
     "crates/day-reactive",
     "crates/day-spec",
     "crates/day-async",
+    "crates/day-process",
     "crates/day-bridge",
     "crates/day-platform-android",
     "crates/day-platform-windows",
@@ -79,6 +80,7 @@ default-members = [
     "crates/day-reactive",
     "crates/day-spec",
     "crates/day-async",
+    "crates/day-process",
     "crates/day-mock",
     "crates/day-core",
     "crates/day-pieces",
@@ -162,6 +164,7 @@ day-piece-text-editor = { path = "crates/day-piece-text-editor", version = "0.*"
 day-toolchain = { path = "crates/day-toolchain", version = "0.*" }
 day-build = { path = "crates/day-build", version = "0.*" }
 day-async = { path = "crates/day-async", version = "0.*" }
+day-process = { path = "crates/day-process", version = "0.*" }
 day-bridge = { path = "crates/day-bridge", version = "0.*" }
 day-platform-linux = { path = "crates/day-platform-linux", version = "0.*" }
 day-toolkit-appkit = { path = "crates/day-toolkit-appkit", version = "0.*" }

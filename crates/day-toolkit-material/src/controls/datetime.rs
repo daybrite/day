@@ -11,8 +11,8 @@
 // ---------------------------------------------------------------------------
 
 use crate::{AHandle, Material, java};
-use day_pieces::datetime::*;
 use day_spec::NodeId;
+use day_spec::controls::datetime::*;
 
 // This piece's Java class (src/DayDateTime.java, on the app classpath at build).
 crate::java_class! {
@@ -46,7 +46,7 @@ mod date_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut Material, h: &AHandle, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
@@ -54,7 +54,7 @@ mod date_renderer {
         java(|env| DayDateTime::setDate(env, h.0.as_obj(), days));
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Material,
+    day_spec::renderer!(crate::RENDERERS, Material,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make, update: update);
 }
@@ -64,7 +64,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the props arrive by reference"
     )]
     fn make(_backend: &mut Material, p: &TimeProps, id: NodeId) -> AHandle {
         // `seconds` is a documented no-op: neither Material nor the framework clock edits seconds.
@@ -80,7 +80,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut Material, h: &AHandle, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
@@ -88,7 +88,7 @@ mod time_renderer {
         java(|env| DayDateTime::setTime(env, h.0.as_obj(), secs));
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Material,
+    day_spec::renderer!(crate::RENDERERS, Material,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make, update: update);
 }

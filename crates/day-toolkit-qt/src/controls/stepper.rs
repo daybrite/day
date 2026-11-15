@@ -6,8 +6,8 @@
 // field-with-arrows control. The value crosses the flat C ABI as a double both ways.
 // ---------------------------------------------------------------------------
 
-use day_pieces::stepper::*;
 use day_spec::Event;
+use day_spec::controls::stepper::*;
 use std::os::raw::{c_int, c_void};
 
 use crate::{Qt, QtHandle};
@@ -58,6 +58,6 @@ fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     Size::new(w.max(96.0), hh.max(24.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Qt,
+day_spec::renderer!(crate::RENDERERS, Qt,
     kind: KIND, props: StepperProps, patch: StepperPatch,
     make: make, update: update, measure: measure);

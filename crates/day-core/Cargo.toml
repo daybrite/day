@@ -12,6 +12,8 @@ day-async = { workspace = true }
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
+# `storage::config_dir()` for the remembered window frames.
+day-process = { workspace = true }
 # The standard menu-bar titles (File/Edit/View/Help) must be localized where the policy that
 # assembles the bar lives, so every backend gets the same locale-correct furniture.
 day-localization = { workspace = true }
@@ -34,9 +36,6 @@ anstream = { workspace = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 inventory = { workspace = true }
 day-macros = { workspace = true }
-
-[target.'cfg(target_os = "android")'.dependencies]
-day-platform-android = { workspace = true }
 
 [dev-dependencies]
 day-mock = { path = "../day-mock" }

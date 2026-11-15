@@ -35,7 +35,7 @@ license.workspace = true
 # tree already pins; Windows uses the `windows` crate; HarmonyOS links the public keystore NDK.
 
 [dependencies]
-# `Support` is day-spec's through day-bridge, so a caller matches one enum for this crate and for
+# `Support` is day-process's through day-bridge, so a caller matches one enum for this crate and for
 # `day::capability()`; the Android arm's completions ride the same machinery.
 day-bridge = { workspace = true }
 # The oneshot behind `get_future` (docs/async.md).
@@ -76,7 +76,7 @@ windows = { workspace = true, features = [
 ] }
 day-part-biometrics = { workspace = true }
 # `storage::data_dir()`: where the DPAPI-sealed items are kept.
-day-spec = { workspace = true }
+day-process = { workspace = true }
 
 # HarmonyOS: the keystore is C, the user-authentication dialog is ArkTS (day-part-biometrics).
 [target.'cfg(target_env = "ohos")'.dependencies]

@@ -6153,7 +6153,7 @@ fn selectable_modifier_marks_the_node_and_is_opt_in() {
 }
 
 // --- .restore() (docs/navigation.md) -------------------------------------------------------
-// An in-memory NavStore standing in for `day_part_preferences::install_nav_store`, so these tests
+// An in-memory NavStore standing in for `day::prefs::install_nav_store`, so these tests
 // exercise the pieces' restore/persist wiring without touching the platform prefs facility.
 // A test that doesn't call `.restore()` never consults the store, so a store left installed on a
 // reused test thread can't affect another test.

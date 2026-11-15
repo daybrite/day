@@ -77,7 +77,7 @@ registered at link time:
 
 ```rust
 // inside #[cfg(feature = "appkit")] — creates an NSComboBox
-day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
+day_spec::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update);
 ```
@@ -178,7 +178,7 @@ under your package's namespace.
 ## Storage integration
 
 Native storage paths are resolved by
-[`day_spec::storage`](https://docs.rs/day-spec/latest/day_spec/storage/index.html), re-exported
+[`day_process::storage`](https://docs.rs/day-process/latest/day_process/storage/index.html), re-exported
 as [`day::storage`](https://docs.rs/day-app/latest/day/storage/index.html). The
 [filesystem reference](/docs/reference/fs#where-files-live) defines the public directory and
 override contracts.

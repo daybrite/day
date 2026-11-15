@@ -373,6 +373,6 @@ fn release(_backend: &mut Qt, h: &QtHandle) {
     });
 }
 
-day_pieces::renderer!(day_toolkit_qt::RENDERERS, Qt,
+day_spec::renderer!(day_toolkit_qt::RENDERERS, Qt,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

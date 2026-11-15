@@ -14,8 +14,8 @@
 // ---------------------------------------------------------------------------
 #![allow(deprecated)]
 
-use day_pieces::combobox::*;
 use day_spec::Event;
+use day_spec::controls::combobox::*;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -128,6 +128,6 @@ fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, Gtk,
+day_spec::renderer!(crate::RENDERERS, Gtk,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure, release: release);

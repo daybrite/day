@@ -19,10 +19,9 @@ harness = false # GTK on macOS requires the process's main thread.
 day-reactive = { workspace = true }
 log = { workspace = true }
 day-spec = { workspace = true }
-# Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
-# extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
+# The realized tree, events and window policy. The ext module (docs/tweaks.md) reads the tree
+# to hand a tweak the native widget; the backend needs no widget builders for that.
 day-core = { workspace = true }
-day-pieces = { workspace = true }
 linkme = { workspace = true }
 gtk4 = { workspace = true, features = ["v4_10"] }
 # Canvas text (docs/fonts.md, DESIGN §11): a Pango layout drawn through cairo — family, weight,

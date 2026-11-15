@@ -11,8 +11,8 @@
 // Items patch's removeAllItems can fire a selection change with index -1, which is dropped.
 // ---------------------------------------------------------------------------
 
-use day_pieces::combobox::*;
 use day_spec::Event;
+use day_spec::controls::combobox::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -148,6 +148,6 @@ fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, AppKit,
+day_spec::renderer!(crate::RENDERERS, AppKit,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure, release: release);

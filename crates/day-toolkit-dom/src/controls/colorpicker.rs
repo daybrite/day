@@ -24,8 +24,8 @@
 // ---------------------------------------------------------------------------
 
 use crate::{Dom, DomHandle, listen};
-use day_pieces::colorpicker::*;
 use day_spec::Color;
+use day_spec::controls::colorpicker::*;
 use day_spec::{NodeId, Proposal, Size};
 
 fn make(backend: &mut Dom, p: &ColorProps, _id: NodeId) -> DomHandle {
@@ -48,7 +48,7 @@ fn make(backend: &mut Dom, p: &ColorProps, _id: NodeId) -> DomHandle {
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+    reason = "`day_spec::dom_renderer!` fixes the signature: handle and patch arrive by reference"
 )]
 fn update(backend: &mut Dom, h: &DomHandle, patch: &ColorPatch) {
     let ColorPatch::SetColor(c) = patch;
@@ -67,7 +67,7 @@ fn opaque_hex(c: Color) -> String {
 /// same modest default the other arms report as their intrinsic size.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+    reason = "`day_spec::dom_renderer!` fixes the signature: handle and patch arrive by reference"
 )]
 fn measure(_backend: &mut Dom, _h: &DomHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(56.0), p.height.unwrap_or(28.0))
@@ -75,6 +75,6 @@ fn measure(_backend: &mut Dom, _h: &DomHandle, p: Proposal) -> Size {
 
 // Defines `register()`, which `color_picker()` calls: web-dom's registry is populated at runtime,
 // unlike the link-time `renderer!` the other seven arms use.
-day_pieces::dom_renderer!(crate::register_renderer, Dom,
+day_spec::dom_renderer!(crate::register_renderer, Dom,
     kind: KIND, props: ColorProps, patch: ColorPatch,
     make: make, update: update, measure: measure);

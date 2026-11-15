@@ -144,7 +144,7 @@ fn forward_remote(info: &objc2_foundation::NSDictionary, opened: bool) {
         )
     } && let Ok(payload) = String::from_utf8(data.to_vec())
     {
-        day_core::services::notification(day_core::services::NotificationEvent::Received {
+        day_process::services::notification(day_process::services::NotificationEvent::Received {
             payload,
             opened,
         });

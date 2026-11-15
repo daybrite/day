@@ -22,11 +22,11 @@
 //! //       s.TickFrequency(freq);
 //! //       s.TickPlacement(winrt::Windows::UI::Xaml::Controls::Primitives::TickPlacement::BottomRight);
 //! //   }
-//! use day_toolkit_winui::XamlExt;
-//! slider(v).xaml_raw(|abi, class| {
+//! use day_toolkit_winui::xaml_raw;
+//! slider(v).tweak(xaml_raw(|abi, class| {
 //!     let cls = std::ffi::CString::new(class).unwrap();
 //!     unsafe { my_slider_ticks(abi, cls.as_ptr(), 10.0) };
-//! });
+//! }));
 //! ```
 //!
 //! Contract: the pointer is BORROWED (not `AddRef`'d) and valid only while Day's handle lives —
@@ -36,7 +36,6 @@
 use std::os::raw::c_void;
 
 use day_core::RNode;
-use day_pieces::Decorate;
 use day_spec::{PieceKind, kinds};
 
 /// The XAML control class Day's shim (`day-toolkit-xaml-sys`) realizes for `kind`. `""` for
@@ -73,14 +72,10 @@ pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
 
 /// The XAML tweak modifier: runs once at mount with the borrowed ABI pointer and its class name
 /// (docs/tweaks.md).
-pub trait XamlExt: Decorate + Sized {
-    fn xaml_raw(self, f: impl FnOnce(*mut c_void, &str) + 'static) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            if let Some((abi, class)) = with_native_raw(n) {
-                f(abi, class);
-            }
-        })
+pub fn xaml_raw(f: impl FnOnce(*mut c_void, &str) + 'static) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        if let Some((abi, class)) = with_native_raw(n) {
+            f(abi, class);
+        }
     }
 }
-
-impl<P: Decorate> XamlExt for P {}

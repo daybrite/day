@@ -8,7 +8,7 @@
 // bridge builds it; typing and picking both arrive as Day's own `TextChanged`.
 // ---------------------------------------------------------------------------
 
-use day_pieces::combobox::*;
+use day_spec::controls::combobox::*;
 
 use crate::{AHandle, ArkUi, piece};
 use day_spec::{NodeId, Proposal, Size};
@@ -39,7 +39,7 @@ fn make(_backend: &mut ArkUi, p: &ComboProps, id: NodeId) -> AHandle {
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+    reason = "`day_spec::renderer!` fixes the signature: the handle arrives by reference"
 )]
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &ComboPatch) {
     match patch {
@@ -51,12 +51,12 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &ComboPatch) {
 /// The proposed width, at a text field's 40 vp height.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+    reason = "`day_spec::renderer!` fixes the signature: the handle arrives by reference"
 )]
 fn measure(_backend: &mut ArkUi, _h: &AHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(200.0), 40.0)
 }
 
-day_pieces::renderer!(crate::RENDERERS, ArkUi,
+day_spec::renderer!(crate::RENDERERS, ArkUi,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure);

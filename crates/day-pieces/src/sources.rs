@@ -78,6 +78,16 @@ pub trait IntoText<M> {
 pub struct StaticMark;
 pub struct SignalMark;
 pub struct FnMark;
+pub struct LocalizedMark;
+
+/// A localized message is text that follows the locale: `label(res::str::title())`. The
+/// conversion lives here, on the side that owns `IntoText`, so the localization layer (which a
+/// backend also uses for its own menu titles) does not depend on the widget builders.
+impl IntoText<LocalizedMark> for day_localization_ui::LocalizedText {
+    fn into_text(self) -> TextSource {
+        TextSource::Dyn(Rc::new(move || self.format()))
+    }
+}
 /// Marker for an already-converted [`TextSource`].
 pub struct SourceMark;
 

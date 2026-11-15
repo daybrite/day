@@ -23,8 +23,8 @@ use crate::arkui_sys::native_node::{
 };
 use crate::node::{self, Handle};
 use crate::{AHandle, ArkUi};
-use day_pieces::datetime::*;
 use day_spec::Event;
+use day_spec::controls::datetime::*;
 use day_spec::{NodeId, Proposal, Size};
 
 /// The height a wheels picker needs to show its wheels: the one day-toolkit-arkui gives its built-in
@@ -114,7 +114,7 @@ fn set_time(n: Handle, t: DayTime) {
 /// A wheels picker: its native width, and room for its wheels.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::renderer!` fixes the signature: the handle arrives by reference"
+    reason = "`day_spec::renderer!` fixes the signature: the handle arrives by reference"
 )]
 fn measure_wheels(backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
     let natural = measure(backend, h, p);
@@ -189,7 +189,7 @@ mod date_renderer {
         DATE_WHEELS.with(|w| w.borrow_mut().remove(&(h.0 as usize)));
     }
 
-    day_pieces::renderer!(crate::RENDERERS, ArkUi,
+    day_spec::renderer!(crate::RENDERERS, ArkUi,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make, update: update, measure: measure_date, release: release);
 }
@@ -216,7 +216,7 @@ mod time_renderer {
         }
     }
 
-    day_pieces::renderer!(crate::RENDERERS, ArkUi,
+    day_spec::renderer!(crate::RENDERERS, ArkUi,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make, update: update, measure: measure_wheels);
 }

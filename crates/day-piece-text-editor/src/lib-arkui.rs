@@ -252,6 +252,6 @@ fn release(_backend: &mut ArkUi, h: &AHandle) {
     });
 }
 
-day_pieces::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
+day_spec::renderer!(day_toolkit_arkui::RENDERERS, ArkUi,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

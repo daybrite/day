@@ -8,8 +8,8 @@
 // epoch days / seconds-of-day; the wire's numeric `Event::Custom` path decodes them.
 // ---------------------------------------------------------------------------
 
-use day_pieces::datetime::*;
 use day_spec::Event;
+use day_spec::controls::datetime::*;
 use std::os::raw::{c_int, c_void};
 
 use crate::{Qt, QtHandle};
@@ -79,7 +79,7 @@ mod date_renderer {
         unsafe { day_datetime_date_set(h.0, d.to_epoch_days()) };
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Qt,
+    day_spec::renderer!(crate::RENDERERS, Qt,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make, update: update, measure: measure);
 }
@@ -114,7 +114,7 @@ mod time_renderer {
         unsafe { day_datetime_time_set(h.0, t.seconds_of_day()) };
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Qt,
+    day_spec::renderer!(crate::RENDERERS, Qt,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make, update: update, measure: measure);
 }

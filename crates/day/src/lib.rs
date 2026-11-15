@@ -78,6 +78,11 @@ pub use day_pieces::{
 /// Sharing (docs/sharing.md): `Share::url(…)…present()`, with the app's own chooser actions.
 pub use day_pieces::{Share, ShareAction, share_action, share_support};
 pub use day_pieces::{colorpicker, combobox, datetime, pager, pullrefresh, searchfield, stepper};
+/// The app's own data, cache and configuration directories, each a folder named after the app
+/// id where its platform keeps that kind of file (docs/fs.md "Where files live"):
+/// `day::storage::data_dir()` for a database or documents, `cache_dir()` for what can be fetched
+/// again, `config_dir()` for a small settings file.
+pub use day_process::storage;
 pub use day_spec::AppBadge;
 pub use day_spec::applications::{
     Application, ApplicationError, ApplicationHandlers, HandlerQuery,
@@ -87,11 +92,6 @@ pub use day_spec::applications::{
 /// this is how an app asks for it. For derived files an app can rebuild: rendered documents,
 /// thumbnails, export staging.
 pub use day_spec::present::app_temp_dir;
-/// The app's own data, cache and configuration directories, each a folder named after the app
-/// id where its platform keeps that kind of file (docs/fs.md "Where files live"):
-/// `day::storage::data_dir()` for a database or documents, `cache_dir()` for what can be fetched
-/// again, `config_dir()` for a small settings file.
-pub use day_spec::storage;
 pub use day_spec::{
     BitmapId, BitmapInfo, EncodeSpec, ImageError, ImageFormat, ImageProperties, ImageSource,
 };
@@ -263,6 +263,29 @@ pub fn modifiers() -> day_spec::Modifiers {
 #[cfg(feature = "prefs")]
 pub mod prefs {
     pub use day_part_preferences::*;
+
+    /// Install the preferences as the app's navigation-persistence store (docs/navigation.md), so
+    /// a `nav` or `nav_stack` marked `.restore(key)` remembers its state across launches (and
+    /// across an Android process death, since the store is disk-backed). `day::launch` calls it
+    /// when the app has installed no store of its own. Nav keys are namespaced under a `day.nav.`
+    /// prefix, so `.restore("mail")` never collides with the app's own [`set`]/[`get`] keys.
+    ///
+    /// The adapter lives here, where the preferences and the navigation core meet, so the
+    /// preferences part itself needs no UI dependency.
+    pub fn install_nav_store() {
+        struct PrefsNavStore;
+
+        impl day_core::NavStore for PrefsNavStore {
+            fn load(&self, key: &str) -> Option<String> {
+                get(&format!("day.nav.{key}"))
+            }
+            fn save(&self, key: &str, value: &str) {
+                let _ = set(&format!("day.nav.{key}"), value);
+            }
+        }
+
+        day_core::set_nav_store(std::rc::Rc::new(PrefsNavStore));
+    }
 
     /// Keep a keyed store in the preferences as one JSON array (docs/prefs.md): seed `store`
     /// from the rows saved under `key` now, then save every later change, an edited field as
@@ -778,7 +801,7 @@ fn start<P: day_spec::Platform, R: Piece>(
     // store of its own (docs/navigation.md).
     #[cfg(feature = "prefs")]
     if !day_core::has_nav_store() {
-        day_part_preferences::install_nav_store();
+        prefs::install_nav_store();
     }
     // The app's catalog, now that the hints are in: registering it here rather than inside the
     // root builder is what lets a title, drawn before any piece exists, come out of the

@@ -9,8 +9,8 @@
 // seconds. iOS 15 floor ⊇ every style used here.
 // ---------------------------------------------------------------------------
 
-use day_pieces::datetime::*;
 use day_spec::Event;
+use day_spec::controls::datetime::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -167,7 +167,7 @@ mod date_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
@@ -180,7 +180,7 @@ mod date_renderer {
         measure_picker(h, p)
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Uikit,
+    day_spec::renderer!(crate::RENDERERS, Uikit,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make, update: update, measure: measure, release: release);
 }
@@ -190,7 +190,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the props arrive by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the props arrive by reference"
     )]
     fn make(_backend: &mut Uikit, p: &TimeProps, id: NodeId) -> Retained<UIView> {
         // `seconds` is a documented no-op: UIDatePicker has no seconds field (docs/datepicker.md).
@@ -210,7 +210,7 @@ mod time_renderer {
 
     #[expect(
         clippy::trivially_copy_pass_by_ref,
-        reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+        reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
     )]
     fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
@@ -223,7 +223,7 @@ mod time_renderer {
         measure_picker(h, p)
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Uikit,
+    day_spec::renderer!(crate::RENDERERS, Uikit,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make, update: update, measure: measure, release: release);
 }

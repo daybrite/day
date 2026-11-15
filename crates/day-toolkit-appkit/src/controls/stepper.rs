@@ -10,8 +10,8 @@
 // patch path needs no echo guard.
 // ---------------------------------------------------------------------------
 
-use day_pieces::stepper::*;
 use day_spec::Event;
+use day_spec::controls::stepper::*;
 
 use crate::AppKit;
 use day_spec::{NodeId, Proposal, Size};
@@ -134,7 +134,7 @@ fn make(backend: &mut AppKit, p: &StepperProps, id: NodeId) -> Retained<NSView> 
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
 )]
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &StepperPatch) {
     let StepperPatch::SetValue(v) = patch;
@@ -160,6 +160,6 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, _p: Proposal) -> Size {
     )
 }
 
-day_pieces::renderer!(crate::RENDERERS, AppKit,
+day_spec::renderer!(crate::RENDERERS, AppKit,
     kind: KIND, props: StepperProps, patch: StepperPatch,
     make: make, update: update, measure: measure);

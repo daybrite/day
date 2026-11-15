@@ -22,7 +22,7 @@
 // ---------------------------------------------------------------------------
 
 use crate::{Dom, DomHandle, listen};
-use day_pieces::datetime::*;
+use day_spec::controls::datetime::*;
 use day_spec::{NodeId, Proposal, Size};
 
 fn iso_date(d: DayDate) -> String {
@@ -52,7 +52,7 @@ fn make_date(backend: &mut Dom, p: &DateProps, _id: NodeId) -> DomHandle {
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+    reason = "`day_spec::dom_renderer!` fixes the signature: handle and patch arrive by reference"
 )]
 fn update_date(backend: &mut Dom, h: &DomHandle, patch: &DatePatch) {
     let DatePatch::SetDate(d) = patch;
@@ -76,7 +76,7 @@ fn make_time(backend: &mut Dom, p: &TimeProps, _id: NodeId) -> DomHandle {
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+    reason = "`day_spec::dom_renderer!` fixes the signature: handle and patch arrive by reference"
 )]
 fn update_time(backend: &mut Dom, h: &DomHandle, patch: &TimePatch) {
     let TimePatch::SetTime(t) = patch;
@@ -87,7 +87,7 @@ fn update_time(backend: &mut Dom, h: &DomHandle, patch: &TimePatch) {
 /// default the other arms report as their intrinsic size.
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::dom_renderer!` fixes the signature: handle and patch arrive by reference"
+    reason = "`day_spec::dom_renderer!` fixes the signature: handle and patch arrive by reference"
 )]
 fn measure(_backend: &mut Dom, _h: &DomHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(160.0), p.height.unwrap_or(28.0))
@@ -98,14 +98,14 @@ fn measure(_backend: &mut Dom, _h: &DomHandle, p: Proposal) -> Size {
 // `renderer!` the other seven arms use.
 mod date_arm {
     use super::*;
-    day_pieces::dom_renderer!(crate::register_renderer, Dom,
+    day_spec::dom_renderer!(crate::register_renderer, Dom,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make_date, update: update_date, measure: measure);
 }
 
 mod time_arm {
     use super::*;
-    day_pieces::dom_renderer!(crate::register_renderer, Dom,
+    day_spec::dom_renderer!(crate::register_renderer, Dom,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make_time, update: update_time, measure: measure);
 }

@@ -7,8 +7,8 @@
 // programmatic setText is wrapped in blockSignals so it never echoes back (like the picker shim).
 // ---------------------------------------------------------------------------
 
-use day_pieces::searchfield::*;
 use day_spec::Event;
+use day_spec::controls::searchfield::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
@@ -67,6 +67,6 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(24.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Qt,
+day_spec::renderer!(crate::RENDERERS, Qt,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure);

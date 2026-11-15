@@ -518,6 +518,6 @@ fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     });
 }
 
-day_pieces::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
+day_spec::renderer!(day_toolkit_uikit::RENDERERS, Uikit,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

@@ -7,8 +7,8 @@
 // programmatic sync in `update` from echoing back as an Event::TextChanged.
 // ---------------------------------------------------------------------------
 
-use day_pieces::searchfield::*;
 use day_spec::Event;
+use day_spec::controls::searchfield::*;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -89,6 +89,6 @@ fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, Gtk,
+day_spec::renderer!(crate::RENDERERS, Gtk,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure, release: release);

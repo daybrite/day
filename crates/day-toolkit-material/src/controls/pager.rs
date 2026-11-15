@@ -1,4 +1,4 @@
-use day_pieces::pager::*;
+use day_spec::controls::pager::*;
 
 use crate::jni::objects::JString;
 use crate::{AHandle, Material, java};
@@ -32,4 +32,4 @@ fn update(_: &mut Material, h: &AHandle, patch: &PagerPatch) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, Material, kind:KIND, props:PagerProps, patch:PagerPatch, make:make, update:update, measure:day_pieces::fill_measure);
+day_spec::renderer!(crate::RENDERERS, Material, kind:KIND, props:PagerProps, patch:PagerPatch, make:make, update:update, measure:day_spec::fill_measure);

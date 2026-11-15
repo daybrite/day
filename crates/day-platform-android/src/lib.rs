@@ -11,6 +11,23 @@ pub use day_macros::java_class;
 #[cfg(target_os = "android")]
 pub use imp::*;
 
+/// `DayRuntime.initializeServices()`: Android's headless host (a worker, a messaging service) has
+/// a JVM and an application `Context` but no Activity and no widget tree. It attaches the JVM
+/// here and starts the linked process services, exactly as the Activity's launch path does first.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_daybrite_day_bridge_DayRuntime_initializeServices(
+    mut env: jni::EnvUnowned,
+    class: jni::objects::JClass,
+) {
+    env.with_env(|env| -> jni::errors::Result<()> {
+        init(env, &class)?;
+        day_process::services::initialize();
+        Ok(())
+    })
+    .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+}
+
 /// The part↔Java payload convention (docs/extending.md, "The Android bridging contract"):
 /// One `byte[]` crosses JNI per call, laid out as
 /// `[0..4)` status `i32` BE · `[4..8)` meta-block length `i32` BE · meta `"k\nv\n…"` UTF-8 ·

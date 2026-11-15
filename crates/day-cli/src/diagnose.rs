@@ -231,9 +231,9 @@ fn describes_this_run(text: &str, target: &'static Target, since: SystemTime) ->
 fn break_store_dir(project: &Project, target: &'static Target, app_id: &str) -> Option<PathBuf> {
     match target.kind {
         // The app's data directory on this host, where day-piece-crash-reporter keeps its store
-        // (its src/store.rs `store_dir`): both resolve it through `day_spec::storage`.
+        // (its src/store.rs `store_dir`): both resolve it through `day_process::storage`.
         TargetKind::Desktop => {
-            day_spec::storage::data_dir_for(app_id).map(|dir| dir.join("day-break"))
+            day_process::storage::data_dir_for(app_id).map(|dir| dir.join("day-break"))
         }
         TargetKind::IosSim => {
             let out = crate::ops::output_within(

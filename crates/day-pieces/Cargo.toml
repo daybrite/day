@@ -21,6 +21,8 @@ day-spec = { workspace = true }
 day-core = { workspace = true }
 # The core localization engine + built-in UI-string catalog (dialog buttons, menu-role labels).
 day-localization = { workspace = true }
+# `LocalizedText`, which converts to a text source here (src/sources.rs).
+day-localization-ui = { workspace = true }
 # Re-exported so external pieces register per-backend renderers through the `renderer!` macro
 # without depending on linkme (or day-spec's Renderer) directly.
 linkme = { workspace = true }

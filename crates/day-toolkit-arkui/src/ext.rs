@@ -17,7 +17,6 @@
 use std::os::raw::c_void;
 
 use day_core::RNode;
-use day_pieces::Decorate;
 use day_spec::{PieceKind, kinds};
 
 /// The ArkUI node type Day realizes for `kind`, named after the
@@ -45,14 +44,10 @@ pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
 
 /// The ArkUI tweak modifier: runs once at mount with the raw node handle and its type name
 /// (docs/tweaks.md).
-pub trait ArkUiExt: Decorate + Sized {
-    fn arkui_raw(self, f: impl FnOnce(*mut c_void, &str) + 'static) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            if let Some((w, class)) = with_native_raw(n) {
-                f(w, class);
-            }
-        })
+pub fn arkui_raw(f: impl FnOnce(*mut c_void, &str) + 'static) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        if let Some((w, class)) = with_native_raw(n) {
+            f(w, class);
+        }
     }
 }
-
-impl<P: Decorate> ArkUiExt for P {}

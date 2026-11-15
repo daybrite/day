@@ -1667,7 +1667,7 @@ mod imp {
             {
                 return;
             }
-            day_core::services::initialize();
+            day_process::services::initialize();
             register_resource_opener(env);
             let d = f64::from(density_);
             DENSITY.with(|x| x.set(d));

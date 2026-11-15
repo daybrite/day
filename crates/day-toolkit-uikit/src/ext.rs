@@ -12,21 +12,20 @@
 //! runs against the discarded one (docs/tweaks.md). Downcast for widget-specific API:
 //!
 //! ```ignore
-//! use day_toolkit_uikit::UiKitExt;
-//! label("order #42").selectable().uikit(|view, class, _mtm| {
+//! use day_toolkit_uikit::uikit;
+//! label("order #42").selectable().tweak(uikit(|view, class, _mtm| {
 //!     match class {
 //!         "UILabel" => { if let Some(l) = view.downcast_ref::<objc2_ui_kit::UILabel>() { /* … */ } }
 //!         "UITextView" => { /* the selectable backing */ }
 //!         _ => {}
 //!     }
-//! });
+//! }));
 //! ```
 //!
 //! Day may re-apply *managed* properties on its next patch; unmanaged properties are stable.
 //! After a size-affecting change, call `day_core::invalidate_size(node)`.
 
 use day_core::RNode;
-use day_pieces::Decorate;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_ui_kit::{UIImage, UIView};
@@ -48,18 +47,13 @@ pub fn with_native<R>(
 }
 
 /// The UIKit tweak modifier: runs once at mount, after the widget exists (docs/tweaks.md).
-pub trait UiKitExt: Decorate + Sized {
-    fn uikit(
-        self,
-        f: impl FnOnce(&Retained<UIView>, &str, MainThreadMarker) + 'static,
-    ) -> day_pieces::Decorated<Self> {
-        self.tweak(move |n| {
-            let _ = with_native(n, f);
-        })
+pub fn uikit(
+    f: impl FnOnce(&Retained<UIView>, &str, MainThreadMarker) + 'static,
+) -> impl FnOnce(RNode) + 'static {
+    move |n| {
+        let _ = with_native(n, f);
     }
 }
-
-impl<P: Decorate> UiKitExt for P {}
 
 /// The `UIImage` a bundled image or vector name resolves to on this backend (the `DayPieces`
 /// asset catalog, then a staged file; docs/vectors.md): for a piece that configures a native

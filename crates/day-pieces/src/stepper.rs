@@ -52,13 +52,6 @@ pub fn support() -> day_spec::Support {
     }
 }
 
-/// The display form of `v` at `decimals` fraction digits: what the field shows, what the
-/// probe's text reports, and what the composed field parses back.
-#[must_use]
-pub fn fmt_value(v: f64, decimals: u32) -> String {
-    format!("{v:.prec$}", prec = decimals as usize)
-}
-
 type ParseValue = Rc<dyn Fn(&str) -> Option<f64>>;
 
 #[derive(Clone)]

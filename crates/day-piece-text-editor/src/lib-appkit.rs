@@ -548,6 +548,6 @@ fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     });
 }
 
-day_pieces::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
+day_spec::renderer!(day_toolkit_appkit::RENDERERS, AppKit,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

@@ -32,10 +32,9 @@ day-reactive = { workspace = true }
 day-localization-ui = { workspace = true }
 log = { workspace = true }
 day-spec = { workspace = true }
-# Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
-# extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
+# The realized tree, events and window policy. The ext module (docs/tweaks.md) reads the tree
+# to hand a tweak the native widget; the backend needs no widget builders for that.
 day-core = { workspace = true }
-day-pieces = { workspace = true }
 # Localize the AppKit-built menu chrome (default menu + standard App menu About/Quit).
 day-localization = { workspace = true }
 linkme = { workspace = true }
@@ -106,6 +105,10 @@ harness = false
 [[test]]
 name = "native_text_field_select"
 harness = false
+
+[dev-dependencies]
+# tests/native_list_scroll.rs builds a list with the piece vocabulary.
+day-pieces = { path = "../day-pieces" }
 
 [lints]
 workspace = true

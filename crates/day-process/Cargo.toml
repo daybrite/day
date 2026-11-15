@@ -1,0 +1,25 @@
+[package]
+name = "day-process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "What a Day process has without a user interface: identity, directories, startup services and the FFI panic guard"
+repository.workspace = true
+license.workspace = true
+# One copy per process: the service registries are link-time slices, and a second copy of this
+# crate would carry its own, which no host runs. Cargo refuses a graph with two packages that
+# claim the same `links` name, so the mistake is caught at resolution instead of at run time.
+links = "day_process_registry"
+build = "build.rs"
+
+# The layer below the widget tree (DESIGN.md §3.2): day-spec and day-core build on it, and a
+# background worker, a push handler or a command-line tool depends on it alone.
+
+[dependencies]
+log = { workspace = true }
+# The service registries. The slices themselves are compiled out on wasm, where `linkme` has no
+# support and the browser has no process services.
+linkme = { workspace = true }
+
+[lints]
+workspace = true

@@ -11,8 +11,8 @@
 // every flush.
 // ---------------------------------------------------------------------------
 
-use day_pieces::stepper::*;
 use day_spec::Event;
+use day_spec::controls::stepper::*;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -55,7 +55,7 @@ fn make(_backend: &mut Gtk, p: &StepperProps, id: NodeId) -> gtk4::Widget {
 
 #[expect(
     clippy::trivially_copy_pass_by_ref,
-    reason = "`day_pieces::renderer!` fixes the signature: the patch arrives by reference"
+    reason = "`day_spec::renderer!` fixes the signature: the patch arrives by reference"
 )]
 fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &StepperPatch) {
     let StepperPatch::SetValue(v) = patch;
@@ -84,6 +84,6 @@ fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     });
 }
 
-day_pieces::renderer!(crate::RENDERERS, Gtk,
+day_spec::renderer!(crate::RENDERERS, Gtk,
     kind: KIND, props: StepperProps, patch: StepperPatch,
     make: make, update: update, measure: measure, release: release);

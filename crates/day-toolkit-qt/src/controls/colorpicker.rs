@@ -7,9 +7,9 @@
 // is quantized on the way (both `QColor::getRgbF` and Day's `Color` are float).
 // ---------------------------------------------------------------------------
 
-use day_pieces::colorpicker::*;
 use day_spec::Color;
 use day_spec::Event;
+use day_spec::controls::colorpicker::*;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
@@ -67,6 +67,6 @@ fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     Size::new(w.max(72.0), hh.max(24.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Qt,
+day_spec::renderer!(crate::RENDERERS, Qt,
     kind: KIND, props: ColorProps, patch: ColorPatch,
     make: make, update: update, measure: measure);

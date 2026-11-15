@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Every non-wasm target: std::fs under the app's data directory, `day_spec::storage::data_dir()`
+// Every non-wasm target: std::fs under the app's data directory, `day_process::storage::data_dir()`
 // (docs/fs.md "Where files live"): DAY_DATA_DIR when a mobile host or a test sets it, else the
 // platform's per-app folder. It resolves on every call (cheap, and env-driven so tests and hosts
 // can redirect it). Everything lives under a `day-fs/` leaf, so the paths this part hands out never
@@ -15,7 +15,7 @@ use super::{BytesResult, FsError, ListResult, UnitResult};
 
 /// The app's data directory, before the `day-fs/` leaf.
 pub(crate) fn data_dir() -> Result<PathBuf, FsError> {
-    day_spec::storage::data_dir().ok_or(FsError::Unsupported)
+    day_process::storage::data_dir().ok_or(FsError::Unsupported)
 }
 
 /// The platform's application-data directory, the parent every app's data sits under.

@@ -8,8 +8,8 @@
 // programmatic setters are wrapped in blockSignals so they never echo back.
 // ---------------------------------------------------------------------------
 
-use day_pieces::combobox::*;
 use day_spec::Event;
+use day_spec::controls::combobox::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
@@ -79,6 +79,6 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     Size::new(width, hh.max(24.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Qt,
+day_spec::renderer!(crate::RENDERERS, Qt,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure);

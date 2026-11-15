@@ -12,15 +12,6 @@ license.workspace = true
 # day-toolkit-arkui's NodeAPI shim, with JS in place of C. The shim ships inside day-cli
 # (crates/day-cli/resources/web/), which embeds it; see this crate's lib.rs header.
 [dependencies]
-day-pieces = { workspace = true }
-serde_json = { workspace = true }
-day-reactive = { workspace = true }
-day-core.workspace = true
-day-spec = { workspace = true }
-day-geometry = { workspace = true }
-# The emulated app menu's button name and its injected role labels come from the core catalog.
-day-localization = { workspace = true }
-log = { workspace = true }
 
 # The entropy bridge (§9): `day build` compiles every web app with
 # `--cfg getrandom_backend="custom"`, and this crate answers getrandom v0.3's custom-backend
@@ -28,6 +19,14 @@ log = { workspace = true }
 # no wasm-bindgen runtime for getrandom's own `wasm_js` backend. Target-gated: on native
 # hosts (clippy's cross-target sweep) getrandom keeps its OS backends and the hook is absent.
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+log = { workspace = true }
+day-reactive = { workspace = true }
+day-geometry = { workspace = true }
+day-spec = { workspace = true }
+# The emulated app menu's button name and its injected role labels come from the core catalog.
+day-localization = { workspace = true }
+serde_json = { workspace = true }
+day-core.workspace = true
 getrandom = { version = "0.4", default-features = false }
 
 [lints]

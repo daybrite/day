@@ -259,7 +259,7 @@ impl Notification {
     }
 
     /// The Day route to navigate to when the notification is tapped (docs/navigation.md). Delivered
-    /// through `day_core::request_route`, so it works whether the tap wakes a running app or cold
+    /// through `day_process::routes::request`, so it works whether the tap wakes a running app or cold
     /// starts the process.
     #[must_use]
     pub fn route(mut self, route: impl Into<String>) -> Notification {
@@ -424,7 +424,7 @@ pub fn cancel_all() {
 /// that receives the tap itself (an Android activity intent extra) can hand it over.
 pub fn deliver_tap(route: &str) {
     if !route.is_empty() {
-        day_core::request_route(route);
+        day_process::routes::request(route);
     }
 }
 

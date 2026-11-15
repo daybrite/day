@@ -8,13 +8,6 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-log = { workspace = true }
-day-spec = { workspace = true }
-# Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and
-# extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
-day-core = { workspace = true }
-day-pieces = { workspace = true }
-linkme = { workspace = true }
 
 # The platform bindings link on-device runtime libs, so they're only pulled in for HarmonyOS
 # builds (docs/harmonyos.md "Architecture"):
@@ -26,6 +19,12 @@ linkme = { workspace = true }
 #   `entry` module (build.rs names it); references and threadsafe functions carry the host's
 #   callbacks and the main-thread post.
 [target.'cfg(target_env = "ohos")'.dependencies]
+log = { workspace = true }
+linkme = { workspace = true }
+day-spec = { workspace = true }
+# The realized tree, events and window policy. The ext module (docs/tweaks.md) reads the tree
+# to hand a tweak the native widget; the backend needs no widget builders for that.
+day-core = { workspace = true }
 ohos-sys = { workspace = true }
 ohos-sys-opaque-types = { workspace = true }
 napi-ohos = { workspace = true }

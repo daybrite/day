@@ -16507,15 +16507,15 @@ mod imp {
         unsafe impl UIApplicationDelegate for AppDelegate {
             #[unsafe(method(application:didRegisterForRemoteNotificationsWithDeviceToken:))]
             fn push_registered(&self, _app: &UIApplication, token: &objc2_foundation::NSData) {
-                day_core::services::notification(
-                    day_core::services::NotificationEvent::Registered(token.to_vec()),
+                day_process::services::notification(
+                    day_process::services::NotificationEvent::Registered(token.to_vec()),
                 );
             }
 
             #[unsafe(method(application:didFailToRegisterForRemoteNotificationsWithError:))]
             fn push_registration_failed(&self, _app: &UIApplication, error: &objc2_foundation::NSError) {
-                day_core::services::notification(
-                    day_core::services::NotificationEvent::RegistrationFailed(error.localizedDescription().to_string()),
+                day_process::services::notification(
+                    day_process::services::NotificationEvent::RegistrationFailed(error.localizedDescription().to_string()),
                 );
             }
 
@@ -16543,7 +16543,7 @@ mod imp {
             // app-level observers that stay app-scoped under scenes.
             #[unsafe(method(application:didFinishLaunchingWithOptions:))]
             fn did_finish_launching(&self, _app: &UIApplication, _opts: *mut AnyObject) -> bool {
-                day_core::services::initialize();
+                day_process::services::initialize();
                 // Keyboard avoidance (docs/focus.md): one app-level observer; the handler
                 // resolves the KEY window's scene, so it follows whichever Day window the
                 // field lives in. WillChangeFrame covers show, hide, and height changes.

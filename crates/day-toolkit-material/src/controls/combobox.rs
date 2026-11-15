@@ -12,7 +12,7 @@
 // guard on equality so a programmatic sync never echoes.
 // ---------------------------------------------------------------------------
 
-use day_pieces::combobox::*;
+use day_spec::controls::combobox::*;
 
 use crate::jni::objects::JString;
 use crate::{AHandle, Material, java};
@@ -60,6 +60,6 @@ fn measure(_backend: &mut Material, _h: &AHandle, p: Proposal) -> Size {
     Size::new(p.width.unwrap_or(180.0), p.height.unwrap_or(44.0))
 }
 
-day_pieces::renderer!(crate::RENDERERS, Material,
+day_spec::renderer!(crate::RENDERERS, Material,
     kind: KIND, props: ComboProps, patch: ComboPatch,
     make: make, update: update, measure: measure);

@@ -34,7 +34,7 @@
 use super::*;
 
 use day_core::{Boundary, BuildCx, Flex, Layout, LayoutOps, RNode, with_tree};
-use day_toolkit_gtk::{Gtk, GtkExt};
+use day_toolkit_gtk::{Gtk, gtk};
 use day_spec::ffi_guard;
 use day_spec::{Event, NodeId, Proposal, Rect, Size};
 use gtk4::glib;
@@ -276,7 +276,7 @@ fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     }
 }
 
-day_pieces::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
+day_spec::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
     kind: ROW_KIND, props: RowProps, patch: RowPatch,
     make: make, update: update, measure: measure, release: release);
 
@@ -590,11 +590,11 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
                 .enabled(move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get()));
             // libadwaita's red button: the destructive-action style class.
             let destructive = *destructive;
-            let b = b.gtk(move |w, _| {
+            let b = b.tweak(gtk(move |w, _| {
                 if destructive {
                     w.add_css_class("destructive-action");
                 }
-            });
+            }));
             let ctl = with_id(b.any());
             let ctl = match busy {
                 Some(b) => row((when(move || b.get(), spinner), ctl))
@@ -1130,9 +1130,9 @@ fn slot_release(_backend: &mut Gtk, h: &gtk4::Widget) {
 // One `renderer!` per module: each shell kind registers from a module of its own.
 mod slot_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
+    day_spec::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
         kind: SLOT_KIND, props: SlotProps, patch: (),
-        make: slot_make, update: slot_update, measure: day_pieces::fill_measure, release: slot_release);
+        make: slot_make, update: slot_update, measure: day_spec::fill_measure, release: slot_release);
 }
 
 // --- the shell: pages, groups, rows ----------------------------------------------------------
@@ -1517,7 +1517,7 @@ fn shell_release(_backend: &mut Gtk, h: &gtk4::Widget) {
 
 mod shell_renderer {
     use super::*;
-    day_pieces::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
+    day_spec::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
         kind: SHELL_KIND, props: ShellProps, patch: ShellPatch,
         make: shell_make, update: shell_update, measure: shell_measure, release: shell_release);
 }

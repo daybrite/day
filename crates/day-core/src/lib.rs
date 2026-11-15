@@ -54,7 +54,6 @@ mod build;
 pub mod conformance;
 pub mod element_id;
 pub mod frame;
-pub mod services;
 pub use element_id::{ElementId, IntoElementKey};
 mod frames;
 pub mod image;
@@ -868,6 +867,7 @@ pub fn launch_with<P: Platform>(
                 urls::request_open_url(&url);
             }
             day_reactive::on_main(urls::drain);
+            nav::install_route_notifier();
 
             // DidLaunch: the UI is mounted and laid out, the app is about to run (docs/lifecycle.md).
             lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidLaunch);

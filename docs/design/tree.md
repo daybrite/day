@@ -573,7 +573,7 @@ backing is composite reports its subcontrols, and the accessors take one:
 
 ```rust
 day_toolkit_appkit::with_native_subcontrol(node, Subcontrol::Content, |view, class, mtm| …)
-button(res::str::sample_label()).appkit_subcontrol(Subcontrol::Content, |…| …)    // the Decorate form
+button(res::str::sample_label()).tweak(appkit_subcontrol(Subcontrol::Content, |…| …))    // the Decorate form
 ```
 
 `Subcontrol::Host` is today's behavior and stays the default; `Subcontrol::Content` is the
@@ -611,13 +611,13 @@ Subcontrols: `Host` = `NSScrollView`, `Content` = `NSOutlineView`, `Header` = th
 `NSTableHeaderView` (absent by default; the tree ships headerless). Rows are `NSTableRowView`.
 
 ```rust
-use day_toolkit_appkit::{AppKitExt, Subcontrol};
+use day_toolkit_appkit::{appkit, appkit_subcontrol, Subcontrol};
 use objc2_app_kit::{NSOutlineView, NSScrollView, NSTableRowView, NSTableViewRowSizeStyle,
                     NSTableViewSelectionHighlightStyle, NSTableViewStyle};
 use objc2_foundation::{NSSize, ns_string};
 
 tree(layers, row)
-    .appkit_subcontrol(Subcontrol::Content, |view, class, _mtm| {
+    .tweak(appkit_subcontrol(Subcontrol::Content, |view, class, _mtm| {
         // `class` is "NSOutlineView"; the Host subcontrol would have handed us NSScrollView.
         let Some(ov) = view.downcast_ref::<NSOutlineView>() else { return };
         unsafe {
@@ -635,15 +635,15 @@ tree(layers, row)
             ov.setAutosaveName(Some(ns_string!("layers")));
             ov.setAutosaveExpandedItems(true);
         }
-    })
-    .appkit(|view, _class, _mtm| {                      // Subcontrol::Host — the scroller
+    }))
+    .tweak(appkit(|view, _class, _mtm| {                      // Subcontrol::Host — the scroller
         if let Some(sv) = view.downcast_ref::<NSScrollView>() {
             unsafe {
                 sv.setDrawsBackground(false);
                 sv.setAutomaticallyAdjustsContentInsets(true);
             }
         }
-    })
+    }))
     .row_tweak(|row, class, info| {
         // The cell itself, on every bind — the thing plain tweaks could never reach.
         if class == "NSTableRowView" && info.is_group {
@@ -663,11 +663,11 @@ choices are build-time and ride `TreeProps` hints and the packaged style tweak b
 Post-mount tweaks get everything that is a live property:
 
 ```rust
-use day_toolkit_uikit::{Subcontrol, UikitExt};
+use day_toolkit_uikit::{Subcontrol, uikit};
 use objc2_ui_kit::{UICollectionView, UICollectionViewListCell};
 
 tree(src, row)
-    .uikit(|view, _class, _mtm| {                       // Host — the collection view
+    .tweak(uikit(|view, _class, _mtm| {                       // Host — the collection view
         if let Some(cv) = view.downcast_ref::<UICollectionView>() {
             unsafe {
                 cv.setDragInteractionEnabled(true);      // drags on iPhone, not just iPad
@@ -676,7 +676,7 @@ tree(src, row)
                 );
             }
         }
-    })
+    }))
     .row_tweak(|cell, class, info| {
         // `class` is "UICollectionViewListCell"; runs on every bind and rebind.
         let Some(c) = cell.downcast_ref::<UICollectionViewListCell>() else { return };
@@ -700,7 +700,7 @@ Subcontrols: `Host` = `GtkScrolledWindow`, `Content` = `GtkListView`. The row ha
 is the widget GTK's own tree options live on.
 
 ```rust
-use day_toolkit_gtk::{GtkExt, Subcontrol};
+use day_toolkit_gtk::{gtk, Subcontrol};
 
 tree(src, row)
     .gtk_subcontrol(Subcontrol::Content, |w, class| {
@@ -712,12 +712,12 @@ tree(src, row)
             lv.set_enable_rubberband(true);             // marquee multi-select
         }
     })
-    .gtk(|w, _class| {                                  // Host — the scrolled window
+    .tweak(gtk(|w, _class| {                                  // Host — the scrolled window
         if let Some(sw) = w.downcast_ref::<gtk4::ScrolledWindow>() {
             sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
             sw.set_overlay_scrolling(true);
         }
-    })
+    }))
     .row_tweak(|row, class, info| {
         // `class` is "GtkTreeExpander".
         if let Some(exp) = row.downcast_ref::<gtk4::TreeExpander>() {
@@ -737,10 +737,10 @@ and the app's own C++/WinRT does the work (compiled by the crate's `build.rs`, a
 `TreeViewItem`s.
 
 ```rust
-tree(src, row).xaml_raw(|abi, class| {
+tree(src, row).tweak(xaml_raw(|abi, class| {
     let cls = std::ffi::CString::new(class).unwrap();
     unsafe { layers_tree_style(abi, cls.as_ptr()) };
-})
+}))
 ```
 
 ```cpp
@@ -811,10 +811,10 @@ polish goes through `qt_raw`; row-level polish is plain Rust in the row builder,
 
 ```rust
 tree(src, row)
-    .qt_raw(|w, class| {
+    .tweak(qt_raw(|w, class| {
         let cls = std::ffi::CString::new(class).unwrap();
         unsafe { kinetic_scroll(w, cls.as_ptr()) };      // QScroller::grabGesture, 4 lines of C++
-    })
+    }))
     .row_tweak(|row_w, _class, info| {
         // The row container QWidget: zebra-stripe by depth with a stylesheet.
         day_toolkit_qt::ext::set_style_sheet(row_w, if info.depth % 2 == 0 {
@@ -835,11 +835,11 @@ host tweaks are ordinary JNI tweaks and rows are Day-built `ViewGroup`s:
 
 ```rust
 tree(src, row)
-    .android(|view, class, env| {
+    .tweak(android(|view, class, env| {
         // `class` is "androidx.recyclerview.widget.RecyclerView".
         let _ = env.call_method(view, "setOverScrollMode", "(I)V", &[2.into()]); // never
         let _ = env.call_method(view, "setVerticalScrollBarEnabled", "(Z)V", &[true.into()]);
-    })
+    }))
     .row_tweak(|row_view, _class, info| {
         day_toolkit_material::ext::set_elevation(row_view, if info.is_group { 2.0 } else { 0.0 });
     })

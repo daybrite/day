@@ -425,6 +425,6 @@ fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     });
 }
 
-day_pieces::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
+day_spec::renderer!(day_toolkit_gtk::RENDERERS, Gtk,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

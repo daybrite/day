@@ -351,6 +351,6 @@ fn release(_backend: &mut Xaml, h: &WinHandle) {
     unsafe { day_texteditor_xaml_release(h.0) };
 }
 
-day_pieces::renderer!(day_toolkit_winui::RENDERERS, Xaml,
+day_spec::renderer!(day_toolkit_winui::RENDERERS, Xaml,
     kind: KIND, props: EditorProps, patch: EditorPatch,
     make: make, update: update, measure: measure, release: release);

@@ -281,7 +281,7 @@ pub fn list_future(dir: &str) -> FsFuture<ListResult> {
     })
 }
 
-/// The app's data directory on native targets, [`day_spec::storage::data_dir`]: `DAY_DATA_DIR`
+/// The app's data directory on native targets, [`day_process::storage::data_dir`]: `DAY_DATA_DIR`
 /// when a host or a test sets it, else the platform's folder for this app (Application Support
 /// on Apple platforms, `%LOCALAPPDATA%` on Windows, `$XDG_DATA_HOME` on Linux, each followed by
 /// the app id). This part's own files live in its `day-fs/` subdirectory; other parts that keep

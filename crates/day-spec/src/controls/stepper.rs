@@ -36,3 +36,10 @@ impl Default for StepperProps {
 pub enum StepperPatch {
     SetValue(f64),
 }
+
+/// The display form of `v` at `decimals` fraction digits: what the field shows, what the
+/// probe's text reports, and what the composed field parses back.
+#[must_use]
+pub fn fmt_value(v: f64, decimals: u32) -> String {
+    format!("{v:.prec$}", prec = decimals as usize)
+}

@@ -9,8 +9,8 @@
 // Windows-only, built in CI, not verified locally.
 // ---------------------------------------------------------------------------
 
-use day_pieces::datetime::*;
 use day_spec::Event;
+use day_spec::controls::datetime::*;
 use std::os::raw::{c_int, c_void};
 
 use crate::{WinHandle, Xaml};
@@ -119,7 +119,7 @@ mod date_renderer {
         unsafe { day_datetime_xaml_date_set(h.0, CivilDate::of(*d)) };
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Xaml,
+    day_spec::renderer!(crate::RENDERERS, Xaml,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
         make: make, update: update, measure: measure);
 }
@@ -148,7 +148,7 @@ mod time_renderer {
         unsafe { day_datetime_xaml_time_set(h.0, t.seconds_of_day()) };
     }
 
-    day_pieces::renderer!(crate::RENDERERS, Xaml,
+    day_spec::renderer!(crate::RENDERERS, Xaml,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
         make: make, update: update, measure: measure);
 }
