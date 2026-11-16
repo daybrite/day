@@ -4207,6 +4207,44 @@ per capture tree sits beside the merged bundle, for someone who wants one platfo
 
 ## §15 Extensibility: pieces, parts, and tweaks
 
+### Shared maps and independent providers
+
+`day-piece-map` defines provider-neutral camera, annotation, overlay, interaction, and status
+state. It has no dependency on an implementation. Three independently packaged providers live
+in that repository: `day-piece-map-canvas` implements Day's Rust canvas renderer, supporting MapLibre styles
+and vector tiles without embedding a MapLibre SDK;
+`day-piece-map-apple` embeds Swift `MKMapView` through the AppKit/UIKit renderer registries;
+`day-piece-map-google` embeds the Android Maps SDK through the Material registry. Their optional
+features and Day metadata keep native SDK dependencies out of other targets.
+
+Apple contributes Swift sources and the system MapKit framework through the same metadata path
+as Lottie's Swift bridge. Google contributes Java, its Maven coordinate, and an optional
+`org.apache.http.legacy` application-manifest fragment for Play services fallback renderers.
+Native renderer
+release hooks disconnect callbacks and destroy provider resources. Shared `MapView` state lives
+outside a provider-switch scope and belongs to one mounted provider at a time; command serials
+prevent replaying a previous animation when another provider mounts. Canvas renderer diagnostics and
+language/style configuration remain in `CanvasMapView`; native option types expose SDK-specific
+features. `CanvasMapView` is an explicit wrapper with `common` state and separate feature hits;
+all tap events use the common signal. Coordinates are WGS84 and zoom uses a 512-logical-point
+Mercator world. Canvas source attribution is a wrapping, linked lower-left overlay.
+
+Native adapters enable a hidden `native-bridge` module and its optional dependencies. Independent
+typed patches bind camera, markers, overlays, interactions, options, and commands; JSON encoding
+happens only at the native boundary. Reports update a camera baseline before notifying signals,
+so native camera events do not echo as app commands. Options and annotation patches never
+reapply cached camera positions. Provider metadata declares supported backends so Day builds
+activate their renderer features. Android remounts restore from shared state, not unconsumed
+Activity bundles; process-death persistence belongs to the app.
+
+The demo and Showcase select OpenStreetMap/Apple Maps on AppKit and UIKit, OpenStreetMap/Google Maps on Material,
+and OpenStreetMap on other toolkits. Google service credentials are app configuration and failures
+are localized by the app. HarmonyOS uses the canvas renderer; a separate Huawei provider can implement
+`MapView` without changing a provider registry or enum in the base crate. Huawei service availability
+must not be inferred from an OpenHarmony target alone. See [Maps](docs/maps.md) and the external
+repository's shared-state/bridge and canvas rendering tests for the contracts.
+
+
 > [!IMPORTANT]
 > **Status: shipped differently — and simpler.** The promise held: external crates add UI and
 > platform services without touching Day or the app's scaffolds. The mechanism did not need a
@@ -4341,7 +4379,8 @@ through `Toolkit::attach_refresh` in the composed path. Qt, WinUI, and browser i
 can be driven programmatically without claiming a user pull gesture.
 
 The prototype map and rating packages are removed. Showcase owns its card and badge
-composition examples. Maps require a separate design and implementation exercise.
+composition examples. Maps now live in the external shared-state and provider crates described
+at the start of this section.
 
 ### §15.2 Package layout and aggregation
 

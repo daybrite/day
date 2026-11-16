@@ -1243,5 +1243,11 @@
     "source": "docs/background.md",
     "type": "reference",
     "audience": "app developer"
+  },
+  "internal/maps": {
+    "route": "/docs/reference/maps",
+    "source": "docs/maps.md",
+    "type": "reference",
+    "audience": "app developer"
   }
 }

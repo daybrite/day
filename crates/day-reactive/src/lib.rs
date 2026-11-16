@@ -909,9 +909,141 @@ pub fn install_delayed_poster(
 ///
 /// Panics when no backend has installed the delayed poster yet.
 pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
-    match DELAYED_POSTER.get() {
-        Some(post) => post(ms, Box::new(f)),
-        None => panic!("day-reactive: no delayed poster installed (backend not started)"),
+    let Some(post) = DELAYED_POSTER.get() else {
+        panic!("day-reactive: no delayed poster installed (backend not started)")
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    post(ms, delayed::arm(ms, Box::new(f)));
+    // The browser has no monotonic clock in `std`, and `setTimeout` already fires in deadline
+    // order, so the closure goes to the timer as it is.
+    #[cfg(target_arch = "wasm32")]
+    post(ms, Box::new(f));
+}
+
+/// Deadline order for [`on_main_delayed`], whatever the native timer does when it runs late.
+///
+/// A native timer promises "not before", and several toolkits dispatch timers that are overdue
+/// together in the order they were armed, not the order they were due: after a stalled main loop,
+/// `GLib` runs a 200 ms timeout armed first before a 100 ms one armed after it. Sleeps would then
+/// resolve out of order exactly when the app is busiest.
+///
+/// So the closures wait here, sorted by deadline, and each native timer runs every closure due by
+/// the time it fires, earliest first. A closure is run by its own timer at the latest, and by an
+/// earlier-armed, later-due timer when that one happens to be dispatched first.
+#[cfg(not(target_arch = "wasm32"))]
+mod delayed {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    use std::sync::{Mutex, PoisonError};
+    use std::time::{Duration, Instant};
+
+    type Job = Box<dyn FnOnce() + Send>;
+
+    struct Entry {
+        due: Instant,
+        /// Arming order, so two closures due at the same instant run first-armed first.
+        seq: u64,
+        job: Job,
+    }
+
+    impl PartialEq for Entry {
+        fn eq(&self, other: &Self) -> bool {
+            (self.due, self.seq) == (other.due, other.seq)
+        }
+    }
+    impl Eq for Entry {}
+    impl PartialOrd for Entry {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for Entry {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            (self.due, self.seq).cmp(&(other.due, other.seq))
+        }
+    }
+
+    struct Queue {
+        waiting: BinaryHeap<Reverse<Entry>>,
+        next_seq: u64,
+    }
+
+    static QUEUE: Mutex<Queue> = Mutex::new(Queue {
+        waiting: BinaryHeap::new(),
+        next_seq: 0,
+    });
+
+    /// Queue `job` to be due `ms` from now; the returned closure is what the native timer runs.
+    pub(super) fn arm(ms: u32, job: Job) -> Job {
+        let due = Instant::now() + Duration::from_millis(u64::from(ms));
+        {
+            let mut queue = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+            let seq = queue.next_seq;
+            queue.next_seq += 1;
+            queue.waiting.push(Reverse(Entry { due, seq, job }));
+        }
+        Box::new(move || run_due(due))
+    }
+
+    /// Run every waiting closure due by now, and in any case by `own`: a timer that fires a hair
+    /// early by this clock still runs the closure it was armed for.
+    fn run_due(own: Instant) {
+        let until = own.max(Instant::now());
+        loop {
+            // The lock is released before the closure runs: it may arm another timer.
+            let job = {
+                let mut queue = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+                match queue.waiting.peek() {
+                    Some(Reverse(entry)) if entry.due <= until => {
+                        queue.waiting.pop().map(|Reverse(entry)| entry.job)
+                    }
+                    _ => None,
+                }
+            };
+            let Some(job) = job else { break };
+            job();
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::Arc;
+
+        /// Timers dispatched late and in arming order still run their closures in deadline
+        /// order: the case a stalled `GLib` main loop produces.
+        #[test]
+        fn overdue_timers_run_in_deadline_order_whatever_order_they_fire_in() {
+            let ran = Arc::new(Mutex::new(Vec::new()));
+            let mut timers = Vec::new();
+            for ms in [200u32, 10, 100, 50] {
+                let ran = ran.clone();
+                timers.push(arm(ms, Box::new(move || ran.lock().unwrap().push(ms))));
+            }
+            // Everything is overdue by the time the loop gets round to it.
+            std::thread::sleep(Duration::from_millis(230));
+            for timer in timers {
+                timer();
+            }
+            assert_eq!(*ran.lock().unwrap(), [10, 50, 100, 200]);
+        }
+
+        /// A timer runs its own closure even when nothing else is due, and leaves later ones.
+        #[test]
+        fn a_timer_runs_its_own_closure_and_nothing_due_later() {
+            let ran = Arc::new(Mutex::new(Vec::new()));
+            let note = |tag: &'static str| {
+                let ran = ran.clone();
+                Box::new(move || ran.lock().unwrap().push(tag)) as Job
+            };
+            let soon = arm(0, note("soon"));
+            let later = arm(60_000, note("later"));
+            soon();
+            assert_eq!(*ran.lock().unwrap(), ["soon"]);
+            // Fired a minute early by this clock: it still runs the closure it was armed for.
+            later();
+            assert_eq!(*ran.lock().unwrap(), ["soon", "later"]);
+        }
     }
 }
 

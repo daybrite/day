@@ -86,5 +86,37 @@
     "api": "https://docs.rs/day-piece-lottie-gallery/latest/day_piece_lottie_gallery/",
     "group": "Example libraries",
     "blurb": "Reusable animation examples with bundled assets."
+  },
+  {
+    "pkg": "day-piece-map",
+    "repository": "https://github.com/daybrite/day-piece-map",
+    "guide": "/docs/reference/maps",
+    "api": "https://docs.rs/day-piece-map/latest/day_piece_map/",
+    "group": "Pieces",
+    "blurb": "Shared camera, annotations, and geographic overlays."
+  },
+  {
+    "pkg": "day-piece-map-canvas",
+    "repository": "https://github.com/daybrite/day-piece-map",
+    "guide": "/docs/reference/maps",
+    "api": "https://docs.rs/day-piece-map-canvas/latest/day_piece_map_canvas/",
+    "group": "Pieces",
+    "blurb": "Day's canvas renderer, supporting MapLibre styles and vector tiles."
+  },
+  {
+    "pkg": "day-piece-map-apple",
+    "repository": "https://github.com/daybrite/day-piece-map",
+    "guide": "/docs/reference/maps",
+    "api": "https://docs.rs/day-piece-map-apple/latest/day_piece_map_apple/",
+    "group": "Pieces",
+    "blurb": "Apple Maps on iOS and macOS through Swift MapKit."
+  },
+  {
+    "pkg": "day-piece-map-google",
+    "repository": "https://github.com/daybrite/day-piece-map",
+    "guide": "/docs/reference/maps",
+    "api": "https://docs.rs/day-piece-map-google/latest/day_piece_map_google/",
+    "group": "Pieces",
+    "blurb": "Google Maps SDK for Android."
   }
 ]

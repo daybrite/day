@@ -39,5 +39,9 @@
   "day-piece-lottie-gallery": "/docs/reference/lottie",
   "day-part-bluetooth": "/docs/reference/bluetooth",
   "day-part-push": "/docs/reference/push",
-  "day-part-background": "/docs/reference/background"
+  "day-part-background": "/docs/reference/background",
+  "day-piece-map": "/docs/reference/maps",
+  "day-piece-map-canvas": "/docs/reference/maps",
+  "day-piece-map-apple": "/docs/reference/maps",
+  "day-piece-map-google": "/docs/reference/maps"
 }

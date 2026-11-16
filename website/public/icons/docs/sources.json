@@ -807,6 +807,10 @@
     "pending_actions": {
       "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/pending_actions/materialsymbolsoutlined/pending_actions_24px.svg",
       "sha256": "d2a1bcafe26f60ecfa52a1d6e779a9d6abb4ba4029ab33672f72014bc9c53a31"
+    },
+    "map": {
+      "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/map/materialsymbolsoutlined/map_24px.svg",
+      "sha256": "a49ef8ee004dc4832a4bbe64fce0a054c0b90cb4246422c09cc234278788049b"
     }
   }
 }

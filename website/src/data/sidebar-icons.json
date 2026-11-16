@@ -199,5 +199,6 @@
   "/docs/reference/webview": "iframe",
   "/docs/reference/bluetooth": "bluetooth",
   "/docs/reference/push": "notifications_unread",
-  "/docs/reference/background": "pending_actions"
+  "/docs/reference/background": "pending_actions",
+  "/docs/reference/maps": "map"
 }
