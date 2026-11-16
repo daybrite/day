@@ -47,8 +47,6 @@ use day_spec::{
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
-    // JSPI experiment only: packed (byte length << 32) | allocation pointer, or u64::MAX.
-    fn day_dom_resource_open(name: *const u8, len: usize) -> u64;
     fn day_dom_create(kind: u32) -> u32;
     /// Create an element by TAG NAME — the escape hatch piece renderers build on, since day-toolkit-dom's
     /// own `EL_*` kind codes only cover the built-in vocabulary.
@@ -3858,7 +3856,6 @@ impl Platform for Dom {
     const RUN_ENDS_APP: bool = false;
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, DomHandle, Size)>) {
-        day_spec::set_resource_opener(jspi_resource_open);
         unsafe { day_dom_set_title(options.title.as_ptr(), options.title.len()) };
         // Before the viewport is read: the Standard chrome's rules can move the root down.
         // Frameless, the backgrounds, placement and resizability are the browser's to decide.
@@ -5247,23 +5244,6 @@ pub extern "C" fn day_dom_install_tests(ptr: *mut u8, len: usize) {
 pub(crate) unsafe fn take_bytes(ptr: *mut u8, len: usize) -> Vec<u8> {
     // SAFETY: the caller's contract, stated above.
     unsafe { Vec::from_raw_parts(ptr, len, len) }
-}
-
-// Experimental synchronous Rust entry into a suspending JavaScript import. The test server
-// supplies the import; this patch is not suitable for the production shim on its own.
-fn jspi_resource_open(name: &str) -> Option<day_spec::Resource> {
-    // SAFETY: the import copies the name before suspension and returns a fresh allocation
-    // made by day_dom_alloc, or the failure sentinel. It transfers ownership to this call.
-    let result = unsafe { day_dom_resource_open(name.as_ptr(), name.len()) };
-    if result == u64::MAX {
-        return None;
-    }
-    let len = (result >> 32) as usize;
-    let ptr = (result as u32) as *mut u8;
-    // SAFETY: the experiment's import initializes precisely len bytes in this allocation.
-    Some(day_spec::Resource::from_vec(unsafe {
-        take_bytes(ptr, len)
-    }))
 }
 
 fn take_string(ptr: *mut u8, len: usize) -> String {

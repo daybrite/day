@@ -247,8 +247,8 @@ function fillNavRow(row, item) {
     // follows the row's text color (light in dark mode, white when selected). A row's tint
     // (docs/vectors.md) paints the mask with that color instead.
     const icon = div('day-navmenu-icon');
-    icon.style.maskImage = `url("${item.icon}")`;
-    icon.style.webkitMaskImage = `url("${item.icon}")`;
+    icon.style.maskImage = `url("${resourceUrl(item.icon)}")`;
+    icon.style.webkitMaskImage = `url("${resourceUrl(item.icon)}")`;
     if (item.tint) icon.style.backgroundColor = item.tint;
     row.append(icon);
   }
@@ -264,8 +264,8 @@ function fillNavRow(row, item) {
   // the row's text color unless the app named a color that means something.
   if (item.badgeIcon) {
     const badge = div('day-navmenu-badge');
-    badge.style.maskImage = `url("${item.badgeIcon}")`;
-    badge.style.webkitMaskImage = `url("${item.badgeIcon}")`;
+    badge.style.maskImage = `url("${resourceUrl(item.badgeIcon)}")`;
+    badge.style.webkitMaskImage = `url("${resourceUrl(item.badgeIcon)}")`;
     if (item.badgeTint) badge.style.backgroundColor = item.badgeTint;
     row.append(badge);
   }
@@ -291,8 +291,8 @@ function buildToolbarItem(strip, it) {
       b.setAttribute('aria-label', seg.title);
       if (seg.icon) {
         const ic = div('day-toolbar-icon');
-        ic.style.maskImage = `url("${seg.icon}")`;
-        ic.style.webkitMaskImage = `url("${seg.icon}")`;
+        ic.style.maskImage = `url("${resourceUrl(seg.icon)}")`;
+        ic.style.webkitMaskImage = `url("${resourceUrl(seg.icon)}")`;
         b.append(ic);
       } else {
         b.textContent = seg.title;
@@ -349,8 +349,8 @@ function buildToolbarItem(strip, it) {
     el.title = it.tip || it.label;
     if (it.icon) {
       const ic = div('day-toolbar-icon');
-      ic.style.maskImage = `url("${it.icon}")`;
-      ic.style.webkitMaskImage = `url("${it.icon}")`;
+      ic.style.maskImage = `url("${resourceUrl(it.icon)}")`;
+      ic.style.webkitMaskImage = `url("${resourceUrl(it.icon)}")`;
       el.append(ic);
     }
     // Icon alone where there is one, as every desktop toolbar does; the label stays as the
@@ -520,8 +520,8 @@ function toggleToolbarMenu(anchor, items, hints) {
       if (it.icon) {
         const ic = document.createElement('div');
         ic.className = 'day-toolbar-icon';
-        ic.style.maskImage = `url("${it.icon}")`;
-        ic.style.webkitMaskImage = `url("${it.icon}")`;
+        ic.style.maskImage = `url("${resourceUrl(it.icon)}")`;
+        ic.style.webkitMaskImage = `url("${resourceUrl(it.icon)}")`;
         row.append(ic);
       }
       // A checkable row carries the mark's column whichever way it sits, so a run of choices
@@ -885,7 +885,7 @@ const env = {
       el.textContent = t;
     }
   },
-  day_dom_set_style(id, p, pl, v, vl) { E(id).style.setProperty(str(p, pl), str(v, vl)); },
+  day_dom_set_style(id, p, pl, v, vl) { E(id).style.setProperty(str(p, pl), resourceStyle(str(v, vl))); },
   // A styled run's link (docs/text-runs.md). `owner` is the label's element, since that is the
   // one Rust knows as a node; the run spans are not nodes. The anchor's navigation is
   // cancelled: what the target does is the app's `.on_link()` call, and the default there opens
@@ -934,7 +934,8 @@ const env = {
       }
       return;
     }
-    el.setAttribute(name, val);
+    if (name === 'src' && el.tagName === 'IFRAME') { setResourceFrameSource(el, val); return; }
+    el.setAttribute(name, name === 'src' ? resourceUrl(val) : val);
     // Accessibility (docs/accessibility.md). A canvas or a div retyped as a button needs the
     // tab stop a real one has; the document's keydown route (below `listen`) makes Enter and
     // Space act on it. Hidden takes the subtree out of the accessibility tree, and here out
@@ -1740,8 +1741,8 @@ const env = {
     el.setAttribute('aria-haspopup', 'menu');
     if (spec.icon) {
       const ic = div('day-toolbar-icon');
-      ic.style.maskImage = `url("${spec.icon}")`;
-      ic.style.webkitMaskImage = `url("${spec.icon}")`;
+      ic.style.maskImage = `url("${resourceUrl(spec.icon)}")`;
+      ic.style.webkitMaskImage = `url("${resourceUrl(spec.icon)}")`;
       el.append(ic);
     } else {
       const t = document.createElement('span'); t.textContent = spec.label; el.append(t);
@@ -3364,6 +3365,170 @@ function presentSave(req, spec, bytes) {
 // Boot
 // ---------------------------------------------------------------------------
 
+// Embedded resources: borrowed Wasm bytes, and browser-owned URLs cached per file.
+const bundledFiles = new Map();
+const bundledUrls = new Map();
+function unpackResource(pair) { return [Number(pair & 0xffffffffn), Number(pair >> 32n)]; }
+function resourceBytes(path) {
+  const entry = bundledFiles.get(path);
+  if (!entry) throw new Error(`Missing bundled resource: ${path}`);
+  return new Uint8Array(wasm.memory.buffer, entry[0], entry[1]);
+}
+function resourceMime(path) {
+  const ext = path.split('.').pop().toLowerCase();
+  return ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', svg: 'image/svg+xml',
+    webp: 'image/webp', gif: 'image/gif', ico: 'image/x-icon', avif: 'image/avif',
+    ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2',
+    wav: 'audio/wav', mp3: 'audio/mpeg', ogg: 'audio/ogg', mp4: 'video/mp4',
+    html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/javascript', json: 'application/json',
+    txt: 'text/plain', wasm: 'application/wasm' })[ext] ?? 'application/octet-stream';
+}
+function resourceUrl(path) {
+  if (!bundledFiles.has(path) && path.startsWith('assets/images/')) {
+    const stem = path.replace(/\.[^.]+$/, '');
+    const base = stem.replace(/__(light|bold)$/, '');
+    const candidates = [stem + '.svg', base + '.svg', stem + '.png', base + '.png', stem + '.jpg', stem + '.jpeg', stem + '.webp'];
+    path = candidates.find(name => bundledFiles.has(name)) ?? path;
+  }
+  if (!bundledFiles.has(path)) return path;
+  if (!bundledUrls.has(path)) {
+    bundledUrls.set(path, URL.createObjectURL(new Blob([resourceBytes(path)], {type: resourceMime(path)})));
+  }
+  return bundledUrls.get(path);
+}
+function resourceStyle(value) {
+  return value.replace(/url\(["']?(assets\/[^"')]+)["']?\)/g, (_, path) => `url("${resourceUrl(path)}")`);
+}
+const readySiteRoots = new Set();
+const siteInstalls = new Map();
+let siteRoots = [];
+let siteWorker;
+function bundledPath(path) {
+  const url = new URL(path, document.baseURI);
+  const root = new URL('./', document.baseURI);
+  if (url.origin !== root.origin || !url.pathname.startsWith(root.pathname)) return null;
+  const relative = decodeURIComponent(url.pathname.slice(root.pathname.length));
+  return relative.startsWith('assets/data/') ? {url, root, relative} : null;
+}
+function bundledSitePath(path, directory) {
+  const found = bundledPath(path);
+  if (!found) return null;
+  const {relative} = found;
+  const site = directory && directory.startsWith('assets/data/') && directory.endsWith('/')
+    && relative.startsWith(directory) && [...bundledFiles.keys()].some(name => name.startsWith(directory))
+    ? directory : siteRoots.find(root => relative.startsWith(root));
+  return site ? {...found, site} : null;
+}
+function resourceSiteUrl(path) {
+  const found = bundledPath(path);
+  if (!found || ![...readySiteRoots].some(site => found.relative.startsWith(site))) return path;
+  const {url, root, relative} = found;
+  return new URL('__day_bundle/' + window.__DAY_BUNDLE + '/' + relative.split('/').map(encodeURIComponent).join('/') + url.search + url.hash, root).href;
+}
+function supportsResourceSites(worker) {
+  return new Promise(resolve => {
+    const channel = new MessageChannel();
+    const finish = supported => { clearTimeout(timer); channel.port1.close(); resolve(supported); };
+    const timer = setTimeout(() => finish(false), 1000);
+    channel.port1.onmessage = event => finish(event.data === 2);
+    worker.postMessage({type: 'day-resource-protocol'}, [channel.port2]);
+  });
+}
+async function activateSiteWorker() {
+  const reg = await navigator.serviceWorker.register(new URL('sw.js', document.baseURI));
+  // An update may be waiting for old fetch events to finish. An active worker with this
+  // protocol can serve any module version already, so the frame need not await the update.
+  if (reg.active?.state === 'activated' && await supportsResourceSites(reg.active)) return reg.active;
+  const worker = reg.installing || reg.waiting;
+  if (!worker) throw new Error('No compatible resource service worker');
+  if (worker.state !== 'activated') await new Promise((resolve, reject) => {
+    const changed = () => {
+      if (worker.state === 'activated' || worker.state === 'redundant') {
+        worker.removeEventListener('statechange', changed);
+        worker.state === 'activated' ? resolve() : reject(new Error('Resource worker installation failed'));
+      }
+    };
+    worker.addEventListener('statechange', changed); changed();
+  });
+  if (!await supportsResourceSites(worker)) throw new Error('Unsupported resource service worker');
+  return worker;
+}
+async function populateSite(site) {
+  const version = window.__DAY_BUNDLE;
+  if (!/^[a-f0-9]{64}$/.test(version)) throw new Error('Missing bundle version');
+  const root = new URL('./', document.baseURI);
+  const cache = await caches.open('day-resources-' + encodeURIComponent(root.pathname) + '-' + version);
+  const marker = new URL('__day_ready/2/' + encodeURIComponent(site), root);
+  // A completion marker is written last: interrupted installs are retried, complete sites
+  // are reused without rewriting files. Concurrent tabs may safely write identical bytes.
+  if (!await cache.match(marker)) {
+    await Promise.all([...bundledFiles.keys()].filter(name => name.startsWith(site)).map(name =>
+      cache.put(new URL(name, root), new Response(resourceBytes(name).slice(), {
+        headers: {'Content-Type': resourceMime(name), 'Cross-Origin-Embedder-Policy': 'require-corp'},
+      }))));
+    await cache.put(marker, new Response('1'));
+  }
+  siteWorker ??= activateSiteWorker();
+  const worker = await siteWorker;
+  worker.postMessage({type: 'day-resource-cleanup', version});
+}
+async function prepareResourceSite(path, directory) {
+  const found = bundledSitePath(path, directory);
+  if (!found || !('serviceWorker' in navigator) || !globalThis.caches) return path;
+  if (!siteInstalls.has(found.site)) {
+    siteInstalls.set(found.site, (async () => {
+      let timer;
+      try {
+        // Only the requesting iframe waits. Storage/worker hangs cannot hold app startup.
+        await Promise.race([populateSite(found.site), new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Resource site setup timed out')), 10000);
+        })]);
+        readySiteRoots.add(found.site);
+      } catch (error) {
+        console.warn('day: bundled document uses published URLs:', error);
+      } finally { clearTimeout(timer); }
+    })());
+  }
+  await siteInstalls.get(found.site);
+  return resourceSiteUrl(path);
+}
+function setResourceFrameSource(frame, path) {
+  const request = {};
+  frame.__daySource = request;
+  // Remote pages and non-site sources retain synchronous DOM attribute behavior.
+  const directory = frame.getAttribute?.('data-day-site-root');
+  if (!bundledSitePath(path, directory)) { frame.setAttribute('src', path); return; }
+  void prepareResourceSite(path, directory).then(url => {
+    if (frame.__daySource === request && frame.isConnected) frame.setAttribute('src', url);
+  });
+}
+async function installResources() {
+  // Resource generation is optional (and the CLI and app can have different versions).
+  // An older app keeps published image/site URLs; its resource table is simply empty.
+  wasm.day_dom_resources_init?.();
+  const count = wasm.day_dom_resources_count?.() ?? 0;
+  for (let i = 0; i < count; i++) {
+    const [p, n] = unpackResource(wasm.day_dom_resources_name(i));
+    bundledFiles.set(str(p, n), unpackResource(wasm.day_dom_resources_bytes(i)));
+  }
+  const roots = [...bundledFiles.keys()].filter(name => name.startsWith('assets/data/') && /\.html?$/i.test(name))
+    .map(name => name.slice(0, name.lastIndexOf('/') + 1)).sort();
+  siteRoots = roots.filter((root, index) => !roots.slice(0, index).some(parent => root.startsWith(parent)));
+  navigator.serviceWorker?.addEventListener('message', event => {
+    if (event.data?.type === 'day-resource-version') event.ports[0]?.postMessage({version: window.__DAY_BUNDLE});
+  });
+  const cleanup = () => navigator.serviceWorker?.controller?.postMessage({type: 'day-resource-cleanup', version: window.__DAY_BUNDLE});
+  navigator.serviceWorker?.addEventListener('controllerchange', cleanup);
+  cleanup();
+  const manifest = bundledFiles.has('assets/fonts/fonts.json')
+    ? JSON.parse(new TextDecoder().decode(resourceBytes('assets/fonts/fonts.json'))) : [];
+  await Promise.all(manifest.map(async ({family, url}) => {
+    const face = new FontFace(family, resourceBytes(url));
+    await face.load();
+    document.fonts.add(face);
+  }));
+}
+
 function root() { return document.getElementById('day-root'); }
 
 export async function start(wasmUrl) {
@@ -3380,15 +3545,6 @@ export async function start(wasmUrl) {
 }
 
 async function boot(wasmUrl) {
-  // Register bundled fonts before first layout, so custom families measure correctly.
-  try {
-    const manifest = await (await fetch('assets/fonts/fonts.json')).json();
-    await Promise.all(manifest.map(async ({ family, url }) => {
-      const face = new FontFace(family, `url(${url})`);
-      await face.load(); document.fonts.add(face);
-    }));
-  } catch { /* no bundled fonts */ }
-
   const dark = (new URLSearchParams(location.search).get('theme')
     ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
   document.documentElement.classList.toggle('dark', dark);
@@ -3413,6 +3569,9 @@ async function boot(wasmUrl) {
   // allocated with `intoWasm` / `bytesIntoWasm`.
   const bridgeRt = {
     str, mem, memWrite, intoWasm,
+    // Module callers own their bytes, just like rt.bytes(ptr, len). They may retain or
+    // transfer them without detaching or mutating Rust's immutable static allocation.
+    resources: { bytes: path => resourceBytes(path).slice(), url: resourceUrl, siteUrl: resourceSiteUrl, prepareSite: prepareResourceSite },
     dom: {
       element: (id) => E(id),
       onRelease(id, dispose) {
@@ -3450,8 +3609,8 @@ async function boot(wasmUrl) {
 
   // The compiled module is structured-cloneable, so a web module that runs the app's wasm a
   // second time (day-sqlite-worker's SQL worker does) gets it from `start` instead of compiling
-  // the bytes again. Every `start` is kicked before instantiation and awaited just before
-  // day_dom_main: by the time app code runs, whatever a module boots is either up or
+  // the bytes again. The table is installed synchronously after instantiation; module starters
+  // run alongside font loading and are awaited just before day_dom_main: by the time app code runs, whatever a module boots is either up or
   // definitively absent, so Rust needs no async path to find out.
   let module;
   try {
@@ -3459,6 +3618,8 @@ async function boot(wasmUrl) {
   } catch {
     module = await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer());
   }
+  wasm = (await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports;
+  const resourcesReady = installResources();
   const started = Promise.all(starters.map(async ([url, start]) => {
     try {
       await start(bridgeRt, module);
@@ -3466,7 +3627,7 @@ async function boot(wasmUrl) {
       console.error(`day: web module ${url} failed to start`, e);
     }
   }));
-  wasm = (await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports;
+
   // Registry comes from the final served module, never from mounted UI. All section
   // contributions are framed records; Rust validates schema and the empty-catalog sentinel.
   const idSections = WebAssembly.Module.customSections(module, 'day_ids');
@@ -3583,7 +3744,7 @@ async function boot(wasmUrl) {
     });
   }
 
-  await started;
+  await Promise.all([started, resourcesReady]);
   wasm.day_dom_main();
   appStarted = true;
   for (const line of scriptInbox.splice(0)) {

@@ -196,7 +196,7 @@ fn measure(_backend: &mut Dom, h: &DomHandle, p: Proposal) -> Size {
 
 fn release(_backend: &mut Dom, h: &DomHandle) {
     STATE.with(|t| {
-        t.remove(h.0 as usize);
+        let _ = t.remove(h.0 as usize);
     });
 }
 

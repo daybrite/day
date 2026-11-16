@@ -63,10 +63,12 @@ Use [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) and
 target, so a long job still blocks the page. Prefer browser async APIs for long operations;
 see [Async work](/docs/explanation/async).
 
-Images and fonts are staged with the build. Synchronous
-[`resource()`](https://docs.rs/day-core/latest/day_core/fn.resource.html) access to bundled data bytes
-is unavailable in the browser. Check [Resources](/docs/reference/resources) when sharing data
-loading code with native targets.
+Bundled data, images, vectors and fonts are embedded in `app.wasm` before the app starts.
+[`resource()`](https://docs.rs/day-core/latest/day_core/fn.resource.html) synchronously borrows
+bundled data bytes without a fetch, filesystem operation, or copy. All embedded bytes remain
+in memory for the page's lifetime. Images and sounds still use browser decoders; fonts finish
+registration before first layout. Resource access requires neither cross-origin isolation nor
+browser storage. See [Resources](/docs/reference/resources).
 
 Browser storage belongs to an origin. A local server that starts on a different port has a
 different store. Private browsing, storage policy, or clearing site data can also affect
@@ -167,8 +169,11 @@ display = "standalone"
 ```
 
 The service worker registers on HTTPS and loopback hosts. A changed build creates a new cache.
-When checking an update, inspect the active service worker and clear site data if an old
-installation is interfering with the test.
+Each shell version is cached once at worker installation. Successful online loads do not
+access cache storage, and navigation preload lets the browser fetch the document while the
+worker starts. Cache access is required
+for offline shell loads. Bundled HTML sites prepare their own files on demand, without
+blocking app startup, and reuse those copies on later loads.
 
 For custom JavaScript supplied by an extension, see the
 [web module contract](https://github.com/daybrite/day/blob/main/docs/extending.md#web-scripts-packagemetadatadayweb).

@@ -285,6 +285,7 @@ pub fn generate_resources() -> Result<(), String> {
     let plan = plan_resources_in(&resources)?;
     let title = app_title().ok();
     let mut code = render_app(&plan, title.as_deref(), window_geometry()?);
+    code.push_str(&web_resources::generate(&resources)?);
     code.push_str(&render_shortcuts(&launcher_shortcuts(&root)?));
     std::fs::write(out.join("day_resources.rs"), code)
         .map_err(|e| format!("day-build: writing day_resources.rs: {e}"))?;
@@ -2302,3 +2303,5 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 }
+
+mod web_resources;

@@ -150,10 +150,20 @@ pub struct Resource {
     ptr: *const u8,
     len: usize,
     /// Keeps the backing store alive while `ptr`/`len` are borrowed from it.
-    _guard: Box<dyn Any>,
+    _guard: Option<Box<dyn Any>>,
 }
 
 impl Resource {
+    /// Borrow immutable bytes embedded in the executable, without allocating or copying.
+    #[must_use]
+    pub fn from_static(bytes: &'static [u8]) -> Resource {
+        Resource {
+            ptr: bytes.as_ptr(),
+            len: bytes.len(),
+            _guard: None,
+        }
+    }
+
     /// Build a `Resource` from a raw byte view plus the guard that owns it. Backends call this from
     /// their opener after obtaining a zero-copy pointer from the native resource API.
     ///
@@ -165,7 +175,7 @@ impl Resource {
         Resource {
             ptr,
             len,
-            _guard: guard,
+            _guard: Some(guard),
         }
     }
 
@@ -180,7 +190,7 @@ impl Resource {
         Resource {
             ptr,
             len,
-            _guard: Box::new(boxed),
+            _guard: Some(Box::new(boxed)),
         }
     }
 
@@ -586,5 +596,23 @@ mod tests {
         let mut b = [0u8; 2];
         assert_eq!(r.read_at(2, &mut b), 2);
         assert_eq!(b, [3, 4]);
+    }
+}
+
+#[cfg(test)]
+mod embedded_tests {
+    use super::Resource;
+    #[test]
+    fn static_resources_borrow_and_read_without_copying() {
+        static BYTES: &[u8] = &[10, 20, 30, 40];
+        let a = Resource::from_static(BYTES);
+        let b = Resource::from_static(BYTES);
+        assert_eq!(a.as_slice().as_ptr(), BYTES.as_ptr());
+        assert_eq!(b.as_slice().as_ptr(), a.as_slice().as_ptr());
+        let mut out = [0; 4];
+        assert_eq!(a.read_at(2, &mut out), 2);
+        assert_eq!(out, [30, 40, 0, 0]);
+        assert_eq!(a.read_at(usize::MAX, &mut out), 0);
+        assert!(Resource::from_static(&[]).is_empty());
     }
 }

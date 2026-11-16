@@ -130,6 +130,12 @@ The toolkit chooses its local-content URL; applications should not construct a `
 `qrc:`, or engine-specific asset URL. App-authored text in a bundled interface must use the
 app's generated translations. See [resources](/docs/reference/resources).
 
+On web-dom, opening a bundled site prepares its directory from embedded Wasm bytes. The
+requesting frame waits for that preparation; the rest of the app can run immediately.
+Subsequent loads reuse the completed cache, and relative navigation stays within that
+module version. Open tabs retain their versions during cache cleanup. If browser storage or
+service-worker setup is unavailable, the frame uses the site's published asset URLs.
+
 ## Application resources
 
 Use a resource provider when an embedded page comes from a database, archive, generated report,

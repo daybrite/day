@@ -6271,6 +6271,54 @@ copies, `assets/`-rooted APK srcDir, path-carrying gresource/qrc aliases, rawfil
 API in `day-core::resource`; build-time staging in `crates/day-cli/src/resources/`. Full design +
 per-platform detail: **[docs/resources.md](docs/resources.md)**.
 
+Web builds embed the prepared resource tree as ordinary static byte slices in `app.wasm`.
+The CLI stages app assets, dependency contributions, image/vector variants and fonts before
+compilation; day-build generates the table and its bootstrap export. The host installs that
+table immediately after instantiation, before browser-module startup and application code.
+`Resource::from_static` borrows data without copying or allocating. All embedded bytes remain
+resident for the lifetime of the Wasm instance; no network or storage operation occurs on an
+ordinary resource read, and no JSPI, worker channel, or cross-origin isolation is needed.
+
+The browser host builds a name-to-offset table and reacquires views after Wasm memory growth.
+Images and vector masks share cached Blob URLs. Fonts are registered from bytes before first
+layout. Browser modules receive owned byte copies through `dayHost.resources`, so decoders can
+consume or retain buffers without mutating Rust's immutable static memory. Sound keeps Web Audio's asynchronous decoding and gesture rules.
+Generated `res::image_bytes` constants expose original image encodings to cross-platform
+byte-oriented decoders without handwritten include paths. Native image presentation continues
+to use `res::images` and its platform's image store.
+
+Embedded documents require a real URL hierarchy for relative links, navigation and subresource
+loads. The requesting iframe prepares only its site's subtree, once per module version, in a
+scope-specific `day-resources-<scope>-<module-sha256>` cache. A completion marker distinguishes
+complete copies from interrupted writes. The web-view adapter supplies its generated AssetDir
+boundary (or the full data tree when app assets were explicitly enabled). Plain iframe sources
+fall back to their enclosing HTML directory. Ordinary app startup does not await site storage or
+worker installation. Fonts and browser-module starters run concurrently after the synchronous
+resource-table registration; first layout awaits their completion. Missing resource-bootstrap
+exports mean an empty embedded table, so apps without resource generation can still start.
+
+Sites use `__day_bundle/<module-sha256>/assets/data/` URLs. Failed or timed-out preparation
+retains published asset URLs for the requesting frame. A protocol handshake lets an already
+active worker serve a site while a newer worker waits to activate; app startup and frames
+do not wait for an update that is not needed to serve their files. Scope-specific cache cleanup asks live
+app tabs for their module versions, preserves those versions, and defers deletion if a tab
+cannot answer. An iframe navigation superseded during setup cannot overwrite the newer source.
+The shell worker excludes embedded assets from its network precache, uses navigation preload
+where available, and caches each shell snapshot once during worker installation. Successful
+online responses neither read nor write CacheStorage; a new build installs a new snapshot. Offline shell loads
+still consult CacheStorage. Installation icons and manifests remain published resources.
+
+`scripts/ci/webdom-resources-test.mjs` runs in CI without app builds and verifies stalled or
+unavailable storage, navigation preload, offline fallback, missing exports, lazy site copies,
+interrupted writes, navigation cancellation and live-tab cache retention.
+`scripts/ci/web-resources-test.mjs` checks built distributions in Chromium and WebKit. CI uses
+the Showcase-only mode; a local invocation can also check the map demo. It rejects HTTP asset
+reads, compares embedded bytes after memory growth, and exercises fonts, images, sound, HTML
+navigation, repeated reloads with and without isolation headers, offline loading and the
+published-URL fallback. Reports go under `build/test-results/web-resources` by default.
+Lottie's web player uses the UI timer while awaiting its page's readiness; the process timer
+in day-async does not run on Wasm.
+
 Resource staging includes native vector glyphs even when an app has no raster images, data
 assets or fonts. In particular, an Android app whose SVGs all convert to VectorDrawables still
 stages `res/drawable` before Gradle; an empty fallback-image set does not mean empty resources.

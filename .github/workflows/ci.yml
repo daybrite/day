@@ -1421,8 +1421,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
       - name: Web shim regressions
-        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs scripts/ci/webdom-sensor-events-test.mjs
+        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs scripts/ci/webdom-sensor-events-test.mjs scripts/ci/webdom-resources-test.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -1475,6 +1478,22 @@ jobs:
       # The backend crate itself, as a member of this workspace (scripts/ci/toolkit-clippy.sh).
       - name: Clippy (dom backend crates)
         run: scripts/ci/toolkit-clippy.sh dom
+      - name: Build resource regression app
+        working-directory: showcase-src
+        run: '"$DAY_BIN" build -t web-dom --profile release'
+      - name: Install browser regression dependencies
+        run: |
+          npm --prefix website ci
+          cd website
+          npx playwright install --with-deps chromium webkit
+      - name: Embedded resources and reloads (Chromium and WebKit)
+        run: node scripts/ci/web-resources-test.mjs --showcase-only showcase-src/build/day/cargo/web-dom/release/dist
+      - name: Resource regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-resource-regressions
+          path: build/test-results/web-resources
 
   # ---------------------------------------------------------------------------
   # website: daybrite.dev (DESIGN.md §20.1, step 6). Its own lane: it needs none of the framework

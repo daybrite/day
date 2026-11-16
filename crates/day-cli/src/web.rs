@@ -7,6 +7,7 @@
 //! images, and fonts with a `fonts.json` manifest the shim pre-loads. Launch serves `dist/`
 //! over loopback (browsers won't instantiate wasm from `file:`) and opens the default browser.
 
+use sha2::Digest as _;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -109,17 +110,6 @@ pub fn build_web(
         cmd.args(["--", "-Cstrip=debuginfo"]);
     }
     crate::web_tests::configure(&mut cmd, &project.root)?;
-    status("Building", &format!("{} ({profile})", target.name));
-    let out = cmd.status().map_err(|e| format!("cargo: {e}"))?;
-    if !out.success() {
-        return Err(format!(
-            "cargo build failed for {} — see the cargo output above; `day doctor --toolkit dom` \
-             checks the toolchain (the wasm32-unknown-unknown rustup target; with \
-             day-persistence, a wasm-capable clang)",
-            target.name
-        ));
-    }
-
     // Assemble dist/. The wasm artifact is named after the lib target: `dayapp.wasm` for a
     // scaffolded app, whose `[lib] name` is pinned to that constant (DESIGN.md §17.5). Deriving
     // it from the package name is what broke this build when the pin landed.
@@ -129,6 +119,9 @@ pub fn build_web(
         .join(format!("{}.wasm", project.lib_name()));
     let dist = cargo_dir.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| format!("dist dir: {e}"))?;
+    if dist.join("assets").exists() {
+        std::fs::remove_dir_all(dist.join("assets")).map_err(|e| format!("assets: {e}"))?;
+    }
     std::fs::write(dist.join("shim.js"), HOST_SHIM).map_err(|e| format!("shim: {e}"))?;
     // Web modules (docs/web.md): the ES modules the shim imports and merges into the wasm imports
     // before instantiation. daybridge generates one per bridged crate (docs/bridge.md); a crate
@@ -137,7 +130,6 @@ pub fn build_web(
         crate::bridge::write_js(&dist, &crate::bridge::stage(project, "web", &["dom"]))?;
     modules.extend(stage_web_modules(project, &dist)?);
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
-    std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
     // Vector glyphs (docs/vectors.md): the SVG is what day-toolkit-dom asks for and what the browser
     // renders at display size, so only the raster fallbacks land beside the images: art the
@@ -276,6 +268,37 @@ pub fn build_web(
         manifest.push(']');
         std::fs::write(dir.join("fonts.json"), manifest).map_err(|e| format!("fonts.json: {e}"))?;
     }
+
+    // day-build embeds the final, platform-prepared assets in the application's Wasm.
+    cmd.env("DAY_WEB_RESOURCE_DIR", dist.join("assets"));
+    cmd.env("DAY_WEB_APP_PACKAGE", name);
+    status("Building", &format!("{} ({profile})", target.name));
+    let out = cmd.status().map_err(|e| format!("cargo: {e}"))?;
+    if !out.success() {
+        return Err(format!(
+            "cargo build failed for {} — see the cargo output above; `day doctor --toolkit dom` \
+             checks the toolchain (the wasm32-unknown-unknown rustup target; with \
+             day-persistence, a wasm-capable clang)",
+            target.name
+        ));
+    }
+
+    std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
+
+    // Bind browser-document URLs to the module that owns their bytes, including across tabs.
+    let module_bytes = std::fs::read(&wasm).map_err(|e| e.to_string())?;
+    let bundle = sha2::Sha256::digest(&module_bytes)
+        .iter()
+        .fold(String::new(), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        });
+    let index = std::fs::read_to_string(dist.join("index.html")).map_err(|e| e.to_string())?;
+    std::fs::write(
+        dist.join("index.html"),
+        index.replace("/*day:bundle*/ \"\"", &format!("{bundle:?}")),
+    )
+    .map_err(|e| e.to_string())?;
 
     // Last, once every file is in place: the service worker's precache list is the dist's
     // file list, and its cache version is a digest of their bytes, so a rebuild with any
@@ -677,9 +700,9 @@ fn dist_files(dist: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
     Ok(out)
 }
 
-/// The service worker for a dist: a cache named by a digest of every file, filled with all of
-/// them at install, and served network-first: the network's answer when there is one (and
-/// the cache refreshed from it), the cache's when there is not, `index.html` for any
+/// The service worker for a dist: a cache named by a digest of every file, filled with its
+/// shell files at install, and served network-first: the network's answer when there is one,
+/// the installed snapshot's when there is not, `index.html` for any
 /// navigation neither can answer. Same-origin GETs inside the worker's scope only; the
 /// dayscript socket and every other origin pass through untouched. A rebuild changes the
 /// digest, so the next visit installs a fresh cache and the activation drops the old one.
@@ -699,60 +722,16 @@ pub fn service_worker(files: &[(String, Vec<u8>)]) -> String {
     });
     let list = files
         .iter()
+        // Resource bytes already live in app.wasm. Browser sites populate their own cache
+        // directly from those bytes; never download a second copy during worker installation.
+        .filter(|(rel, _)| !rel.starts_with("assets/"))
         .map(|(rel, _)| serde_json::Value::String(rel.clone()))
         .collect::<Vec<_>>();
     let precache =
         serde_json::to_string(&serde_json::Value::Array(list)).unwrap_or_else(|_| "[]".into());
-    format!(
-        r#"// Generated by `day build -t web-dom` (docs/web.md "Home screen and offline"): the offline
-// shell. Cache version {version}, from the bytes of every file listed below.
-const CACHE = 'day-{version}';
-const PRECACHE = {precache};
-
-self.addEventListener('install', (event) => {{
-  event.waitUntil((async () => {{
-    const cache = await caches.open(CACHE);
-    // One request per file, each tolerated: a host that serves a subset still installs.
-    await Promise.allSettled(PRECACHE.map((path) => cache.add(new Request(path, {{ cache: 'reload' }}))));
-    await self.skipWaiting();
-  }})());
-}});
-
-self.addEventListener('activate', (event) => {{
-  event.waitUntil((async () => {{
-    for (const key of await caches.keys()) {{
-      if (key.startsWith('day-') && key !== CACHE) await caches.delete(key);
-    }}
-    await self.clients.claim();
-  }})());
-}});
-
-self.addEventListener('fetch', (event) => {{
-  const request = event.request;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  const scope = new URL(self.registration.scope);
-  if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
-  event.respondWith((async () => {{
-    const cache = await caches.open(CACHE);
-    try {{
-      const fresh = await fetch(request);
-      // CacheStorage rejects partial responses; retain the complete precached asset.
-      if (fresh.status === 200 && fresh.type === 'basic') cache.put(request, fresh.clone());
-      return fresh;
-    }} catch (err) {{
-      const hit = await cache.match(request, {{ ignoreSearch: true }});
-      if (hit) return hit;
-      if (request.mode === 'navigate') {{
-        const index = await cache.match(new URL('index.html', scope).href);
-        if (index) return index;
-      }}
-      throw err;
-    }}
-  }})());
-}});
-"#
-    )
+    include_str!("../resources/web/service-worker.js")
+        .replace("/*day:cache*/ \"\"", &format!("\"day-{version}\""))
+        .replace("/*day:precache*/ []", &precache)
 }
 
 /// Percent-encode a query key/value: keep unreserved characters (RFC 3986), escape the rest.
@@ -1485,18 +1464,19 @@ mod home_screen_tests {
     }
 
     #[test]
-    fn service_worker_precaches_every_file_and_versions_by_content() {
+    fn service_worker_precaches_shell_and_versions_by_content() {
         let a = vec![
             ("index.html".to_string(), b"<html>".to_vec()),
             ("app.wasm".to_string(), vec![0, 1]),
+            ("assets/data/fixture.bin".to_string(), vec![2, 3]),
         ];
         let sw = service_worker(&a);
         assert!(sw.contains("const PRECACHE = [\"index.html\",\"app.wasm\"];"));
         let mut b = a.clone();
         b[1].1.push(2);
         assert_ne!(
-            service_worker(&a).lines().nth(2),
-            service_worker(&b).lines().nth(2),
+            service_worker(&a),
+            service_worker(&b),
             "a changed byte changes the cache name"
         );
         assert_eq!(

@@ -1226,6 +1226,57 @@ macro_rules! day_start_web {
 /// Web glue (§17.4): the app cdylib's `day_dom_main` export forwards here.
 #[cfg(all(feature = "dom", target_arch = "wasm32"))]
 pub mod web {
+    type EmbeddedResources = &'static [(&'static str, &'static [u8])];
+    static RESOURCES: std::sync::OnceLock<EmbeddedResources> = std::sync::OnceLock::new();
+
+    /// Register the generated web resource table before application initialization.
+    /// Called by day-build's generated bootstrap; names are canonical bundle URLs.
+    ///
+    /// # Panics
+    /// Panics if called more than once for the same Wasm instance.
+    pub fn install_resources(resources: EmbeddedResources) {
+        RESOURCES
+            .set(resources)
+            .expect("resources already installed");
+        day_core::set_resource_opener(|name| {
+            let table = RESOURCES.get()?;
+            let index = table
+                .binary_search_by(|(path, _)| {
+                    path.bytes().cmp("assets/data/".bytes().chain(name.bytes()))
+                })
+                .ok()?;
+            Some(crate::Resource::from_static(table[index].1))
+        });
+    }
+
+    fn resource_pair(bytes: &[u8]) -> u64 {
+        ((bytes.len() as u64) << 32) | bytes.as_ptr() as u64
+    }
+
+    /// Number of files in the embedded web bundle (host bootstrap ABI).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_dom_resources_count() -> usize {
+        RESOURCES.get().map_or(0, |r| r.len())
+    }
+
+    /// Borrow a bundle URL as a packed pointer and length (host bootstrap ABI).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_dom_resources_name(index: usize) -> u64 {
+        RESOURCES
+            .get()
+            .and_then(|r| r.get(index))
+            .map_or(0, |(name, _)| resource_pair(name.as_bytes()))
+    }
+
+    /// Borrow a file's bytes as a packed pointer and length (host bootstrap ABI).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_dom_resources_bytes(index: usize) -> u64 {
+        RESOURCES
+            .get()
+            .and_then(|r| r.get(index))
+            .map_or(0, |(_, bytes)| resource_pair(bytes))
+    }
+
     /// One dayscript request line from the page's WebSocket (docs/web.md). Lives here, not in
     /// day-toolkit-dom, because backends depend only on day-spec; the umbrella is where the backend
     /// and the engine meet.

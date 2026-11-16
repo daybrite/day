@@ -1093,7 +1093,7 @@ day_bridge::bridge! {
         "#,
     );
 
-    // The web: one AudioContext, each clip fetched from the dist's `assets/data/` and decoded once,
+    // The web: one AudioContext, each clip read from the embedded bundle and decoded once,
     // each play a new AudioBufferSourceNode through a gain and a panner. Browsers start a context
     // suspended until the page is touched, so the first gesture resumes it; a clip due before then
     // is skipped. wasm's `std` has no clock, so the repeat check lives here.
@@ -1186,9 +1186,9 @@ day_bridge::bridge! {
                 return;
             }
             dayPending.add(path);
-            fetch("assets/data/" + encodeURI(path))
-                .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error("HTTP " + r.status))))
-                .then((bytes) => ctx.decodeAudioData(bytes))
+            Promise.resolve()
+                // decodeAudioData takes ownership; never give it a view of Wasm memory.
+                .then(() => ctx.decodeAudioData(dayHost.resources.bytes("assets/data/" + path).buffer))
                 .then((buffer) => {
                     dayBuffers.set(path, buffer);
                     // A loop asked for before its clip was decoded starts now.

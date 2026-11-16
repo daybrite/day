@@ -128,6 +128,33 @@ Backing per platform: Apple = mmap of the bundle file (the "plain file handle");
 opener once via [`day_core::set_resource_opener`](https://docs.rs/day-core/latest/day_core/fn.set_resource_opener.html); absent that, the default mmap-file opener is used
 (which is exactly the Apple path). See `crates/day-core/src/resource.rs`.
 
+## Web resources
+
+`day build -t web-dom` embeds the prepared resource files directly in the Wasm module as
+static byte slices. App assets and dependency-contributed assets use the same generated names
+as native builds. The runtime installs the resource table before application initialization.
+[`resource()`](https://docs.rs/day-core/latest/day_core/fn.resource.html) returns a borrowed
+view; opening a resource does not copy its contents or contact the network. The entire bundle
+remains in memory for the lifetime of the page.
+
+Images and vectors resolve to cached browser Blob URLs backed by embedded bytes. Fonts are
+registered with [`FontFace`](https://developer.mozilla.org/en-US/docs/Web/API/FontFace/FontFace)
+before first layout. Sound reads embedded bytes and uses the browser's asynchronous decoder;
+playback still follows browser user-gesture rules. Resource reads do not require OPFS, JSPI,
+shared memory, or cross-origin isolation.
+
+Bundled HTML sites keep their relative links and navigation. When service workers and storage
+are available, the requesting frame copies its site directory from Wasm into a versioned
+browser cache once, then reuses it on reload. Other app content does not wait for that copy.
+The host serves site files through the bundle's URL namespace and removes unused versions
+when no open tab needs them. If that setup is unavailable, embedded sites use the
+published asset URLs. This fallback does not change synchronous data reads or image, font, and
+sound loading. App installation icons and manifests also keep their published URLs.
+
+For a byte-oriented image decoder, use `res::image_bytes::name`, a generated `&'static [u8]`
+containing the original image file. These constants work on every backend and are linked when
+used. `res::images::name` continues to select the platform's processed image for presentation.
+
 ## Fonts: [`Font::custom(res::fonts::family, pt)`](https://docs.rs/day-spec/latest/day_spec/enum.Font.html#method.custom)
 
 Bundled families also appear in [`day::font_families()`](https://docs.rs/day-app/latest/day/fn.font_families.html) and draw on a canvas through

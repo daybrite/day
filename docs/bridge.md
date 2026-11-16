@@ -719,6 +719,20 @@ On web-dom, `dayHost.dom` provides three operations for crate-owned browser beha
   the element, and discards the callback. Detaching an element for reuse does not run cleanup.
   Use this to remove listeners and cancel subscriptions.
 
+After Wasm resource initialization, `dayHost.resources.bytes(path)` synchronously returns an
+owned `Uint8Array` for an embedded bundle path, such as `assets/data/<crate-name>/model.bin`.
+A module can retain, modify, or transfer that copy without affecting the immutable Wasm resource.
+Missing resources throw an error.
+`dayHost.resources.url(path)` returns a cached Blob URL for embedded files, or leaves external
+URLs unchanged. After a bundled frame has prepared its site,
+`dayHost.resources.siteUrl(path)` resolves that site's file or directory
+into its versioned URL namespace when available, and otherwise returns the published path.
+Use `siteUrl` to classify internal links after a frame loads. The DOM host prepares bundled
+iframe sources automatically; JavaScript that creates its own iframe can await
+`dayHost.resources.prepareSite(path)` for the same preparation and URL fallback.
+The host owns these URLs for the page's lifetime. Prefer generated resource
+names passed from Rust for app-owned files.
+
 A crate calls [`day_build::bridge::generate()`](https://docs.rs/day-build/latest/day_build/bridge/fn.generate.html) in `build.rs`. `day build` discovers its bridge,
 stages the generated ES module, and registers its imports before starting the app. No application
 script tag or change to Day's shared browser shim is needed.
