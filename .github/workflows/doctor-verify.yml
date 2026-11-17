@@ -114,6 +114,12 @@ jobs:
         shell: bash
     steps:
       # --- the one true user step: install the published CLI with stock Rust ---------------
+      # Day's minimum Rust is the current stable, and a runner image's preinstalled toolchain can
+      # trail a new release by weeks (1.99.1 on every image five days after 1.100, when
+      # `cargo install` refused with "requires rustc 1.100 or newer"). A user told that runs
+      # `rustup update`, so the job does the same before the step it exists to exercise.
+      - name: rustup update stable
+        run: rustup update stable --no-self-update && rustup default stable
       - name: cargo install day-cli
         run: cargo install day-cli
       - name: Require the verification command

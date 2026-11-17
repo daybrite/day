@@ -229,6 +229,14 @@ fn set_orientation(udid: &str, orientation: &str) -> Result<(), CliError> {
 /// with no limit of its own; a call past this is a device it will not find.
 const DEVICECTL_TIMEOUT: &str = "30";
 
+/// The wall-clock limit on one `devicectl` or `simctl` call made while orienting a simulator.
+///
+/// `--timeout` is devicectl's own promise, and it does not always keep it: on hosted runners
+/// `orientation set` has sat for the whole of a job's remaining time without returning
+/// (2026-11-17, in several apps' tablet jobs), which no retry here could ever see. Killing the
+/// call a little past its stated timeout turns that into the "stuck" case the retries exist for.
+const ORIENT_CALL_LIMIT: std::time::Duration = std::time::Duration::from_secs(45);
+
 /// What gates simulator orientation, spelled out wherever it is reported.
 ///
 /// The Xcode version, not the macOS version. That is worth writing down because the two look
@@ -267,26 +275,26 @@ enum Request {
 /// Ask devicectl to turn the device once. Any failure other than devicectl's own stuck-command
 /// timeout is final, since those name a CoreDevice that cannot see the simulator at all.
 fn request_orientation(udid: &str, want: &str, orientation: &str) -> Result<Request, CliError> {
-    let out = Command::new("xcrun")
-        .args([
-            "devicectl",
-            "device",
-            "orientation",
-            "set",
-            "--device",
-            udid,
-            want,
-            "--quiet",
-            "--timeout",
-            DEVICECTL_TIMEOUT,
-        ])
-        .output()
-        .map_err(|e| {
-            CliError::failure(format!(
-                "could not run `devicectl` ({e}) — setting a simulator's orientation needs it, \
-                 and it comes with Xcode"
-            ))
-        })?;
+    let mut set = Command::new("xcrun");
+    set.args([
+        "devicectl",
+        "device",
+        "orientation",
+        "set",
+        "--device",
+        udid,
+        want,
+        "--quiet",
+        "--timeout",
+        DEVICECTL_TIMEOUT,
+    ]);
+    // Killed at the limit: a devicectl that ignores its own `--timeout` is stuck all the same.
+    let Some(out) = crate::ops::output_within(&mut set, ORIENT_CALL_LIMIT) else {
+        return Ok(Request::Stuck(format!(
+            "`devicectl device orientation set` did not return within {}s",
+            ORIENT_CALL_LIMIT.as_secs()
+        )));
+    };
     if out.status.success() {
         return Ok(Request::Accepted);
     }
@@ -377,11 +385,11 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
 /// check silently answered `None`.
 fn simulator_is_landscape(udid: &str) -> Option<bool> {
     let shot = std::env::temp_dir().join(format!("day-orient-{}.png", std::process::id()));
-    let out = Command::new("xcrun")
+    let mut capture = Command::new("xcrun");
+    capture
         .args(["simctl", "io", udid, "screenshot", "--type=png"])
-        .arg(&shot)
-        .output()
-        .ok()?;
+        .arg(&shot);
+    let out = crate::ops::output_within(&mut capture, ORIENT_CALL_LIMIT)?;
     if !out.status.success() {
         let _ = std::fs::remove_file(&shot);
         return None;
@@ -401,22 +409,21 @@ fn simulator_is_landscape(udid: &str) -> Option<bool> {
 fn device_orientation(udid: &str) -> Option<String> {
     // Bounded: an answer that takes longer than this is CoreDevice not finding the device,
     // and `None` is the honest reading of that.
-    let out = Command::new("xcrun")
-        .args([
-            "devicectl",
-            "device",
-            "orientation",
-            "get",
-            "--device",
-            udid,
-            "-j",
-            "-",
-            "--quiet",
-            "--timeout",
-            DEVICECTL_TIMEOUT,
-        ])
-        .output()
-        .ok()?;
+    let mut get = Command::new("xcrun");
+    get.args([
+        "devicectl",
+        "device",
+        "orientation",
+        "get",
+        "--device",
+        udid,
+        "-j",
+        "-",
+        "--quiet",
+        "--timeout",
+        DEVICECTL_TIMEOUT,
+    ]);
+    let out = crate::ops::output_within(&mut get, ORIENT_CALL_LIMIT)?;
     if !out.status.success() {
         return None;
     }
@@ -1151,6 +1158,9 @@ fn retryable_sdk_download(error: &str) -> bool {
     }
     [
         "error on zipfile",
+        // The same damaged archive as sdkmanager's newer zip reader words it (2026-11: every
+        // Android job that fetched the emulator on one evening failed on its first attempt).
+        "error reading zip content",
         "zip end header not found",
         "not in gzip format",
         "unexpected end of zlib",
@@ -2824,6 +2834,35 @@ mod tests {
         assert_eq!(waits, [2, 4]);
         assert!(error.contains("SDK package emulator (attempt 3/3)"));
         assert!(error.contains("Error on ZipFile unknown archive"));
+    }
+
+    /// Each wording sdkmanager has used for a damaged or truncated download is retried.
+    #[test]
+    fn sdk_install_retries_every_known_corrupt_download_message() {
+        for reason in [
+            "Warning: An error occurred while preparing SDK package Android Emulator: Error on ZipFile unknown archive.",
+            "Warning: An error occurred while preparing SDK package Android Emulator: Error reading Zip content from a SeekableByteChannel.",
+            "java.util.zip.ZipException: zip END header not found",
+            "Connection reset",
+        ] {
+            let mut attempts = 0;
+            super::install_sdk_package_with(
+                "emulator",
+                || {
+                    attempts += 1;
+                    if attempts == 1 {
+                        Err(crate::cli::CliError::failure(format!(
+                            "sdkmanager failed (exit status: 1)\n{reason}"
+                        )))
+                    } else {
+                        Ok(())
+                    }
+                },
+                |_| {},
+            )
+            .unwrap_or_else(|error| panic!("{reason:?} was not retried: {error}"));
+            assert_eq!(attempts, 2, "{reason:?}");
+        }
     }
 
     #[test]
