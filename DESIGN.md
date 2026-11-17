@@ -6300,7 +6300,10 @@ exports mean an empty embedded table, so apps without resource generation can st
 Sites use `__day_bundle/<module-sha256>/assets/data/` URLs. Failed or timed-out preparation
 retains published asset URLs for the requesting frame. A protocol handshake lets an already
 active worker serve a site while a newer worker waits to activate; app startup and frames
-do not wait for an update that is not needed to serve their files. Scope-specific cache cleanup asks live
+do not wait for an update that is not needed to serve their files. During first installation,
+`registration.active` may already contain a worker whose state is still `activating`; the host
+includes it among the candidates and waits for `activated` before the protocol handshake.
+Scope-specific cache cleanup asks live
 app tabs for their module versions, preserves those versions, and defers deletion if a tab
 cannot answer. An iframe navigation superseded during setup cannot overwrite the newer source.
 The shell worker excludes embedded assets from its network precache, uses navigation preload
@@ -6310,12 +6313,16 @@ still consult CacheStorage. Installation icons and manifests remain published re
 
 `scripts/ci/webdom-resources-test.mjs` runs in CI without app builds and verifies stalled or
 unavailable storage, navigation preload, offline fallback, missing exports, lazy site copies,
-interrupted writes, navigation cancellation and live-tab cache retention.
+interrupted writes, navigation cancellation, live-tab cache retention and an active worker
+that is still activating.
 `scripts/ci/web-resources-test.mjs` checks built distributions in Chromium and WebKit. CI uses
 the Showcase-only mode; a local invocation can also check the map demo. It rejects HTTP asset
 reads, compares embedded bytes after memory growth, and exercises fonts, images, sound, HTML
 navigation, repeated reloads with and without isolation headers, offline loading and the
-published-URL fallback. Reports go under `build/test-results/web-resources` by default.
+published-URL fallback. Its worker fixture deliberately delays activation so cold-install
+races also occur on fast machines. An unexpected published-URL fallback fails at source
+selection, with browser warnings and page state retained in the report, instead of waiting
+for an unavailable frame document. Reports go under `build/test-results/web-resources` by default.
 Lottie's web player uses the UI timer while awaiting its page's readiness; the process timer
 in day-async does not run on Wasm.
 

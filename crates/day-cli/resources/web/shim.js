@@ -3439,7 +3439,9 @@ async function activateSiteWorker() {
   // An update may be waiting for old fetch events to finish. An active worker with this
   // protocol can serve any module version already, so the frame need not await the update.
   if (reg.active?.state === 'activated' && await supportsResourceSites(reg.active)) return reg.active;
-  const worker = reg.installing || reg.waiting;
+  // Promotion to registration.active precedes the end of activation. During that interval
+  // installing and waiting are null, but the active worker is still a valid candidate.
+  const worker = reg.installing || reg.waiting || reg.active;
   if (!worker) throw new Error('No compatible resource service worker');
   if (worker.state !== 'activated') await new Promise((resolve, reject) => {
     const changed = () => {

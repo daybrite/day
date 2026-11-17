@@ -40,6 +40,14 @@ const server = http.createServer(async (req, res) => {
       data = data.toString().replace(hook,
         hook + '\n window.__resourcesTest = {wasm, resourceBytes, bundledFiles, bundledUrls};');
     }
+    if (filename.endsWith('sw.js')) {
+      // Keep the worker in registration.active with state='activating' while the app boots.
+      // Cold/loaded CI runners hit this naturally; fast local runs must cover it too.
+      const hook = 'await self.clients.claim();';
+      assert(data.toString().includes(hook), 'Review worker activation test instrumentation');
+      data = data.toString().replace(hook,
+        'await new Promise(resolve => setTimeout(resolve, 1000)); ' + hook);
+    }
     // Exercise both ordinary static hosting and the isolation headers used by day launch.
     res.writeHead(200, {
       'Content-Type': mime[path.extname(filename)] ?? 'application/octet-stream',
@@ -103,7 +111,7 @@ async function verifyCore(browser, type, app) {
       return route.abort();
     });
     await page.goto(`${origin}/${app}/` + (app === 'showcase' ? '#resources' : ''));
-    await page.waitForFunction(() => window.__resourcesTest, { timeout: 120000 });
+    await page.waitForFunction(() => window.__resourcesTest, null, { timeout: 120000 });
     const info = await page.evaluate(() => ({
       files: __resourcesTest.bundledFiles.size, isolated: crossOriginIsolated,
       fonts: [...document.fonts].map(font => ({ family: font.family, status: font.status })),
@@ -166,6 +174,7 @@ async function verifySite(browser, type, fallback, isolated = false) {
   const context = await browser.newContext({
     serviceWorkers: fallback ? 'block' : 'allow', viewport: { width: 1280, height: 1000 },
   });
+  const errors = [], warnings = [];
   try {
     await context.addInitScript(() => {
       window.__siteWrites = [];
@@ -176,14 +185,18 @@ async function verifySite(browser, type, fallback, isolated = false) {
       };
     });
     const page = await context.newPage();
-    const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
-    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    page.on('console', message => {
+      if (message.type() === 'error') errors.push(message.text());
+      if (message.type() === 'warning') warnings.push(message.text());
+    });
     await page.goto(`${origin}/${app}/#webview`);
     const frame = page.frameLocator('#webview_embedded');
-    await frame.locator('#count').waitFor({ timeout: 120000 });
+    await page.waitForFunction(() => document.querySelector('#webview_embedded')?.getAttribute('src'),
+      null, {timeout: 30000});
     const src = await page.locator('#webview_embedded').getAttribute('src');
-    assert.equal(src.includes('__day_bundle/'), !fallback, src);
+    assert.equal(src.includes('__day_bundle/'), !fallback, `${src}\n${warnings.join('\n')}`);
+    await frame.locator('#count').waitFor({ timeout: 30000 });
     await frame.locator('#count').click();
     await frame.getByText('Clicked 1 time', { exact: false }).waitFor();
     assert(await frame.locator('img').evaluate(image => image.complete && image.naturalWidth > 0));
@@ -218,13 +231,15 @@ async function verifySite(browser, type, fallback, isolated = false) {
     assert.equal(errors.length, 0, JSON.stringify(errors));
     report.push(result);
   } catch (error) {
-    console.error(await context.pages()[0]?.evaluate(() => ({
+    const state = await context.pages()[0]?.evaluate(() => ({
       text: document.body.innerText,
       frames: [...document.querySelectorAll('iframe')].map(frame => {
         try { return {src: frame.src, body: frame.contentDocument?.body?.innerText, state: frame.contentWindow?.dayLottie?.state()}; }
         catch (error) { return {src: frame.src, error: String(error)}; }
       }),
-    })));
+    })).catch(diagnosticError => ({error: String(diagnosticError)}));
+    report.push({browser: type.name(), app, failure: String(error), errors, warnings, state});
+    console.error({browser: type.name(), app, errors, warnings, state});
     throw error;
   } finally {
     await context.close();

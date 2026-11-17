@@ -182,3 +182,27 @@ test('an active compatible worker serves sites while an update is waiting', {tim
   h.api.seed(['assets/data/site/index.html']); await h.api.install();
   assert.match(await h.api.prepare('assets/data/site/index.html'), /__day_bundle/);
 });
+
+test('a worker already in registration.active may still be activating', {timeout: 1000}, async () => {
+  const listeners = new Set();
+  const active = {
+    state: 'activating',
+    addEventListener(type, listener) {
+      assert.equal(type, 'statechange');
+      listeners.add(listener);
+      queueMicrotask(() => { this.state = 'activated'; listener(); });
+    },
+    removeEventListener(_type, listener) { listeners.delete(listener); },
+    postMessage(data, ports) {
+      assert.equal(this.state, 'activated');
+      if (data.type === 'day-resource-protocol') { ports[0].postMessage(2); ports[0].close(); }
+    },
+  };
+  const h = host(storage(), {navigator: {serviceWorker: {
+    addEventListener() {}, async register() { return {active, installing: null, waiting: null}; },
+  }}});
+  h.api.seed(['assets/data/site/index.html']); await h.api.install();
+  assert.match(await h.api.prepare('assets/data/site/index.html'), /__day_bundle/);
+  assert.equal(active.state, 'activated');
+  assert.equal(listeners.size, 0);
+});
