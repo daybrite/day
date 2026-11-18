@@ -528,6 +528,9 @@ pub use day_localization_ui::{matches_search, matches_search_in};
 // The current-locale Signal itself, for apps that show or branch on it (`locale().get()` is a
 // tracked read; `set_locale` in the prelude writes it).
 pub use day_localization_ui::locale;
+// The OS's whole ordered language preference, for content an app selects by language
+// rather than translates: `locale` above is only the one its catalogs serve.
+pub use day_localization_ui::launch_locales;
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};

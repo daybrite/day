@@ -174,6 +174,18 @@ pub fn set_launch_locales(locales: &[String]) {
     LAUNCH_LOCALES.with(|l| *l.borrow_mut() = locales.to_vec());
 }
 
+/// The host's ordered locale preference as recorded at launch (`["fr-CA", "ru-RU", "en-US"]`),
+/// whole and in the user's order.
+///
+/// [`locale`] is the one language the app's own catalogs serve. This is every language the user
+/// reads, for content chosen by language rather than translated: a phone set to English then
+/// Russian runs an English app whose user also reads Russian. Empty where the host reported
+/// nothing.
+#[must_use]
+pub fn launch_locales() -> Vec<String> {
+    LAUNCH_LOCALES.with(|l| l.borrow().iter().map(|l| normalize(l)).collect())
+}
+
 /// Register an app's locales from `.ftl` sources and set the current locale from (1) the `DAY_LOCALE`
 /// launch override, (2) the platform's [`set_launch_locale`] hint, (3) `default`. Call once, before
 /// building the root piece. The built-in core catalog is preserved (and remains the fallback); the
