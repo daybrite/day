@@ -197,7 +197,7 @@ uuid = { version = "1", default-features = false }
 windows = "0.62"
 # The `IAsyncOperation` the `windows` crate hands back is this crate's type (a dependency of
 # `windows` either way); naming it needs the direct line.
-windows-future = "0.3"
+windows-future = "0.100"
 # Apple runtime and framework binding versions are shared by every workspace member.
 # Feature selections and optional/target gating stay in the consuming crates. Bindings with
 # lean consumers disable defaults here; consumers needing defaults opt back in explicitly.
