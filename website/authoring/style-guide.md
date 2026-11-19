@@ -107,14 +107,26 @@ legacy system XAML. Preserve identifiers such as `day-toolkit-xaml-sys`, `xaml`,
 Link current WinUI controls to the Windows App SDK API reference (`Microsoft.UI.Xaml`), not
 the older UWP reference (`Windows.UI.Xaml`). Historical design records retain their original
 platform names and execution claims.
-The Markdown renderer adds the site's platform icons
-and light/dark tint colors throughout headings, table cells, bold labels, and inline target IDs,
-including lowercase feature labels and names inside links or mixed Markdown. It also marks the
-first mention of each target in each paragraph of a platform-specific section (for example,
-“Toolkit implementations” or “Toolkit notes”). Use a bold lead such as `**UIKit:**` for a
-target-specific list item; do not add emoji or hand-picked colors. Linux and Apple family labels
-carry both relevant target marks rather than implying a single toolkit. Review the rendered
-per-toolkit sections, not just the installation/availability summary at the top of the page.
+Platform styling is explicit. In Markdown, add a `toolkit:<target-id>` title to a
+platform link. The link remains usable on GitHub; the website renders its label with the
+platform icon and theme color. Keep the label text and choose the target ID explicitly:
+
+```markdown
+[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")
+[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
+[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")
+```
+
+MDX and Astro pages can import `Toolkit.astro` and use `<Toolkit id="web-dom" />`.
+Supply children to choose the label: `<Toolkit id="web-dom">Web</Toolkit>`. A comma-separated
+pair of IDs renders both marks for an OS family. Unknown, duplicate, or missing IDs fail the build.
+The ID names a target from `src/lib/platforms.mjs`; capture-only device variants are not targets.
+
+Use labels in platform tables, toolkit headings, and the leads of platform-specific notes.
+Ordinary prose, code, links, and headings receive no styling without this markup, including
+words such as “web,” “browser,” and “material.” Do not mark “web page” or “web shells” as a
+platform. Commands, API identifiers, and code examples remain plain code.
+Do not add emoji or hand-picked colors.
 When one OS has several toolkits, name the affected toolkit rather than implying they all behave
 alike. Keep the visible text: icons and color must never be the only way to identify a target.
 

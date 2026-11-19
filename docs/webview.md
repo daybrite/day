@@ -43,17 +43,17 @@ contributions. No dependency entry is needed in `Day.toml`.
 
 | Platform / toolkit | Engine and prerequisites |
 | --- | --- |
-| AppKit / UIKit | [WKWebView](https://developer.apple.com/documentation/webkit/wkwebview), provided by the OS. |
-| macOS / GTK | WKWebView hosted within the GTK layout. Native-child clipping and overlap need attention in nested scrolling or overlays. |
-| Linux / GTK | [WebKitGTK](https://webkitgtk.org/reference/webkit2gtk/stable/), using the WebKitGTK 6 libraries alongside GTK 4. |
-| macOS / Qt, Linux / Qt | [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-overview.html). A build without WebEngine uses a URL-label fallback. |
-| Windows / WinUI | [WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/). The installed WebView2 Runtime is separate from its build-time SDK. |
-| Android | [Android WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview); Internet permission is contributed by the crate. |
-| HarmonyOS / ArkUI | ArkWeb. A compatible installed runtime is required; custom-resource handling needs API 12+. |
-| Web | An iframe in the host browser. Remote sites can refuse framing, and same-origin restrictions limit scripting and navigation observation. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [WKWebView](https://developer.apple.com/documentation/webkit/wkwebview), provided by the OS. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | WKWebView hosted within the [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") layout. Native-child clipping and overlap need attention in nested scrolling or overlays. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [WebKitGTK](https://webkitgtk.org/reference/webkit2gtk/stable/), using the WebKitGTK 6 libraries alongside [GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"). |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / Qt | [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-overview.html). A build without WebEngine uses a URL-label fallback. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/). The installed WebView2 Runtime is separate from its build-time SDK. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [Android WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview); Internet permission is contributed by the crate. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | ArkWeb. A compatible installed runtime is required; custom-resource handling needs API 12+. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | An iframe in the host browser. Remote sites can refuse framing, and same-origin restrictions limit scripting and navigation observation. |
 
 Most capability functions describe compiled integration, not successful engine startup. A
-native support result does not prove a Qt WebEngine installation or a usable runtime.
+native support result does not prove a [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") WebEngine installation or a usable runtime.
 
 ## Navigation and lifetime
 
@@ -199,12 +199,12 @@ when combining app resources with dynamic content.
 
 | Platform / toolkit | Constraint |
 | --- | --- |
-| AppKit / UIKit / macOS GTK | WebKit custom-scheme handling is installed before the browser is created. |
-| Linux GTK | Uses a WebKit URI-scheme handler; test media/range behavior for the document types you serve. |
-| Qt WebEngine | Requires a registered custom scheme. Arbitrary HTTP status behavior differs from an HTTP server; additional response headers require Qt 6.6+. |
-| Android / WinUI | Uses reserved origins and request interception. Return the correct MIME type for binary resources. |
-| HarmonyOS | Requires ArkWeb's custom-resource handler support, API 12+. |
-| Web | Requires HTTPS or localhost and service workers. The owning app tab must stay alive; disabling service workers prevents provider views from loading. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | WebKit custom-scheme handling is installed before the browser is created. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Uses a WebKit URI-scheme handler; test media/range behavior for the document types you serve. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") WebEngine | Requires a registered custom scheme. Arbitrary HTTP status behavior differs from an HTTP server; additional response headers require [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") 6.6+. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Uses reserved origins and request interception. Return the correct MIME type for binary resources. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Requires ArkWeb's custom-resource handler support, API 12+. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Requires HTTPS or localhost and service workers. The owning app tab must stay alive; disabling service workers prevents provider views from loading. |
 
 The browser worker is scoped to this crate's asset namespace. It is distinct from ordinary
 inline content and does not persist document bodies. Use [browser profiles](#browser-profiles)
@@ -248,11 +248,11 @@ still apply: a bundled site works; an inaccessible cross-origin frame returns an
 sites can also refuse iframe embedding. This API does not bypass those restrictions.
 
 > [!WARNING]
-> **Windows / GTK / Qt: web engines.**
+> **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"): web engines.**
 > Child-window hosting requires the WebView2 Runtime and remains unverified on Windows.
 
 > [!WARNING]
-> **HarmonyOS / ArkUI: web engine.**
+> **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): web engine.**
 > Evaluation requires a compatible ArkWeb engine; device behavior remains unverified.
 
 ## Browser profiles
@@ -286,10 +286,10 @@ than silently opening with persistent storage.
 
 | Engine | Profile behavior |
 | --- | --- |
-| WKWebView | Named persistent stores require macOS 14 / iOS 17+. Older systems isolate explicit named profiles in memory. Private views use a nonpersistent store. |
-| Qt WebEngine / WebKitGTK | Named disk profiles and ephemeral private profiles; app-selected storage roots are supported. |
+| WKWebView | Named persistent stores require [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 14 / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 17+. Older systems isolate explicit named profiles in memory. Private views use a nonpersistent store. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") WebEngine / WebKitGTK | Named disk profiles and ephemeral private profiles; app-selected storage roots are supported. |
 | WebView2 | Named profiles and InPrivate mode depend on the installed runtime's capabilities. |
-| Android WebView | Named profiles require AndroidX `MULTI_PROFILE`; complete deletion requires `DELETE_BROWSING_DATA`. Stock WebView has no private mode through this API. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") WebView | Named profiles require AndroidX `MULTI_PROFILE`; complete deletion requires `DELETE_BROWSING_DATA`. Stock WebView has no private mode through this API. |
 | ArkWeb | Named profiles are emulated over app-wide, origin-separated storage. Private mode is available; complete profile clearing is unsupported. |
 | Web iframe | The host browser owns storage. Named profiles, private mode, and complete deletion are unsupported. |
 

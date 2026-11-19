@@ -37,14 +37,14 @@ height, including controls that center their text within a larger frame.
 
 | toolkit | source | `Cap::BaselineAlignment` |
 |---|---|---|
-| AppKit | the control's font, centered in its `alignmentRectInsets` box  | Native |
-| GTK | `gtk_widget_measure`'s natural-baseline out-param | Native |
-| Android | `View.getBaseline()` | Native |
-| UIKit | derived: the view's font ascent, centered in its height | Emulated |
-| Qt | derived: `QFontMetricsF::ascent()`, centered in its height | Emulated |
-| Web | derived: canvas `TextMetrics.fontBoundingBoxAscent`, offset by the element's border and padding | Emulated |
-| WinUI | `TextBlock.BaselineOffset`; font-derived for templated controls | Emulated |
-| ArkUI | derived from `NODE_FONT_SIZE` | Emulated |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the control's font, centered in its `alignmentRectInsets` box  | Native |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `gtk_widget_measure`'s natural-baseline out-param | Native |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `View.getBaseline()` | Native |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | derived: the view's font ascent, centered in its height | Emulated |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | derived: `QFontMetricsF::ascent()`, centered in its height | Emulated |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | derived: canvas `TextMetrics.fontBoundingBoxAscent`, offset by the element's border and padding | Emulated |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `TextBlock.BaselineOffset`; font-derived for templated controls | Emulated |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | derived from `NODE_FONT_SIZE` | Emulated |
 
 `Native` and `Emulated` describe how the toolkit obtains the measurement. Derived baselines
 can be less accurate for custom controls with unusual internal text placement. Unsupported

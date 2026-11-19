@@ -102,13 +102,13 @@ reveal, and type-ahead options.
 
 | Toolkit | Rendering |
 | --- | --- |
-| AppKit | Native [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
-| UIKit | Native collection-view list |
-| GTK | Native tree-list model and expander rows |
-| Qt | Native [`QTreeWidget`](https://doc.qt.io/qt-6/qtreewidget.html) |
-| WinUI | Native [`TreeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.treeview) hierarchy |
-| Android | Composed list for arbitrary depth; native `ExpandableListView` for single-selection sections |
-| ArkUI / DOM | Composed tree built from list rows |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Native [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Native collection-view list |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Native tree-list model and expander rows |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Native [`QTreeWidget`](https://doc.qt.io/qt-6/qtreewidget.html) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Native [`TreeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.treeview) hierarchy |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Composed list for arbitrary depth; native `ExpandableListView` for single-selection sections |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / DOM | Composed tree built from list rows |
 
 The piece uses a native tree when `Cap::Tree` is `Native`. Otherwise it flattens expanded
 branches into list rows while retaining the same expansion and selection API. A two-level

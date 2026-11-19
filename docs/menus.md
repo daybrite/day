@@ -132,13 +132,13 @@ with what the app thinks, and an action that declines to change anything leaves 
 
 | Toolkit | Drawn as |
 |---|---|
-| appkit | [`NSMenuItem.state`](https://developer.apple.com/documentation/appkit/nsmenuitem) — the system ✓ |
-| uikit | [`UIAction.state`](https://developer.apple.com/documentation/uikit/uiaction) — the system ✓ |
-| gtk | a stateful boolean `GAction`; GTK renders the check from the action's state |
-| qt | a checkable [`QAction`](https://doc.qt.io/qt-6/qaction.html) |
-| WinUI | [`ToggleMenuFlyoutItem`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.togglemenuflyoutitem) |
-| android | `MenuItem.setCheckable` — Material's check |
-| dom | a ✓ in a fixed check column of the composed row |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSMenuItem.state`](https://developer.apple.com/documentation/appkit/nsmenuitem) — the system ✓ |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIAction.state`](https://developer.apple.com/documentation/uikit/uiaction) — the system ✓ |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | a stateful boolean `GAction`; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") renders the check from the action's state |
+| [qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | a checkable [`QAction`](https://doc.qt.io/qt-6/qaction.html) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`ToggleMenuFlyoutItem`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.togglemenuflyoutitem) |
+| [android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `MenuItem.setCheckable` — Material's check |
+| [dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | a ✓ in a fixed check column of the composed row |
 
 ## Icons
 
@@ -158,13 +158,13 @@ platform's menus carry pictures:
 
 | | icons in menus |
 |---|---|
-| **AppKit**, **UIKit** | yes — [`NSMenuItem.image`](https://developer.apple.com/documentation/appkit/nsmenuitem) / [`UIAction`](https://developer.apple.com/documentation/uikit/uiaction) image, from the shared SF Symbol table |
-| **GTK** | yes — the `GMenuModel` "icon" attribute, drawn by [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) |
-| **Qt** | yes — [`QAction::setIcon`](https://doc.qt.io/qt-6/qaction.html), resolved like a toolbar icon (theme name, then Day's outline, then the [QStyle](https://doc.qt.io/qt-6/qstyle.html) standard set) |
-| **WinUI** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
-| **Android** | ignored: Material's overflow menu is text-only, and an icon belongs on an app-bar action |
-| **Web** | yes — a template glyph beside the row of the app menu's popover (and a toolbar pull-down's), from the same outline table the toolbar draws |
-| **ArkUI** | no menus of this kind to put an icon in |
+| **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**, **[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")** | yes — [`NSMenuItem.image`](https://developer.apple.com/documentation/appkit/nsmenuitem) / [`UIAction`](https://developer.apple.com/documentation/uikit/uiaction) image, from the shared SF Symbol table |
+| **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")** | yes — the `GMenuModel` "icon" attribute, drawn by [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) |
+| **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")** | yes — [`QAction::setIcon`](https://doc.qt.io/qt-6/qaction.html), resolved like a toolbar icon (theme name, then Day's outline, then the [QStyle](https://doc.qt.io/qt-6/qstyle.html) standard set) |
+| **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
+| **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** | ignored: Material's overflow menu is text-only, and an icon belongs on an app-bar action |
+| **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** | yes — a template glyph beside the row of the app menu's popover (and a toolbar pull-down's), from the same outline table the toolbar draws |
+| **[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** | no menus of this kind to put an icon in |
 
 ## Keyboard shortcuts
 
@@ -222,7 +222,7 @@ app_menu(vec![sub_menu(
 )])
 ```
 
-| Role | AppKit | GTK | Qt | UIKit | Android | WinUI | Web |
+| Role | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|---|---|
 | Cut/Copy/Paste | `cut:`/`copy:`/`paste:` nav hosts — a focused text view answers first, then the app's edit bridge⁴ | `clipboard.*` actions | dispatched to the focused [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html)/[`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) | responder chain, then the edit bridge⁴ | edit bridge⁴ (text keeps its own selection toolbar¹) | accelerator² | popover row → edit bridge⁴; the keys stay the browser's own clipboard events |
 | SelectAll | `selectAll:` nav host — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² | popover row → edit bridge⁴; ⌘A is the shim's document route |
@@ -386,14 +386,14 @@ yet, so those keyboards are not offered to it.
 
 | Toolkit | Underneath |
 | --- | --- |
-| appkit | `keyDown:` on the canvas. A ⌘ chord goes back to AppKit first; a key that types nothing is named; a ⌃ chord names its key; everything else goes to the text input system (`interpretKeyEvents:`), and the canvas is its `NSTextInputClient`: a dead key marks, an input method composes, and `insertText:` delivers what was typed, once |
-| uikit | the canvas adopts `UIKeyInput` once it took the keyboard (it answers `conformsToProtocol:` itself), so the soft keyboard rises for it and `insertText:`/`deleteBackward` are the route; a hardware key that types nothing, or a ⌃/⌥ chord, is claimed in `pressesBegan:`, the rest of the press set goes to `super`, which delivers a text key once through `insertText:` |
-| android | `onCreateInputConnection` returns a `BaseInputConnection` with an editable of its own: the input method composes in it and the committed text goes once (`commitText`, `finishComposingText`); its deletes outside a composition are the delete keys, `performEditorAction` is Enter; `onKeyDown` names every hardware key |
-| gtk | `EventControllerKey` on the canvas, with a `GtkIMMulticontext` ahead of it: the context composes dead keys and the user's input method and commits text; a key it lets through is named, or typed |
-| qt | the key filter: `QInputMethodEvent` commits are text, `ShortcutOverride` claims every chord but a Mac's ⌘ ahead of the application's shortcuts, `QKeyEvent::text()` names what a key typed, the key's own letter names a chord |
-| winui | `KeyDown` for a key that types nothing or a Ctrl/Alt chord (its key named by the layout, so Ctrl+[ is "["), `CharacterReceived` for the text with a surrogate pair joined into its one character, `ProcessKeyboardAccelerators` handled so a chord is the canvas's before an accelerator's; AltGr types |
-| web-dom | a transparent `<textarea>` over the canvas takes the focus for it: its `keydown` names the keys that type nothing and the chords, its `input` and `compositionend` deliver the text after the browser and the input method composed it, and it raises a phone's keyboard; a `metaKey` chord and the browser's paste stay the browser's |
-| arkui | the node key event, by `OH_ArkUI_KeyEvent_GetUnicode` or the key's own character under a chord; hardware keyboards only, since a canvas is not an input-method client there |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `keyDown:` on the canvas. A ⌘ chord goes back to [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") first; a key that types nothing is named; a ⌃ chord names its key; everything else goes to the text input system (`interpretKeyEvents:`), and the canvas is its `NSTextInputClient`: a dead key marks, an input method composes, and `insertText:` delivers what was typed, once |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | the canvas adopts `UIKeyInput` once it took the keyboard (it answers `conformsToProtocol:` itself), so the soft keyboard rises for it and `insertText:`/`deleteBackward` are the route; a hardware key that types nothing, or a ⌃/⌥ chord, is claimed in `pressesBegan:`, the rest of the press set goes to `super`, which delivers a text key once through `insertText:` |
+| [android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `onCreateInputConnection` returns a `BaseInputConnection` with an editable of its own: the input method composes in it and the committed text goes once (`commitText`, `finishComposingText`); its deletes outside a composition are the delete keys, `performEditorAction` is Enter; `onKeyDown` names every hardware key |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `EventControllerKey` on the canvas, with a `GtkIMMulticontext` ahead of it: the context composes dead keys and the user's input method and commits text; a key it lets through is named, or typed |
+| [qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | the key filter: `QInputMethodEvent` commits are text, `ShortcutOverride` claims every chord but a Mac's ⌘ ahead of the application's shortcuts, `QKeyEvent::text()` names what a key typed, the key's own letter names a chord |
+| [winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `KeyDown` for a key that types nothing or a Ctrl/Alt chord (its key named by the layout, so Ctrl+[ is "["), `CharacterReceived` for the text with a surrogate pair joined into its one character, `ProcessKeyboardAccelerators` handled so a chord is the canvas's before an accelerator's; AltGr types |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | a transparent `<textarea>` over the canvas takes the focus for it: its `keydown` names the keys that type nothing and the chords, its `input` and `compositionend` deliver the text after the browser and the input method composed it, and it raises a phone's keyboard; a `metaKey` chord and the browser's paste stay the browser's |
+| [arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the node key event, by `OH_ArkUI_KeyEvent_GetUnicode` or the key's own character under a chord; hardware keyboards only, since a canvas is not an input-method client there |
 
 The payload format is the app's own; Day-Sketch uses a standalone SVG document, so shapes
 paste into anything that reads SVG and SVG from other editors pastes back. day places the
@@ -472,14 +472,14 @@ context menus use:
 
 | Toolkit | Menu button |
 |---|---|
-| AppKit | The [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) pops an [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) from its bottom-leading corner with `popUpMenuPositioningItem:atLocation:inView:`, on the mouse going down as a pull-down does, and stays highlighted while the menu tracks |
-| UIKit | The [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton)'s `menu` with `showsMenuAsPrimaryAction`; its one element is an uncached [`UIDeferredMenuElement`](https://developer.apple.com/documentation/uikit/uideferredmenuelement), so UIKit asks for the entries each time the menu opens |
-| GTK | A [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) under the button, pointing at its full width, as [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) places one; the button reports a popup to accessibility |
-| Qt | A [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) popped at the [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)'s bottom-left, with the button held down while it shows |
-| Android | A [`PopupMenu`](https://developer.android.com/reference/android/widget/PopupMenu) anchored to the [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) |
-| WinUI | A [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) shown at the [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) with bottom-edge, left-aligned placement |
-| Web | The [toolbar pull-down](toolbars.md)'s popover: a `role=menu` the arrow keys walk, Escape and a press outside dismiss, and a second press on the button closes; the button carries `aria-haspopup` |
-| ArkUI | The [composed presentation](#the-composed-presentation-web) under the button, since the bound NDK has no menu to bind |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | The [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) pops an [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) from its bottom-leading corner with `popUpMenuPositioningItem:atLocation:inView:`, on the mouse going down as a pull-down does, and stays highlighted while the menu tracks |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | The [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton)'s `menu` with `showsMenuAsPrimaryAction`; its one element is an uncached [`UIDeferredMenuElement`](https://developer.apple.com/documentation/uikit/uideferredmenuelement), so [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") asks for the entries each time the menu opens |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | A [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) under the button, pointing at its full width, as [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) places one; the button reports a popup to accessibility |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | A [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) popped at the [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)'s bottom-left, with the button held down while it shows |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | A [`PopupMenu`](https://developer.android.com/reference/android/widget/PopupMenu) anchored to the [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | A [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) shown at the [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) with bottom-edge, left-aligned placement |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | The [toolbar pull-down](toolbars.md)'s popover: a `role=menu` the arrow keys walk, Escape and a press outside dismiss, and a second press on the button closes; the button carries `aria-haspopup` |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | The [composed presentation](#the-composed-presentation-web) under the button, since the bound NDK has no menu to bind |
 
 On every toolkit the press opens the menu in place of the button's ordinary press, so a menu
 button never reports a tap, and Space or Return (and the accessibility press) open it too. The
@@ -526,7 +526,7 @@ accidental duplicate), but it is a safety net, not the contract. Tag the menu.
 
 Where each toolkit puts the bar:
 
-- **AppKit**: the system menu bar. Day prepends the standard **App menu** automatically,
+- **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**: the system menu bar. Day prepends the standard **App menu** automatically,
   so your [`sub_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.sub_menu.html)s start at *File*, not at a second app-name menu. Both the default bar and
   custom/reactive bars include About, Settings… (when provided), a registered system Services
   submenu, Hide App (⌘H), Hide Others (⌥⌘H), Show All, and Quit (⌘Q). Hide commands target
@@ -535,17 +535,17 @@ Where each toolkit puts the bar:
   declaration wins and duplicate roles, empty submenus, and dangling separators are removed.
   Settings uses the native macOS label. Application-menu chrome uses generated private catalog
   accessors in `day-toolkit-appkit/resource/locales`; app-authored menu labels remain app resources.
-- **GTK**: a [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html) at the top of the window; accelerators registered on the
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")**: a [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html) at the top of the window; accelerators registered on the
   [`GtkApplication`](https://docs.gtk.org/gtk4/class.Application.html). On macOS the model goes to [`gtk_application_set_menubar`](https://docs.gtk.org/gtk4/method.Application.set_menubar.html) instead; GTK's quartz
   toolkit renders it in the system menu bar, and the stock GTK app menu's *Settings…* item enables
   through an `app.preferences` action wired to the Preferences dispatch id.
-- **Qt**: a [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html) (the native global bar on macOS-qt).
-- **Android**: the app-bar overflow (⋮), built by `DayActivity.onCreateOptionsMenu`.
-- **WinUI**: a [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar) docked at the top of the window.
-- **iOS/iPhone**: a no-op, because touch platforms have no persistent global menu bar; the native
+- **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")**: a [`QMenuBar`](https://doc.qt.io/qt-6/qmenubar.html) (the native global bar on macOS-qt).
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**: the app-bar overflow (⋮), built by `DayActivity.onCreateOptionsMenu`.
+- **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**: a [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar) docked at the top of the window.
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")/iPhone**: a no-op, because touch platforms have no persistent global menu bar; the native
   affordances are the per-Piece context menu and the system edit menu. (iPad/Catalyst [`UIMenuBuilder`](https://developer.apple.com/documentation/uikit/uimenubuilder)
   wiring is a future addition.)
-- **Web**: a trailing menu button (the `⋯` overflow glyph, `#day-app-menu`) on the
+- **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")**: a trailing menu button (the `⋯` overflow glyph, `#day-app-menu`) on the
   [toolbar strip](toolbars.md) the shim docks above the page, there whenever the installed
   model has anything the web can answer; the strip appears for it even when the app declared
   no toolbar items. Pressing it opens the model as a popover under the button
@@ -609,7 +609,7 @@ Platform guidance: [Apple: menus](https://developer.apple.com/design/human-inter
 - A [`context_menu(vec![])`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.context_menu) (empty) or a later reconfigure detaches/replaces the menu on the Piece.
 - **Checked items** reach every toolkit that renders a menu at all. Android draws the check inside a
   single level of submenu like any other item; the composed presentation draws its own ✓ column.
-  One observed gap: under **macos-gtk** the item dispatches and its state is correct, but the mark
+  One observed gap: under **[macos-gtk](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk")** the item dispatches and its state is correct, but the mark
   does not appear in the global menu bar — GTK derives the check from the action's state, and the
   quartz bridge that mirrors the model into [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) does not carry it across. Linux GTK's
   in-window `PopoverMenuBar` resolves the same action group directly and is unaffected.

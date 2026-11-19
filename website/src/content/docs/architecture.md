@@ -62,11 +62,11 @@ tests.
 ## One binary per target
 
 A Day binary contains exactly one backend, selected by a Cargo feature at compile time. The
-backend is chosen when the binary is built, so the AppKit build contains only AppKit code, and
+backend is chosen when the binary is built, so the [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") build contains only AppKit code, and
 a call like "set this label's text" compiles down to the backend's concrete function.
 
 The cost is that n [targets](/docs/reference/glossary#target) mean n compilations (CI budgets around it; your laptop builds one at
-a time), and a Linux app ships as a GTK build or a Qt build rather than one binary that picks at
+a time), and a [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") app ships as a [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") build or a [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") build rather than one binary that picks at
 runtime. The benefit is that a widget update compiles to a direct call into the one linked
 backend, and dead-code elimination works on whole [toolkits](/docs/reference/glossary#toolkit).
 
@@ -81,7 +81,7 @@ their constructors.
 
 `day build -t <target>` orchestrates; platform tools do the platform work. Most desktop targets
 are plain cargo builds (each target gets its own `CARGO_TARGET_DIR`, so parallel target builds
-never contend); the exception is `macos-appkit`, which builds through its `platform/macos/`
+never contend); the exception is [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), which builds through its `platform/macos/`
 Xcode host project like a mobile target — including any macOS Swift a dependency contributes,
 the [SwiftUI embedding](/docs/reference/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed
 from Flutter: the checked-in platform project drives, and calls back into `day` for the Rust
@@ -103,7 +103,7 @@ and neither goes stale.
 ```
 
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
-`libentry.so`), and `macos-appkit` generates its own `DayPieces` SwiftPM package (at
+`libentry.so`), and [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") generates its own `DayPieces` SwiftPM package (at
 `build/day/macos/DayPieces`), referenced by the `platform/macos/`
 Xcode host project. Metadata flows one way: [`Day.toml`](/docs/reference/glossary#day-toml) (identity) and the Cargo
 `version` are conveyed into generated, gitignored files that the checked-in projects read; the
@@ -118,13 +118,13 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 
 | Backend | Mechanism |
 |---|---|
-| AppKit / UIKit | `objc2` bindings: Rust calls the Objective-C runtime directly, no shim |
-| GTK | `gtk4-rs` (gobject bindings) |
-| Qt | a small hand-written C++ shim (`day-toolkit-qt-sys`) compiled by `cc` at build time; Rust calls its C API |
-| WinUI | same pattern with C++/WinRT (`day-toolkit-xaml-sys`) |
-| Android | JNI plus a small Java bridge class shipped with the framework; Rust holds `GlobalRef`s to widgets |
-| ArkUI | the ArkUI NDK C API through openharmony-rs's `ohos-sys` bindings; the ArkTS-facing module through ohos-rs's `napi-ohos` (no C++) |
-| DOM | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `objc2` bindings: Rust calls the Objective-C runtime directly, no shim |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `gtk4-rs` (gobject bindings) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | a small hand-written C++ shim (`day-toolkit-qt-sys`) compiled by `cc` at build time; Rust calls its C API |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | same pattern with C++/WinRT (`day-toolkit-xaml-sys`) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | JNI plus a small Java bridge class shipped with the framework; Rust holds `GlobalRef`s to widgets |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") NDK C API through openharmony-rs's `ohos-sys` bindings; the ArkTS-facing module through ohos-rs's `napi-ohos` (no C++) |
+| [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |
 
 Each shim creates widgets, sets properties, and forwards events. Layout policy and reactivity have shared Rust implementations. A backend must still implement
 widget semantics, native measurement, callbacks, lifetime, resources, and platform integration;

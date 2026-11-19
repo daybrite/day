@@ -88,10 +88,10 @@ submission. Do not embed a privileged service credential in the app.
 
 | Platform | Capture |
 | --- | --- |
-| macOS / iOS / Linux / HarmonyOS | Rust panics and native Unix faults. Native fault capture does not guarantee a complete stack trace. |
-| Android | Rust panics, Unix faults, and uncaught Java exceptions. |
-| Windows | Rust panics. Native Windows exception capture is not implemented. |
-| Web | Initialization is a no-op and queries return empty state. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Rust panics and native Unix faults. Native fault capture does not guarantee a complete stack trace. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Rust panics, Unix faults, and uncaught Java exceptions. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Rust panics. Native [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") exception capture is not implemented. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Initialization is a no-op and queries return empty state. |
 
 A fatal-fault handler has strict execution limits. Keep app crash hooks minimal; present UI and
 perform network requests on a later launch, not inside a crash handler.

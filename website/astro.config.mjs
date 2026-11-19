@@ -12,7 +12,7 @@ import docVersions from './integrations/doc-versions.mjs';
 import blog from './integrations/blog.mjs';
 import llmDocs from './integrations/llm-docs.mjs';
 import contentLinks from './plugins/content-links.mjs';
-import accentTargetCode from './plugins/accent-target-code.mjs';
+import explicitToolkitLabels from './plugins/accent-target-code.mjs';
 import tierBadge from './plugins/tier-badge.mjs';
 import admonitions from './plugins/admonitions.mjs';
 import glossaryLinks from './plugins/glossary-links.mjs';
@@ -42,7 +42,7 @@ export default defineConfig({
     // Shiki (build-time, zero client JS) for docs code fences; matches the CodeSample component.
     shikiConfig: { theme: 'night-owl', wrap: false },
     // Rewrite the internal reference docs' GitHub-native relative links to valid web URLs;
-    // accent platform-target names in prose (plugins/accent-target-code.mjs); render links to
+    // render explicitly marked toolkit links (plugins/accent-target-code.mjs); render links to
     // the tier definitions as tier badges (plugins/tier-badge.mjs); links into the glossary as
     // defined terms with a hover popover (plugins/glossary-links.mjs); box call-out blockquotes as
     // admonitions (plugins/admonitions.mjs). tierBadge and glossaryLinks run after the rewrite so they see the
@@ -55,7 +55,7 @@ export default defineConfig({
     // stays at this level — it configures the highlighter, not the unified pipeline.
     processor: unified({
       remarkPlugins: [tutorialSteps],
-      rehypePlugins: [contentLinks, accentTargetCode, tierBadge, glossaryLinks, admonitions, apiLinks],
+      rehypePlugins: [contentLinks, explicitToolkitLabels, tierBadge, glossaryLinks, admonitions, apiLinks],
     }),
   },
 });

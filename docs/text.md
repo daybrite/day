@@ -50,13 +50,13 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 
 | Toolkit | Semantic style | Accessibility scaling |
 |---|---|---|
-| **UIKit** (iOS) | [`UIFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/uikit/uifont) (Dynamic Type) | Yes, live, via `adjustsFontForContentSizeCategory` (Settings ▸ Accessibility ▸ Larger Text) |
-| **AppKit** (macOS) | [`NSFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/appkit/nsfont) | Follows the system font settings |
-| **WinUI** | point sizes (aligned to the desktop scale) | Yes, `FontSize` tracks the OS text-scale-factor |
-| **Android** | `sp` sizes (mobile scale, aligned to iOS) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
-| **GTK** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
-| **Qt** | QFont point sizes | Honors the system DPI/font (no separate large-text toggle) |
-| **Web** | rem-based ramp: the Apple text-style ratios with `Body` = 1, scaled by day.css's `--day-text-scale`: 0.8125 on a desktop pointer, so one Apple point is one CSS pixel and `Body` is 13px like AppKit; 1 on a touch pointer, where `html` is anchored to `-apple-system-body` and every step lands on the iOS ramp | Yes; 1rem is the browser's default-font-size preference (day.css pins `html` at `font-size: 100%`), so every style tracks it, and on iOS the anchor makes it track Dynamic Type; page zoom applies on top |
+| **[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")** ([iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) | [`UIFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/uikit/uifont) (Dynamic Type) | Yes, live, via `adjustsFontForContentSizeCategory` (Settings ▸ Accessibility ▸ Larger Text) |
+| **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")** ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")) | [`NSFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/appkit/nsfont) | Follows the system font settings |
+| **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** | point sizes (aligned to the desktop scale) | Yes, `FontSize` tracks the OS text-scale-factor |
+| **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** | `sp` sizes (mobile scale, aligned to [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
+| **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
+| **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")** | QFont point sizes | Honors the system DPI/font (no separate large-text toggle) |
+| **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** | rem-based ramp: the Apple text-style ratios with `Body` = 1, scaled by day.css's `--day-text-scale`: 0.8125 on a desktop pointer, so one Apple point is one CSS pixel and `Body` is 13px like [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"); 1 on a touch pointer, where `html` is anchored to `-apple-system-body` and every step lands on the [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ramp | Yes; 1rem is the browser's default-font-size preference (day.css pins `html` at `font-size: 100%`), so every style tracks it, and on [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") the anchor makes it track Dynamic Type; page zoom applies on top |
 
 ## Weight & style
 
@@ -172,14 +172,14 @@ The modifier routes to [`Toolkit::set_selectable`](https://docs.rs/day-spec/late
 
 | Toolkit | Affordance |
 |---|---|
-| AppKit | [`NSTextField.setSelectable:`](https://developer.apple.com/documentation/appkit/nstextfield) |
-| UIKit | the label is rebuilt as a read-only, non-scrolling [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) (below) |
-| GTK | [`GtkLabel.set_selectable`](https://docs.gtk.org/gtk4/class.Label.html) |
-| Qt | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) `TextSelectableByMouse`/`ByKeyboard` |
-| WinUI | [`TextBlock.IsTextSelectionEnabled`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) |
-| HarmonyOS | `Text` `NODE_TEXT_COPY_OPTION` (long-press → copy) |
-| Android | [`TextView.setTextIsSelectable`](https://developer.android.com/reference/android/widget/TextView) (long-press → copy) |
-| Web | `user-select: text` (the `#day-root` default is `none`) |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSTextField.setSelectable:`](https://developer.apple.com/documentation/appkit/nstextfield) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | the label is rebuilt as a read-only, non-scrolling [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) (below) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`GtkLabel.set_selectable`](https://docs.gtk.org/gtk4/class.Label.html) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) `TextSelectableByMouse`/`ByKeyboard` |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`TextBlock.IsTextSelectionEnabled`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `Text` `NODE_TEXT_COPY_OPTION` (long-press → copy) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`TextView.setTextIsSelectable`](https://developer.android.com/reference/android/widget/TextView) (long-press → copy) |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `user-select: text` (the `#day-root` default is `none`) |
 
 UIKit is the one platform whose label class has no selection support to switch on: UIKit
 reserves selection for [`UITextInput`](https://developer.apple.com/documentation/uikit/uitextinput) views, and SwiftUI's selectable `Text` isn't a [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel)

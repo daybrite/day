@@ -117,17 +117,17 @@ it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and n
 
 | Target | Ships as | Tint |
 |---|---|---|
-| [ios-uikit](/docs/reference/platforms/ios-uikit) | the SVG in an asset catalog with `preserves-vector-representation`, so `UIImage` renders at display size | `tintColor` on a template image |
-| [macos-appkit](/docs/reference/platforms/macos-appkit) | the SVG itself — `NSImage` renders SVG files at display size (macOS 11+) | `contentTintColor` on a template image |
-| [android-material](/docs/reference/platforms/android-material) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
-| [windows-winui](/docs/reference/platforms/windows-winui) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
-| [web-dom](/docs/reference/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
-| [harmony-arkui](/docs/reference/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
-| [linux-gtk](/docs/reference/platforms/linux-gtk), macos-gtk | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) piece | an alpha-preserving render-node color matrix |
-| [linux-qt](/docs/reference/platforms/linux-qt), macos-qt | retained SVG rendered by `QSvgRenderer` at the requested size, including the [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) piece | alpha compositing at the current paint resolution |
+| [ios-uikit](/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | the SVG in an asset catalog with `preserves-vector-representation`, so `UIImage` renders at display size | `tintColor` on a template image |
+| [macos-appkit](/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the SVG itself — `NSImage` renders SVG files at display size ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 11+) | `contentTintColor` on a template image |
+| [android-material](/docs/reference/platforms/android-material "toolkit:android-material") | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
+| [windows-winui](/docs/reference/platforms/windows-winui "toolkit:windows-winui") | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
+| [web-dom](/docs/reference/platforms/web-dom "toolkit:web-dom") | the SVG, rendered by the browser | a CSS mask painted with the tint |
+| [harmony-arkui](/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the SVG in `rawfile`, rendered by [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")'s `Image` | SVG fill color |
+| [linux-gtk](/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [macos-gtk](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") | retained SVG rendered by librsvg 2.52+ and Cairo at the requested size, including the [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) piece | an alpha-preserving render-node color matrix |
+| [linux-qt](/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [macos-qt](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") | retained SVG rendered by `QSvgRenderer` at the requested size, including the [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) piece | alpha compositing at the current paint resolution |
 
-Qt SVG and librsvg development libraries are required at build time. On Debian/Ubuntu,
-install `qt6-svg-dev` for Qt or `librsvg2-dev` (2.52+) for GTK. Homebrew supplies them through
+[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") SVG and librsvg development libraries are required at build time. On Debian/Ubuntu,
+install `qt6-svg-dev` for Qt or `librsvg2-dev` (2.52+) for [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"). Homebrew supplies them through
 `qt` and `librsvg`.
 See [system requirements](/docs/reference/system-requirements) for complete commands. `day doctor`
 checks both dependencies and enforces librsvg's minimum version. GTK controls that accept
@@ -147,10 +147,10 @@ the same subset: **solid fills and strokes, in either fill rule**. Art outside i
 clipping paths, masks, filters) stages no geometry, and that glyph alone ships as a raster
 instead:
 
-- **Android** falls back at xxxhdpi. `day lint` reports it as `day::lint::vector-raster-fallback`
-  whenever `android-material` is a declared target, so you hear about a gradient in an icon at lint
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** falls back at xxxhdpi. `day lint` reports it as `day::lint::vector-raster-fallback`
+  whenever [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") is a declared target, so you hear about a gradient in an icon at lint
   time, before it reaches a device.
-- **Windows** falls back the same way, and the tint degrades with it: a monochrome `BitmapIcon`
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** falls back the same way, and the tint degrades with it: a monochrome `BitmapIcon`
   over the raster rather than a brush on geometry.
 
 The fallback is per glyph, not per app. Day ships the raster only for art that could not convert,

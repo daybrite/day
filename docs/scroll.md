@@ -74,13 +74,13 @@ toolkit then applies the same "minimal scroll to make the rect visible" rule:
 
 | toolkit | native call |
 |---|---|
-| AppKit | [`NSView.scrollRectToVisible`](https://developer.apple.com/documentation/appkit/nsview) on the document view |
-| UIKit | [`UIScrollView.scrollRectToVisible(_:animated:)`](https://developer.apple.com/documentation/uikit/uiscrollview) |
-| Android | offset math + [`ScrollView.smoothScrollTo`](https://developer.android.com/reference/android/widget/ScrollView) / `scrollTo` (per axis class) |
-| GTK | adjustment clamp + `set_value` (no animation; GTK adjusts immediately) |
-| Qt | scroll-bar clamp + `setValue` (no animation) |
-| WinUI | [`ScrollViewer.ChangeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) (shim `day_xaml_scroll_to`) |
-| ArkUI | `NODE_SCROLL_OFFSET` get/compute/set (300 ms animation when animated) |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSView.scrollRectToVisible`](https://developer.apple.com/documentation/appkit/nsview) on the document view |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIScrollView.scrollRectToVisible(_:animated:)`](https://developer.apple.com/documentation/uikit/uiscrollview) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | offset math + [`ScrollView.smoothScrollTo`](https://developer.android.com/reference/android/widget/ScrollView) / `scrollTo` (per axis class) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | adjustment clamp + `set_value` (no animation; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") adjusts immediately) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | scroll-bar clamp + `setValue` (no animation) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`ScrollViewer.ChangeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) (shim `day_xaml_scroll_to`) |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `NODE_SCROLL_OFFSET` get/compute/set (300 ms animation when animated) |
 | mock | records the computed offset (`MockWidget::scroll_offset`), the unit-test probe |
 
 Nested scrolls reveal in the nearest enclosing scroll only; driving an outer scroll takes a

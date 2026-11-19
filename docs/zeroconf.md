@@ -93,26 +93,26 @@ listener is available, and drop it when the listener closes.
 
 | Platform | Setup and limits |
 | --- | --- |
-| macOS / iOS | [Bonjour](https://developer.apple.com/bonjour/). iOS needs declared service types and a localized local-network usage description. Arbitrary type enumeration on a physical iOS device also requires Apple's multicast entitlement. |
-| Android | [NsdManager](https://developer.android.com/reference/android/net/nsd/NsdManager). TXT publication uses UTF-8 strings; received values retain their bytes. The OS chooses the network. |
-| Windows / WinUI | [DNS-SD APIs](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsservicebrowse). Resolution is one-shot; browse or resolve again to refresh metadata. |
-| Linux / GTK / Qt | [Avahi](https://avahi.org/), its client/common shared libraries, a running daemon, and system D-Bus. |
-| HarmonyOS | Native mDNS service. It chooses the interface, returns one address, and rejects key-only TXT publication. |
-| Web | Unsupported; browsers do not expose a general local-network DNS-SD API. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Bonjour](https://developer.apple.com/bonjour/). [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") needs declared service types and a localized local-network usage description. Arbitrary type enumeration on a physical iOS device also requires Apple's multicast entitlement. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [NsdManager](https://developer.android.com/reference/android/net/nsd/NsdManager). TXT publication uses UTF-8 strings; received values retain their bytes. The OS chooses the network. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [DNS-SD APIs](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsservicebrowse). Resolution is one-shot; browse or resolve again to refresh metadata. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Avahi](https://avahi.org/), its client/common shared libraries, a running daemon, and system D-Bus. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Native mDNS service. It chooses the interface, returns one address, and rejects key-only TXT publication. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Unsupported; browsers do not expose a general local-network DNS-SD API. |
 
 On Apple platforms, declare the intended service types and localized permission rationale in
-the [native host configuration](/docs/how-to/native-projects). A sandboxed macOS app
+the [native host configuration](/docs/how-to/native-projects). A sandboxed [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") app
 also needs the network client/server entitlements appropriate to its operations. Declaring a
 capability does not grant an entitlement or user permission.
 
-Android and HarmonyOS contribute network permissions through the crate's metadata. Check
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") contribute network permissions through the crate's metadata. Check
 [`requires_explicit_permission()`](https://docs.rs/day-part-zeroconf/latest/day_part_zeroconf/fn.requires_explicit_permission.html)
 and the [crate's host setup](https://github.com/daybrite/day-part-zeroconf/blob/main/docs/host-setup.md)
 for the additional runtime permission requirements of the selected OS and target SDK.
 
-Type enumeration on Android and HarmonyOS uses the default IPv4 multicast route. Targeted
+Type enumeration on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") uses the default IPv4 multicast route. Targeted
 browsing is preferable on IPv6-only networks or when a responder does not advertise its type.
-Older Android, Windows, and HarmonyOS resolution needs explicit refresh for changing metadata.
+Older Android, [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), and HarmonyOS resolution needs explicit refresh for changing metadata.
 
 ## Related documentation
 

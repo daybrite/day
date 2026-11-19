@@ -33,7 +33,7 @@ emitted, so the framework's own diagnostics and yours land in the same place, in
 
 Because it does not work everywhere, and where it fails it fails silently.
 
-On `wasm32-unknown-unknown` — the target `web-dom` builds — Rust's standard library has no
+On `wasm32-unknown-unknown` — the target [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") builds — Rust's standard library has no
 stdout to write to. Its implementation accepts your bytes and drops them:
 
 ```rust
@@ -55,10 +55,10 @@ process, turning a clean exit into a spurious crash. Day's logger never panics o
 
 | Target | Sink |
 |---|---|
-| macOS, Linux, Windows | the process's stderr — your terminal |
-| iOS | stderr, which is the Xcode console |
-| Android | stderr, which day-toolkit-material redirects into **logcat** (stdout at INFO, stderr at ERROR) |
-| **Web** | the browser's **JavaScript console** |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | the process's stderr — your terminal |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | stderr, which is the Xcode console |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | stderr, which day-toolkit-material redirects into **logcat** (stdout at INFO, stderr at ERROR) |
+| **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** | the browser's **JavaScript console** |
 
 On the web each level maps to the matching console method (`error!` to `console.error`, `warn!`
 to `console.warn`, `info!` to `console.info`, `debug!` and `trace!` to `console.debug`), so

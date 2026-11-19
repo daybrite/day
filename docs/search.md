@@ -55,7 +55,7 @@ controls a navigation surface's search field:
 | --- | --- |
 | `Always` (default) | Keeps the field visible. |
 | `Scrolls` | Lets supporting mobile toolkits collapse the field and title as the list scrolls. |
-| `OnPull` | Requests an initially hidden field. Android honors this; UIKit treats it as `Scrolls`. |
+| `OnPull` | Requests an initially hidden field. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") honors this; [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") treats it as `Scrolls`. |
 
 Desktop toolbar search is unaffected by reveal policy. On UIKit, scrolling and returning to
 the top control the field's visibility. On Android, tapping the scrolling search bar opens
@@ -78,13 +78,13 @@ Completion presentation depends on the toolkit:
 
 | toolkit | completions |
 |---|---|
-| linux-qt | [`QCompleter`](https://doc.qt.io/qt-6/qcompleter.html) (native popup, case-insensitive) |
-| web-dom | `<datalist>` (the browser's own popup) |
-| windows-winui | [`AutoSuggestBox.ItemsSource`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
-| ios-uikit | [`UISearchResultsUpdating`](https://developer.apple.com/documentation/uikit/uisearchresultsupdating), at any placement — see below |
-| macos-appkit | **none.** [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield)'s menu is a recents list, not completions for the current text, so Day does not present it as one |
-| linux-gtk | **none.** GTK4 deprecated [`GtkEntryCompletion`](https://docs.gtk.org/gtk4/class.EntryCompletion.html) and [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) has no replacement |
-| android-material, harmony-arkui | with the Inline placement |
+| [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QCompleter`](https://doc.qt.io/qt-6/qcompleter.html) (native popup, case-insensitive) |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `<datalist>` (the browser's own popup) |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`AutoSuggestBox.ItemsSource`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UISearchResultsUpdating`](https://developer.apple.com/documentation/uikit/uisearchresultsupdating), at any placement — see below |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | **none.** [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield)'s menu is a recents list, not completions for the current text, so Day does not present it as one |
+| [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | **none.** [GTK4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") deprecated [`GtkEntryCompletion`](https://docs.gtk.org/gtk4/class.EntryCompletion.html) and [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) has no replacement |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | with the Inline placement |
 
 Choosing a suggestion puts it in the field and emits the same change any keystroke would, so an app
 that only reads `query` needs no extra handling. `Event::SearchSuggestionChosen` says *which* one,
@@ -116,14 +116,14 @@ the page is popped. Each toolkit draws it where its platform puts a page's searc
 
 | toolkit | page search | submit |
 |---|---|---|
-| ios-uikit | the page's own [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on its `navigationItem`, stacked under the title as Mail's mailbox does: shown when the field arrives, then hidden on scroll and back on a pull; Cancel clears the query. One controller per page for the page's life, so a page covered by a push keeps its field and text | the keyboard's Search key |
-| android-material | a collapsible [`androidx.appcompat.widget.SearchView`](https://developer.android.com/reference/androidx/appcompat/widget/SearchView) action on the page's app bar: the magnifier expands into a field across the bar; the collapse arrow or system Back closes it and clears the query | the keyboard's Search key |
-| harmony-arkui | an ArkUI `Search` at the top of the showing page, under its title bar | `Search.onSubmit` |
-| macos-appkit | the [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) at the trailing edge of the window toolbar | Return or keypad Enter, taken by the field (`insertNewline:`), so no default button fires and editing continues |
-| linux-gtk | a [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) in the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | Enter (`activate`) |
-| linux-qt | a [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) on the window's [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html), with a clear button and a [`QCompleter`](https://doc.qt.io/qt-6/qcompleter.html) popup | Return (`returnPressed`); Return on a completion applies it first |
-| windows-winui | an [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) in the window toolbar | `QuerySubmitted`: Return, the query glyph, or a picked suggestion |
-| web-dom | an `<input type=search enterkeyhint=search>` in the docked toolbar strip, outside any form | Return, outside IME composition, after any `<datalist>` completion it accepted |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | the page's own [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on its `navigationItem`, stacked under the title as Mail's mailbox does: shown when the field arrives, then hidden on scroll and back on a pull; Cancel clears the query. One controller per page for the page's life, so a page covered by a push keeps its field and text | the keyboard's Search key |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | a collapsible [`androidx.appcompat.widget.SearchView`](https://developer.android.com/reference/androidx/appcompat/widget/SearchView) action on the page's app bar: the magnifier expands into a field across the bar; the collapse arrow or system Back closes it and clears the query | the keyboard's Search key |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | an [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") `Search` at the top of the showing page, under its title bar | `Search.onSubmit` |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) at the trailing edge of the window toolbar | Return or keypad Enter, taken by the field (`insertNewline:`), so no default button fires and editing continues |
+| [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | a [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) in the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | Enter (`activate`) |
+| [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | a [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) on the window's [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html), with a clear button and a [`QCompleter`](https://doc.qt.io/qt-6/qcompleter.html) popup | Return (`returnPressed`); Return on a completion applies it first |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | an [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) in the window toolbar | `QuerySubmitted`: Return, the query glyph, or a picked suggestion |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | an `<input type=search enterkeyhint=search>` in the docked toolbar strip, outside any form | Return, outside IME composition, after any `<datalist>` completion it accepted |
 
 The desktops and the web draw one bar per window, so the field rides it while its page is on top
 of its stack; Android keeps an open field through repaints of its bar and brings it back open when

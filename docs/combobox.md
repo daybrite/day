@@ -26,10 +26,10 @@ its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, GTK, Qt, Android, WinUI | Native editable choice control. |
-| Web | Browser input with a datalist. |
-| ArkUI | Composed text input and suggestions menu. |
-| UIKit | No renderer; use a [picker](/docs/reference/picker) or [text field](/docs/reference/textfield). |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Native editable choice control. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Browser input with a datalist. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Composed text input and suggestions menu. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | No renderer; use a [picker](/docs/reference/picker) or [text field](/docs/reference/textfield). |
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
@@ -60,20 +60,20 @@ Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-int
 
 | Platform / toolkit | Implementation |
 | --- | --- |
-| AppKit | [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) |
-| GTK | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) with entry |
-| Qt | Editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) |
-| Android | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) |
-| WinUI | Editable [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
-| UIKit | No renderer; placeholder only. |
-| Web | Browser input with a datalist. |
-| ArkUI | ArkTS `TextInput` + suggestions menu. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) with entry |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Editable [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | No renderer; placeholder only. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Browser input with a datalist. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | ArkTS `TextInput` + suggestions menu. |
 
-On UIKit, use a [picker](/docs/reference/picker) or
-[text field](/docs/reference/textfield). ArkUI composes a text input and suggestions menu.
-AppKit completes text inline; Android prefix-filters suggestions while typing.
+On [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), use a [picker](/docs/reference/picker) or
+[text field](/docs/reference/textfield). [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") composes a text input and suggestions menu.
+[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") completes text inline; [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") prefix-filters suggestions while typing.
 
-WinUI commits free-form text on Enter or focus loss; choosing a suggestion updates the binding
+[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") commits free-form text on Enter or focus loss; choosing a suggestion updates the binding
 immediately. Other implementations report text edits as they occur.
 
 ## Limits

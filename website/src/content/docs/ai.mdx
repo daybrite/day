@@ -29,7 +29,7 @@ cargo install --git https://github.com/daybrite/day day-cli
 day doctor --toolkit appkit
 ```
 
-This guide uses `macos-appkit` on macOS. For another target, follow
+This guide uses [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") on macOS. For another target, follow
 [Getting started](/docs/tutorials/first-app) and substitute its target name in the commands below.
 
 <div data-agent="claude">
@@ -319,7 +319,7 @@ for execution and output options.
 
 ## What was verified with Codex
 
-A disposable `macos-appkit` project was tested with Codex CLI 0.154.0 and Day CLI 0.4.1,
+A disposable [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") project was tested with Codex CLI 0.154.0 and Day CLI 0.4.1,
 resolving Day 0.4.3 dependencies. Codex read the project instructions, changed a localized title,
 built and launched the app through MCP, passed a text assertion, inspected the returned screenshot,
 and stopped the app. The shell used the workspace-write sandbox; Day ran as a local MCP process.

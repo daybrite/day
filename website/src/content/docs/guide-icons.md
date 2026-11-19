@@ -46,33 +46,33 @@ a design, and `--out preview.svg` saves a preview without requiring a project.
 
 `day prepare` writes platform assets to `build/day/host/`:
 
-- **macOS** — PNG icons with the required shape and margins, `day-icon.icns`, and the asset catalog the
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")** — PNG icons with the required shape and margins, `day-icon.icns`, and the asset catalog the
   Xcode project compiles.
-- **iOS** — the asset catalog with an opaque 1024 px image, plus an Icon Composer package
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")** — the asset catalog with an opaque 1024 px image, plus an Icon Composer package
   (`AppIcon.icon/`) for Xcode 26's Liquid Glass icons.
-- **Android** — the launcher resource tree: adaptive `ic_launcher_{foreground,background}.png`,
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** — the launcher resource tree: adaptive `ic_launcher_{foreground,background}.png`,
   the legacy icon, `mipmap-anydpi-v26/ic_launcher.xml`, and, from a layered master, the
   Android 13 themed icon; beside it `play-store-512.png` for the listing.
-- **HarmonyOS** — `startIcon.png` and the layered icon (`layered_image.json` with foreground
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** — `startIcon.png` and the layered icon (`layered_image.json` with foreground
   and background), linked into both module resource roots and referenced by
   `app.json5`/`module.json5`.
-- **Windows** — a multi-size `day.ico` (16/32/48/256) and `day-icon-256.png`.
-- **Linux** — PNGs at the sizes appstream tooling accepts (48/128/256/512).
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** — a multi-size `day.ico` (16/32/48/256) and `day-icon-256.png`.
+- **[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")** — PNGs at the sizes appstream tooling accepts (48/128/256/512).
 - **`png/`** — `day-icon-{16…1024}.png` for favicons and general use.
 
 The files in `build/day/host/` are generated and should not be committed. Native projects reference
 them, and build, launch, and packaging commands regenerate them when the source icon or Day
 version changes. `day prepare -t <target>` limits generation to one platform family.
 
-Platform-specific sources override the shared icon: `resource/icons/macos.svg` supplies the macOS
-icon, and `resource/icons/ios/AppIcon.icon/` supplies an Icon Composer bundle for iOS.
+Platform-specific sources override the shared icon: `resource/icons/macos.svg` supplies the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
+icon, and `resource/icons/ios/AppIcon.icon/` supplies an Icon Composer bundle for [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit").
 
 <span id="3-open-the-native-project-and-gate-ci"></span>
 
 ## Native projects and CI
 
 `day open -t ios-uikit` prepares assets before opening Xcode; `day open -t android-material` does the
-same for Android Studio. The corresponding VS Code commands also prepare assets first.
+same for [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio. The corresponding VS Code commands also prepare assets first.
 
 CI can check whether generated files are current without writing them:
 
@@ -120,7 +120,7 @@ at build time.
 - SVG text must be converted to outlines. Both app icons and interface icons reject `<text>` elements.
 - Android VectorDrawable supports solid fills and strokes; art with
   gradients, clips, masks, or filters falls back to the 256 px raster, and `day lint` flags it
-  as `day::lint::vector-raster-fallback` when `android-material` is a declared target. `day lint`
+  as `day::lint::vector-raster-fallback` when [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") is a declared target. `day lint`
   also catches unreadable art, empty `.symbolset` bundles, and glyph-embedded text.
 - Tint has coverage limits. AppKit, UIKit, Android, GTK, and ArkUI recolor; Qt, WinUI, and
   web draw the authored colors. Use authored colors when the color must match across backends.

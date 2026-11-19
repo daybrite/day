@@ -116,13 +116,13 @@ the demo's controls.
 
 | Platform | Requirements and limits |
 | --- | --- |
-| iOS / UIKit and macOS / AppKit | CoreBluetooth. Supply a localized `NSBluetoothAlwaysUsageDescription`; sandboxed macOS apps also need the Bluetooth entitlement. |
-| Android / Material | Nearby devices permissions on Android 12 and later. Scanning also needs location access unless the app declares `neverForLocation`; older versions need location permission. |
-| Linux / GTK / Qt | A running BlueZ service, system D-Bus access, and a powered LE adapter. Known dual-mode Classic/LE devices are rejected until explicit LE connection selection is available. |
-| Windows / WinUI | A Bluetooth LE adapter and OS permission. Packaged apps need the `bluetooth` device capability. Scan before connecting so address information is available. |
-| Web / DOM and HarmonyOS / ArkUI | Native operations are unsupported. Simulations are available. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") and [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | CoreBluetooth. Supply a localized `NSBluetoothAlwaysUsageDescription`; sandboxed [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") apps also need the Bluetooth entitlement. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") / Material | Nearby devices permissions on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") 12 and later. Scanning also needs location access unless the app declares `neverForLocation`; older versions need location permission. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | A running BlueZ service, system D-Bus access, and a powered LE adapter. Known dual-mode Classic/LE devices are rejected until explicit LE connection selection is available. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | A Bluetooth LE adapter and OS permission. Packaged apps need the `bluetooth` device capability. Scan before connecting so address information is available. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Native operations are unsupported. Simulations are available. |
 
-The Android demo declares `neverForLocation`. Use that declaration only when the app does not
+The [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") demo declares `neverForLocation`. Use that declaration only when the app does not
 derive location from scan results; Android may filter some beacons. See
 [Android Bluetooth permissions](https://developer.android.com/develop/connectivity/bluetooth/bt-permissions)
 and Day's [native project configuration](/docs/how-to/native-projects).

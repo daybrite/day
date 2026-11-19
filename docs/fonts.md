@@ -47,14 +47,14 @@ Ask [`capability(Cap::FontList)`](https://docs.rs/day-core/latest/day_core/fn.ca
 
 | Toolkit | `Cap::FontList` | Source |
 | --- | --- | --- |
-| macOS (AppKit) | Native | [`NSFontManager.availableFontFamilies`](https://developer.apple.com/documentation/appkit/nsfontmanager) + `availableMembersOfFontFamily:` |
-| iOS (UIKit) | Native | [`UIFont.familyNames`](https://developer.apple.com/documentation/uikit/uifont) + `fontNamesForFamilyName:`, faces described through [`UIFontDescriptor`](https://developer.apple.com/documentation/uikit/uifontdescriptor) |
-| GTK | Native | the PangoCairo font map: `list_families()` → `list_faces()` |
-| Qt | Native | [`QFontDatabase::families()`](https://doc.qt.io/qt-6/qfontdatabase.html) + `styles()` |
-| Android | Native | `/system/etc/fonts.xml` (the families `Typeface.create` resolves) plus the bundled `res/font/` families |
-| HarmonyOS | Native | `OH_Drawing_FontMgr` families and style sets, plus the bundled manifest (the bundled files are handed to the drawing layer as typefaces, since ArkTS `font.registerFont` reaches only the text engine labels use) |
-| Windows (WinUI) | Native | DirectWrite's system font collection (a bundled family is addressed as `ms-appx:///fonts/<file>#<family>` on the way to the [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock), the one form unpackaged WinUI loads; the app keeps naming it by family) |
-| Web | **Emulated** | the CSS generic families (`system-ui`, `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy`) with the four faces a browser synthesizes for any family, plus every bundled `FontFace` |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")) | Native | [`NSFontManager.availableFontFamilies`](https://developer.apple.com/documentation/appkit/nsfontmanager) + `availableMembersOfFontFamily:` |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ([UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) | Native | [`UIFont.familyNames`](https://developer.apple.com/documentation/uikit/uifont) + `fontNamesForFamilyName:`, faces described through [`UIFontDescriptor`](https://developer.apple.com/documentation/uikit/uifontdescriptor) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Native | the PangoCairo font map: `list_families()` → `list_faces()` |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Native | [`QFontDatabase::families()`](https://doc.qt.io/qt-6/qfontdatabase.html) + `styles()` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Native | `/system/etc/fonts.xml` (the families `Typeface.create` resolves) plus the bundled `res/font/` families |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Native | `OH_Drawing_FontMgr` families and style sets, plus the bundled manifest (the bundled files are handed to the drawing layer as typefaces, since ArkTS `font.registerFont` reaches only the text engine labels use) |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) | Native | DirectWrite's system font collection (a bundled family is addressed as `ms-appx:///fonts/<file>#<family>` on the way to the [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock), the one form unpackaged [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") loads; the app keeps naming it by family) |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | **Emulated** | the CSS generic families (`system-ui`, `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy`) with the four faces a browser synthesizes for any family, plus every bundled `FontFace` |
 
 The web answer is composed rather than read on purpose: a browser exposes the machine's fonts
 only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission
@@ -86,7 +86,7 @@ name draws in the default face with one warning in the log. Size stays absolute 
 [docs/canvas](canvas.md) for why canvas text ignores the reader's text-size setting.
 
 A weight or slant the family does not ship is synthesized where the platform does that (Skia on
-Android and HarmonyOS, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango,
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango,
 CoreText); [`face_for`](https://docs.rs/day-spec/latest/day_spec/struct.FontFamilyInfo.html#method.face_for) says which.
 
 ## Measurement
@@ -138,16 +138,16 @@ never wrong. Cap height falls back to 0.7 × size.
 
 | Toolkit | Line box | Cap height | Ink box |
 | --- | --- | --- | --- |
-| AppKit / UIKit | `sizeWithAttributes:` + `ascender` | [`NSFont`](https://developer.apple.com/documentation/appkit/nsfont)/[`UIFont.capHeight`](https://developer.apple.com/documentation/uikit/uifont) | `boundingRectWithSize:` + `usesDeviceMetrics` |
-| GTK | a Pango layout's logical extents and `baseline()` | the ink ascent of `H` — Pango has no cap metric | the same layout's ink extents |
-| Qt | [`QFontMetricsF`](https://doc.qt.io/qt-6/qfontmetricsf.html) | `capHeight()` | `tightBoundingRect()` |
-| Android | [`Paint.measureText`](https://developer.android.com/reference/android/graphics/Paint) + `FontMetrics` | the ink ascent of `H` — [`Paint`](https://developer.android.com/reference/android/graphics/Paint) has no cap metric | `getTextBounds` |
-| HarmonyOS | `OH_Drawing_FontMeasureText` + `OH_Drawing_FontGetMetrics` | the metrics' `capHeight` | **the line box** — no tight-bounds call in the C surface |
-| Windows (WinUI) | a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock)'s desired size and `BaselineOffset` | **0.7 × size** — a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) reports neither | **the line box** — likewise |
-| Web | `measureText` with `fontBoundingBoxAscent` / `Descent` | the ink ascent of `H` | `actualBoundingBox*` |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `sizeWithAttributes:` + `ascender` | [`NSFont`](https://developer.apple.com/documentation/appkit/nsfont)/[`UIFont.capHeight`](https://developer.apple.com/documentation/uikit/uifont) | `boundingRectWithSize:` + `usesDeviceMetrics` |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | a Pango layout's logical extents and `baseline()` | the ink ascent of `H` — Pango has no cap metric | the same layout's ink extents |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QFontMetricsF`](https://doc.qt.io/qt-6/qfontmetricsf.html) | `capHeight()` | `tightBoundingRect()` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`Paint.measureText`](https://developer.android.com/reference/android/graphics/Paint) + `FontMetrics` | the ink ascent of `H` — [`Paint`](https://developer.android.com/reference/android/graphics/Paint) has no cap metric | `getTextBounds` |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `OH_Drawing_FontMeasureText` + `OH_Drawing_FontGetMetrics` | the metrics' `capHeight` | **the line box** — no tight-bounds call in the C surface |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) | a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock)'s desired size and `BaselineOffset` | **0.7 × size** — a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) reports neither | **the line box** — likewise |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `measureText` with `fontBoundingBoxAscent` / `Descent` | the ink ascent of `H` | `actualBoundingBox*` |
 
 Toolkits measuring `H` pay one extra measurement of a one-character string,
-[memoized](#it-is-cached) per `(size, font)`. WinUI uses the same Win2D text layout
+[memoized](#it-is-cached) per `(size, font)`. [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") uses the same Win2D text layout
 for measurements, screen drawing and bitmap export, including bundled families.
 
 ### It is cached
@@ -155,7 +155,7 @@ for measurements, screen drawing and bitmap export, including bundled families.
 A measurement is a pure function of `(text, size, font)`: canvas text takes absolute points, so
 it carries neither the reader's font-scale setting nor the window's scale factor, and no toolkit's
 measurement reads anything else. [`measure_text`](https://docs.rs/day-core/latest/day_core/fn.measure_text.html) therefore memoizes, and a repeat costs a hash of
-the key instead of a trip into the toolkit — around **0.26 µs against 23 µs** on AppKit, which
+the key instead of a trip into the toolkit — around **0.26 µs against 23 µs** on [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), which
 builds an [`NSString`](https://developer.apple.com/documentation/foundation/nsstring) and an attribute dictionary for every measurement it is asked for.
 
 That matters because measuring repeats constantly. A chart's axes measure the same tick labels on
@@ -178,7 +178,7 @@ cannot go stale on its own. It exists for an app or toolkit that registers a fac
 and so genuinely does change what a family name measures to.
 
 One answer is deliberately **not** cached: the [`TextMetrics::approximate`](https://docs.rs/day-spec/latest/day_spec/struct.TextMetrics.html#method.approximate) fallback. "The toolkit
-could not answer" is a fact about the moment — Android's measurement returns nothing until its VM
+could not answer" is a fact about the moment — [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s measurement returns nothing until its VM
 is up — not about the text, and caching it would pin a guess for the life of the process.
 
 ## Platform guidance

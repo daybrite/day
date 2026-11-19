@@ -29,8 +29,8 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Text and binary clipboard APIs; Linux needs session clipboard tools. |
-| Web | Permission- and browser-dependent. Binary format support differs by engine. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Text and binary clipboard APIs; [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") needs session clipboard tools. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Permission- and browser-dependent. Binary format support differs by engine. |
 
 ## Authoring
 
@@ -57,39 +57,39 @@ Platform guidance: [Android: copying and pasting](https://developer.android.com/
 
 | OS | API | dependency |
 |---|---|---|
-| macOS | [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard) (clearContents + setString:forType: / stringForType:) | `objc2-app-kit` |
-| iOS | [`UIPasteboard.generalPasteboard`](https://developer.apple.com/documentation/uikit/uipasteboard) (string / setString: / hasStrings) | `objc2-ui-kit` |
-| Windows | [Win32 clipboard](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard), [`CF_UNICODETEXT`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) (OpenClipboard/Set/GetClipboardData) | raw FFI (user32/kernel32) |
-| Linux | `wl-copy`/`wl-paste` (Wayland), `xclip` (X11) via `std::process` | std only |
-| HarmonyOS | native [`OH_Pasteboard_*`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-pasteboard.md) + UDMF plain-text record (`libpasteboard.so`, `libudmf.so`) | raw FFI (BasicServicesKit) |
-| Android | [`ClipboardManager`](https://developer.android.com/reference/android/content/ClipboardManager) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSPasteboard`](https://developer.apple.com/documentation/appkit/nspasteboard) (clearContents + setString:forType: / stringForType:) | `objc2-app-kit` |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIPasteboard.generalPasteboard`](https://developer.apple.com/documentation/uikit/uipasteboard) (string / setString: / hasStrings) | `objc2-ui-kit` |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [Win32 clipboard](https://learn.microsoft.com/en-us/windows/win32/dataxchg/clipboard), [`CF_UNICODETEXT`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) (OpenClipboard/Set/GetClipboardData) | raw FFI (user32/kernel32) |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | `wl-copy`/`wl-paste` (Wayland), `xclip` (X11) via `std::process` | std only |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | native [`OH_Pasteboard_*`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-pasteboard.md) + UDMF plain-text record (`libpasteboard.so`, `libudmf.so`) | raw FFI (BasicServicesKit) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`ClipboardManager`](https://developer.android.com/reference/android/content/ClipboardManager) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 
-macOS is toolkit-independent: the general pasteboard needs no [NSApplication](https://developer.apple.com/documentation/appkit/nsapplication), run loop, or window, so it
+[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") is toolkit-independent: the general pasteboard needs no [NSApplication](https://developer.apple.com/documentation/appkit/nsapplication), run loop, or window, so it
 works identically in day-toolkit-appkit and day-toolkit-qt binaries (and plain `cargo test` processes). [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) is
-**not thread-safe** (concurrent access from two threads can segfault inside AppKit), so the crate
+**not thread-safe** (concurrent access from two threads can segfault inside [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")), so the crate
 serializes its own accesses behind a process-wide mutex.
 
-Desktop Linux has no toolkit-independent native clipboard API (the clipboard lives in the display
-server, and GDK's accessor needs GTK initialized, which would break day-toolkit-qt binaries), so the crate
+Desktop [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") has no toolkit-independent native clipboard API (the clipboard lives in the display
+server, and GDK's accessor needs [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") initialized, which would break day-toolkit-qt binaries), so the crate
 shells out to the session's standard tools: `wl-copy`/`wl-paste` from `wl-clipboard` on Wayland,
 `xclip` on X11 (the session type picks which to try first; the other is the fallback). One of them
 must be installed; both are common distro packages.
 
-HarmonyOS is `target_os = "linux"` but has no such tools, so it's gated on `target_env = "ohos"` and
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") is `target_os = "linux"` but has no such tools, so it's gated on `target_env = "ohos"` and
 uses the native Pasteboard C API (API 13+) instead. That's pure FFI: it needs neither a permission
-nor the Day runtime (unlike Android). Content is typed through UDMF: a write wraps an
+nor the Day runtime (unlike [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")). Content is typed through UDMF: a write wraps an
 `OH_UdsPlainText` in a record in an `OH_UdmfData`; a read uses `OH_UdmfData_GetPrimaryPlainText`.
 
 Platform access rules:
 
-- **Android 10+** only lets an app *read* the clipboard while it holds input focus: [`get_text()`](https://docs.rs/day-part-clipboard/latest/day_part_clipboard/fn.get_text.html) /
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") 10+** only lets an app *read* the clipboard while it holds input focus: [`get_text()`](https://docs.rs/day-part-clipboard/latest/day_part_clipboard/fn.get_text.html) /
   [`has_text()`](https://docs.rs/day-part-clipboard/latest/day_part_clipboard/fn.has_text.html) return `None`/`false` in the background. Writing is always allowed. No manifest permission
   is involved either way. Writing raises a system overlay of its own on recent versions, and it can
   hold that focus for a moment — so a read taken right after a write of the app's own is one of the
   cases that comes back empty. [`day::install_edit_commands`](https://docs.rs/day-app/latest/day/fn.install_edit_commands.html) covers it by remembering the payload it
   placed (see [menus](menus.md)); an app calling this crate directly gets the platform's answer
   verbatim.
-- **iOS 14+** shows the system "app pasted from …" banner when [`get_text()`](https://docs.rs/day-part-clipboard/latest/day_part_clipboard/fn.get_text.html) reads the pasteboard;
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 14+** shows the system "app pasted from …" banner when [`get_text()`](https://docs.rs/day-part-clipboard/latest/day_part_clipboard/fn.get_text.html) reads the pasteboard;
   [`has_text()`](https://docs.rs/day-part-clipboard/latest/day_part_clipboard/fn.has_text.html) uses `hasStrings`, the pre-check Apple provides that does not trigger the banner.
   Prefer the asynchronous typed [`read`](https://docs.rs/day-part-clipboard/latest/day_part_clipboard/fn.read.html) API in UI actions: it performs the native read on a
   worker so a delayed provider or paste authorization cannot block the main thread. The legacy
@@ -159,14 +159,14 @@ block a subsequent read; native paste events use their captured payload immediat
 
 | Platform | Binary transport | Limits / interoperability |
 |---|---|---|
-| macOS (AppKit, GTK, Qt) | [`NSPasteboard.setData:forType:`](https://developer.apple.com/documentation/appkit/nspasteboard) / `dataForType:` | PNG/JPEG/TIFF/GIF/BMP/SVG/WebP MIME names map to Apple pasteboard identifiers; custom names remain exact. Same process-wide lock as text operations. |
-| iOS UIKit | One [`UIPasteboard.items`](https://developer.apple.com/documentation/uikit/uipasteboard) dictionary with multiple [`NSData`](https://developer.apple.com/documentation/foundation/nsdata) values | Same Apple identifiers. Paste menu validation accepts non-text items. System paste authorization still applies. |
-| Android Material Components | [`ClipData`](https://developer.android.com/reference/android/content/ClipData) content URI + read-only `BinaryClipboardProvider` | The crate contributes its provider and manifest through Day metadata. Binary data is stored in app cache files, not Binder parcels. URI grants allow receiving apps to open typed representations. Provider paths are UUID-only; writes through the provider are rejected. Cache eviction can make old URI clips unavailable. The current generated Java bridge transports the internal packet as base64 because it does not yet marshal byte-vector returns; system clipboard content remains binary. |
-| Windows (OS-level, any toolkit) | Registered formats, including `PNG`; [`CF_UNICODETEXT`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) for text | A private length-framed companion preserves exact byte lengths for Day-to-Day arbitrary data, independent of global-allocation padding. Packed [`CF_DIB`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) screenshots are exposed as encoded BMP, including palette/mask offsets. |
-| Linux GTK/Qt | `wl-copy`/`wl-paste --type`, or `xclip -target` | Session tools currently publish one representation: PNG, then SVG, then text, then the first offer. The returned accepted-type list exposes that restriction. Matching tools and a display session are required. |
-| HarmonyOS ArkUI | Pasteboard + UDMF general byte entries; plain text uses its native UDS record | Encoded image types map to UTD identifiers. PixelMap-only or URI-only foreign image records are not converted. Custom UTD acceptance is platform-dependent and reported through the accepted-type result. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | [`NSPasteboard.setData:forType:`](https://developer.apple.com/documentation/appkit/nspasteboard) / `dataForType:` | PNG/JPEG/TIFF/GIF/BMP/SVG/WebP MIME names map to Apple pasteboard identifiers; custom names remain exact. Same process-wide lock as text operations. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | One [`UIPasteboard.items`](https://developer.apple.com/documentation/uikit/uipasteboard) dictionary with multiple [`NSData`](https://developer.apple.com/documentation/foundation/nsdata) values | Same Apple identifiers. Paste menu validation accepts non-text items. System paste authorization still applies. |
+| [Android Material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Components | [`ClipData`](https://developer.android.com/reference/android/content/ClipData) content URI + read-only `BinaryClipboardProvider` | The crate contributes its provider and manifest through Day metadata. Binary data is stored in app cache files, not Binder parcels. URI grants allow receiving apps to open typed representations. Provider paths are UUID-only; writes through the provider are rejected. Cache eviction can make old URI clips unavailable. The current generated Java bridge transports the internal packet as base64 because it does not yet marshal byte-vector returns; system clipboard content remains binary. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") (OS-level, any toolkit) | Registered formats, including `PNG`; [`CF_UNICODETEXT`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) for text | A private length-framed companion preserves exact byte lengths for Day-to-Day arbitrary data, independent of global-allocation padding. Packed [`CF_DIB`](https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats) screenshots are exposed as encoded BMP, including palette/mask offsets. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")/[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | `wl-copy`/`wl-paste --type`, or `xclip -target` | Session tools currently publish one representation: PNG, then SVG, then text, then the first offer. The returned accepted-type list exposes that restriction. Matching tools and a display session are required. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Pasteboard + UDMF general byte entries; plain text uses its native UDS record | Encoded image types map to UTD identifiers. PixelMap-only or URI-only foreign image records are not converted. Custom UTD acceptance is platform-dependent and reported through the accepted-type result. |
 
-The OS-based implementation deliberately remains usable without initializing GTK or Qt.
+The OS-based implementation deliberately remains usable without initializing [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt").
 The desktop toolkit edit routes remain responsible for allowing a focused text editor to
 handle its own Copy/Paste first. Apps that need custom async behavior can use
 [`day::install_edit_bridge`](https://docs.rs/day-app/latest/day/fn.install_edit_bridge.html) with `day::EditState` and the typed clipboard functions.
@@ -181,11 +181,11 @@ For Cut, delete the captured selection only after the write succeeds and only if
 selection is still current when the asynchronous operation completes.
 
 > [!WARNING]
-> **Windows, Linux, and HarmonyOS: clipboard interoperability.**
+> **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): clipboard interoperability.**
 > Native binary clipboard behavior remains unverified on these platforms. Test transfers
 > with the other applications and data formats your app needs.
 
 > [!NOTE]
-> **Web / DOM: clipboard permissions.**
+> **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom"): clipboard permissions.**
 > Browser permissions and clipboard formats differ by engine. Test permission denial and
 > paste from other applications in the browsers your app supports.

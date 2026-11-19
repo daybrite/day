@@ -100,10 +100,10 @@ by the OS, and the piece does not manage a photo-library permission or save oper
 
 | Platform / toolkit | Behavior |
 | --- | --- |
-| iOS / UIKit | [AVFoundation capture](https://developer.apple.com/documentation/avfoundation/capture_setup). Capture needs a physical device; the simulator reports unavailable. Preview orientation is fixed portrait below iOS 17. |
-| Android | [CameraX](https://developer.android.com/media/camera/camerax). Requires granted camera permission and usable hardware; virtual emulator cameras can exercise capture. |
-| HarmonyOS / ArkUI | Native camera integration is present, but hardware behavior is unverified. Test on the intended device before relying on it. |
-| macOS, Windows, Linux, Web | No camera renderer; the piece displays a placeholder and reports unsupported. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [AVFoundation capture](https://developer.apple.com/documentation/avfoundation/capture_setup). Capture needs a physical device; the simulator reports unavailable. Preview orientation is fixed portrait below [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 17. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [CameraX](https://developer.android.com/media/camera/camerax). Requires granted camera permission and usable hardware; virtual emulator cameras can exercise capture. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Native camera integration is present, but hardware behavior is unverified. Test on the intended device before relying on it. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), Web | No camera renderer; the piece displays a placeholder and reports unsupported. |
 
 Torch, zoom, and video recording are not exposed by this release. Use
 [media playback](/docs/reference/media) to display an existing recording, and

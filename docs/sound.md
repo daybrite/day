@@ -33,8 +33,8 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Sound effects and loops; Linux requires libpulse or PipeWire’s PulseAudio compatibility layer. |
-| Web | Web Audio requires a user interaction before playback can start. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Sound effects and loops; [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") requires libpulse or PipeWire’s PulseAudio compatibility layer. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Web Audio requires a user interaction before playback can start. |
 
 ## Authoring
 
@@ -161,35 +161,35 @@ Platform guidance: [Apple: playing audio](https://developer.apple.com/design/hum
 
 | Platform | Engine | Notes | Loops |
 |---|---|---|---|
-| iOS | [AVAudioEngine](https://developer.apple.com/documentation/avfaudio/avaudioengine) with a pool of [AVAudioPlayerNodes](https://developer.apple.com/documentation/avfaudio/avaudioplayernode) | the `.ambient` audio session: mixes with other audio, silenced by the Silent switch | native: the node is given the buffer with the `Loops` option |
-| macOS | [AVAudioEngine](https://developer.apple.com/documentation/avfaudio/avaudioengine) with a pool of [AVAudioPlayerNodes](https://developer.apple.com/documentation/avfaudio/avaudioplayernode) | the engine starts on the first load | native, as on iOS |
-| Android | [`SoundPool`](https://developer.android.com/reference/android/media/SoundPool) with `USAGE_GAME` audio attributes | loads in the background from the APK's assets | native: a stream played with `loop = -1` |
-| HarmonyOS | [`SoundPool`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-media-kit/js-apis-inner-multimedia-soundPool.md) with `STREAM_USAGE_GAME` | loads in the background from the app's raw files | native: a stream played with `loop: -1` |
-| web | [Web Audio](https://www.w3.org/TR/webaudio/) | reads embedded bytes and decodes each clip; the audio context starts on the page's first tap or key press, as browsers require | native: a source node with `loop` set |
-| Windows | [XAudio2](https://learn.microsoft.com/en-us/windows/win32/xaudio2/xaudio2-introduction) | a mastering voice in the game-effects category, 8 source voices for clips and 4 for loops | native: the buffer's `LoopCount` is `XAUDIO2_LOOP_INFINITE` |
-| Linux (GTK, Qt) | [libpulse](https://www.freedesktop.org/software/pulseaudio/doxygen/), loaded at run time, with the part's own mixer | reaches PulseAudio and PipeWire's Pulse layer; the stream is open only while something sounds | emulated: the mixer wraps the clip from its last sample to its first |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [AVAudioEngine](https://developer.apple.com/documentation/avfaudio/avaudioengine) with a pool of [AVAudioPlayerNodes](https://developer.apple.com/documentation/avfaudio/avaudioplayernode) | the `.ambient` audio session: mixes with other audio, silenced by the Silent switch | native: the node is given the buffer with the `Loops` option |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [AVAudioEngine](https://developer.apple.com/documentation/avfaudio/avaudioengine) with a pool of [AVAudioPlayerNodes](https://developer.apple.com/documentation/avfaudio/avaudioplayernode) | the engine starts on the first load | native, as on [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`SoundPool`](https://developer.android.com/reference/android/media/SoundPool) with `USAGE_GAME` audio attributes | loads in the background from the APK's assets | native: a stream played with `loop = -1` |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`SoundPool`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-media-kit/js-apis-inner-multimedia-soundPool.md) with `STREAM_USAGE_GAME` | loads in the background from the app's raw files | native: a stream played with `loop: -1` |
+| [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | [Web Audio](https://www.w3.org/TR/webaudio/) | reads embedded bytes and decodes each clip; the audio context starts on the page's first tap or key press, as browsers require | native: a source node with `loop` set |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [XAudio2](https://learn.microsoft.com/en-us/windows/win32/xaudio2/xaudio2-introduction) | a mastering voice in the game-effects category, 8 source voices for clips and 4 for loops | native: the buffer's `LoopCount` is `XAUDIO2_LOOP_INFINITE` |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | [libpulse](https://www.freedesktop.org/software/pulseaudio/doxygen/), loaded at run time, with the part's own mixer | reaches PulseAudio and PipeWire's Pulse layer; the stream is open only while something sounds | emulated: the mixer wraps the clip from its last sample to its first |
 
-Every native loop repeats sample-exactly inside the engine. [Linux](#linux) mixes in software.
+Every native loop repeats sample-exactly inside the engine. [Linux](#linux "toolkit:linux-gtk,linux-qt") mixes in software.
 
 On Apple platforms a route change (headphones, a new output device) stops the engine. The part
 starts it again on the next call that makes sound and puts every loop back on its node, so a
 loop that was the only sound stays silent until then.
 
-Where loading happens in the background (Android, HarmonyOS, the web), a clip played before it is
+Where loading happens in the background ([Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), the web), a clip played before it is
 ready is skipped, because a late sound effect is worse than none; [`preload`](https://docs.rs/day-part-sound/latest/day_part_sound/fn.preload.html) when a screen opens
 avoids that.
 
-The part has no cargo features: the engine is chosen by `#[cfg(target_os)]` and, for Android,
-HarmonyOS and the web, by the daybridge arms in `src/lib.rs` ([bridge](bridge.md)). On Apple
+The part has no cargo features: the engine is chosen by `#[cfg(target_os)]` and, for [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"),
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") and the web, by the daybridge arms in `src/lib.rs` ([bridge](bridge.md)). On Apple
 platforms it links `AVFAudio` through `[package.metadata.day.ios]` and
 `[package.metadata.day.macos]` ([extending](extending.md)). No platform asks the user for a
 permission to play sound.
 
-### Linux
+### [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")
 
 The part plays through **[libpulse](https://www.freedesktop.org/software/pulseaudio/doxygen/)**, the client library of the PulseAudio sound server. PipeWire
 speaks the same protocol through its Pulse layer (`pipewire-pulse`), so the one library reaches
-the sound server on every current desktop. It is the only audio library the part uses on Linux.
+the sound server on every current desktop. It is the only audio library the part uses on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt").
 
 [libpulse](https://www.freedesktop.org/software/pulseaudio/doxygen/)'s simple API offers a stream to write samples into, so the part mixes in software. One
 thread owns one stereo stream at 44.1 kHz. Each clip and each loop sounding is a voice in the

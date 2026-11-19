@@ -9,16 +9,16 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Build and package for Windows
+# Build and package for [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 
-Use `windows-winui` for Windows apps. It uses WinUI 3 from the Windows App SDK and is a
-[Tier 2](/docs/reference/platforms#support-tiers) target. The older `windows-xaml` target is
+Use [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") for [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") apps. It uses [WinUI 3](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") from the Windows App SDK and is a
+[Tier 2](/docs/reference/platforms#support-tiers) target. The older [`windows-xaml`](https://daybrite.dev/docs/reference/platforms "toolkit:windows-xaml") target is
 deprecated. See the [Windows toolkit reference](/docs/reference/platforms/windows-winui) for
 control support and platform behavior.
 
 ## Prepare and run
 
-On a Windows development host, install Rust and the C++ build tools listed in
+On a [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") development host, install Rust and the C++ build tools listed in
 [System requirements](/docs/reference/system-requirements#windows), then run:
 
 ```sh
@@ -26,7 +26,7 @@ day doctor --toolkit winui
 day launch -t windows-winui
 ```
 
-Development builds use the installed Windows App SDK runtime. `day doctor` checks it and
+Development builds use the installed [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") App SDK runtime. `day doctor` checks it and
 reports missing requirements. Day fetches the pinned SDK packages and generates the C++/WinRT
 projection needed by its native shims; applications do not need to generate this manually.
 
@@ -37,7 +37,7 @@ WebView2 dependencies when the app uses them. See [Environment](/docs/reference/
 ## Optional components
 
 `day build -t windows-winui` enables matching toolkit features for declared optional pieces.
-Consult each piece's documentation for its dependency and Windows requirements.
+Consult each piece's documentation for its dependency and [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") requirements.
 
 [Web views](/docs/reference/webview) use WebView2. Packaged apps carry the loader libraries;
 development builds can use the SDK cache. The WebView2 runtime is a separate requirement.
@@ -48,7 +48,7 @@ development builds can use the SDK cache. The WebView2 runtime is a separate req
 day pack -t windows-winui
 ```
 
-Windows packages include the Windows App SDK runtime beside the application. A packaged
+[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") packages include the Windows App SDK runtime beside the application. A packaged
 installation therefore does not require the development machine's runtime installation.
 Development builds remain framework-dependent to avoid copying that runtime on every build.
 
@@ -57,9 +57,9 @@ Test the resulting package on a clean machine as well as on the development host
 
 ## Canvas and capture
 
-WinUI draws canvases through Win2D, supplied by the pinned SDK packages. Bitmap and PNG export
+[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") draws canvases through Win2D, supplied by the pinned SDK packages. Bitmap and PNG export
 are supported; PDF export is unavailable. See [Canvas](/docs/reference/canvas).
 
-Window capture normally uses Windows Graphics Capture, including composed content such as
+Window capture normally uses [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") Graphics Capture, including composed content such as
 WebView2 and video. Where that API is unavailable, the XAML-tree fallback omits the window
 frame and separately composed content. See [Window images](/docs/reference/window-image).

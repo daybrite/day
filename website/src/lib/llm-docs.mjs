@@ -95,6 +95,7 @@ export function generateLlmDocs(origin = 'https://daybrite.dev') {
         const resolved = resolveContentLink(node.url, guide.source);
         if (!resolved) throw new Error(`Unpublished link in LLM guide ${entry.key}: ${node.url}`);
         node.url = absolute(resolved.startsWith('#') ? guide.route + resolved : resolved);
+        if (node.title?.startsWith('toolkit:')) delete node.title;
       }
       if (node.children) node.children = node.children.filter((child) => child.type !== 'html' || !/^<!--/.test(child.value));
     });

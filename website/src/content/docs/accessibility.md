@@ -72,11 +72,11 @@ platform mapping is uneven:
 
 | Platform | Identifier surface |
 |---|---|
-| iOS / macOS | `accessibilityIdentifier` — full support (XCUITest etc.) |
-| Windows (WinUI, Qt) | UIA `AutomationId` — full support |
-| Android | `uniqueId` through the accessibility delegate on API 33+; compat extras below that |
-| GTK | no public settable AT-SPI id today — inspector-visible only |
-| Web | DOM `id` |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `accessibilityIdentifier` — full support (XCUITest etc.) |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | UIA `AutomationId` — full support |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `uniqueId` through the accessibility delegate on API 33+; compat extras below that |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | no public settable AT-SPI id today — inspector-visible only |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | DOM `id` |
 
 [dayscript](/docs/reference/glossary#dayscript) is unaffected by this table; it resolves ids inside the app, uniformly everywhere.
 The table matters only when pointing external tooling (Appium, UIA scrapers) at a Day app.
@@ -103,13 +103,13 @@ See [audit logic](https://github.com/daybrite/day/blob/main/crates/day-script/sr
 
 ## Current limits
 
-- **GTK off Linux has no accessibility tree.** GTK's AT-SPI bridge is Linux-only, so the
-  `macos-gtk` development combo ([Tier 4](/docs/reference/platforms#support-tiers)) is invisible to screen readers. Ship the platform-native [target](/docs/reference/glossary#target) for real users.
-- **Android annotations:** the delegate carries hints, explicit role/class hints, heading state,
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") off [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") has no accessibility tree.** GTK's AT-SPI bridge is Linux-only, so the
+  [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") development combo ([Tier 4](/docs/reference/platforms#support-tiers)) is invisible to screen readers. Ship the platform-native [target](/docs/reference/glossary#target) for real users.
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") annotations:** the delegate carries hints, explicit role/class hints, heading state,
   and identifiers as well as labels and values. Identifier exposure differs below API 33.
   [DayBridge](https://github.com/daybrite/day/blob/main/crates/day-toolkit-material/java/dev/daybrite/day/bridge/DayBridge.java)
   defines the mapping; TalkBack behavior still needs runtime review.
-- **Qt uses `QAccessible` to expose native accessibility information.** Validate the OS bridge
+- **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") uses `QAccessible` to expose native accessibility information.** Validate the OS bridge
   and the controls your app uses; an implementation hook is not proof of assistive-technology
   usability on every host.
 - **Reactive values:** [`A11yBuilder::value`](https://docs.rs/day-pieces/latest/day_pieces/struct.A11yBuilder.html#method.value) accepts the same reactive text sources as labels.

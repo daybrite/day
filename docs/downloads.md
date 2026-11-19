@@ -29,8 +29,8 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | In-app downloads; OS-managed downloads are available except on Linux. |
-| Web | Unavailable; opening a download manager returns `Unsupported`. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | In-app downloads; OS-managed downloads are available except on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"). |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Unavailable; opening a download manager returns `Unsupported`. |
 
 ## Authoring
 
@@ -125,12 +125,12 @@ in the app, and `Progress::tier` says which tier ran it.
 
 | Platform | Service | Pause | Notes |
 |---|---|---|---|
-| macOS, iOS | a background [`URLSession`](https://developer.apple.com/documentation/foundation/urlsession), one per process, keyed to the bundle identifier | yes, from resume data | Each task's description names the manager directory and download, so a transfer that finishes while the app is away lands in place when the app next opens the manager. A binary with no bundle identifier has no system tier. |
-| Android | [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) | no: [`pause`](https://docs.rs/day-part-downloads/latest/day_part_downloads/struct.Downloads.html#method.pause) returns `DownloadError::Unsupported` and the transfer keeps running | The OS shows its own notification. The file lands in the app's external files directory and moves into the manager's directory when it is whole. |
-| HarmonyOS | a background task of the request agent ([`request.agent`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/js-apis-request.md)) | yes | The file lands in the app's cache directory first. |
-| Windows | the [Background Intelligent Transfer Service](https://learn.microsoft.com/en-us/windows/win32/bits/background-intelligent-transfer-service-portal) | yes | Each download is a BITS job owned by the user, so it continues after the app quits. |
-| Linux | none | | Downloads run in the app. |
-| Web | none | | Download manager operations return `Unsupported`. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | a background [`URLSession`](https://developer.apple.com/documentation/foundation/urlsession), one per process, keyed to the bundle identifier | yes, from resume data | Each task's description names the manager directory and download, so a transfer that finishes while the app is away lands in place when the app next opens the manager. A binary with no bundle identifier has no system tier. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) | no: [`pause`](https://docs.rs/day-part-downloads/latest/day_part_downloads/struct.Downloads.html#method.pause) returns `DownloadError::Unsupported` and the transfer keeps running | The OS shows its own notification. The file lands in the app's external files directory and moves into the manager's directory when it is whole. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | a background task of the request agent ([`request.agent`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/js-apis-request.md)) | yes | The file lands in the app's cache directory first. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | the [Background Intelligent Transfer Service](https://learn.microsoft.com/en-us/windows/win32/bits/background-intelligent-transfer-service-portal) | yes | Each download is a BITS job owned by the user, so it continues after the app quits. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | none | | Downloads run in the app. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | none | | Download manager operations return `Unsupported`. |
 
 The OS sends only the request's URL and headers, so the client's cookies, redirect and challenge
 handlers, and pins do not apply to a download it runs. Its transient failures retry like the
@@ -142,7 +142,7 @@ On iOS the app does not yet forward `application(_:handleEventsForBackgroundURLS
 download that finishes while the app is suspended is reported the next time the app opens its
 manager.
 
-## The web
+## The [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
 
 A page has no files for the manager to own, so [`Downloads::open`](https://docs.rs/day-part-downloads/latest/day_part_downloads/struct.Downloads.html#method.open) returns
 `DownloadError::Unsupported` on wasm32. The rest of the API compiles there, which keeps shared
@@ -156,7 +156,7 @@ code building for the web.
 |---|---|
 | `Io(message)` | a file or directory the manager needs could not be used |
 | `Unknown(id)` | no download has this id |
-| `Unsupported` | the web, or pausing an Android system-tier transfer |
+| `Unsupported` | the web, or pausing an [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") system-tier transfer |
 | `Http(HttpError)` | the request failed, or answered with a status that does not retry |
 | `Integrity { expected, actual }` | the SHA-256 differed |
 | `Length { expected, actual }` | the length differed |
@@ -169,7 +169,7 @@ code building for the web.
 | `downloads.journal` | the manager, on every change |
 | `<id>.part` | an in-app attempt, or the OS's finished body before verification |
 | `<id>.resume` | the Apple system tier, when a paused or failed transfer left resume data |
-| `<id>.part.bits` | the Windows system tier, while BITS completes a job |
+| `<id>.part.bits` | the [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") system tier, while BITS completes a job |
 
 Put the directory under [day-part-filesystem](fs.md)'s [`data_dir()`](https://docs.rs/day-part-filesystem/latest/day_part_filesystem/fn.data_dir.html), which keeps it beside the app's other
 files and out of the user's documents.

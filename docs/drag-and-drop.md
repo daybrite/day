@@ -91,17 +91,17 @@ item/alternative coverage; multiple native file references can be encoded in one
 
 | Toolkit | Native mechanism | File and timing notes |
 |---|---|---|
-| AppKit | NSDraggingSession, [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) | File URLs; synchronous receipt |
-| GTK | DragSource, DropTargetAsync, GIO streams | URI lists; reads cancel after 30 seconds |
-| Qt | [QDrag](https://doc.qt.io/qt-6/qdrag.html), QMimeData | URLs; synchronous receipt; source survives nested event-loop disposal safely |
-| WinUI | CanDrag/AllowDrop in-app, host-window [`IDropTarget`](https://learn.microsoft.com/en-us/windows/win32/api/oleidl/nn-oleidl-idroptarget) for external drags, DataPackage | StorageItems; drag/drop deferrals; CF_HDROP imported as `text/uri-list` |
-| UIKit | UIDragInteraction, UIDropInteraction, NSItemProvider | Encoded byte providers; pending loads cancel after 30 seconds |
-| Android | startDragAndDrop, ClipData, ContentProvider | Read-only URI grants; bounded reads on a worker; permissions released at receipt/timeout |
-| ArkUI | native node drag events, UDMF | General byte records and file URI records; compile checked against API 18 |
-| Web | HTML draggable and DataTransfer | Files read at drop; HTML custom strings carry the Day bundle as base64 |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | NSDraggingSession, [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) | File URLs; synchronous receipt |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | DragSource, DropTargetAsync, GIO streams | URI lists; reads cancel after 30 seconds |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [QDrag](https://doc.qt.io/qt-6/qdrag.html), QMimeData | URLs; synchronous receipt; source survives nested event-loop disposal safely |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | CanDrag/AllowDrop in-app, host-window [`IDropTarget`](https://learn.microsoft.com/en-us/windows/win32/api/oleidl/nn-oleidl-idroptarget) for external drags, DataPackage | StorageItems; drag/drop deferrals; CF_HDROP imported as `text/uri-list` |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | UIDragInteraction, UIDropInteraction, NSItemProvider | Encoded byte providers; pending loads cancel after 30 seconds |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | startDragAndDrop, ClipData, ContentProvider | Read-only URI grants; bounded reads on a worker; permissions released at receipt/timeout |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | native node drag events, UDMF | General byte records and file URI records; compile checked against API 18 |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | HTML draggable and DataTransfer | Files read at drop; HTML custom strings carry the Day bundle as base64 |
 
-macOS MIME/UTI conversion is shared with the system mapping used by GTK, so custom types
-survive AppKit/Qt/GTK process boundaries. Windows (WinUI) uses named DataPackage streams; the
+[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") MIME/UTI conversion is shared with the system mapping used by [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), so custom types
+survive [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")/[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")/GTK process boundaries. [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) uses named DataPackage streams; the
 WinUI/Qt/GTK cross-process matrix still requires a Windows runtime check.
 
 HTML protected mode only exposes metadata during hover. File objects and string read requests
@@ -110,19 +110,19 @@ binary bundles, but HTML custom strings do **not** provide universal native bina
 filesystem paths. Check capabilities rather than assuming desktop file behavior on web.
 
 The current API is eager bytes. File promises, asynchronous application-supplied providers,
-portable file leases, and externally committed moves are not supported. UIKit does not yet import promised files through
-NSItemProvider file representations; Android content URIs are read into bytes. File references
+portable file leases, and externally committed moves are not supported. [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") does not yet import promised files through
+NSItemProvider file representations; [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") content URIs are read into bytes. File references
 are not a portable promise of sandbox access. The `DragFilePromises` and `DragExternalMove`
 capabilities therefore remain unsupported. Existing canvas and collection gestures remain
 separate from system data transfers.
 
 > [!WARNING]
-> **Windows / WinUI: external file drops.**
+> **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"): external file drops.**
 > Explorer file drops have not been verified on WinUI.
 > Cross-process transfers between Windows toolkits also remain unverified.
 
 > [!WARNING]
-> **Linux and HarmonyOS: native transfers.**
+> **[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): native transfers.**
 > Native drag-and-drop behavior remains unverified. Test cross-application transfers,
 > cancellation, and the formats your app accepts.
 

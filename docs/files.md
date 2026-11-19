@@ -56,7 +56,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 A file location crosses back as a **`FileUrl`**, a newtype wrapping a single *locator string*.
 Each platform hands back a different kind of locator, and the type stores whichever arrives:
 
-- **A string, because of Android:** the Storage Access Framework returns a `content://` URI
+- **A string, because of [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"):** the Storage Access Framework returns a `content://` URI
   rather than a filesystem path; a `std::path::PathBuf` cannot represent it and `std::fs`
   cannot open it.
 - **A newtype, for one parser:** the accessors below live in one place instead of at every
@@ -64,7 +64,7 @@ Each platform hands back a different kind of locator, and the type stores whiche
 - **Stored verbatim:** `url::Url` normalizes and validates in ways that mangle `content://`
   authorities, and it would add a large dependency, so the locator is kept as received.
 
-`FileUrl` is the lossless union (a filesystem path on desktop/iOS, a `content://` URI on Android)
+`FileUrl` is the lossless union (a filesystem path on desktop/[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), a `content://` URI on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"))
 with accessors:
 
 | method | result |
@@ -75,7 +75,7 @@ with accessors:
 | [`read`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read)` () /  `[`read_to_string`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_to_string)`()` | the bytes / UTF-8 text (local paths; `content://` errors) |
 
 **Opened files are always readable.** Where a platform doesn't hand back a usable path, the
-toolkit materializes one first: Android copies the picked document into the app cache under the document's own name, and iOS
+toolkit materializes one first: [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") copies the picked document into the app cache under the document's own name, and [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 imports it into the app sandbox. So [`open_file`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_file.html)`().await?`[`.read_to_string`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.read_to_string)`()` works on every
 target.
 
@@ -118,22 +118,22 @@ Platform guidance: [Apple: file management](https://developer.apple.com/design/h
 
 | Toolkit | Open (one or several) | Folder | Save |
 |---|---|---|---|
-| appkit | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) (sheet; `allowsMultipleSelection`, every `URLs` entry reported) | `NSOpenPanel` with `canChooseDirectories` | [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) (sheet) |
-| uikit  | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (`.import`; `allowsMultipleSelection`, each pick copied into the sandbox) | none: resolves `None` | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (export) |
-| gtk    | [`GtkFileDialog.open` / `open_multiple`](https://docs.gtk.org/gtk4/class.FileDialog.html) (GTK 4.10+) | `GtkFileDialog.select_folder` | [`GtkFileDialog.save`](https://docs.gtk.org/gtk4/class.FileDialog.html) |
-| qt     | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`ExistingFile` / `ExistingFiles`) via the C++ shim | `QFileDialog` (`Directory` + `ShowDirsOnly`) | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`AnyFile`/`AcceptSave`) |
-| android | `ACTION_OPEN_DOCUMENT` (+ `EXTRA_ALLOW_MULTIPLE`, every `ClipData` item) + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) (copy → cache) | none: resolves `None` | `ACTION_CREATE_DOCUMENT` + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) |
-| arkui (HarmonyOS) | ArkTS `DocumentViewPicker.select` (`maxSelectNumber` for several) + `@ohos.file.fs` (copy → cache) | none: resolves `None` | `DocumentViewPicker.save` + `@ohos.file.fs` |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) (sheet; `allowsMultipleSelection`, every `URLs` entry reported) | `NSOpenPanel` with `canChooseDirectories` | [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) (sheet) |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")  | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (`.import`; `allowsMultipleSelection`, each pick copied into the sandbox) | none: resolves `None` | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (export) |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")    | [`GtkFileDialog.open` / `open_multiple`](https://docs.gtk.org/gtk4/class.FileDialog.html) ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") 4.10+) | `GtkFileDialog.select_folder` | [`GtkFileDialog.save`](https://docs.gtk.org/gtk4/class.FileDialog.html) |
+| [qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")     | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`ExistingFile` / `ExistingFiles`) via the C++ shim | `QFileDialog` (`Directory` + `ShowDirsOnly`) | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`AnyFile`/`AcceptSave`) |
+| [android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `ACTION_OPEN_DOCUMENT` (+ `EXTRA_ALLOW_MULTIPLE`, every `ClipData` item) + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) (copy → cache) | none: resolves `None` | `ACTION_CREATE_DOCUMENT` + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) |
+| [arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") ([HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) | ArkTS `DocumentViewPicker.select` (`maxSelectNumber` for several) + `@ohos.file.fs` (copy → cache) | none: resolves `None` | `DocumentViewPicker.save` + `@ohos.file.fs` |
 | dom (web) | `<input type=file>` (`multiple` for several; the browser's picker) | none: resolves `None` | a Blob download |
 | mock   | records the spec; resolved programmatically | same | same |
-| WinUI  | WinRT `FileOpenPicker` (`PickSingleFileAsync` / `PickMultipleFilesAsync`) | WinRT `FolderPicker` | WinRT `FileSavePicker` |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")  | WinRT `FileOpenPicker` (`PickSingleFileAsync` / `PickMultipleFilesAsync`) | WinRT `FolderPicker` | WinRT `FileSavePicker` |
 
 `Cap::FolderDialog` is `Native` exactly where the Folder column names a chooser: the four
 desktops. The phone and web toolkits answer `Unsupported` and resolve an [`open_folder()`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_folder.html) request
 as cancelled at once, so the await never hangs; an app that offers "Add Folder…" asks the
 capability first and hides the command elsewhere.
 
-On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
+On [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
 the `day-toolkit-arkui` toolkit calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
 JS thread); the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
 callback, wired in the framework's ArkTS host page (`crates/day-toolkit-arkui/platform/harmony/ets/Index.ets`,
@@ -147,9 +147,9 @@ the same builders and the same `FileUrl` surface on web as on every other target
 All toolkits present the picker non-blocking (sheet / `open()` / delegate / Activity result),
 so the main loop keeps running and dayscript stays live while a picker is up.
 
-## Windows picker behavior
+## [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") picker behavior
 
-The WinUI toolkit advertises `Cap::FileDialogs = Native` and `Cap::FolderDialog = Native`. It
+The [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") toolkit advertises `Cap::FileDialogs = Native` and `Cap::FolderDialog = Native`. It
 uses the system WinRT pickers (`FileOpenPicker`, `FolderPicker`, `FileSavePicker`), initialized
 with the host HWND through [`IInitializeWithWindow`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-iinitializewithwindow) (the
 [desktop picker interop contract](https://devblogs.microsoft.com/oldnewthing/20190412-00/?p=102413)).
@@ -164,13 +164,13 @@ failures, canceled operations, and errors retrieving the result or path resolve 
 `Dismissed`, rather than leaving the calling future pending. Completion removes the
 registration before notifying Rust; duplicate or late replies are ignored.
 
-Validate on a Windows host with `Day-Showcase/dayscript/files.yaml`, then manually
+Validate on a [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") host with `Day-Showcase/dayscript/files.yaml`, then manually
 open and cancel the native picker and select a file with a Unicode path. In Day-Sketch,
 insert an image through the **+** menu, edit its geometry/opacity/rotation, save the
 drawing, and reopen it. Scripted `respond` validates the portable presentation flow;
 it does not select a file through the real Windows picker UI.
 
-## macOS sandboxing
+## [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") sandboxing
 
 See [macOS App Sandbox](sandbox.md) for Day.toml configuration and persistent file access.
 [`FileUrl::bookmark(read_only)`](https://docs.rs/day-pieces/latest/day_pieces/struct.FileUrl.html#method.bookmark) returns opaque bookmark bytes;

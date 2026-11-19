@@ -32,8 +32,8 @@ Declare the required capabilities and usage explanations in [Day.toml permission
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, HarmonyOS, Web | Location APIs are present; permission and an available positioning source are required. Device delivery remains unverified. |
-| Windows, Linux (GTK / Qt) | No location implementation. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Location APIs are present; permission and an available positioning source are required. Device delivery remains unverified. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | No location implementation. |
 
 ## Authoring
 
@@ -81,7 +81,7 @@ crate depends on the other, and an app that already has permission pays nothing 
 that requests it. Location also needs the build-time declaration `[permissions]` generates; without
 it, iOS terminates the app on first use.
 
-On the **web** there is no separate request at all: the first `watchPosition` call *is* the prompt,
+On the **[web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** there is no separate request at all: the first `watchPosition` call *is* the prompt,
 so whichever of the two crates runs first shows it.
 
 ## Platform implementations
@@ -90,36 +90,36 @@ Platform guidance: [Apple: Core Location](https://developer.apple.com/documentat
 
 | OS | API | dependency |
 |---|---|---|
-| iOS / macOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager) + a delegate defined with `objc2::define_class!` | `objc2`, `objc2-foundation`, `[package.metadata.day.ios].frameworks = ["CoreLocation"]` |
-| Android | [`LocationManager.requestLocationUpdates`](https://developer.android.com/reference/android/location/LocationManager) via the crate's own Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
-| Web | [`navigator.geolocation.watchPosition`](https://www.w3.org/TR/geolocation/#watchposition-method) through the day-toolkit-dom shim | `web.rs` (wasm32; needs the day-toolkit-dom host page) |
-| HarmonyOS | [`geoLocationManager.on('locationChange')`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-location-kit/js-apis-geoLocationManager.md) (Location Kit) via an ArkTS arm; see below | [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) (`src/ohos.rs`) |
-| Linux | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |
-| Windows | none yet; [`Windows.Devices.Geolocation`](https://learn.microsoft.com/en-us/uwp/api/windows.devices.geolocation) is the future impl | — |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager) + a delegate defined with `objc2::define_class!` | `objc2`, `objc2-foundation`, `[package.metadata.day.ios].frameworks = ["CoreLocation"]` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`LocationManager.requestLocationUpdates`](https://developer.android.com/reference/android/location/LocationManager) via the crate's own Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | [`navigator.geolocation.watchPosition`](https://www.w3.org/TR/geolocation/#watchposition-method) through the day-toolkit-dom shim | `web.rs` (wasm32; needs the day-toolkit-dom host page) |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`geoLocationManager.on('locationChange')`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-location-kit/js-apis-geoLocationManager.md) (Location Kit) via an ArkTS arm; see below | [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) (`src/ohos.rs`) |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | none yet; [`Windows.Devices.Geolocation`](https://learn.microsoft.com/en-us/uwp/api/windows.devices.geolocation) is the future impl | — |
 
 An unsupported target reports itself: [`is_available()`](https://docs.rs/day-part-location/latest/day_part_location/fn.is_available.html) answers `false` and a [`watch`](https://docs.rs/day-part-location/latest/day_part_location/fn.watch.html) reports
 `LocationError::Unavailable` **once**, so an app waiting for its first fix is never left hanging.
 
-### Why not FusedLocationProviderClient on Android
+### Why not FusedLocationProviderClient on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 
-The fused provider is the usual Android recommendation, but it ships in
+The fused provider is the usual [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") recommendation, but it ships in
 Google Play services, which AOSP images and many emulators do not have, and it would add a Gradle
 coordinate to every app linking this part. The platform [`LocationManager`](https://developer.android.com/reference/android/location/LocationManager) is always present. The
 shim prefers GPS at `Accuracy::Best` and the network provider otherwise, and seeds the first update
 from `getLastKnownLocation` so a fix appears immediately instead of waiting for the radio.
 
-### HarmonyOS: an ArkTS arm
+### [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): an ArkTS arm
 
-Location on HarmonyOS is an ArkTS API (`@kit.LocationKit`) with no NDK C surface, so the crate
+Location on [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") is an ArkTS API (`@kit.LocationKit`) with no NDK C surface, so the crate
 reaches it through a daybridge arm ([docs/bridge](bridge.md) "Streams"): `watch_native` subscribes to
 `locationChange` at the accuracy's priority (`LOW_POWER`, `FIRST_FIX`, `ACCURACY`) and streams each
 fix back as one line, a field the platform left out as `NaN`. The switch being off answers
 `LocationError::Disabled` at once rather than waiting for a fix that cannot come; error 201 is
 `PermissionDenied`, and the app asks through [`day-part-permissions`](permissions.md)
-(`Permission::Location`). The OpenHarmony emulator has no positioning source, so it reports
+(`Permission::Location`). The [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") emulator has no positioning source, so it reports
 `Disabled` or times out; a real fix needs a device.
 
-### Apple: fixes need a run loop
+### [Apple](https://daybrite.dev/docs/reference/platforms "toolkit:macos-appkit,ios-uikit"): fixes need a run loop
 
 CoreLocation delivers to the run loop of the thread the manager was created on. In a Day app that is
 the UI thread, and everything works. In a plain `main` or under `cargo test` there is no run loop, so
@@ -127,7 +127,7 @@ no fix is ever delivered; [`is_available()`](https://docs.rs/day-part-location/l
 example file says so at the top.
 
 Apple reports "not measured" as a negative accuracy and `-1` for speed and course; those become
-`None` rather than nonsense numbers. Android reports it with a `hasXxx()` companion, which the shim
+`None` rather than nonsense numbers. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") reports it with a `hasXxx()` companion, which the shim
 passes across alongside the value.
 
 > [!WARNING]

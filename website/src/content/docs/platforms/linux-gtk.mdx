@@ -5,6 +5,8 @@ order: 33.4
 section: Reference
 ---
 
+import Toolkit from '../../../components/Toolkit.astro';
+
 {/*
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -13,7 +15,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's GTK target presents a Linux desktop interface using GTK 4 and libadwaita. This reference
 covers its development libraries, packaging, and toolkit-specific behavior.
 
-`linux-gtk` is a [Tier 2](/docs/reference/platforms#support-tiers) target. Install the development
+<Toolkit id="linux-gtk"><code>linux-gtk</code></Toolkit> is a [Tier 2](/docs/reference/platforms#support-tiers) target. Install the development
 libraries required by the distribution and check the toolkit’s accessibility limitations before
 choosing it.
 
@@ -52,7 +54,7 @@ marks it executable and runs it.
   Adwaita types; a plain-GTK build is not a supported configuration.
 - [`GtkVideo`](https://docs.gtk.org/gtk4/class.Video.html) needs a GStreamer media toolkit in the GTK build. Distro packages ship one;
   Homebrew's gtk4 does not, so the media piece shows GTK's own "no media toolkit" error on
-  `macos-gtk`.
+  [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk").
 - Lottie and map have no GTK arm; each renders its placeholder. [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
 - The combo box uses [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html), deprecated in GTK 4.10 but kept because GTK has no
@@ -62,9 +64,9 @@ marks it executable and runs it.
   later value change; use separate nodes if you need both.
 - Canvas text uses cairo's toy text API, not Pango, so complex-script shaping inside a
   [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) is weaker than in a [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html).
-- GTK on macOS (`macos-gtk`) exists for development convenience only
+- GTK on macOS ([`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk")) exists for development convenience only
   ([Tier 4](/docs/reference/platforms#support-tiers)); `day pack` skips it, and the accessibility tree is
-  absent (GTK's a11y bridge is Linux-only). On Windows, build `linux-gtk` inside
+  absent (GTK's a11y bridge is Linux-only). On Windows, build [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") inside
   [WSL 2](/docs/reference/system-requirements#windows).
 
 ## What each piece becomes
@@ -72,7 +74,7 @@ marks it executable and runs it.
 The generated [coverage matrix](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md), checked in CI, covers every toolkit;
 this table adds links and notes.
 
-| Day piece | GTK widget |
+| Day piece | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") widget |
 |---|---|
 | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html) (Day owns layout) |
 | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`GtkLabel`](https://docs.gtk.org/gtk4/class.Label.html) |
@@ -84,7 +86,7 @@ this table adds links and notes.
 | [`text_area`](https://docs.rs/day-pieces/latest/day_pieces/fn.text_area.html) | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in a [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) |
 | [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.menu`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.menu)`()` | [`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) |
 | [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | linked [`GtkToggleButton`](https://docs.gtk.org/gtk4/class.ToggleButton.html)s |
-| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | grouped [`GtkCheckButton`](https://docs.gtk.org/gtk4/class.CheckButton.html)s (GTK 4's radio) |
+| [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | grouped [`GtkCheckButton`](https://docs.gtk.org/gtk4/class.CheckButton.html)s ([GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")'s radio) |
 | [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html) |
 | [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) |
 | [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) | [`GtkSeparator`](https://docs.gtk.org/gtk4/class.Separator.html) |

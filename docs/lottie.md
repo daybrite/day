@@ -66,16 +66,16 @@ A web-backed player also has page-loading latency before its first animation fra
 
 | Platform / toolkit | Player |
 | --- | --- |
-| iOS / UIKit | [Lottie for iOS](https://github.com/airbnb/lottie-ios), integrated through SwiftPM. |
-| Android | [Lottie for Android](https://github.com/airbnb/lottie-android), integrated through Gradle. Custom hosts must enable AndroidX. |
-| AppKit, GTK, Qt, WinUI, ArkUI, Web | Bundled [lottie-web](https://github.com/airbnb/lottie-web) inside the [web view](/docs/reference/webview); requires that toolkit's web engine. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Lottie for iOS](https://github.com/airbnb/lottie-ios), integrated through SwiftPM. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [Lottie for Android](https://github.com/airbnb/lottie-android), integrated through Gradle. Custom hosts must enable AndroidX. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Bundled [lottie-web](https://github.com/airbnb/lottie-web) inside the [web view](/docs/reference/webview); requires that toolkit's web engine. |
 
 Reactive animation and speed updates in the web player depend on
 [JavaScript evaluation](/docs/reference/webview#javascript-interaction) support. A target without evaluation
 uses the initial values until the piece is rebuilt. Check the actual web-view capability and
 installed engine rather than assuming every desktop integration behaves identically.
 
-On UIKit, avoid sending speed changes more often than a display frame. Check the intended
+On [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), avoid sending speed changes more often than a display frame. Check the intended
 animation on each player: Lottie exporters and players support different effects, fonts, and
 image arrangements. Honor the app's reduced-motion policy; a static illustration or a
 construction-time paused alternative can be more appropriate.
@@ -143,7 +143,7 @@ sample artwork independently, preserve the upstream licenses and attribution rec
 
 ### Platform behavior
 
-The pages use the same native iOS/Android
+The pages use the same native [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")/[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 players and web-view player on other toolkits. Web-engine availability, playback latency, and
 reactive-update limits are the same as for the underlying piece. The gallery is a set of sample
 pages, not a general animation editor.

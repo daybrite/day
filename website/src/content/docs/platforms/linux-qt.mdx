@@ -5,6 +5,8 @@ order: 33.5
 section: Reference
 ---
 
+import Toolkit from '../../../components/Toolkit.astro';
+
 {/*
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -13,7 +15,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's Qt target presents a Linux desktop interface using Qt Widgets. This reference covers the
 required Qt modules, build setup, and toolkit-specific behavior.
 
-`linux-qt` is a [Tier 2](/docs/reference/platforms#support-tiers) target using Qt 6 Widgets through
+<Toolkit id="linux-qt"><code>linux-qt</code></Toolkit> is a [Tier 2](/docs/reference/platforms#support-tiers) target using Qt 6 Widgets through
 a C++ integration. Available controls and services depend on the Qt modules in the build.
 
 ## Getting started
@@ -75,8 +77,8 @@ the built binary to decide.
   patch is a no-op.
 - Lottie and map have no Qt arm; each renders its placeholder. [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
-- Qt on macOS (`macos-qt`) is a development combo, and stays at
-  [Tier 4](/docs/reference/platforms#support-tiers), so `day pack` skips it. On Windows, build `linux-qt`
+- Qt on macOS ([`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt")) is a development combo, and stays at
+  [Tier 4](/docs/reference/platforms#support-tiers), so `day pack` skips it. On Windows, build [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")
   inside [WSL 2](/docs/reference/system-requirements#windows).
 
 ## What each piece becomes
@@ -84,7 +86,7 @@ the built binary to decide.
 The generated [coverage matrix](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md), checked in CI, covers every toolkit;
 this table adds links and notes.
 
-| Day piece | Qt class |
+| Day piece | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") class |
 |---|---|
 | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) (Day owns layout) |
 | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) |
@@ -98,7 +100,7 @@ this table adds links and notes.
 | [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.segmented`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.segmented)`()` | checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)s in an exclusive group |
 | [`picker`](https://docs.rs/day-pieces/latest/day_pieces/fn.picker.html)`()`[`.inline`](https://docs.rs/day-pieces/latest/day_pieces/trait.PickerBuilder.html#tymethod.inline)`()` | [`QRadioButton`](https://doc.qt.io/qt-6/qradiobutton.html)s in an exclusive group |
 | [`progress(f)`](https://docs.rs/day-pieces/latest/day_pieces/fn.progress.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) |
-| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (Qt has no spinner widget) |
+| [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode ([Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") has no spinner widget) |
 | [`divider`](https://docs.rs/day-pieces/latest/day_pieces/fn.divider.html) | [`QFrame`](https://doc.qt.io/qt-6/qframe.html) (`HLine`) |
 | [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html) | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) |
 | [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html) | [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) with Day-side recycling |
@@ -106,7 +108,7 @@ this table adds links and notes.
 | `nav_menu` | [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) |
 | `tabs` | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) |
 | [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting a scaled pixmap |
-| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | the same [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting the raster cache PNG ([`.tint`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.tint) has no Qt arm yet; glyphs draw as authored) |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | the same [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting the raster cache PNG ([`.tint`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.tint) has no [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") arm yet; glyphs draw as authored) |
 | [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) subclass painting with [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) |
 | dialogs / alerts | [`QMessageBox`](https://doc.qt.io/qt-6/qmessagebox.html) |
 | prompts | [`QInputDialog`](https://doc.qt.io/qt-6/qinputdialog.html) |

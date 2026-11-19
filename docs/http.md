@@ -40,8 +40,8 @@ platform method support, and configure redirects deliberately when building a DA
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Platform HTTP transports; Linux requires a system libcurl. |
-| Web | Async calls through browser fetch; CORS and browser API restrictions apply. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Platform HTTP transports; [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") requires a system libcurl. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Async calls through browser fetch; CORS and browser API restrictions apply. |
 
 The OS manages configuration that the platform HTTP client can use: system proxies and PAC scripts,
 per-network VPN routing, Low Data Mode, and enterprise and user-installed certificate stores.
@@ -251,7 +251,7 @@ let request = Request::post(url, Vec::new())
 
 [`upload_progress`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.upload_progress) reports bytes sent and the total where the length is known. A stream of
 unknown length goes out with chunked transfer encoding. Where the platform cannot send a body
-from a reader (`upload_streaming` is false: HarmonyOS and the web), file and stream bodies are
+from a reader (`upload_streaming` is false: [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") and the web), file and stream bodies are
 read into memory first.
 
 ## Redirects
@@ -280,7 +280,7 @@ let client = Client::builder()
 
 `Hop` carries the `status`, `from` and `to` URLs, the `method` the next request uses, and how many
 redirects were `followed` before it. [`stop()`](https://docs.rs/day-part-http/latest/day_part_http/struct.RedirectReply.html#method.stop) makes the redirect response the response, and
-[`cancel()`](https://docs.rs/day-part-http/latest/day_part_http/struct.RedirectReply.html#method.cancel) fails the request with `Cancelled`. HarmonyOS and the web follow redirects inside the
+[`cancel()`](https://docs.rs/day-part-http/latest/day_part_http/struct.RedirectReply.html#method.cancel) fails the request with `Cancelled`. [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") and the web follow redirects inside the
 platform, so there [`on_redirect`](https://docs.rs/day-part-http/latest/day_part_http/struct.ClientBuilder.html#method.on_redirect) fails requests with `Unsupported`, while `Redirects::Follow` and
 `Redirects::Never` still apply to what the platform returns.
 
@@ -414,7 +414,7 @@ client's headers and cookies where `websocket_headers` is true. Dropping the [`W
 
 ## Capabilities
 
-| Capability | macOS, iOS | Android | Linux | Windows | HarmonyOS | Web |
+| Capability | [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|---|
 | `streaming` | yes | yes | yes | yes | yes | yes |
 | `upload_streaming` | yes | yes | yes | yes | no | no |
@@ -434,7 +434,7 @@ client's headers and cookies where `websocket_headers` is true. Dropping the [`W
 
 The client supplies what a transport lacks where it can: redirects, challenge answers, the cookie
 jar and total-time limits run in Rust on every platform. Server trust questions and client
-certificates need the stack's own TLS handshake, so they follow the table. On HarmonyOS the
+certificates need the stack's own TLS handshake, so they follow the table. On [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") the
 Network Kit delivers a body as fast as it arrives, with no way to hold it back, so unread chunks
 queue in the client.
 
@@ -447,14 +447,14 @@ questions with `answer`, and stops an exchange with [`cancel`](https://docs.rs/d
 
 | Platform | Transport |
 |---|---|
-| macOS, iOS | one [`URLSession`](https://developer.apple.com/documentation/foundation/urlsession) per client with a delegate (`src/apple.rs`): the delegate declines redirects so the client decides, raises challenges and server trust as questions, suspends a task while its body has no demand, and sends file and stream uploads from the file or a bound stream pair |
-| Android | OkHttp through a Java bridge arm (`src/bridge.rs`), with redirects and cookies left to the client; a reader pool reads each body only as far as demand allows, and an [`X509ExtendedTrustManager`](https://developer.android.com/reference/javax/net/ssl/X509ExtendedTrustManager) raises server trust questions |
-| Linux | the system's [libcurl](https://curl.se/libcurl/), opened with `dlopen` at run time (`libcurl.so.4`, then `libcurl-gnutls.so.4`) (`src/linux.rs`): one driver thread runs a multi handle, pauses a transfer's writes when demand runs out, and opens WebSockets in [libcurl](https://curl.se/libcurl/)'s connect-only mode |
-| Windows | [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp) in asynchronous mode (`src/windows.rs`): automatic proxy detection, redirects and cookies turned off in [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp) so the client handles them, reads issued only against demand, uploads written as the body is read, and WebSockets through [`WinHttpWebSocket*`](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpwebsocketcompleteupgrade) |
-| HarmonyOS | the Network Kit ([`@ohos.net.http`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/js-apis-http.md) `requestInStream`, [`@ohos.net.webSocket`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/js-apis-webSocket.md)) through an ArkTS bridge arm |
-| Web | `fetch` with a `ReadableStream` reader that pulls under demand, an `AbortController` for cancellation and the idle bound, and the browser's [`WebSocket`](https://websockets.spec.whatwg.org/), through a JavaScript bridge arm |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | one [`URLSession`](https://developer.apple.com/documentation/foundation/urlsession) per client with a delegate (`src/apple.rs`): the delegate declines redirects so the client decides, raises challenges and server trust as questions, suspends a task while its body has no demand, and sends file and stream uploads from the file or a bound stream pair |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | OkHttp through a Java bridge arm (`src/bridge.rs`), with redirects and cookies left to the client; a reader pool reads each body only as far as demand allows, and an [`X509ExtendedTrustManager`](https://developer.android.com/reference/javax/net/ssl/X509ExtendedTrustManager) raises server trust questions |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | the system's [libcurl](https://curl.se/libcurl/), opened with `dlopen` at run time (`libcurl.so.4`, then `libcurl-gnutls.so.4`) (`src/linux.rs`): one driver thread runs a multi handle, pauses a transfer's writes when demand runs out, and opens WebSockets in [libcurl](https://curl.se/libcurl/)'s connect-only mode |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp) in asynchronous mode (`src/windows.rs`): automatic proxy detection, redirects and cookies turned off in [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp) so the client handles them, reads issued only against demand, uploads written as the body is read, and WebSockets through [`WinHttpWebSocket*`](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpwebsocketcompleteupgrade) |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the Network Kit ([`@ohos.net.http`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/js-apis-http.md) `requestInStream`, [`@ohos.net.webSocket`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/js-apis-webSocket.md)) through an ArkTS bridge arm |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `fetch` with a `ReadableStream` reader that pulls under demand, an `AbortController` for cancellation and the idle bound, and the browser's [`WebSocket`](https://websockets.spec.whatwg.org/), through a JavaScript bridge arm |
 
-Android, HarmonyOS and the web share one Rust transport, `src/bridged.rs`, over the bridge's
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") and the web share one Rust transport, `src/bridged.rs`, over the bridge's
 stream tier ([docs/bridge](bridge.md) "Streams"). Each exchange is one `Emit<Vec<u8>>` stream
 of frames, and every frame starts with a tag byte and the stream's token, big-endian:
 
@@ -478,8 +478,8 @@ upload), `exchange_cancel_native`, `ws_send_native` and `ws_close_native`.
 [`ClientBuilder::transport`](https://docs.rs/day-part-http/latest/day_part_http/struct.ClientBuilder.html#method.transport) swaps in any other `Transport`: a scripted double in a unit test, or an
 app's own stack.
 
-[`tier()`](https://docs.rs/day-part-http/latest/day_part_http/fn.tier.html) reports `NativeStack` wherever a transport is present. It reports `Unavailable` on Linux
-when no [libcurl](https://curl.se/libcurl/) loads, on a HarmonyOS build made with bare cargo instead of `day build` (which
+[`tier()`](https://docs.rs/day-part-http/latest/day_part_http/fn.tier.html) reports `NativeStack` wherever a transport is present. It reports `Unavailable` on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")
+when no [libcurl](https://curl.se/libcurl/) loads, on a [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") build made with bare cargo instead of `day build` (which
 stages the ArkTS arm), and on any other target; there every call fails with `Unsupported`.
 
 ## Threads and blocking calls
@@ -487,21 +487,21 @@ stages the ArkTS arm), and on any other target; there every call fails with `Uns
 [`fetch`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch.html), [`fetch_to_file`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_to_file.html), [`fetch_streamed`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_streamed.html) and [`Body::next_blocking`](https://docs.rs/day-part-http/latest/day_part_http/struct.Body.html#method.next_blocking) wait on the calling thread,
 so keep them off the UI thread. Callbacks and wakeups come from the transport's own thread:
 URLSession's delegate queue, OkHttp's reader pool, the [libcurl](https://curl.se/libcurl/) driver thread, [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp)'s callback
-threads, the HarmonyOS JS thread, or the browser's only thread. The one thread the crate starts
+threads, the [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") JS thread, or the browser's only thread. The one thread the crate starts
 for a request is the writer that feeds a streamed upload into URLSession's bound stream pair.
 
 Two platforms restrict the blocking calls:
 
-- **The web** has one thread, and waiting there would starve the event loop the answer needs
+- **The [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** has one thread, and waiting there would starve the event loop the answer needs
   ([docs/web](web.md)), so the blocking calls return `Unsupported` and the `*_async` and
   `*_future` forms work in full. CORS governs cross-origin requests and which response headers
   are visible, and the browser controls headers such as `Host`, `Cookie` and `Origin`.
-- **HarmonyOS** runs the arm on the JS thread, which is Day's UI thread there. The blocking calls
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** runs the arm on the JS thread, which is Day's UI thread there. The blocking calls
   return `Unsupported` when called on that thread and work from any other.
 
 ## Error mapping
 
-| `HttpError` | Apple (`NSURLErrorDomain`) | Android (OkHttp) | Linux (`CURLE_*`) | Windows (`ERROR_WINHTTP_*`) | Web |
+| `HttpError` | Apple (`NSURLErrorDomain`) | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") (OkHttp) | [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") (`CURLE_*`) | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") (`ERROR_WINHTTP_*`) | [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|
 | `Timeout` | −1001 | `SocketTimeoutException` | `OPERATION_TIMEDOUT` | 12002 | the idle timer's abort |
 | `Dns` | −1003, −1006 | `UnknownHostException` | `COULDNT_RESOLVE_HOST`, `COULDNT_RESOLVE_PROXY` | 12007 | |
@@ -514,7 +514,7 @@ Two platforms restrict the blocking calls:
 Browsers report DNS, connection, TLS and CORS failures as one `TypeError` without detail, so on
 the web every network failure is `Io` with the browser's message.
 
-## App Transport Security and Android cleartext
+## App Transport Security and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") cleartext
 
 Both mobile platforms restrict plain `http://`, and the platform stack enforces the app's policy:
 
@@ -522,7 +522,7 @@ Both mobile platforms restrict plain `http://`, and the platform stack enforces 
   an exception. Requests to IP addresses such as `http://127.0.0.1:…` are exempt, so the
   showcase's local test server needs no plist change. For a real cleartext host, add a scoped
   `NSExceptionDomains` entry rather than `NSAllowsArbitraryLoads`.
-- **Android cleartext** is blocked app-wide since targetSdk 28, loopback included. The scaffold
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") cleartext** is blocked app-wide since targetSdk 28, loopback included. The scaffold
   ships a `network_security_config.xml` that permits cleartext to `127.0.0.1` only, and a real
   exception belongs in the same file.
 
@@ -550,9 +550,9 @@ bytes, an upload digest, and a WebSocket echo. The module's documentation lists 
 showcase's Network & HTTP page runs one inside the app on the platforms that allow a listening
 socket.
 
-## Android networking
+## [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") networking
 
-The Android transport uses OkHttp and follows the system proxy, VPN routing, network security
+The [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") transport uses OkHttp and follows the system proxy, VPN routing, network security
 configuration, and platform trust manager. Its dependencies and `INTERNET` permission are
 contributed by the crate; the app does not need to add Gradle dependencies manually.
 
@@ -560,7 +560,7 @@ contributed by the crate; the app does not need to add Gradle dependencies manua
 
 - Redirect approval, server trust questions and client certificates on HarmonyOS and the web,
   whose platform APIs follow redirects and evaluate trust without asking.
-- Server trust questions on Linux and Windows.
+- Server trust questions on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") and [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui").
 - Uploads the OS runs while the app is away. Downloads have that tier in
   [day-part-downloads](downloads.md).
 
@@ -568,7 +568,7 @@ contributed by the crate; the app does not need to add Gradle dependencies manua
 
 This is a headless part: `cfg(target_os)` backends behind one `mod imp`, per-target dependencies,
 and bridge arms in Java, ArkTS and JavaScript declared beside the Rust that reads their frames.
-Its Android arm contributes `android.permission.INTERNET` and the OkHttp coordinate through
+Its [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") arm contributes `android.permission.INTERNET` and the OkHttp coordinate through
 `[package.metadata.day.android]`. [day-part-downloads](downloads.md) builds on its client without platform code of its own for the
 in-app tier.
 
@@ -597,7 +597,7 @@ drops/cancels the exchange. Dropping the future also cancels. This limits the Ru
 not every buffer inside an OS transport or an already delivered chunk.
 
 Both helpers live above the transport and work identically with URLSession, OkHttp, [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp),
-[libcurl](https://curl.se/libcurl/), HarmonyOS Network Kit and browser fetch. Web requests remain subject to CORS:
+[libcurl](https://curl.se/libcurl/), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") Network Kit and browser fetch. Web requests remain subject to CORS:
 publishers must allow conditional request headers and expose ETag/Last-Modified as needed.
 Reuse a `Client` for connection pooling; the root helpers already share one stateless client.
 
@@ -647,7 +647,7 @@ Enable `day-part-http`'s **`reqwest` feature** (off by default), then select
 [`Session::set_provider`](https://docs.rs/day-part-http/latest/day_part_http/struct.Session.html#method.set_provider) with [`Provider::Reqwest`](https://docs.rs/day-part-http/latest/day_part_http/enum.Provider.html). It uses reqwest for HTTP, tokio-tungstenite for
 WebSockets, a shared two-worker Tokio runtime, and rustls with WebPKI roots. The native stack
 remains the default even when the feature is compiled. The provider is available on native
-macOS, iOS, Android, Windows, desktop Linux, and HarmonyOS; its dependencies and enum variant
+[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), desktop [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"); its dependencies and enum variant
 are excluded on wasm, which retains the native provider and the portable simulator.
 
 It supports streaming, upload progress, cancellation, redirects, portable cookie jars, and

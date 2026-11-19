@@ -32,26 +32,26 @@ Platform guidance: [Apple: notifications](https://developer.apple.com/design/hum
 
 | Target | Count | Text | Dot | Behavior |
 | --- | --- | --- | --- | --- |
-| macOS / AppKit | Yes | Yes | Yes | Dock tile label; cleared when the process exits |
-| iOS / UIKit | Yes | No | No | Requires notification permission; the count survives app termination |
-| Windows | Yes | No | Yes | Taskbar overlay; counts above 99 display as 99+ |
-| Linux / GTK or Qt | Emulated | No | No | Unity launcher D-Bus signal; the desktop shell decides whether to display it |
-| Android | No | No | No | Use a local notification's badge instead |
-| HarmonyOS / ArkUI | Yes | No | No | Notification Kit badge number |
-| Browser / DOM | Emulated | No | Emulated | Browser Badging API; requires browser and installed-app support |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Yes | Yes | Yes | Dock tile label; cleared when the process exits |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Yes | No | No | Requires notification permission; the count survives app termination |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Yes | No | Yes | Taskbar overlay; counts above 99 display as 99+ |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Emulated | No | No | Unity launcher D-Bus signal; the desktop shell decides whether to display it |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | No | No | No | Use a local notification's badge instead |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Yes | No | No | Notification Kit badge number |
+| [Browser](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Emulated | No | Emulated | Browser Badging API; requires browser and installed-app support |
 
-Only AppKit accepts arbitrary text. Other targets ignore `AppBadge::Text`; choose a count or
+Only [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") accepts arbitrary text. Other targets ignore `AppBadge::Text`; choose a count or
 omit the badge when `Cap::AppBadgeText` is unsupported.
 
-On iOS, request [notification permission](permissions.md) before setting a count. Clear the
+On [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), request [notification permission](permissions.md) before setting a count. Clear the
 badge when its information is no longer relevant. A `WillTerminate` handler can clear it during
 an orderly exit, but iOS can terminate a suspended app without that callback; update it on the
 next launch as well. See [lifecycle events](lifecycle.md).
 
-Android derives launcher badges from notifications. Use [`Notification::badge(n)`](https://docs.rs/day-part-local-notify/latest/day_part_local_notify/struct.Notification.html#method.badge) from
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") derives launcher badges from notifications. Use [`Notification::badge(n)`](https://docs.rs/day-part-local-notify/latest/day_part_local_notify/struct.Notification.html#method.badge) from
 [local notifications](notify.md); the launcher determines whether a count or dot appears.
 
-GTK and Qt on Linux emit the same Unity launcher signal. Stock GNOME Shell ignores it;
+[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") emit the same Unity launcher signal. Stock GNOME Shell ignores it;
 shells or extensions that implement the protocol can display it. This is why the capability
 reports `Emulated` rather than promising a visible badge.
 

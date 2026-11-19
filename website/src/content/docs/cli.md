@@ -30,7 +30,7 @@ with your project values before running a command.
 | `launch --fast` / `--dialogs` | Require `--script`; dialogs accepts `scripted` or `native` |
 | `launch --dir DIR` | Requires `--git` |
 | `--format json` | NDJSON result events; inspect the current command schema before parsing it |
-| `doctor --toolkit TOOLKIT` | Toolkit selector, not necessarily a target ID (`harmonyos`, not `harmony-arkui`) |
+| `doctor --toolkit TOOLKIT` | Toolkit selector, not necessarily a target ID ([`harmonyos`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), not [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) |
 
 Exit codes from `ErrKind::exit_code`: 0 success; 1 general failure; 2 invocation/configuration;
 3 environment; 4 build/artifact generation; 5 script failure or generated-output drift;
@@ -43,8 +43,8 @@ and [target resolution](https://github.com/daybrite/day/blob/main/crates/day-cli
 
 `day --help` groups commands by task. Use `day help <command>` for its options and subcommands,
 for example `day help icon new`. A target flag is `-t` or `--target`. It takes a target name such
-as `macos-gtk`, or a toolkit alone, which means that toolkit on this machine: `-t gtk` is
-`macos-gtk` on a Mac and `linux-gtk` on Linux, and `-t dom` is `web-dom` everywhere. The older
+as [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk"), or a toolkit alone, which means that toolkit on this machine: `-t gtk` is
+`macos-gtk` on a Mac and [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") on Linux, and `-t dom` is [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") everywhere. The older
 `-p` and `--platform` spellings are no longer accepted; use `-t` or `--target`.
 `icon`, `sign`, and `project` require a subcommand; bare `day doctor` runs quick toolchain checks.
 `day doctor verify` builds and packages test apps and can take several minutes.
@@ -99,13 +99,13 @@ every Day repository (`--main`), and verifies the switch took;
 
 | target | artifact |
 |---|---|
-| `macos-appkit` | `.dmg` (codesign → notarize → staple) |
-| `ios-uikit` | `.ipa` (App Store export; without signing config, an unsigned device `.ipa` named `<stem>-ios-uikit-unsigned.ipa`) |
-| `android-material` | `.apk` + `.aab` (release-signed) |
-| `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle **and** a `.appimage` |
-| `windows-winui` | self-contained `.msix` + NSIS `-setup.exe` |
-| `harmony-arkui` | `.hap` |
-| `web-dom` | none — `day build` already emits a self-contained static `dist/` |
+| [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `.dmg` (codesign → notarize → staple) |
+| [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `.ipa` (App Store export; without signing config, an unsigned device `.ipa` named `<stem>-ios-uikit-unsigned.ipa`) |
+| [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `.apk` + `.aab` (release-signed) |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | single-file `.flatpak` bundle **and** a `.appimage` |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | self-contained `.msix` + NSIS `-setup.exe` |
+| [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `.hap` |
+| [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | none — `day build` already emits a self-contained static `dist/` |
 
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
 which platforms and [toolkits](/docs/reference/glossary#toolkit) to support. Every question has an equivalent flag, so the same choices
@@ -148,7 +148,7 @@ directory tree whose file contents *and paths* are rendered with mustache-style 
 | `{{targets_toml}}` | the chosen targets, quoted, for `Day.toml` |
 | `{{targets_list}}` | the same targets bare, for a CI workflow's `targets:` input |
 | `{{day_ci_version}}` | the `day-version` a CI workflow installs: the release or git pin the dep names, else `main` |
-| `{{deploy_web}}` | `true` when `web-dom` is among the targets, for a CI workflow's `deploy-web:` input |
+| `{{deploy_web}}` | `true` when [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") is among the targets, for a CI workflow's `deploy-web:` input |
 | `{{first_target}}` | the first chosen target, for the commands a README prints |
 
 The built-in template is embedded in the
@@ -386,7 +386,7 @@ phone, name it with a flag. Selection is one flag per runtime, so a single comma
 | `--ios-device <name\|udid>` | a physical iPhone or iPad | `xcrun devicectl list devices` |
 | `--ios-simulator <name\|udid>` | one booted simulator | `xcrun simctl list devices booted` |
 | `--android-device <serial>` | one device or emulator | `adb devices` |
-| `--ohos-device <key>` | one OpenHarmony device or emulator | `hdc list targets` |
+| `--ohos-device <key>` | one [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") device or emulator | `hdc list targets` |
 
 Or ask Day, which lists all three from any directory:
 
@@ -506,7 +506,7 @@ and then streams both apps' stdout and stderr, each line prefixed with the targe
 (`[ios-uikit]`, `[android-material]`), so two phones running at once read apart. Ctrl-C stops the run
 and takes the log watchers with it.
 
-### What a physical iOS device needs
+### What a physical [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") device needs
 
 Naming `--ios-device` also changes the build: the `iphoneos` SDK instead of the simulator's, and
 signing against a real identity, where a simulator build signs ad-hoc. Day signs the bundle after the build
@@ -833,9 +833,9 @@ covers signing credentials and store uploads.
 Day's own CI tests the Showcase app across platforms. Its captures populate this site's
 [gallery](/examples); [Platform support](/docs/reference/platforms) describes the supported targets.
 
-## Android target naming
+## [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") target naming
 
-Use `android-material` for the Android target and `material` for its toolkit and Cargo
+Use [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") for the [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") target and `material` for its toolkit and Cargo
 feature. The tooling temporarily accepts `android-mdc` and `mdc`, warns that they are
 deprecated, and writes canonical target names. Mixed spellings in target lists select one
 target; conflicting override keys are rejected. These aliases do not apply to Rust package

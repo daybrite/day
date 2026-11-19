@@ -29,13 +29,13 @@ Platform selection follows the compilation target. There are no toolkit feature 
 
 | Platform | Source |
 | --- | --- |
-| iOS / UIKit | CoreMotion handlers, where hardware is available. |
-| Android | SensorManager events. |
-| HarmonyOS / ArkUI | SensorServiceKit callbacks. |
-| Windows / WinUI, GTK, Qt | WinRT sensor events, where hardware is available. |
-| Web / DOM | DeviceMotionEvent; accelerometer and gyroscope only. |
-| macOS / AppKit, GTK, Qt | Unavailable. |
-| Linux / GTK, Qt | Unavailable; buffered IIO support is not implemented. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | CoreMotion handlers, where hardware is available. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | SensorManager events. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | SensorServiceKit callbacks. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | WinRT sensor events, where hardware is available. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | DeviceMotionEvent; accelerometer and gyroscope only. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Unavailable. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Unavailable; buffered IIO support is not implemented. |
 
 ## Subscribe
 
@@ -94,10 +94,10 @@ operation from calibration.
 
 | Platform | Selectable calibration modes |
 | --- | --- |
-| iOS | Gyroscope and magnetometer. No selectable accelerometer bias mode. |
-| Android | All three kinds, if the device supplies the corresponding uncalibrated sensor; uncalibrated acceleration requires API 26+. |
-| Windows, HarmonyOS, web | Normal source only. Explicit uncalibrated requests are unavailable. |
-| macOS, Linux | No sensor sources. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Gyroscope and magnetometer. No selectable accelerometer bias mode. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | All three kinds, if the device supplies the corresponding uncalibrated sensor; uncalibrated acceleration requires API 26+. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), web | Normal source only. Explicit uncalibrated requests are unavailable. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | No sensor sources. |
 
 Query both modes before offering a calibration toggle. Unsupported modes deliver no samples and
 never fall back silently. Calibrated and uncalibrated subscriptions can coexist: each has its own
@@ -123,7 +123,7 @@ source. The dispatcher waits for events and exits after all sources have stopped
 
 ## Platform requirements
 
-**UIKit:** [CMMotionManager](https://developer.apple.com/documentation/coremotion/cmmotionmanager)
+**[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"):** [CMMotionManager](https://developer.apple.com/documentation/coremotion/cmmotionmanager)
 delivers samples to an operation queue. Day keeps one manager, normalizes acceleration from g to
 m/s², and calls the matching stop method on teardown. Magnetometer subscriptions use
 [CMDeviceMotion.magneticField](https://developer.apple.com/documentation/coremotion/cmdevicemotion/magneticfield)
@@ -144,7 +144,7 @@ when the app pauses a separate subscription to that sensor.
 Test on a physical device; simulators lack motion sensors. Declare motion access through
 [permissions](permissions.md) for apps using motion and fitness capabilities.
 
-**Android:** [SensorManager](https://developer.android.com/reference/android/hardware/SensorManager)
+**[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"):** [SensorManager](https://developer.android.com/reference/android/hardware/SensorManager)
 registers one listener per active kind. The Java callback forwards values through JNI; application
 callbacks execute on the Rust dispatcher. Teardown unregisters the listener. The normal reporting
 rate used here does not require the high-sampling-rate permission. Uncalibrated subscriptions use
@@ -152,16 +152,16 @@ rate used here does not require the high-sampling-rate permission. Uncalibrated 
 `TYPE_MAGNETIC_FIELD_UNCALIBRATED`. Day delivers the measured vector, without subtracting the
 separate bias estimate supplied by Android.
 
-**ArkUI:** [SensorServiceKit](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/capi-oh-sensor-h.md)
+**[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"):** [SensorServiceKit](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/capi-oh-sensor-h.md)
 uses `OH_Sensor_Subscribe` and `OH_Sensor_Unsubscribe`. Declare
 `ohos.permission.ACCELEROMETER` and `ohos.permission.GYROSCOPE` in the application's
 `module.json5` for those kinds. The magnetometer needs neither permission.
 
-**Windows:** [ReadingChanged](https://learn.microsoft.com/en-us/uwp/api/windows.devices.sensors.accelerometer.readingchanged)
+**[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"):** [ReadingChanged](https://learn.microsoft.com/en-us/uwp/api/windows.devices.sensors.accelerometer.readingchanged)
 subscriptions retain the sensor and event token until teardown. Acceleration and angular velocity
 are converted to SI units. Many desktop machines have no sensors.
 
-**DOM:** The host uses one `devicemotion` listener for both supported kinds. It forwards
+**[DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom"):** The host uses one `devicemotion` listener for both supported kinds. It forwards
 `accelerationIncludingGravity` unchanged and converts `rotationRate` from degrees/s to rad/s,
 with beta → x, gamma → y, and alpha → z. The listener is removed when both kinds are unsubscribed.
 Partial or nonfinite measurements are ignored.

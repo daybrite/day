@@ -160,12 +160,12 @@ surface roles remain preferable when drawing a custom shape is unnecessary.
 
 | Toolkit | Color source |
 | --- | --- |
-| AppKit | Native accent, label, secondary-label, window-background, and control-background colors, resolved in the app's effective appearance. System color notifications refresh the palette. |
-| UIKit | System blue, label, secondary-label, system-background, and secondary-system-background colors, resolved for the app's light/dark appearance. |
-| Web DOM | The current Day stylesheet's accent, foreground, dim foreground, background, and card-background variables. |
-| GTK, Qt, Android, WinUI, ArkUI, mock | Day's fixed light/dark fallback palette; these colors do not report a user-selected system accent. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Native accent, label, secondary-label, window-background, and control-background colors, resolved in the app's effective appearance. System color notifications refresh the palette. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | System blue, label, secondary-label, system-background, and secondary-system-background colors, resolved for the app's light/dark appearance. |
+| [Web DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | The current Day stylesheet's accent, foreground, dim foreground, background, and card-background variables. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), mock | Day's fixed light/dark fallback palette; these colors do not report a user-selected system accent. |
 
 Colors describe the app-wide appearance. Per-window overrides, individual control tints, and
-UIKit contrast traits are not represented. Web palette reads refresh when Day receives an
+[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") contrast traits are not represented. Web palette reads refresh when Day receives an
 appearance change; changing arbitrary CSS alone does not notify Rust. Some surface colors have
 transparency and need a background beneath them.

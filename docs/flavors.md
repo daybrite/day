@@ -143,9 +143,9 @@ Strings that differ per flavor belong in the resource overlay instead, so they s
 ## What each platform picks up
 
 Identity reaches the host projects the way it always has, through generated files rather than
-edits to checked-in ones: the iOS and macOS projects read `PRODUCT_BUNDLE_IDENTIFIER`,
+edits to checked-in ones: the [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") and [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") projects read `PRODUCT_BUNDLE_IDENTIFIER`,
 `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `DAY_APP_TITLE` and `DAY_URL_SCHEME` from the
-generated xcconfig, and the Android project reads `applicationId`, `namespace`, `versionCode`,
+generated xcconfig, and the [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") project reads `applicationId`, `namespace`, `versionCode`,
 `versionName` and the title from `build/day/android/day-app.properties`. Both are rewritten from
 the merged manifest on every build, so a flavor changes what they carry without touching a
 tracked file.

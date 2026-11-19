@@ -80,7 +80,7 @@ default.
 
 Platform guidance: [Apple: accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility); [Android: accessibility principles](https://developer.android.com/guide/topics/ui/accessibility/principles); [Windows: accessible apps](https://learn.microsoft.com/en-us/windows/apps/design/accessibility/accessibility).
 
-| field | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
+| field | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|---|---|---|
 | label | `accessibilityLabel` | `accessibilityLabel` | `Property::Label` | `accessibleName` (+ tooltip) | `contentDescription` | `AutomationProperties.Name` | `NODE_ACCESSIBILITY_TEXT` | `aria-label` |
 | hint | `accessibilityHelp` | `accessibilityHint` | `Property::Description` | `accessibleDescription` | `hintText` through a delegate | `HelpText` | `NODE_ACCESSIBILITY_DESCRIPTION` | `aria-description` |
@@ -92,21 +92,21 @@ Platform guidance: [Apple: accessibility](https://developer.apple.com/design/hum
 
 What each platform does not carry:
 
-- **Heading levels** reach WinUI, the web and GTK (`Property::Level`). AppKit, UIKit, Android
+- **Heading levels** reach [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), the web and [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") (`Property::Level`). AppKit, UIKit, Android
   and ArkUI know a heading from other text and nothing more; AppKit's heading is `AXHeading`.
 - **Roles are advisory where the platform cannot retype an element.** WinUI speaks a control
   type string (English) and keeps the native patterns; ArkUI's `Tree`/`TreeItem` become a list
-  and its rows; Android's `Tree`/`TreeItem` and UIKit's `TextInput`/`Meter`/`Group`/`Tree` have
+  and its rows; Android's `Tree`/`TreeItem` and [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")'s `TextInput`/`Meter`/`Group`/`Tree` have
   no counterpart. A canvas with `Role::Button` on the web becomes keyboard-reachable
   (`tabindex`, Enter and Space tap it).
-- **Qt** realizes value, role and hidden through its own [`QAccessibleInterface`](https://doc.qt.io/qt-6/qaccessibleinterface.html) for a widget
+- **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")** realizes value, role and hidden through its own [`QAccessibleInterface`](https://doc.qt.io/qt-6/qaccessibleinterface.html) for a widget
   that asked for any of them; the heading level needs Qt 6.8.
-- **Android** reaches hint, role and the identifier through one [`AccessibilityDelegate`](https://developer.android.com/reference/android/view/View.AccessibilityDelegate) per
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** reaches hint, role and the identifier through one [`AccessibilityDelegate`](https://developer.android.com/reference/android/view/View.AccessibilityDelegate) per
   annotated view, wrapping whatever delegate the widget already had. The identifier is the
   node's `uniqueId`, which UiAutomator and Appium address from API 33; below that the compat
   call keeps it in the node's extras, where only an in-process reader finds it.
-- **GTK**'s role is set only while the widget has no root, which is when day-core first applies
-  annotations; a role changed later is ignored. A plain Day container on **WinUI** is a `Canvas`,
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")**'s role is set only while the widget has no root, which is when day-core first applies
+  annotations; a role changed later is ignored. A plain Day container on **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** is a `Canvas`,
   which has no automation peer, so annotations on a bare container are stored but not exposed.
 
 ## Announcements
@@ -116,9 +116,9 @@ What each platform does not carry:
 cannot otherwise learn about ("Saved", "3 results", "Upload failed"); a visible status label
 that the user can reach needs none. Nothing happens when no screen reader is running.
 
-| | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
+| | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|---|---|---|
-| `Cap::Announce` | Native | Native | Native on GTK 4.14+ | Native on Qt 6.8+ | Native | Native | Native | Emulated |
+| `Cap::Announce` | Native | Native | Native on [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") 4.14+ | Native on [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") 6.8+ | Native | Native | Native | Emulated |
 | mechanism | [`NSAccessibilityAnnouncementRequested`](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/announcementrequested) notification on the window | [`UIAccessibilityAnnouncementNotification`](https://developer.apple.com/documentation/uikit/uiaccessibility/notification/announcement); polite announcements queue | [`gtk_accessible_announce`](https://docs.gtk.org/gtk4/method.Accessible.announce.html), looked up at run time | [`QAccessibleAnnouncementEvent`](https://doc.qt.io/qt-6/qaccessibleannouncementevent.html) | `announceForAccessibility`; urgent interrupts first | `AutomationPeer.RaiseNotificationEvent` | [`accessibility.sendAccessibilityEvent`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-accessibility-kit/js-apis-accessibility.md) from the ArkTS host | two ARIA live regions |
 
 GTK makes the call only through an AT-SPI context, which exists only once the accessibility
@@ -158,13 +158,13 @@ sees. `DAY_REDUCE_MOTION=1` is the same force under the name an app or a screens
 would use. `Cap::ReduceMotion` says whether the toolkit reads a real setting; where it does
 not, apps on that platform animate as with the setting off, and the force still applies.
 
-| | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
+| | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|---|---|---|
 | setting | Reduce Motion | Reduce Motion | Animations off ([`gtk-enable-animations`](https://docs.gtk.org/gtk4/property.Settings.gtk-enable-animations.html)) | — | Remove animations (animator scale 0) | Show animations off | animator scale 0 | `prefers-reduced-motion` |
 | read | `accessibilityDisplayShouldReduceMotion` | `isReduceMotionEnabled` | [`GtkSettings`](https://docs.gtk.org/gtk4/class.Settings.html) | — | `Settings.Global.ANIMATOR_DURATION_SCALE` | [`UISettings.AnimationsEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.viewmanagement.uisettings.animationsenabled) | `settings.display.ANIMATOR_DURATION_SCALE` (ArkTS host) | `matchMedia` |
 | change | workspace options notification | status-did-change notification | `notify::gtk-enable-animations` | — | settings [`ContentObserver`](https://developer.android.com/reference/android/database/ContentObserver) | `AnimationsEnabledChanged` | `settings.registerKeyObserver` | media-query `change` |
 
-Qt has no reduce-motion reading of its own ([`QStyleHints`](https://doc.qt.io/qt-6/qstylehints.html) carries none), so `linux-qt` answers
+Qt has no reduce-motion reading of its own ([`QStyleHints`](https://doc.qt.io/qt-6/qstylehints.html) carries none), so [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") answers
 `Unsupported`; the forced gate still applies there. Android and ArkUI also route their native
 transition skips (list diffs, a navigation push, a cover slide) through the same gate, so a user
 who removed animations gets what a scripted run gets.

@@ -81,10 +81,10 @@ Day's build command can select the matching feature.
 
 Native contributions belong to the extension that owns them:
 
-- Qt and WinUI shims are compiled by its build script for the selected target.
-- Android Java, resources, dependencies and manifest contributions use Day's Android metadata.
+- [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") shims are compiled by its build script for the selected target.
+- [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Java, resources, dependencies and manifest contributions use Day's Android metadata.
 - Apple Swift sources, frameworks and package dependencies use the relevant Apple metadata.
-- HarmonyOS ArkTS and native contributions use the HarmonyOS metadata.
+- [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") ArkTS and native contributions use the HarmonyOS metadata.
 
 See the [native contribution reference](https://github.com/daybrite/day/blob/main/docs/extending.md) for the
 metadata keys and generated build artifacts. Declare permissions through the portable

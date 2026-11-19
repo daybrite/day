@@ -88,10 +88,10 @@ handlers see `DidLaunch` and after.
 Not every phase exists on every platform: a desktop app doesn't enter the background or run out
 of memory the way a phone does. The **universal** phases (`WillLaunch`, `DidLaunch`,
 `DidBecomeActive`, `WillResignActive`, `WillTerminate`) are delivered by every backend. The
-background/foreground/memory phases are delivered only by the mobile backends (UIKit, Android,
-ArkUI).
+background/foreground/memory phases are delivered only by the mobile backends ([UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"),
+[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")).
 
-| Phase | AppKit | GTK | Qt | UIKit | Android | ArkUI | WinUI |
+| Phase | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | WillLaunch / DidLaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | DidBecomeActive / WillResignActive | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -100,19 +100,19 @@ ArkUI).
 | WillTerminate | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | DidExit | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-Native mapping: AppKit `NSApplication` notifications; UIKit `UIApplicationDelegate`; GTK window
-`is-active` + GApplication `shutdown`; Qt `applicationStateChanged` + `aboutToQuit`; Android Activity
-lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); ArkUI's entry
+Native mapping: [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") `NSApplication` notifications; [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") `UIApplicationDelegate`; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") window
+`is-active` + GApplication `shutdown`; [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") `applicationStateChanged` + `aboutToQuit`; [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Activity
+lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")'s entry
 `UIAbility` (`onForeground`/`onBackground`/`onMemoryLevel`/`onDestroy`, with the window stage's
-`ACTIVE`/`INACTIVE` events for the active pair); WinUI window `WM_ACTIVATE`/`WM_CLOSE`.
+`ACTIVE`/`INACTIVE` events for the active pair); [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") window `WM_ACTIVATE`/`WM_CLOSE`.
 
 The web backend delivers `WillLaunch`, `DidLaunch`, the active pair, and `DidExit` (on `pagehide`,
 the page's last moment).
 
 `DidExit` is the last moment each backend has: where the native loop returns to [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html)
-(GTK, Qt, WinUI) it is emitted there; where the process ends inside the loop it follows
-`WillTerminate` at the same native moment (AppKit's and UIKit's `applicationWillTerminate`,
-Android's `onDestroy`, ArkUI's `onDestroy`); on the web it is `pagehide`. A backend whose host
+([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) it is emitted there; where the process ends inside the loop it follows
+`WillTerminate` at the same native moment ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")'s and [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")'s `applicationWillTerminate`,
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s `onDestroy`, [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")'s `onDestroy`); on the web it is `pagehide`. A backend whose host
 owns the loop, so that [`Platform::run`](https://docs.rs/day-spec/latest/day_spec/trait.Platform.html#tymethod.run) hands back at once with the app still to come (ArkUI,
 Android, the web), says so with `Platform::RUN_ENDS_APP = false`: day-core then leaves the
 phase to the host's callback instead of treating the return as the exit.

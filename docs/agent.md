@@ -129,12 +129,12 @@ host can produce:
   faulting thread's frames rather than its several hundred lines of loaded-image addresses. It is
   matched by pid on a desktop launch, and the runner waits up to 30 s for it, because ReportCrash
   writes it well after the process dies, so looking once finds the previous run's or nothing.
-- **Windows**: recent Application event-log records and local dumps in
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**: recent Application event-log records and local dumps in
   `%LOCALAPPDATA%\CrashDumps`. Enable dumps before reproducing the crash, from an administrator
   shell: `reg add "HKLM\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps" /v DumpType /t REG_DWORD /d 2 /f`.
   Windows does not support `LocalDumps` under `HKCU`; see Microsoft's
   [WER settings](https://learn.microsoft.com/en-us/windows/win32/wer/wer-settings).
-- **Android**: the emulator's crash buffer (`adb logcat -b crash`), preceded by the emulator's
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**: the emulator's crash buffer (`adb logcat -b crash`), preceded by the emulator's
   own log when `day devices boot` started it — how it booted (the RAM it settled on, cores, GPU
   mode, feature overrides), then its tail — read from the host, so it is there even when the
   guest has stopped answering and every adb call returns nothing. A guest that still answers
@@ -155,7 +155,7 @@ crash without anyone opening the log.
 > [!NOTE]
 > **Desktop targets only, for now.** The diagnosis triggers where day can observe the app's death:
 > the desktop launches, whose app is day's own child, and any target whose engine connection drops
-> mid-script. On `ios-uikit` and `android-material` the app runs on a simulator/device and the process
+> mid-script. On [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") and [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") the app runs on a simulator/device and the process
 > day waits on is a log pump that outlives it, so an interactive crash there still passes
 > unnoticed. Closing that needs a liveness poll (`simctl spawn booted launchctl list <bundle-id>`,
 > `adb shell pidof <app-id>`) while a launch is attached.

@@ -35,7 +35,7 @@ and re-exported through `day::prelude::*`. No additional crate or control featur
 
 ## Authoring
 
-On **windows-winui**, [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) and `StackLayout` own realization and scroll extents
+On **[windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**, [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) and `StackLayout` own realization and scroll extents
 inside a native [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer). Its element factory reuses `ItemContainer` rows with Day
 content; it does not allocate a cell per source index. Selection, keyboard navigation,
 drag-and-drop, and content-sized rows follow the realized containers. A [`SwipeControl`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipecontrol)
@@ -192,14 +192,14 @@ header pushes it up.
 
 | Toolkit | Header rows | Pinned header |
 |---|---|---|
-| AppKit | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) group rows (`tableView(_:isGroupRow:)`), refused by `tableView(_:shouldSelectRow:)` | native: [`floatsGroupRows`](https://developer.apple.com/documentation/appkit/nstableview/floatsgrouprows) |
-| UIKit | one table section per header; the header is the section's [`UITableViewHeaderFooterView`](https://developer.apple.com/documentation/uikit/uitableviewheaderfooterview) | native: a plain-style table pins section headers |
-| Android | a `RecyclerView` view type of its own, with no click, ripple or focus | emulated: a copy in the list's overlay |
-| GTK 4 | model items marked not selectable, activatable or focusable | emulated: a copy in a [`GtkOverlay`](https://docs.gtk.org/gtk4/class.Overlay.html) over the scrolled window |
-| Qt | model rows without `ItemIsEnabled` or `ItemIsSelectable`, painted as a band by the delegate | emulated: a copy over the viewport |
-| WinUI | cells in a `Border` of their own, without the `ItemContainer` rows get, so they take no selection, hover or focus | emulated: a copy over the `ScrollContentPresenter`, under the scroll bars |
-| web | cells with `role="heading"` that take no clicks | emulated: a copy in a `position: sticky` wrapper |
-| ArkUI | `ListItem`s with no click, drag or swipe action | emulated: a copy stacked over the list |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) group rows (`tableView(_:isGroupRow:)`), refused by `tableView(_:shouldSelectRow:)` | native: [`floatsGroupRows`](https://developer.apple.com/documentation/appkit/nstableview/floatsgrouprows) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | one table section per header; the header is the section's [`UITableViewHeaderFooterView`](https://developer.apple.com/documentation/uikit/uitableviewheaderfooterview) | native: a plain-style table pins section headers |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | a `RecyclerView` view type of its own, with no click, ripple or focus | emulated: a copy in the list's overlay |
+| [GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | model items marked not selectable, activatable or focusable | emulated: a copy in a [`GtkOverlay`](https://docs.gtk.org/gtk4/class.Overlay.html) over the scrolled window |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | model rows without `ItemIsEnabled` or `ItemIsSelectable`, painted as a band by the delegate | emulated: a copy over the viewport |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | cells in a `Border` of their own, without the `ItemContainer` rows get, so they take no selection, hover or focus | emulated: a copy over the `ScrollContentPresenter`, under the scroll bars |
+| [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | cells with `role="heading"` that take no clicks | emulated: a copy in a `position: sticky` wrapper |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `ListItem`s with no click, drag or swipe action | emulated: a copy stacked over the list |
 
 Where the pin is emulated, the host binds the copy through `ListSource::bind_pinned`. The copy
 carries no element ids, so a dayscript lookup of an id inside a header finds the header row in
@@ -239,14 +239,14 @@ row deltas, such as persistence queries, can apply insertions, removals, and mov
 
 | Toolkit | List view | Behavior |
 | --- | --- | --- |
-| AppKit | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) | Native scrolling and reusable cells. |
-| UIKit | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) | Native scrolling and reusable cells. |
-| Android | [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) | Native scrolling and reusable cells. |
-| GTK | [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) | Native scrolling; may retain spare cells beyond the visible rows. |
-| Qt | [`QListView`](https://doc.qt.io/qt-6/qlistview.html) | Native list interaction with a pool of Day row views. |
-| WinUI | [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) | Virtualized rows within a native scroll viewer. |
-| ArkUI | `List` with `NodeAdapter` | Native scrolling and reusable cells. |
-| Web | DOM scroller | Builds visible rows plus overscan; previously visited rows retain their elements. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) | Native scrolling and reusable cells. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) | Native scrolling and reusable cells. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`RecyclerView`](https://developer.android.com/reference/androidx/recyclerview/widget/RecyclerView) | Native scrolling and reusable cells. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html) | Native scrolling; may retain spare cells beyond the visible rows. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QListView`](https://doc.qt.io/qt-6/qlistview.html) | Native list interaction with a pool of Day row views. |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`ItemsRepeater`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.itemsrepeater) | Virtualized rows within a native scroll viewer. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `List` with `NodeAdapter` | Native scrolling and reusable cells. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | DOM scroller | Builds visible rows plus overscan; previously visited rows retain their elements. |
 
 Toolkit-specific selection, swipe, and reorder behavior is described with each feature below.
 
@@ -259,14 +259,14 @@ a row piece holds only its content: [`row((icon, label))`](https://docs.rs/day-p
 
 | Toolkit | Margins (top, sides) | Minimum height | Source |
 |---|---|---|---|
-| UIKit | a stock cell's top margin; the table's layout margins at the sides (16 or 20pt) | the height UIKit fits a stock cell with one line of its default content configuration | measured from UIKit at runtime |
-| Android | 8dp, 16dp | 56dp | Material one-line list item |
-| AppKit | 4pt, 8pt | 28pt | macOS table row |
-| GTK | 8px, 12px | 44px | Adwaita rich-list row |
-| Qt | 4px, 8px | 28px | item view row |
-| web | 10px, 16px | 44px | a touch-sized web row |
-| ArkUI | 8vp, 12vp | 48vp | HarmonyOS list item |
-| WinUI | 0, 12px | 40px | `ListViewItem` padding and `MinHeight` |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | a stock cell's top margin; the table's layout margins at the sides (16 or 20pt) | the height [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") fits a stock cell with one line of its default content configuration | measured from [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") at runtime |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | 8dp, 16dp | 56dp | Material one-line list item |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | 4pt, 8pt | 28pt | [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") table row |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | 8px, 12px | 44px | Adwaita rich-list row |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | 4px, 8px | 28px | item view row |
+| [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | 10px, 16px | 44px | a touch-sized web row |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | 8vp, 12vp | 48vp | [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") list item |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | 0, 12px | 40px | `ListViewItem` padding and `MinHeight` |
 
 A `Uniform` row height still wins: the row is that tall and its content sits inside the margins,
 or, where the row is too short for them, centered in the whole row.
@@ -293,11 +293,11 @@ row takes the platform's fonts, icon size, spacing, secondary colors and check m
 
 | Toolkit | Realized as |
 |---|---|
-| UIKit | [`UIListContentView`](https://developer.apple.com/documentation/uikit/uilistcontentview) with the cell's default content configuration; the checkmark accessory's glyph and a secondary value beside it |
-| Android | a Material 3 list item (`DayListItem`): 24dp leading icon, body-large headline, body-medium supporting text, label-small trailing text, a primary-colored check; 56dp, 72dp with a supporting line |
-| AppKit | an image-and-text table cell's parts: a 16pt template image, the system font, a smaller secondary subtitle, the accent checkmark; at least 28pt |
-| GTK | a row box: a 16px icon, the title over a dim caption, a dim value, `object-select-symbolic` in the accent color; at least 44px |
-| Qt, web, ArkUI, WinUI | composed from [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html), [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) and [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) with the same parts |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIListContentView`](https://developer.apple.com/documentation/uikit/uilistcontentview) with the cell's default content configuration; the checkmark accessory's glyph and a secondary value beside it |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | a Material 3 list item (`DayListItem`): 24dp leading icon, body-large headline, body-medium supporting text, label-small trailing text, a primary-colored check; 56dp, 72dp with a supporting line |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | an image-and-text table cell's parts: a 16pt template image, the system font, a smaller secondary subtitle, the accent checkmark; at least 28pt |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | a row box: a 16px icon, the title over a dim caption, a dim value, `object-select-symbolic` in the accent color; at least 44px |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), web, [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | composed from [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html), [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) and [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) with the same parts |
 
 A native list item is the platform's whole row (`Flex::whole_row`): the list gives it the side
 margins from the table above, which line up with the separators, and the item sizes its own
@@ -322,13 +322,13 @@ anything synchronously.
 
 | Toolkit | How a row takes its height |
 |---|---|
-| AppKit | `tableView:heightOfRow:` answers the height recorded for the row's token, or the last measured height for a row not bound yet; a bound row whose drawn height differs gets an unanimated `noteHeightOfRowsWithIndexesChanged`. A `Uniform` list does not answer that selector, so it keeps [NSTableView](https://developer.apple.com/documentation/appkit/nstableview)'s fixed `rowHeight` |
-| UIKit | self-sizing cells: [`UITableViewAutomaticDimension`](https://developer.apple.com/documentation/uikit/uitableview/automaticdimension), and `DayListCell` answers `systemLayoutSizeFittingSize:…` with the row's height at its content view's width; a change runs an unanimated `beginUpdates`/`endUpdates` |
-| Android | the holder's layout height, set after each bind |
-| GTK | `DayCell` measures from `cell_height`; a change queues a resize of the bound list item |
-| Qt | the model answers each row's `SizeHintRole`: the height Day laid it at, or for a row not measured yet the running average of the measured ones; heights are remembered per row token across reloads, and the changes of one turn land as one relayout that keeps the top row where it was |
-| web | rows stack by their measured heights; rows not built yet stand at the average |
-| ArkUI | `NODE_HEIGHT` on the row's list item |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `tableView:heightOfRow:` answers the height recorded for the row's token, or the last measured height for a row not bound yet; a bound row whose drawn height differs gets an unanimated `noteHeightOfRowsWithIndexesChanged`. A `Uniform` list does not answer that selector, so it keeps [NSTableView](https://developer.apple.com/documentation/appkit/nstableview)'s fixed `rowHeight` |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | self-sizing cells: [`UITableViewAutomaticDimension`](https://developer.apple.com/documentation/uikit/uitableview/automaticdimension), and `DayListCell` answers `systemLayoutSizeFittingSize:…` with the row's height at its content view's width; a change runs an unanimated `beginUpdates`/`endUpdates` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | the holder's layout height, set after each bind |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `DayCell` measures from `cell_height`; a change queues a resize of the bound list item |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | the model answers each row's `SizeHintRole`: the height Day laid it at, or for a row not measured yet the running average of the measured ones; heights are remembered per row token across reloads, and the changes of one turn land as one relayout that keeps the top row where it was |
+| [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | rows stack by their measured heights; rows not built yet stand at the average |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `NODE_HEIGHT` on the row's list item |
 
 ArkUI's automatic row heights are covered by `list-rows-size-to-content`, verified on the
 OpenHarmony 7.0 phone emulator.
@@ -366,13 +366,13 @@ follows its row through inserts, moves and reloads, and the initial key selects 
 scrolling. The `day new` starter binds its list this way ([`.selection(scene.selected)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.selection)),
 with the same signal driving [`ContentList::detail_for`](https://docs.rs/day-pieces/latest/day_pieces/struct.ContentList.html#method.detail_for) ([navigation](navigation.md)).
 
-Support matrix: **AppKit** (native [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) multi-selection), **Qt** and
-**Web** (the emulated lists: a per-cell press hook, a highlight treatment on the cell's
+Support matrix: **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")** (native [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) multi-selection), **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")** and
+**[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** (the emulated lists: a per-cell press hook, a highlight treatment on the cell's
 background, ctrl/cmd toggles, shift extends) honor [`multi_select`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.multi_select) and `ListPatch::Selected`.
-**Android** and **ArkUI** report single selection (a tap replaces, the touch idiom) but do
+**[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** and **[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** report single selection (a tap replaces, the touch idiom) but do
 honor `ListPatch::Selected`: the sync paints the visible cells (the theme accent at 20%
 alpha as the cell background) and newly bound cells inherit their row's state, which is what
-lets the composed tree's selection follow the canvas ([docs/tree](tree.md)). **GTK** uses native [`GtkSingleSelection`](https://docs.gtk.org/gtk4/class.SingleSelection.html) for programmatic sync,
+lets the composed tree's selection follow the canvas ([docs/tree](tree.md)). **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")** uses native [`GtkSingleSelection`](https://docs.gtk.org/gtk4/class.SingleSelection.html) for programmatic sync,
 reapplying the requested row after model reloads without an event echo. Empty sync clears
 selection, and out-of-range rows remain unselected. The sync does not take keyboard focus.
 The remaining toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
@@ -395,7 +395,7 @@ exactly what a click on the same row reports, so [`on_select`](https://docs.rs/d
 
 On the desktops this is the native widget's own behavior: nothing in Day sits ahead of the
 responder chain, so a focused table, outline or [`QListView`](https://doc.qt.io/qt-6/qlistview.html) gets its arrow keys the way it
-always would ([docs/menus](menus.md)). On **Web** there is no native list to inherit it from, so the
+always would ([docs/menus](menus.md)). On **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** there is no native list to inherit it from, so the
 toolkit builds it: the host carries `role="listbox"` and the tab stop, cells carry `role="option"`
 and `aria-selected`, and the shim routes the keys into `day_dom_list_key`. Focus sits on the host
 rather than a row, because rows are recycled as the list scrolls and focus parked on one would
@@ -469,14 +469,14 @@ Per-toolkit affordances:
 
 | Toolkit | Mechanism | Affordance | Guard |
 |---|---|---|---|
-| AppKit | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) drag pipeline (pasteboard row, `validateDrop`/`acceptDrop`) | the `.gap` placeholder opens where the drop would land | live (validate retargets/denies) |
-| UIKit | drag delegate + `moveRow`/`targetIndexPathForMove` | long-press lift + gap, no editing mode | live (target-for-move) |
-| Android | `ItemTouchHelper` on the RecyclerView | long-press lift, elevation, incremental swaps | live per swap; `Retarget` reads as deny (the helper can't relocate the gap) |
-| GTK 4 | `DragSource`/`DropTarget` (native DnD framework) | row snapshot as drag icon; forbidden cursor on deny (no insertion line yet) | live (motion) |
-| Qt | [`QDrag`](https://doc.qt.io/qt-6/qdrag.html) over the [`QListView`](https://doc.qt.io/qt-6/qlistview.html) | grabbed-cell pixmap, 2px insertion line, no-drop cursor | live (drag-move) |
-| WinUI | WinRT drag events on recycled `ItemContainer` rows | system drag visuals + live no-drop cursor | live (DragOver); target is the actual row, including variable heights |
-| ArkUI | `SetNodeDraggable` + `NODE_ON_DROP` | system drag preview; denied drops spring back | at drop (`SetDragResult`) |
-| Web | pointer-tracked (emulated — no native list reorder in the browser) | lifted cell + animated CSS gap, long-press on touch | live (every hovered slot) |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSTableView`](https://developer.apple.com/documentation/appkit/nstableview) drag pipeline (pasteboard row, `validateDrop`/`acceptDrop`) | the `.gap` placeholder opens where the drop would land | live (validate retargets/denies) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | drag delegate + `moveRow`/`targetIndexPathForMove` | long-press lift + gap, no editing mode | live (target-for-move) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `ItemTouchHelper` on the RecyclerView | long-press lift, elevation, incremental swaps | live per swap; `Retarget` reads as deny (the helper can't relocate the gap) |
+| [GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `DragSource`/`DropTarget` (native DnD framework) | row snapshot as drag icon; forbidden cursor on deny (no insertion line yet) | live (motion) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QDrag`](https://doc.qt.io/qt-6/qdrag.html) over the [`QListView`](https://doc.qt.io/qt-6/qlistview.html) | grabbed-cell pixmap, 2px insertion line, no-drop cursor | live (drag-move) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | WinRT drag events on recycled `ItemContainer` rows | system drag visuals + live no-drop cursor | live (DragOver); target is the actual row, including variable heights |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `SetNodeDraggable` + `NODE_ON_DROP` | system drag preview; denied drops spring back | at drop (`SetDragResult`) |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | pointer-tracked (emulated — no native list reorder in the browser) | lifted cell + animated CSS gap, long-press on touch | live (every hovered slot) |
 | mock | [`MockProbe::list_can_move`](https://docs.rs/day-mock/latest/day_mock/struct.MockProbe.html#method.list_can_move) / `list_move` | op log | live |
 
 ## Swipe-to-delete
@@ -513,7 +513,7 @@ which drops the row from Day's snapshot **before returning**, so `len`/`token_at
 answer for the shorter list while the native removal animates, and defers the app's
 `Delete` handler through the event queue; the reorder half follows the same rule.
 
-**WinUI supports deletion** through [`SwipeControl`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipecontrol) and the row context menu. Other desktop
+**[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") supports deletion** through [`SwipeControl`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipecontrol) and the row context menu. Other desktop
 toolkits answer `Unsupported` for the delete affordance: GTK and Qt have
 no swipe idiom at all, and macOS's row actions (the swipe-actions section below rides them) do
 not carry the delete affordance yet. A list that must be editable everywhere pairs
@@ -526,11 +526,11 @@ on every target, including the desktops, where there is no gesture to simulate.
 
 | Toolkit | Mechanism | Affordance |
 |---|---|---|
-| UIKit | `trailingSwipeActionsConfigurationForRowAtIndexPath` | row tracks the finger, destructive action reveals behind it, full swipe commits |
-| Android | `ItemTouchHelper` swipe (`START`, so it is the trailing edge in RTL too) | row slides to reveal a red field carrying the label; `notifyItemRemoved` animates the close-up |
-| WinUI | [`SwipeControl`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipecontrol) trailing [`SwipeItems`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipeitems) and [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) | reveal then press Delete; the guard is checked both when offering and invoking it |
-| AppKit · GTK · Qt · web | — | `Unsupported`: the delete affordance does not ride macOS's row actions yet, and the rest have no swipe idiom; use a menu item or a row button |
-| ArkUI | `NODE_LIST_ITEM_SWIPE_ACTION`: a trailing swipe-action item on each deletable row | the row slides to reveal the labeled action; pressing it runs the guard and commits |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `trailingSwipeActionsConfigurationForRowAtIndexPath` | row tracks the finger, destructive action reveals behind it, full swipe commits |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `ItemTouchHelper` swipe (`START`, so it is the trailing edge in RTL too) | row slides to reveal a red field carrying the label; `notifyItemRemoved` animates the close-up |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`SwipeControl`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipecontrol) trailing [`SwipeItems`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.swipeitems) and [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) | reveal then press Delete; the guard is checked both when offering and invoking it |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") · [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") · [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") · web | — | `Unsupported`: the delete affordance does not ride [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")'s row actions yet, and the rest have no swipe idiom; use a menu item or a row button |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `NODE_LIST_ITEM_SWIPE_ACTION`: a trailing swipe-action item on each deletable row | the row slides to reveal the labeled action; pressing it runs the guard and commits |
 
 ## Swipe actions
 
@@ -624,8 +624,8 @@ uses [`.editing(true)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListB
 
 | Toolkit | Mechanism |
 |---|---|
-| UIKit | [`UITableView.setEditing(_:animated:)`](https://developer.apple.com/documentation/uikit/uitableview), `editingStyleForRowAtIndexPath`, `commitEditingStyle`, `allowsSelectionDuringEditing` |
-| AppKit · GTK · Qt · web · Android · ArkUI | — (`Unsupported`; ignored) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UITableView.setEditing(_:animated:)`](https://developer.apple.com/documentation/uikit/uitableview), `editingStyleForRowAtIndexPath`, `commitEditingStyle`, `allowsSelectionDuringEditing` |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") · [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") · [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") · web · [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") · [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | — (`Unsupported`; ignored) |
 
 While editing, UIKit narrows each cell's content view for the two controls. Rows are
 `DayListCell`s that report the narrower width through `ListSource::layout_cell`, so Day lays the
@@ -640,9 +640,9 @@ them. It suits a list of places or settings more than a feed.
 
 | Toolkit | Inset grouped |
 |---|---|
-| UIKit | `UITableViewStyleInsetGrouped`; section headers sit above their group and scroll with it rather than pinning |
-| AppKit | `NSTableViewStyleInset`: rows set in from the edges with a rounded selection |
-| Android, GTK, Qt, WinUI, web, ArkUI | the plain list |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `UITableViewStyleInsetGrouped`; section headers sit above their group and scroll with it rather than pinning |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `NSTableViewStyleInset`: rows set in from the edges with a rounded selection |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), web, [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the plain list |
 
 ## Separators
 
@@ -663,12 +663,12 @@ separation turns the native line off rather than showing both).
 
 | Toolkit | Mechanism |
 |---|---|
-| AppKit | `gridStyleMask = solidHorizontalGridLineMask`, `separatorColor` |
-| UIKit | the table's own `separatorStyle` (default on; `false` sets `.none`) |
-| GTK | a `border-bottom` on the ListView's `row` CSS nodes |
-| web | a `border-bottom` inside each cell frame (border-box) |
-| Qt | the delegate paints a hairline along each row's bottom edge (the palette's `Mid`, translucent) |
-| Android · ArkUI | *not lowered yet* — a force is ignored; rows separate by their pitch |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `gridStyleMask = solidHorizontalGridLineMask`, `separatorColor` |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | the table's own `separatorStyle` (default on; `false` sets `.none`) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | a `border-bottom` on the ListView's `row` CSS nodes |
+| [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | a `border-bottom` inside each cell frame (border-box) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | the delegate paints a hairline along each row's bottom edge (the palette's `Mid`, translucent) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") · [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | *not lowered yet* — a force is ignored; rows separate by their pitch |
 
 ## Reorder + row-height caveat
 

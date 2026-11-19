@@ -5,6 +5,8 @@ order: 33.1
 section: Reference
 ---
 
+import Toolkit from '../../../components/Toolkit.astro';
+
 {/*
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -13,7 +15,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's macOS target connects shared Rust UI code to AppKit controls and windows. This reference
 covers the Apple tools, host project, and packaging used to run and distribute the app on a Mac.
 
-`macos-appkit` is a [Tier 1](/docs/reference/platforms#support-tiers) target for desktop apps.
+<Toolkit id="macos-appkit"><code>macos-appkit</code></Toolkit> is a [Tier 1](/docs/reference/platforms#support-tiers) target for desktop apps.
 
 ## Getting started
 
@@ -68,7 +70,7 @@ this table adds links and notes.
 
 Pieces marked *external* live in separate crates and are only present when you depend on them.
 
-| Day piece | AppKit class |
+| Day piece | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") class |
 |---|---|
 | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`NSView`](https://developer.apple.com/documentation/appkit/nsview) (a flipped subclass, so Day's top-left origin applies directly) |
 | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (`labelWithString:`) |
@@ -90,7 +92,7 @@ Pieces marked *external* live in separate crates and are only present when you d
 | `nav_menu` | [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
 | `tabs` | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) |
 | [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) |
-| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) rendering the staged SVG ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) draws SVG at display size on macOS 11+) |
+| [`vector`](https://docs.rs/day-pieces/latest/day_pieces/fn.vector.html) | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) rendering the staged SVG ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) draws SVG at display size on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 11+) |
 | [`cover()`](https://docs.rs/day-pieces/latest/day_pieces/fn.cover.html) | emulated: a window-sized view re-homed onto the window's content view (no transition, programmatic dismissal only) |
 | [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html) | a custom [`NSView`](https://developer.apple.com/documentation/appkit/nsview) replaying the display list in `drawRect:` |
 | dialogs / alerts / prompts | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) (window-modal sheet) |
@@ -111,7 +113,7 @@ vocabulary.
 manager for the text area, and `fittingSize` for everything else), so wrapping and hyphenation are
 the system's text layout.
 
-## Reaching AppKit directly
+## Reaching [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") directly
 
 When you need something Day doesn't model, a [tweak](/docs/how-to/tweaks) hands you the realized [`NSView`](https://developer.apple.com/documentation/appkit/nsview)
-for a node, so you can set any AppKit property.
+for a node, so you can set any [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") property.

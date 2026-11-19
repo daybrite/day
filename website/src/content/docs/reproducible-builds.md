@@ -68,7 +68,7 @@ Reproducibility needs cooperation from the Rust dependency graph *and* from the 
 tools. Day controls the first and configures the second where the tool allows it. This section also
 lists the places where a tool offers no control.
 
-### macos-appkit
+### [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
 
 The compiled binary is reproducible. The `.dmg` is not.
 
@@ -100,7 +100,7 @@ writing file modification times into static archives and debug maps. TN3178 is A
 build UUIDs specifically; for the wider set of linker and archiver flags, see [LLVM's deterministic
 builds post](https://blog.llvm.org/2019/11/deterministic-builds-with-clang-and-lld.html).
 
-### ios-uikit
+### [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 
 The unsigned `.ipa` is byte-reproducible, including the container. Three settings make that so.
 
@@ -119,9 +119,9 @@ Swift-heavy app this also makes the binary slightly smaller.
 `ditto -c -k` copies each file's modification time into the ZIP and has no flag to suppress it, so
 Day stamps the staging tree before archiving.
 
-`LC_UUID` still varies, as on macOS. See [TN3178](https://developer.apple.com/documentation/technotes/tn3178-checking-for-and-resolving-build-uuid-problems) and the macos-appkit section above.
+`LC_UUID` still varies, as on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"). See [TN3178](https://developer.apple.com/documentation/technotes/tn3178-checking-for-and-resolving-build-uuid-problems) and the [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") section above.
 
-### linux-gtk and linux-qt
+### [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")
 
 The compiled binary is reproducible. Neither the `.flatpak` bundle nor the `.appimage` is compared.
 
@@ -135,7 +135,7 @@ unstable](https://rust-lang.github.io/rfcs/3127-trim-paths.html) as of Cargo 1.9
 
 A `.flatpak` is an OSTree bundle that ordinary archivers cannot open, and an `.appimage` is an ELF
 with a squashfs image appended, so Day's check compares the ELF binary staged before packaging
-rather than either container. Both Linux formats are built from the same staged tree, so one
+rather than either container. Both [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") formats are built from the same staged tree, so one
 recorded digest set covers both downloads.
 
 `flatpak-builder` honors `SOURCE_DATE_EPOCH` from version 1.3.1, and Day exports it; OSTree's own
@@ -146,7 +146,7 @@ the same epoch to `linuxdeploy`, but the AppImage runtime it prepends is a downl
 tracks its own upstream release, so an AppImage is not expected to be byte-identical across a
 runtime bump.
 
-### android-material
+### [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 
 The packaged `.so` files are compared byte for byte. Day passes its selected NDK (including an
 `ANDROID_NDK_HOME` override) to its Gradle plugin through generated build configuration, so
@@ -163,7 +163,7 @@ true` on every archive task, which is the documented fix. See [Gradle's reproduc
 guidance](https://docs.gradle.org/current/userguide/working_with_files.html) and
 [reproducible-builds.org on the JVM](https://reproducible-builds.org/docs/jvm/).
 
-Day ships a fixed dev keystore rather than generating one per project, which is what Android's own
+Day ships a fixed dev keystore rather than generating one per project, which is what [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s own
 `debug.keystore` does. A per-project key would sign identical bytes with different keys, so a
 dev-tier `.apk` could never be reproducible. The fixed key also lets a build from one machine
 upgrade an install from another, which Android refuses when a signature changes.
@@ -174,14 +174,14 @@ not an inherent property of APK signing the way ECDSA is for HarmonyOS.The v2 an
 identical *before* signing for any of this to hold: the constraint F-Droid documents in its
 [reproducible builds guide](https://f-droid.org/docs/Reproducible_Builds/).
 
-### harmony-arkui
+### [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
 The compiled `.so` is reproducible once its build ID is set aside. A signed `.hap` cannot be.
 
 `hvigor` strips the library's symbol tables as it packages `libs/` into the `.hap`. The linker ran
 before that: cargo-ohos links with `--build-id`, and lld computes that ID as a hash of the whole
 unstripped file, local symbol names included. Those names can differ across build directories, as
-on Android, so two haps whose code matches byte for byte can still carry different build IDs. Day
+on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), so two haps whose code matches byte for byte can still carry different build IDs. Day
 zeroes the `NT_GNU_BUILD_ID` note before comparing, the way it zeroes `LC_UUID` on Apple platforms,
 and compares every other section as shipped.
 
@@ -194,9 +194,9 @@ Two haps of byte-identical content differ only in the ECDSA signature block.
 `DAY_OHOS_ARCH` selects the architecture and takes precedence over any connected device, so a hap
 packed next to an x86_64 emulator does not silently ship x86_64.
 
-### windows-winui
+### [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 
-The staged payload is reproducible and includes the Windows App SDK runtime files from the
+The staged payload is reproducible and includes the [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") App SDK runtime files from the
 pinned 2.5.1 packages.
 
 The Microsoft linker writes the wall clock into the PE header's `TimeDateStamp` and into the debug
@@ -262,7 +262,7 @@ Each tool carries an `install` hint, so a machine that cannot reproduce the buil
 to change. The `.buildinfo` is always a sidecar and never embedded: tool versions differ per machine,
 so baking them into the artifact would make the artifact itself unreproducible.
 
-On `linux-gtk` and `linux-qt` a second buildinfo is written alongside the JSON one, in Debian's
+On [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") a second buildinfo is written alongside the JSON one, in Debian's
 [deb822 `.buildinfo` format](https://wiki.debian.org/ReproducibleBuilds/BuildinfoFiles). It ships
 as `<artifact>.buildinfo.deb822`, under Day's sidecar naming rather than Debian's
 `<source>_<version>_<arch>.buildinfo` convention, so the file name says which download it

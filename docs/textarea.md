@@ -27,7 +27,7 @@ and re-exported through `day::prelude::*`. No additional crate or control featur
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
 
 ## Authoring
 
@@ -72,7 +72,7 @@ attribute IS honored, just not by one native property, so the test to gray a con
 [`capability(…) == Support::Unsupported`](https://docs.rs/day-core/latest/day_core/fn.capability.html), not `!= Support::Native` (the showcase's Text Areas page
 gates its three toggles that way):
 
-| attribute | Cap | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
+| attribute | Cap | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") |
 |---|---|---|---|---|---|---|---|---|
 | editable | `Cap::TextEditable` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | emulated |
 | selectable | `Cap::TextSelectable` | ✓ | ✓ | — (always on) | ✓ | ✓ | emulated | emulated |
@@ -81,13 +81,13 @@ gates its three toggles that way):
 GTK's [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) is always selectable (no toggle), and neither GTK nor Qt ships a built-in
 spell-checker (that needs libspelling/gspell or Hunspell).
 
-**WinUI** honors editable and spell-check with the plain [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) properties `IsReadOnly` and
+**[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** honors editable and spell-check with the plain [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) properties `IsReadOnly` and
 `IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) /
 [`RichTextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) carries no equivalent, so [`.selectable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is EMULATED:
 the shim collapses each selection as `SelectionChanged` reports it and suppresses the context menu,
 which is the other route to Copy / Select All.
 
-**ArkUI** keeps its native [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) and emulates editable/selectable policy. The
+**[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** keeps its native [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) and emulates editable/selectable policy. The
 API 18 C interface has no persistent read-only or selection-enable property: `EDITING=false`
 only ends the current editing session. Day vetoes native insert/delete callbacks while read-only,
 suppresses keyboard activation/autofill, and restores the held text if an input path bypasses the
@@ -110,7 +110,7 @@ to both.
 current, rather than inserting a newline. The callback can read or clear the signal. Without
 this modifier, Enter keeps its ordinary multiline behavior.
 
-On **ArkUI**, the native editor advertises **Send** to the IME and routes
+On **[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")**, the native editor advertises **Send** to the IME and routes
 `NODE_TEXT_AREA_ON_SUBMIT` to the callback. Hardware Enter and the soft-keyboard Send button use
 the same native action. Submission leaves the editor focused, does not clear the text unless
 the callback does so, and is ignored while read-only. Pasting multiline text does not submit.
@@ -127,17 +127,17 @@ native editing pipeline. `day build` stages this callback automatically for stan
 
 Platform guidance: [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields); [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method); [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
 
-| AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") |
 |---|---|---|---|---|---|---|
 | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) in [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) | multi-line [`EditText`](https://developer.android.com/reference/android/widget/EditText) | wrapping [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) | [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) |
 
 Each toolkit keeps the `(min_lines, max_lines)` band and grows its `measure` height in a line band.
 Text changes report through `Event::TextChanged(String)`; programmatic sync (`TextAreaPatch::SetText`)
 is echo-guarded per toolkit, and the attribute patches (`SetEditable`/`SetSelectable`/`SetSpellCheck`)
-apply the native property. The Qt and WinUI renderers carry C++ shims in the matching `-sys` crate
+apply the native property. The [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") renderers carry C++ shims in the matching `-sys` crate
 (`shim-textarea.cpp`: Qt adds `day_textarea_set_attrs`/`set_read_only`/`set_selectable`; WinUI adds
 `day_textarea_xaml_set_editable`/`set_selectable`/`set_spellcheck`, applied at build as well as on
-patch so an editor that starts read-only comes up that way); Android's
+patch so an editor that starts read-only comes up that way); [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s
 `DayTextArea.java` rides the framework shim (its `applyAttrs` maps editable→InputType/keyListener,
 selectable→`setTextIsSelectable`, spell-check→`TYPE_TEXT_FLAG_NO_SUGGESTIONS`).
 

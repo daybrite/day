@@ -317,12 +317,6 @@ pre.code code { color: inherit; background: none; padding: 0; }
   border-radius: 6px;
   font-size: 0.88em;
 }
-/* Target names in prose (`macos-appkit`, `web-dom`, …) wear their platform accent — the
-   accent-target-code rehype plugin stamps data-pf on matching inline code at build time. */
-:not(pre) > code[data-pf] {
-  color: color-mix(in srgb, var(--pf) 78%, var(--text));
-  background: color-mix(in srgb, var(--pf) 13%, transparent);
-}
 
 /* ---- support-tier badges ----
    One pill for all four tiers, in the tier tint. Written in markdown as a link to
@@ -544,7 +538,7 @@ a.tier-badge:hover {
   mask: var(--target-icon) center / contain no-repeat;
   -webkit-mask: var(--target-icon) center / contain no-repeat;
 }
-code[data-pf] > .doc-target-icon { margin-right: 0.3em; }
+.doc-target-label code { color: inherit; background: transparent; padding: 0; }
 
 .doc-target-icon[data-pf] { color: color-mix(in srgb, var(--pf) 65%, var(--text)); }
 

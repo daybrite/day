@@ -9,9 +9,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Build and run on HarmonyOS
+# Build and run on [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
-The `harmony-arkui` target uses ArkUI controls on HarmonyOS and OpenHarmony. It is
+The [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") target uses [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") controls on [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") and [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"). It is
 [Tier 3 · Experimental](/docs/reference/platforms#support-tiers). Check the
 [toolkit reference](/docs/reference/platforms/harmony-arkui) for component support.
 
@@ -28,7 +28,7 @@ Building requires Rust's OHOS target, `cargo-ohos`, an SDK/NDK for your host ope
 Follow [System requirements](/docs/reference/system-requirements#harmonyos) for installation
 commands, SDK layouts, and emulator images.
 
-Use an SDK built for the development host. Linux SDK binaries cannot run on macOS.
+Use an SDK built for the development host. [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") SDK binaries cannot run on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit").
 `OHOS_BASE_SDK_HOME` must point to the versioned SDK layout expected by hvigor, while
 `OHOS_SDK_NATIVE` names the native component. A wrong host binary can cause `spawn ENOEXEC`;
 a flat SDK layout can produce “The SDK management mode has changed.”
@@ -60,8 +60,8 @@ OS's device type:
 day devices boot -t harmony-arkui --device tablet --orientation landscape
 ```
 
-On x86_64 Linux, KVM acceleration requires read/write access to `/dev/kvm`. Without it, QEMU
-uses slower software emulation. ARM macOS hosts cannot accelerate the x86_64 guest; use CI or
+On x86_64 [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), KVM acceleration requires read/write access to `/dev/kvm`. Without it, QEMU
+uses slower software emulation. ARM [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") hosts cannot accelerate the x86_64 guest; use CI or
 a suitable device for repeated acceptance runs. See
 [emulator troubleshooting](/docs/how-to/troubleshooting#harmonyos-builds-rust-but-cannot-package-or-launch).
 

@@ -5,6 +5,8 @@ order: 33.7
 section: Reference
 ---
 
+import Toolkit from '../../../components/Toolkit.astro';
+
 {/*
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -14,7 +16,7 @@ Day's HarmonyOS target connects shared Rust UI code to ArkUI controls. It is exp
 reference describes its setup and limitations so developers can evaluate the features their app
 needs.
 
-`harmony-arkui` is a [Tier 3](/docs/reference/platforms#support-tiers) target using ArkUI’s native
+<Toolkit id="harmony-arkui"><code>harmony-arkui</code></Toolkit> is a [Tier 3](/docs/reference/platforms#support-tiers) target using ArkUI’s native
 node API and an ArkTS host project. A local compile check does not establish device or store
 readiness.
 
@@ -91,7 +93,7 @@ values. Where HarmonyOS's [NDK development guides](https://developer.huawei.com/
 cover a component, the node type links to that guide; the rest link to the OpenHarmony
 `ArkUI_NodeType` reference.
 
-| Day piece | ArkUI node type |
+| Day piece | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") node type |
 |---|---|
 | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`ARKUI_NODE_STACK`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-layout-container) |
 | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`ARKUI_NODE_TEXT`](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-use-text-component) |

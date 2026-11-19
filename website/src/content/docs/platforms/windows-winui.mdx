@@ -5,6 +5,8 @@ order: 33.6
 section: Reference
 ---
 
+import Toolkit from '../../../components/Toolkit.astro';
+
 {/*
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -13,7 +15,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's Windows target presents shared Rust UI code through WinUI 3 controls. This reference covers
 the Windows build tools, runtime requirements, and packaging needed for the app.
 
-`windows-winui` is a [Tier 2](/docs/reference/platforms#support-tiers) target using the Windows App
+<Toolkit id="windows-winui"><code>windows-winui</code></Toolkit> is a [Tier 2](/docs/reference/platforms#support-tiers) target using the Windows App
 SDK. Its controls use the Fluent styles of Windows 11.
 
 ## Getting started
@@ -34,7 +36,7 @@ The app's `Cargo.toml` carries a `winui = ["day/winui"]` feature, which the `day
 adds.
 
 Development builds (`day build`, `day launch`) run framework-dependent, so they need the
-**Windows App Runtime 2.5.1 or newer** installed (the `Microsoft.WindowsAppRuntime.2` framework
+**[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") App Runtime 2.5.1 or newer** installed (the `Microsoft.WindowsAppRuntime.2` framework
 package), from Microsoft's [Windows App SDK
 downloads](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads). If it is missing,
 the app offers that download page at start-up. `day doctor --toolkit winui` checks the MSVC
@@ -101,7 +103,7 @@ entry, and offers a silent `/S` mode for managed deployment. The Microsoft Store
 
 ## Native pieces
 
-A native piece enables WinUI through a `winui` feature that implies the piece's
+A native piece enables [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") through a `winui` feature that implies the piece's
 `xaml` feature and turns on both `day-toolkit-winui/winui` and `day-toolkit-xaml-sys/winui`, with `"winui"` in
 `[package.metadata.day.piece] backends`. Its `build.rs` uses
 [`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
@@ -114,7 +116,7 @@ A native piece enables WinUI through a `winui` feature that implies the piece's
 The generated [coverage matrix](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md), checked in CI, covers every toolkit;
 this table adds links and notes.
 
-| Day piece | WinUI 3 control (`Microsoft.UI.Xaml.Controls`) |
+| Day piece | [WinUI 3](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") control (`Microsoft.UI.Xaml.Controls`) |
 |---|---|
 | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) (Day positions children absolutely) |
 | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) |
@@ -152,11 +154,11 @@ this table adds links and notes.
 **Text measurement** is WinUI's measure pass (`Measure` → `DesiredSize`), with a re-measure
 after forcing layout when a templated control reports zero before the first async layout pass.
 
-## Qt and GTK on a Windows host
+## [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") and [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") on a [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") host
 
-`windows-winui` is the target you ship on Windows. To check a change against GTK or Qt on the same
-machine, build `linux-gtk` or `linux-qt` inside
-[WSL 2](https://learn.microsoft.com/windows/wsl/install), with the Linux packages from
+[`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") is the target you ship on [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"). To check a change against [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") on the same
+machine, build [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") inside
+[WSL 2](https://learn.microsoft.com/windows/wsl/install), with the [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") packages from
 [system requirements](/docs/reference/system-requirements#linux) installed in the WSL distribution.
 On Windows 11, WSL shows Linux apps' windows on the Windows desktop.
 

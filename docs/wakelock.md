@@ -32,9 +32,9 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, HarmonyOS | Keeps the display awake while the lock is held. |
-| Web | Requires the browser Screen Wake Lock API; the page must be visible. |
-| GTK / Qt (Linux) | Not implemented; [`is_supported()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_supported.html) returns false. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Keeps the display awake while the lock is held. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Requires the browser Screen Wake Lock API; the page must be visible. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") ([Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")) | Not implemented; [`is_supported()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_supported.html) returns false. |
 
 ## Authoring
 
@@ -72,22 +72,22 @@ Platform guidance: [Android: keeping the screen on](https://developer.android.co
 
 | Platform | Mechanism |
 |---|---|
-| iOS | [`UIApplication.isIdleTimerDisabled`](https://developer.apple.com/documentation/uikit/uiapplication) |
-| macOS | an IOKit power assertion, [`PreventUserIdleDisplaySleep`](https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep); `pmset -g assertions` lists it |
-| Windows | [`SetThreadExecutionState(ES_CONTINUOUS \| ES_DISPLAY_REQUIRED)`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate) |
-| Android | [`FLAG_KEEP_SCREEN_ON`](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_KEEP_SCREEN_ON) on the activity's window, set on the UI thread |
-| HarmonyOS | [`Window.setWindowKeepScreenOn`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkts-apis-window-Window.md) on the app's window |
-| web | the Screen Wake Lock API, requested again each time the page becomes visible |
-| Linux (GTK, Qt) | none yet: [`is_supported()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_supported.html) is false |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIApplication.isIdleTimerDisabled`](https://developer.apple.com/documentation/uikit/uiapplication) |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | an IOKit power assertion, [`PreventUserIdleDisplaySleep`](https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep); `pmset -g assertions` lists it |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`SetThreadExecutionState(ES_CONTINUOUS \| ES_DISPLAY_REQUIRED)`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`FLAG_KEEP_SCREEN_ON`](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_KEEP_SCREEN_ON) on the activity's window, set on the UI thread |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`Window.setWindowKeepScreenOn`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkts-apis-window-Window.md) on the app's window |
+| [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the Screen Wake Lock API, requested again each time the page becomes visible |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | none yet: [`is_supported()`](https://docs.rs/day-part-wakelock/latest/day_part_wakelock/fn.is_supported.html) is false |
 
 None of these needs a permission. The web's wake lock needs a secure context (HTTPS or localhost),
 which `day launch` and a hosted build both provide.
 
-Android and HarmonyOS reach their window through the daybridge arms in `src/lib.rs`
-([bridge](bridge.md)), and the web through its JavaScript arm; Apple and Windows call the OS
-from Rust. On macOS the part links `IOKit` through `[package.metadata.day.macos]`
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") reach their window through the daybridge arms in `src/lib.rs`
+([bridge](bridge.md)), and the web through its JavaScript arm; Apple and [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") call the OS
+from Rust. On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") the part links `IOKit` through `[package.metadata.day.macos]`
 ([extending](extending.md)).
 
-Linux has two routes, neither built yet: GTK's [`gtk_application_inhibit`](https://docs.gtk.org/gtk4/method.Application.inhibit.html), which needs the toolkit's
+[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") has two routes, neither built yet: [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")'s [`gtk_application_inhibit`](https://docs.gtk.org/gtk4/method.Application.inhibit.html), which needs the toolkit's
 application object, and the desktop's [`org.freedesktop.ScreenSaver.Inhibit`](https://specifications.freedesktop.org/idle-inhibit-spec/latest/) over D-Bus, which needs
 a D-Bus client the tree does not have.

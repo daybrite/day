@@ -152,13 +152,13 @@ Before this, the same kind of image arrived differently per target (Day Showcase
 
 | target | color type | ancillary chunks |
 | --- | --- | --- |
-| ios-uikit | RGBA, opaque | `sRGB`, `eXIf` |
-| android-material, harmony-arkui | RGBA, opaque | `sRGB`, `sBIT` |
-| linux-gtk | RGBA, opaque | none |
-| linux-qt | RGBA, opaque | `pHYs` |
-| web-dom | RGB | none |
-| windows-winui | RGBA, a 1-pixel frame at alpha 102 | `sRGB`, `gAMA`, `pHYs` |
-| macos-appkit | RGBA, translucent window corners | `iCCP` (the display's profile), `eXIf` |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | RGBA, opaque | `sRGB`, `eXIf` |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | RGBA, opaque | `sRGB`, `sBIT` |
+| [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | RGBA, opaque | none |
+| [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | RGBA, opaque | `pHYs` |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | RGB | none |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | RGBA, a 1-pixel frame at alpha 102 | `sRGB`, `gAMA`, `pHYs` |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | RGBA, translucent window corners | `iCCP` (the display's profile), `eXIf` |
 
 The AppKit toolkit converts its capture to sRGB before encoding it, so a macOS capture's samples
 are comparable with the other targets' and independent of the capturing display.

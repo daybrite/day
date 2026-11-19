@@ -58,7 +58,7 @@ them in the workflow instead, such as
 `scripts: auto` runs the project's
 `dayscript/*.yaml` files, or `scripts/*.yaml` when that is the script directory. Use a
 space-separated list of paths to run selected tests, or `none` to build without running tests.
-`deploy-web` is scaffolded as `true` when `web-dom` is a target; it needs the one-time Pages
+`deploy-web` is scaffolded as `true` when [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") is a target; it needs the one-time Pages
 setting below, and until then the deploy job fails while the builds pass.
 
 The write grants sit on the job that calls the shared workflow, not at the top of the file. The
@@ -155,7 +155,7 @@ Choose what to deploy in the job's `with` block:
 | --- | --- |
 | App website with listings, downloads and screenshots | Add `website/site.toml` and remove `deploy-website: "false"`; the workflow detects it automatically. |
 | Custom Astro pages or a reusable website theme | Keep `website/site.toml`, then add a daysite customization module or project Astro configuration. |
-| Web app only | Delete `website/site.toml`, keep `web-dom` in `targets`, and keep `deploy-web: true`. |
+| Web app only | Delete `website/site.toml`, keep [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") in `targets`, and keep `deploy-web: true`. |
 
 The generated site uses the [daysite template](https://github.com/daybrite/daysite), with
 optional component overrides, reusable themes, and project-owned Astro pages.
@@ -179,7 +179,7 @@ uses `website/site.toml` and the workflow's generated app data and output direct
 | `ios-devices`, `android-devices` | Choose simulator/emulator profiles, orientations and artifact names. |
 | `flavors`, `release-flavor`, `store-flavor` | Build and distribute [app variants](/docs/how-to/flavors). |
 | `target-packages`, `target-setup` | Install additional packages or run target-specific setup. |
-| `signing-environment` | Use a separate environment for macOS release signing and notarization. |
+| `signing-environment` | Use a separate environment for [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") release signing and notarization. |
 | `validate-rebuild` | Rebuild packages from their recorded provenance and compare results. |
 
 See the [input reference](https://github.com/daybrite/actions#inputs) for defaults and constraints.

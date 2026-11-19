@@ -106,27 +106,27 @@ both places.
 
 | toolkit | Mechanism | Fixed-pitch face |
 | --- | --- | --- |
-| AppKit | [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) on the [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) | `monospacedSystemFontOfSize:weight:` |
-| UIKit | [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) on the [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) | `monospacedSystemFontOfSize:weight:`, scaled by [`UIFontMetrics`](https://developer.apple.com/documentation/uikit/uifontmetrics) |
-| GTK | Pango markup | `font_family="monospace"` |
-| Qt | Qt rich text | `<code>`, which Qt maps to its own fixed font |
-| Android | `SpannableString` spans | `TypefaceSpan("monospace")` |
-| ArkUI | [`ARKUI_NODE_SPAN`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) children | `HarmonyOS Sans Mono, monospace` |
-| WinUI | `Run` inlines in [`TextBlock.Inlines`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) | `Consolas, Courier New, monospace` |
-| Web | `<span class="day-run">` children | the `ui-monospace` stack |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) on the [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) | `monospacedSystemFontOfSize:weight:` |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) on the [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) | `monospacedSystemFontOfSize:weight:`, scaled by [`UIFontMetrics`](https://developer.apple.com/documentation/uikit/uifontmetrics) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Pango markup | `font_family="monospace"` |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") rich text | `<code>`, which [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") maps to its own fixed font |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `SpannableString` spans | `TypefaceSpan("monospace")` |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`ARKUI_NODE_SPAN`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) children | `HarmonyOS Sans Mono, monospace` |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `Run` inlines in [`TextBlock.Inlines`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) | `Consolas, Courier New, monospace` |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `<span class="day-run">` children | the `ui-monospace` stack |
 
-Ranges convert to UTF-16 for the Apple and Android toolkits, which index text that way; any emoji
+Ranges convert to UTF-16 for the Apple and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") toolkits, which index text that way; any emoji
 or CJK in the string makes the two disagree.
 
 ### What each toolkit cannot draw
 
 | attribute | where it degrades |
 | --- | --- |
-| `Underline::Double` | Qt draws a single rule; Android draws a single rule |
-| `Underline::Dotted` | GTK draws a single rule (Pango has no dotted); Android draws a single rule |
-| `Underline::Wavy` | GTK draws the spell-check squiggle (`Underline::Error`); Android draws a single rule |
-| `background` | everywhere except where noted below; WinUI needs a [`TextHighlighter`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.documents.texthighlighter), since a `Run` has no background |
-| `scale` | GTK takes an absolute Pango size in 1/1024 pt; the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label empty. Qt takes points too: its CSS subset ignores a percentage |
+| `Underline::Double` | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") draws a single rule; [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") draws a single rule |
+| `Underline::Dotted` | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") draws a single rule (Pango has no dotted); [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") draws a single rule |
+| `Underline::Wavy` | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") draws the spell-check squiggle (`Underline::Error`); [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") draws a single rule |
+| `background` | everywhere except where noted below; [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") needs a [`TextHighlighter`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.documents.texthighlighter), since a `Run` has no background |
+| `scale` | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") takes an absolute Pango size in 1/1024 pt; the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label empty. [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") takes points too: its CSS subset ignores a percentage |
 
 Everything else draws on all eight.
 
@@ -134,14 +134,14 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 
 | toolkit | Activation |
 | --- | --- |
-| GTK | `activate-link` on the label |
-| Qt | `linkActivated` on the label |
-| UIKit | a text-view delegate (see below) |
-| Android | a `ClickableSpan` + `LinkMovementMethod` |
-| WinUI | `Hyperlink.Click` |
-| Web | the anchor's click, with its navigation cancelled |
-| AppKit | the native field editor reports to the `DayLabel` text-field subclass |
-| ArkUI | native `NODE_ON_CLICK` on each link's `SPAN` |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `activate-link` on the label |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | `linkActivated` on the label |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | a text-view delegate (see below) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | a `ClickableSpan` + `LinkMovementMethod` |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `Hyperlink.Click` |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the anchor's click, with its navigation cancelled |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the native field editor reports to the `DayLabel` text-field subclass |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | native `NODE_ON_CLICK` on each link's `SPAN` |
 
 Every one of these reports the target to the app rather than opening it itself, so a label's
 [`.on_link()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.on_link) decides. Its default calls [`open_link`](https://docs.rs/day-pieces/latest/day_pieces/fn.open_link.html): a leading `#` navigates to the route after
@@ -150,7 +150,7 @@ with [`TextBuilder::link`](https://docs.rs/day-pieces/latest/day_pieces/struct.T
 custom-handler behavior. Where activation is missing the run still draws as a link; the tap does
 nothing.
 
-**ArkUI keeps hit testing in the native text layout.** Each linked span reports its original
+**[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") keeps hit testing in the native text layout.** Each linked span reports its original
 target to the owning label, including Unicode, custom schemes and `#route` targets. Plain
 spans do not register clicks. Wrapped spans activate on their glyphs across lines, without
 turning the label's trailing whitespace into a link. Links receive a default blue tint and
@@ -167,17 +167,17 @@ Some toolkit details affect how runs are built.
 
 
 
-**GTK renders runs as markup, not as a `pango::AttrList`,** because Pango's attributes cannot
+**[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") renders runs as markup, not as a `pango::AttrList`,** because Pango's attributes cannot
 express a link and the markup dialect can. A [`GtkLabel`](https://docs.gtk.org/gtk4/class.Label.html)'s attribute list *overrides* the
 attributes its markup parsed, so a base weight attribute spanning the label silently defeats a
 `<b>` run. So a label with runs carries no attribute list at all, and its base
 font arrives as a wrapping `<span>`. It also measures from that markup: `label.text()` is the
 markup with its tags stripped, and measuring it would size every run at the base font.
 
-**Qt does not resolve a generic `monospace` family from a style attribute** (it rendered
+**[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") does not resolve a generic `monospace` family from a style attribute** (it rendered
 proportional), so the fixed face comes from `<code>` instead.
 
-**A label with a link on iOS is a [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview).** UIKit reserves both selection and link hit
+**A label with a link on [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") is a [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview).** [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") reserves both selection and link hit
 testing for text-input views, so [`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) rebuilds the label as a read-only text view, and
 a label that arrives with a link run is built as one from the start. That swap carries the
 attributed text across rather than the plain string. A link that first appears in a later patch

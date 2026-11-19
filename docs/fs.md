@@ -32,8 +32,8 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Filesystem storage beneath the app-data root. |
-| Web | Async APIs only, using OPFS; unavailable storage returns an error. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Filesystem storage beneath the app-data root. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Async APIs only, using OPFS; unavailable storage returns an error. |
 
 This reference covers paths, errors, and storage behavior. The
 [local storage guide](/docs/how-to/guide-storage) shows how to use files from an app.
@@ -96,14 +96,14 @@ its executable name.
 
 | Platform | Data | Cache | Configuration |
 | --- | --- | --- | --- |
-| macOS | `~/Library/Application Support/<id>` | `~/Library/Caches/<id>` | Same as data |
-| macOS, App Sandbox | `Library/Application Support/<id>` inside the app container | `Library/Caches/<id>` inside the container | Same as data |
-| iOS | `Library/Application Support/<id>` inside the app container | `Library/Caches/<id>` inside the container | Same as data |
-| Windows | `%LOCALAPPDATA%\<id>` | `%LOCALAPPDATA%\<id>\cache` | `%APPDATA%\<id>` |
-| Linux, BSD | `$XDG_DATA_HOME/<id>`, otherwise `~/.local/share/<id>` | `$XDG_CACHE_HOME/<id>`, otherwise `~/.cache/<id>` | `$XDG_CONFIG_HOME/<id>`, otherwise `~/.config/<id>` |
-| Android | The app's private files directory | The app's private cache directory | `config/` inside the files directory |
-| HarmonyOS | The app's private files directory | The app's private cache directory | `config/` inside the files directory |
-| Web | No native path; files use the origin's OPFS | No native path | No native path |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `~/Library/Application Support/<id>` | `~/Library/Caches/<id>` | Same as data |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), App Sandbox | `Library/Application Support/<id>` inside the app container | `Library/Caches/<id>` inside the container | Same as data |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `Library/Application Support/<id>` inside the app container | `Library/Caches/<id>` inside the container | Same as data |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `%LOCALAPPDATA%\<id>` | `%LOCALAPPDATA%\<id>\cache` | `%APPDATA%\<id>` |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), BSD | `$XDG_DATA_HOME/<id>`, otherwise `~/.local/share/<id>` | `$XDG_CACHE_HOME/<id>`, otherwise `~/.cache/<id>` | `$XDG_CONFIG_HOME/<id>`, otherwise `~/.config/<id>` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | The app's private files directory | The app's private cache directory | `config/` inside the files directory |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | The app's private files directory | The app's private cache directory | `config/` inside the files directory |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | No native path; files use the origin's OPFS | No native path | No native path |
 
 Day uses XDG variables on Linux and BSD; it ignores them on macOS and Windows.
 The Android and HarmonyOS hosts supply their app-private directories.
@@ -126,7 +126,7 @@ can select a separate preferences file store. See
 | This part's files | `day-fs/` inside the data directory |
 | [Persistence](persistence.md) databases opened with [`Sqlite::app_data(name)`](https://docs.rs/day-persistence/latest/day_persistence/struct.Sqlite.html#method.app_data) | The data directory |
 | [Windows keychain](keychain.md) items | `day-keychain/` inside the data directory |
-| [Preferences](prefs.md) file store on Linux, Windows, and HarmonyOS | `preferences.store` inside the configuration directory |
+| [Preferences](prefs.md) file store on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `preferences.store` inside the configuration directory |
 | [Remembered window frames](windows.md) | `day-windows.txt` inside the configuration directory |
 
 [`day_part_filesystem::data_dir()`](https://docs.rs/day-part-filesystem/latest/day_part_filesystem/fn.data_dir.html)
@@ -138,23 +138,23 @@ returns the shared platform directory: Application Support, roaming `%APPDATA%`,
 
 ### Platform storage policies
 
-- **macOS / iOS:** sandboxed apps use paths inside their app container. When enabling the
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"):** sandboxed apps use paths inside their app container. When enabling the
   [macOS App Sandbox](sandbox.md), check whether existing data needs migration.
   [Apple's filesystem guide](https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/FileSystemOverview/FileSystemOverview.html)
   describes container locations and backup behavior. On iOS, Application Support is normally
   backed up; Caches is excluded and may be cleared by the system.
-- **Android:** [Auto Backup](https://developer.android.com/identity/data/autobackup) normally
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"):** [Auto Backup](https://developer.android.com/identity/data/autobackup) normally
   includes private files and shared preferences, subject to backup settings and quotas. Cache
   files are excluded. Keep data the app needs to retain out of the cache directory.
-- **Windows:** data and caches use local storage; configuration uses the roaming directory.
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"):** data and caches use local storage; configuration uses the roaming directory.
   [MSIX virtualization](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-behind-the-scenes)
   can redirect AppData writes, depending on the package's configuration. Review those rules
   before relying on data sharing or removal during uninstall.
-- **Linux:** [Flatpak](https://docs.flatpak.org/en/latest/sandbox-permissions.html) redirects the
+- **[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"):** [Flatpak](https://docs.flatpak.org/en/latest/sandbox-permissions.html) redirects the
   XDG directories into its sandbox. Non-classic [Snap packages](https://snapcraft.io/docs/reference/development/environment-variables/)
   remap `HOME`. Query Day's storage paths inside the packaged app instead of assuming the
   unpackaged paths still apply.
-- **Web:** files use the origin's Origin Private File System (OPFS), while
+- **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom"):** files use the origin's Origin Private File System (OPFS), while
   [preferences](prefs.md) use `localStorage`. Browser policy can make storage unavailable or
   remove its contents. Unsupported OPFS returns `FsError::Unsupported`; other access failures
   return `Io`. This part provides no alternate browser file store.

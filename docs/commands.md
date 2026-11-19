@@ -117,7 +117,7 @@ does not register a second application-wide keyboard handler or resolve accelera
 Install a shortcut in one appropriate menu; do not assign the same accelerator to unrelated
 operations. Showcase's screenshot command uses primary+Alt+S, clear of File > Save.
 
-## Ownership, windows, and checked commands
+## Ownership, [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), and checked commands
 
 A command records [`Scope::current()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Scope.html#method.current) in [`Command::new`](https://docs.rs/day-pieces/latest/day_pieces/struct.Command.html#method.new). Build it in the scope that owns the
 operation. Constructing it does not extend the lifetime of the signals its handler captures;
@@ -155,18 +155,18 @@ implied. Arguments can be captured by typed Rust command factories, without an e
 
 | Toolkit | Presentation details and limitations |
 |---|---|
-| AppKit | Native [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton), [`NSMenuItem`](https://developer.apple.com/documentation/appkit/nsmenuitem), and toolbar items/toggles. Primary shortcuts use Command. Standard edit roles still follow native focus. |
-| UIKit | Native buttons, context [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu)/[`UIAction`](https://developer.apple.com/documentation/uikit/uiaction), and navigation-bar toolbar contributions. Main menus depend on the iPad/Catalyst/hardware-keyboard context; never make an operation reachable only from an app menu on iPhone. |
-| GTK | [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html), stateful menu `GAction`, and header-bar controls. Header bars are window chrome; they do not reproduce AppKit's separate per-column toolbar placement. |
-| Qt | Buttons, menu [`QAction`](https://doc.qt.io/qt-6/qaction.html), and [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) actions. Day creates separate native presentations; this does not expose or share a native [`QAction`](https://doc.qt.io/qt-6/qaction.html) object. Icon availability follows the platform theme and Day's fallback mapping. |
-| Android Material Components | Material buttons and app-bar items/overflow. Global menu shortcuts are not a portable hardware-keyboard binding; overflow icons may be omitted and deeper menu nesting flattens. |
-| Windows (WinUI) | Native buttons, [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar)/[`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout), and [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) items. Primary means Ctrl. Command availability is Day's predicate, not a public WinUI `ICommand`; existing placement and icon limitations apply. |
-| Web | DOM buttons, composed toolbars and per-piece context menus. No native application menu/OS-wide accelerator installation; browser-reserved shortcuts remain the browser's. Provide visible buttons. |
-| ArkUI | Buttons can invoke commands and follow availability. Unsupported application-menu/toolbar surfaces remain unsupported: commands do not fabricate an OS menu or bar. Keep content buttons for those operations. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Native [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton), [`NSMenuItem`](https://developer.apple.com/documentation/appkit/nsmenuitem), and toolbar items/toggles. Primary shortcuts use Command. Standard edit roles still follow native focus. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Native buttons, context [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu)/[`UIAction`](https://developer.apple.com/documentation/uikit/uiaction), and navigation-bar toolbar contributions. Main menus depend on the iPad/Catalyst/hardware-keyboard context; never make an operation reachable only from an app menu on iPhone. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html), stateful menu `GAction`, and header-bar controls. Header bars are window chrome; they do not reproduce [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")'s separate per-column toolbar placement. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Buttons, menu [`QAction`](https://doc.qt.io/qt-6/qaction.html), and [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) actions. Day creates separate native presentations; this does not expose or share a native [`QAction`](https://doc.qt.io/qt-6/qaction.html) object. Icon availability follows the platform theme and Day's fallback mapping. |
+| [Android Material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Components | Material buttons and app-bar items/overflow. Global menu shortcuts are not a portable hardware-keyboard binding; overflow icons may be omitted and deeper menu nesting flattens. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) | Native buttons, [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar)/[`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout), and [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) items. Primary means Ctrl. Command availability is Day's predicate, not a public [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") `ICommand`; existing placement and icon limitations apply. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | DOM buttons, composed toolbars and per-piece context menus. No native application menu/OS-wide accelerator installation; browser-reserved shortcuts remain the browser's. Provide visible buttons. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Buttons can invoke commands and follow availability. Unsupported application-menu/toolbar surfaces remain unsupported: commands do not fabricate an OS menu or bar. Keep content buttons for those operations. |
 
 The detailed, evolving matrices live in [menus](menus.md), [toolbars](toolbars.md), and
 [buttons](buttons.md). This API uses their existing spec models and event routing, on all targets.
-Windows behavior requires Windows runtime validation; an OpenHarmony compile-check does not
+[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") behavior requires Windows runtime validation; an [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") compile-check does not
 claim emulator validation. `dayscript toolbar:` drives the model and is not proof that native
 chrome rendered; inspect screenshots too.
 

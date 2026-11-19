@@ -5,6 +5,8 @@ order: 33.3
 section: Reference
 ---
 
+import Toolkit from '../../../components/Toolkit.astro';
+
 {/*
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -14,7 +16,7 @@ Day's Android target presents shared Rust UI code through Android views and Mate
 This reference covers the tools, packaging, and platform behavior involved in building and running
 that app.
 
-`android-material` is a [Tier 1](/docs/reference/platforms#support-tiers) target. Its native
+<Toolkit id="android-material"><code>android-material</code></Toolkit> is a [Tier 1](/docs/reference/platforms#support-tiers) target. Its native
 integration uses JNI and a Gradle host project. Check permissions and input behavior on the Android
 devices the app needs to serve.
 
@@ -155,7 +157,7 @@ this table adds links and notes.
 Pieces map to both Material Components and framework `android.widget` classes; the table names which
 one each piece uses.
 
-| Day piece | Android class |
+| Day piece | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") class |
 |---|---|
 | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | a `ViewGroup` subclass that lays children out at absolute frames |
 | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`TextView`](https://developer.android.com/reference/android/widget/TextView) |

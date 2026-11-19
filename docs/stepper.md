@@ -26,8 +26,8 @@ its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, GTK, Qt | Native numeric stepper. |
-| UIKit, Android, WinUI, ArkUI, Web | Composed control. Forcing [`.native()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.native) on these targets shows a placeholder. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Native numeric stepper. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Composed control. Forcing [`.native()`](https://docs.rs/day-pieces/latest/day_pieces/stepper/struct.Stepper.html#method.native) on these targets shows a placeholder. |
 
 [`stepper(value)`](https://docs.rs/day-pieces/latest/day_pieces/stepper/fn.stepper.html) is a numeric **stepper field**: a text field with increment/decrement arrows,
 bound two-way to any `Binding<f64>` (a `Signal<f64>`, a [day-model](/docs/explanation/model) `Field`, or an app's own
@@ -105,8 +105,8 @@ for the accepted notation and explicit-locale methods.
 
 ## Platform guidance
 
-The AppKit renderer combines [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) and [`NSStepper`](https://developer.apple.com/documentation/appkit/nsstepper); GTK uses [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html), and
-Qt uses [`QDoubleSpinBox`](https://doc.qt.io/qt-6/qdoublespinbox.html). Other targets compose the control from ordinary Day pieces.
+The [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") renderer combines [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) and [`NSStepper`](https://developer.apple.com/documentation/appkit/nsstepper); [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") uses [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html), and
+[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") uses [`QDoubleSpinBox`](https://doc.qt.io/qt-6/qdoublespinbox.html). Other targets compose the control from ordinary Day pieces.
 
 - [Apple: steppers](https://developer.apple.com/design/human-interface-guidelines/steppers)
 - [Windows: number boxes](https://learn.microsoft.com/en-us/windows/apps/design/controls/number-box)

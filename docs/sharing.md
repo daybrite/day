@@ -35,10 +35,10 @@ the work it does, which runs once the chooser has closed. Probe `Cap::ShareActio
 
 | Platform | App actions |
 |---|---|
-| iOS UIKit | Native: a `UIActivity` per action, listed with the sheet's own actions, its SF Symbol beside the title. The action runs from the sheet's completion handler, after the sheet is dismissed |
-| macOS AppKit | Native: an `NSSharingService` per action, added by the picker's delegate after the system's services |
-| Android 14 and later | Native: a `ChooserAction` per action in the system chooser's action row |
-| Android 13 and earlier, Windows, web, GTK, Qt, ArkUI | Unsupported: the chooser shows the system's targets only |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Native: a `UIActivity` per action, listed with the sheet's own actions, its SF Symbol beside the title. The action runs from the sheet's completion handler, after the sheet is dismissed |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Native: an `NSSharingService` per action, added by the picker's delegate after the system's services |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") 14 and later | Native: a `ChooserAction` per action in the system chooser's action row |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") 13 and earlier, [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), web, [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Unsupported: the chooser shows the system's targets only |
 
 Where the actions are unsupported the chooser leaves them out, so offer the same commands in the
 app's own menu too. Day registers each action's handler for as long as its chooser can report
@@ -48,7 +48,7 @@ a choice; opening the next chooser retires the previous one's actions.
 
 [`.anchor(id!(share))`](https://docs.rs/day-pieces/latest/day_pieces/struct.Share.html#method.anchor)
 names the control the chooser points at where it opens as a popover: an iPad's share sheet and
-macOS's sharing picker point at the button that was pressed. Without an anchor the chooser points
+[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")'s sharing picker point at the button that was pressed. Without an anchor the chooser points
 at the window's top trailing corner. Phones and the other platforms present it the same way
 either way.
 
@@ -56,17 +56,17 @@ either way.
 
 | Platform | Presentation |
 |---|---|
-| macOS AppKit / GTK / Qt | NSSharingServicePicker |
-| iOS UIKit | UIActivityViewController, with an iPad popover anchor |
-| Android | ACTION_SEND system chooser |
-| Windows (WinUI / GTK / Qt) | DataTransferManager desktop share UI |
-| Web | Web Share, when supported and called during user activation |
-| Linux GTK / Qt; OpenHarmony ArkUI | Unsupported |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | NSSharingServicePicker |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | UIActivityViewController, with an iPad popover anchor |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | ACTION_SEND system chooser |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | DataTransferManager desktop share UI |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Web Share, when supported and called during user activation |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"); [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Unsupported |
 | mock | Records each request and its anchor; [`MockProbe::choose_share_action`](https://docs.rs/day-mock/latest/day_mock/struct.MockProbe.html#method.choose_share_action) chooses an action |
 
 The WebView demo uses a button labeled Copy Link on unsupported platforms, backed by
 Day's asynchronous clipboard API. It never silently labels copying as native sharing.
-The API offers no completion future. Windows and macOS keep the latest chooser/registration
+The API offers no completion future. [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") and [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") keep the latest chooser/registration
 alive until replacement or toolkit/process teardown.
 
 ## Platform guidance

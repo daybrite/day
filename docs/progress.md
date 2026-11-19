@@ -91,19 +91,19 @@ Each toolkit resolves the two variants to its usual native widget:
 
 | Toolkit | Determinate | Indeterminate |
 |---------|-------------|---------------|
-| AppKit  | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (`.bar`, min 0 / max 1) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (`.spinning`, animating) |
-| UIKit   | [`UIProgressView`](https://developer.apple.com/documentation/uikit/uiprogressview) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) (animating) |
-| GTK 4   | [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html) (`set_fraction`) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) (`start`) |
-| Qt      | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (0..1000) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (`range(0,0)`) |
-| Android | `LinearProgressIndicator` (M3, 0..1000) | `LoadingIndicator` (M3 Expressive morphing spinner) |
-| WinUI | [`ProgressBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressbar) (0..1000) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) (`IsActive`) |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")  | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (`.bar`, min 0 / max 1) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (`.spinning`, animating) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")   | [`UIProgressView`](https://developer.apple.com/documentation/uikit/uiprogressview) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) (animating) |
+| [GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")   | [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html) (`set_fraction`) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) (`start`) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")      | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (0..1000) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (`range(0,0)`) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `LinearProgressIndicator` (M3, 0..1000) | `LoadingIndicator` (M3 Expressive morphing spinner) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`ProgressBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressbar) (0..1000) | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) (`IsActive`) |
 
 Notes:
 
-- **Qt has no native spinner widget.** The conventional Qt indeterminate indicator is a busy
+- **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") has no native spinner widget.** The conventional Qt indeterminate indicator is a busy
   [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
   horizontal busy bar rather than a circular spinner, the one cross-platform divergence.
-- The determinate fraction crosses the C ABI (Qt/Android/WinUI) as an integer tick in
+- The determinate fraction crosses the C ABI ([Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")/[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")/[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) as an integer tick in
   `0..1000`, the same encoding [`slider`](https://docs.rs/day-pieces/latest/day_pieces/fn.slider.html) uses, so there is no float-ABI concern.
 
 ## Sizing

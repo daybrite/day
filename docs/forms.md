@@ -69,15 +69,15 @@ The card's background is **not** a hard-coded color: the container is realized w
 own theme-adaptive grouped-content material, so cards follow light/dark mode and platform
 theming with no app code:
 
-| Toolkit | Material |
+| Toolkit | [Material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") |
 |---|---|
-| AppKit | [`NSColor.quaternarySystemFillColor`](https://developer.apple.com/documentation/appkit/nscolor), resolved per-draw in `drawRect:` (stays live across appearance changes) |
-| UIKit | `tertiarySystemFillColor` + layer corner radius |
-| GTK | libadwaita's [`.card`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.card) style class |
-| Qt | translucent neutral fill via a scoped stylesheet + `WA_StyledBackground` (no grouped-card palette role exists; a 12% gray adapts to any palette) |
-| Android | `?attr/colorSurfaceContainer` (Material 3; falls back to `colorSurfaceVariant`) in a rounded `GradientDrawable` |
-| WinUI | `CardBackgroundFillColorDefaultBrush` theme resource |
-| ArkUI | translucent neutral fill + corner radius |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSColor.quaternarySystemFillColor`](https://developer.apple.com/documentation/appkit/nscolor), resolved per-draw in `drawRect:` (stays live across appearance changes) |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `tertiarySystemFillColor` + layer corner radius |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | libadwaita's [`.card`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.card) style class |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | translucent neutral fill via a scoped stylesheet + `WA_StyledBackground` (no grouped-card palette role exists; a 12% gray adapts to any palette) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `?attr/colorSurfaceContainer` (Material 3; falls back to `colorSurfaceVariant`) in a rounded `GradientDrawable` |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `CardBackgroundFillColorDefaultBrush` theme resource |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | translucent neutral fill + corner radius |
 
 ## Layout: how alignment works
 

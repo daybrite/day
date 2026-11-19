@@ -86,7 +86,7 @@ app_menu(vec![
 
 The bar appears in the system menu bar on macOS (Day prepends the standard App menu with
 About and Quit, so your submenus start at File), in a bar at the top of the window on GTK and
-Windows, in a `QMenuBar` on Qt (the native global bar on `macos-qt`), and in the app-bar
+Windows, in a `QMenuBar` on Qt (the native global bar on [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt")), and in the app-bar
 overflow on Android. Android allows one level of submenu; deeper ones flatten.
 
 The menu is live: every title, [`enabled`](https://docs.rs/day-pieces/latest/day_pieces/struct.MenuEntry.html#method.enabled) and [`checked`](https://docs.rs/day-pieces/latest/day_pieces/struct.MenuEntry.html#method.checked) is re-read and the bar reinstalled when

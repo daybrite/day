@@ -19,7 +19,7 @@ window. A login session may belong to the whole app.
 |---|---|---|---|
 | Piece | Until its owning scope is disposed | [`Signal::new`](https://docs.rs/day-reactive/latest/day_reactive/struct.Signal.html#method.new) | Input or expanded state within a component |
 | Window | Until the window closes | [`T::scoped(…)`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.scoped), then [`T::ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient) | A document’s selection and current page |
-| App | Until the process exits | [`T::app()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.app) | A session or cache shared by windows |
+| App | Until the process exits | [`T::app()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.app) | A session or cache shared by [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") |
 
 For window state, use `Ambient` as shown below. This uses Day’s reactive scopes and window
 registry, so the ownership rules are shared by all backends. The `Ambient` tests in

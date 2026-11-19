@@ -67,15 +67,15 @@ Platform guidance: [Apple: custom URL schemes](https://developer.apple.com/docum
 
 | Platform | Registration | Cold | Warm | Status |
 |---|---|---|---|---|
-| ios-uikit | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (scaffold) | ✓ | ✓ `application:openURL:options:` | Shipped |
-| android-material | `intent-filter` VIEW+BROWSABLE (scaffold), `singleTask` | ✓ | ✓ `onNewIntent` → kind 7 | Shipped |
-| web-dom | the page URL is the link | ✓ hash/`?route=` | ✓ `RouteRequested` on hash change | Shipped |
-| harmony-arkui | `uris` skill (scaffold) | ✓ `want.uri` → buffered | ✓ `onNewWant` | Shipped |
-| macos-appkit | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (platform/macos scaffold) | ✓ `application:openURLs:` | ✓ the same | Shipped |
-| windows-winui | Day.toml `url_schemes` (MSIX, NSIS); `--day-open-url <link>` on the command line | ✓ | ✓ single-instance forwarding | Compile-checked |
-| linux-gtk / linux-qt | Day.toml `url_schemes` (`.desktop` `x-scheme-handler`); `--day-open-url <link>` | ✓ | ✓ single-instance forwarding | Shipped |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (scaffold) | ✓ | ✓ `application:openURL:options:` | Shipped |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `intent-filter` VIEW+BROWSABLE (scaffold), `singleTask` | ✓ | ✓ `onNewIntent` → kind 7 | Shipped |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the page URL is the link | ✓ hash/`?route=` | ✓ `RouteRequested` on hash change | Shipped |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `uris` skill (scaffold) | ✓ `want.uri` → buffered | ✓ `onNewWant` | Shipped |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (platform/[macos](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") scaffold) | ✓ `application:openURLs:` | ✓ the same | Shipped |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Day.toml `url_schemes` (MSIX, NSIS); `--day-open-url <link>` on the command line | ✓ | ✓ single-instance forwarding | Compile-checked |
+| [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Day.toml `url_schemes` (`.desktop` `x-scheme-handler`); `--day-open-url <link>` | ✓ | ✓ single-instance forwarding | Shipped |
 
-### iOS
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 
 Under the scene lifecycle the app runs, URLs arrive at the scene delegate, and that is where
 day-toolkit-uikit takes them: cold from the connection options' `URLContexts` (and a quick action's
@@ -93,7 +93,7 @@ launch until the dayscript walkthrough caught it. Concerns:
    natural host for that file is the daysite deployment the app already publishes; `day pack`
    knows the signing config and daysite knows the domain, so the pieces exist. Not started.
 
-### Android
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 
 The scaffold's manifest registers the scheme with `BROWSABLE` (so links in a browser work) and
 `launchMode="singleTask"`, which is what routes a warm link through `onNewIntent` instead of
@@ -106,7 +106,7 @@ Concerns:
 2. **Intent extras are not the URL.** Only the `data` URI is treated as a link; anything else
    in the intent is ignored, per the delivery contract above.
 
-### HarmonyOS
+### [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
 The module's `skills` declare a `uris` entry with the app scheme, and both temperatures are
 one call: the ArkTS host forwards a cold `want.uri` (in `onCreate`, before `start()`) and a
@@ -127,10 +127,10 @@ see two processes.
 
 | Toolkit | Mechanism | Status |
 |---|---|---|
-| AppKit | Launch Services activates the running app and delivers URLs and files to its delegate | Shipped |
-| GTK | GApplication's own uniqueness: the second launch's files and URIs reach the first through its `open` signal | Shipped |
-| Qt (Linux) | `day_platform_linux::dbus::instance`: the first launch owns the app id on the session bus, a second calls its `Forward` method | Shipped |
-| Windows | A named mutex per app id; a second launch sends its arguments to the first with `WM_COPYDATA` | Compile-checked; runtime pending |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Launch Services activates the running app and delivers URLs and files to its delegate | Shipped |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | GApplication's own uniqueness: the second launch's files and URIs reach the first through its `open` signal | Shipped |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") ([Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")) | `day_platform_linux::dbus::instance`: the first launch owns the app id on the session bus, a second calls its `Forward` method | Shipped |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | A named mutex per app id; a second launch sends its arguments to the first with `WM_COPYDATA` | Compile-checked; runtime pending |
 
 Two development builds of one app id forward to each other, whichever started first.
 
@@ -153,14 +153,14 @@ label = "nav_menus"    # a Fluent message id from resource/locales/
 message, or a placeable is a build error, because the native launcher renders the conveyed
 string with no formatter behind it) and writes the platform's native declaration:
 
-- **Android** — nothing is committed: `res/xml/day_shortcuts.xml` plus per-locale string
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** — nothing is committed: `res/xml/day_shortcuts.xml` plus per-locale string
   resources are staged into `build/day/android/res` (already a scaffold res srcDir), and the
   `<meta-data android:name="android.app.shortcuts">` rides the day-pieces overlay manifest,
   merged into the launcher activity by name. The shortcut intent is VIEW + the URL, so
   activation goes through the shipped intent-filter intake. Verified on the emulator: the shortcut
   service parses both demo shortcuts with locale-resolved labels (`dumpsys shortcut`), and
   the declared intent cold-launches onto the right page.
-- **iOS** — [`UIApplicationShortcutItems`](https://developer.apple.com/documentation/bundleresources/information-property-list/uiapplicationshortcutitems) is written into the committed `Info.plist` (the same
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")** — [`UIApplicationShortcutItems`](https://developer.apple.com/documentation/bundleresources/information-property-list/uiapplicationshortcutitems) is written into the committed `Info.plist` (the same
   managed-key editor as the permission strings), titled with the default-locale text; the
   scaffold's `Stage Day Strings` script phase (`day xcode-backend stage-strings`, injected
   into pre-existing scaffolds on first use) stages `<locale>.lproj/InfoPlist.strings` into
@@ -173,7 +173,7 @@ string with no formatter behind it) and writes the platform's native declaration
   automated on a simulator (no touch injection, and `simctl openurl` sits behind a
   confirmation dialog), so OS-delivered activation relies on the same intake path the
   walkthrough and the other platforms exercise.
-- **HarmonyOS** — a generated `$profile:shortcuts_config` plus an `ohos.ability.shortcuts`
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** — a generated `$profile:shortcuts_config` plus an `ohos.ability.shortcuts`
   metadata entry on the ability, labels merged into each locale's `string.json` in the
   staged host under `build/day/harmony/project/`
   (`day_shortcut_` prefix is the ownership marker, `base/` carries the default locale). The
@@ -182,16 +182,16 @@ string with no formatter behind it) and writes the platform's native declaration
   the exact want the profile declares (`aa start … --ps day.uri <url>`); the emulator's
   stock launcher renders no shortcut panel for any app, so the panel UI itself needs real
   hardware.
-- **macOS** — the Dock menu lists the shortcuts above the app's own [`dock_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.dock_menu.html) entries
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")** — the Dock menu lists the shortcuts above the app's own [`dock_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.dock_menu.html) entries
   ([docs/menus](menus.md#dock-menu)). `day-build` registers the `[[shortcuts]]` into the
   binary at link time, so the menu is built while the app runs, in its current language, and
   choosing an entry opens its route in the running app.
-- **Windows** — the jump list's Tasks: each entry runs the app with
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** — the jump list's Tasks: each entry runs the app with
   `--day-open-url "<scheme>://<route>"`, which single-instance forwarding hands to the copy
   already running. Built at startup and rebuilt on every [`set_launcher_shortcuts`](https://docs.rs/day-app/latest/day/fn.set_launcher_shortcuts.html).
-- **Linux** — `Actions=` in the generated `.desktop` file, one `[Desktop Action …]` group per
+- **[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")** — `Actions=` in the generated `.desktop` file, one `[Desktop Action …]` group per
   shortcut with a `Name[<locale>]` for every locale and the same `--day-open-url` command line.
-- **Web** — the manifest's `shortcuts` member, opening `./#<route>`, in the default locale.
+- **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** — the manifest's `shortcuts` member, opening `./#<route>`, in the default locale.
 
 ### Shortcuts set while the app runs
 

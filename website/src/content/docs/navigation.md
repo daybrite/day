@@ -244,13 +244,13 @@ stringly, move to an enum when the app grows, mix the two freely (a typed nav ho
 - **State restoration:** [`.restore(key)`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) persists and restores selection and path through the
   installed nav store, as described above. Persist your own signals (see
   [parts: prefs](/docs/reference/parts)) only for custom state beyond navigation.
-- **More windows:** [`day::open_window`](https://docs.rs/day-app/latest/day/fn.open_window.html) opens secondary windows on every [backend](/docs/reference/glossary#backend)
+- **More [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"):** [`day::open_window`](https://docs.rs/day-app/latest/day/fn.open_window.html) opens secondary windows on every [backend](/docs/reference/glossary#backend)
   (`WindowKind::Normal`, `Preferences` or `About`; [`day-piece-settings`](/docs/reference/settings) registers the
   Settings and About windows for you): native windows on the desktop backends, iPad scenes, Android activities, and OHOS
   abilities; iPhone and the web present them as a fullscreen cover. See
   [windows](/docs/reference/windows). Dialogs and alerts are separate
   ([dialogs reference](/docs/reference/dialogs)).
-- **Android process death:** if Android kills a backgrounded process, relaunch is a cold start,
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") process death:** if Android kills a backgrounded process, relaunch is a cold start,
   but [`.restore`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) reads back through the disk-backed prefs store, so navigation state survives
   it.
 

@@ -166,7 +166,7 @@ mod imp {
 }
 ```
 
-- **HarmonyOS is `target_os = "linux"`** but sandboxes `/sys` away, so it is disambiguated with
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") is `target_os = "linux"`** but sandboxes `/sys` away, so it is disambiguated with
   `target_env = "ohos"`: one arm for desktop Linux, one for OpenHarmony.
 - **The catch-all `#[cfg(not(any(...)))]` fallback is not optional.** Without it, [`status()`](https://docs.rs/day-part-device/latest/day_part_device/battery/fn.status.html) would
   fail to compile on any target you did not enumerate (a WASM build, a BSD, a bare `cargo check` on
@@ -206,16 +206,16 @@ day-platform-android = { workspace = true }
 ```
 
 There is no `[features]` table, because the target selects the implementation and a part has no
-backends to toggle. (Linux and Windows need no crates at all; they use pure std or raw FFI.)
+backends to toggle. ([Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") and [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") need no crates at all; they use pure std or raw FFI.)
 
 ## 3. A native implementation per platform
 
 Each `imp::status()` implementation has the same signature and calls the corresponding platform
 API. The following sections cover four implementations.
 
-### macOS: Rust calling C (IOKit, via `#[link]`)
+### [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"): Rust calling C (IOKit, via `#[link]`)
 
-macOS has no crate wrapping the power API, so `macos.rs` declares the three IOKit functions it needs
+[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") has no crate wrapping the power API, so `macos.rs` declares the three IOKit functions it needs
 with a plain `extern "C"` block and force-links the framework with `#[link(name = "IOKit", kind =
 "framework")]`. CoreFoundation (via the `core-foundation` crate) handles the dictionary access:
 
@@ -259,9 +259,9 @@ unsafe extern "C" {
 }
 ```
 
-### iOS: Rust calling Objective-C (UIDevice, via objc2)
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"): Rust calling Objective-C (UIDevice, via objc2)
 
-iOS has ready-made bindings, so `ios.rs` uses the `objc2-ui-kit` crate directly; there is no
+[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") has ready-made bindings, so `ios.rs` uses the `objc2-ui-kit` crate directly; there is no
 hand-rolled FFI. `UIDevice` is main-thread-only, which the `MainThreadMarker` encodes at the type
 level:
 
@@ -286,16 +286,16 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-### Android: Rust calling Java (a `BatteryManager` shim over JNI)
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"): Rust calling Java (a `BatteryManager` shim over JNI)
 
-On Android, reading `BatteryManager` requires a `Context` and a sticky broadcast, which is
+On [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), reading `BatteryManager` requires a `Context` and a sticky broadcast, which is
 far easier in Java than through raw JNI. So the part carries its own small Java class and calls it
 over the bridge. This is the one platform where a part runs on the Day runtime; it borrows the JVM
 and `Context` that `day-platform-android` already caches.
 
 > [!NOTE] The shipped crate does this with a bridge now
 > Everything in this section is the mechanism underneath, and it still works as described, but
-> [`day-part-device`](/docs/reference/battery) itself has since moved its Android half to a
+> [`day-part-device`](/docs/reference/battery) itself has since moved its [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") half to a
 > [daybridge](https://github.com/daybrite/day/blob/main/docs/bridge.md) arm: the Java lives inline in `src/android.rs` beside the Rust
 > declaration it implements, and the JNI call and the packed-`long` protocol below are generated,
 > so the checked-in `.java` file and the `java = [...]` table are gone. Read this section to
@@ -376,7 +376,7 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-### Linux: pure Rust std (sysfs)
+### [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"): pure Rust std (sysfs)
 
 This arm is pure `std`. The kernel publishes power supplies under `/sys/class/power_supply/<name>/`,
 so `linux.rs` reads a few files with `std::fs`:
@@ -407,11 +407,11 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-### Windows & HarmonyOS: more C FFI
+### [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") & [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): more C FFI
 
-The two remaining targets are both raw C-ABI FFI, in the same style as macOS:
+The two remaining targets are both raw C-ABI FFI, in the same style as [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"):
 
-- **Windows** (`windows.rs`) links `kernel32` and calls `GetSystemPowerStatus`, filling a `#[repr(C)]
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** (`windows.rs`) links `kernel32` and calls `GetSystemPowerStatus`, filling a `#[repr(C)]
   SYSTEM_POWER_STATUS` struct. It uses no crate, was written blind against the Win32 docs, and is
   compiled only on the Windows target.
 
@@ -422,7 +422,7 @@ The two remaining targets are both raw C-ABI FFI, in the same style as macOS:
   }
   ```
 
-- **HarmonyOS** (`ohos.rs`, gated on `target_env = "ohos"`) links the native BasicServicesKit library
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** (`ohos.rs`, gated on `target_env = "ohos"`) links the native BasicServicesKit library
   and calls its two C functions directly, without going through the ArkTS bridge or the Day runtime:
 
   ```rust
@@ -435,16 +435,16 @@ The two remaining targets are both raw C-ABI FFI, in the same style as macOS:
 
 ## 4. Contribute native artifacts to the app build
 
-The Rust FFI paths (macOS, Windows, HarmonyOS, iOS-objc2, Linux) need nothing extra; `cargo` links
-them. But four platforms can need assets folded into the app's native build: Android needs the
-`.java` file compiled and (for some parts) a manifest permission or component; iOS and macOS need
+The Rust FFI paths ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), iOS-objc2, [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")) need nothing extra; `cargo` links
+them. But four platforms can need assets folded into the app's native build: [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") needs the
+`.java` file compiled and (for some parts) a manifest permission or component; [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") and macOS need
 certain system frameworks linked (or Swift sources compiled); HarmonyOS takes ArkTS sources via an
 `ets` key under `[package.metadata.day.ohos]`. There is also a portable
 `[package.metadata.day.permissions]` table (`uses = ["camera"]`) that maps one permission name to
 each platform's declaration. A part declares all of this in its own `Cargo.toml`, and `day build`
 merges it into the app from that file alone.
 
-### Android: staging the Java shim and a permission
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"): staging the Java shim and a permission
 
 ```toml
 [package.metadata.day.android]
@@ -458,7 +458,7 @@ only `java = ["src/DayBattery.java"]`. [`day-part-connectivity`](/docs/reference
 `ACCESS_NETWORK_STATE`, adds the `permissions` line above.
 
 `manifest-components` is required when a part's Java half is a `BroadcastReceiver` or a `Service`:
-Android instantiates those by name from the manifest, so without the declaration the receiver never
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") instantiates those by name from the manifest, so without the declaration the receiver never
 reaches the APK and the part silently does nothing. [`day-part-local-notify`](/docs/reference/notify) (its `AlarmManager`
 receiver) is the reference. The table also takes `res` (piece-shipped Android resources),
 `gradle-repositories` (extra Maven repos), and `proguard` (R8 keep rules for Java something reaches
@@ -472,7 +472,7 @@ app's Gradle project reads that file through Day's Gradle plugin (a loop over th
 entries) and adds each Java source dir and each `<uses-permission>`. Add a part to your `Cargo.toml`
 and its Java appears in the build.
 
-### iOS: linking a system framework
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"): linking a system framework
 
 ```toml
 [package.metadata.day.ios]
@@ -481,24 +481,24 @@ frameworks = ["SystemConfiguration"]
 
 This is what [`day-part-connectivity`](/docs/reference/network) declares (its `apple.rs` drives SystemConfiguration). The
 `#[link(name = "SystemConfiguration", kind = "framework")]` directive in the Rust source is not
-enough, because cargo honors it only when it drives the final link, i.e. on the macOS desktop build.
-On iOS, `xcodebuild` links the Rust staticlib and does not read Rust link metadata, so the app
+enough, because cargo honors it only when it drives the final link, i.e. on the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") desktop build.
+On [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), `xcodebuild` links the Rust staticlib and does not read Rust link metadata, so the app
 itself must link the framework. `day build -t ios-uikit` generates a local SwiftPM package
 (`build/day/ios/DayPieces`) whose `linkerSettings` list every part's declared frameworks; the app's
 one generated (or optionally checked-in) `.xcodeproj` depends on that package. So an iOS framework dependency is `Cargo.toml`
 data, and the `.xcodeproj` stays unchanged.
 
-A `[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg: `day build`
+A `[package.metadata.day.macos]` table of the same shape covers the [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") leg: `day build`
 hands the contributions to the `platform/macos/` Xcode host project through the same generated
 package. [`day-part-local-notify`](/docs/reference/notify) declares `frameworks = ["UserNotifications"]` under both tables.
 Both also take a `platform` key (`platform = "16.0"`) to raise the minimum-OS floor when the
 native API needs it; the max across contributing crates wins.
 
-[`day-part-device`](/docs/reference/battery) itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and UIKit
-is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not
+[`day-part-device`](/docs/reference/battery) itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
+is auto-linked by the [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") SDK. You only need the `frameworks` key for a system framework that is not
 linked by default (SystemConfiguration, WebKit, …).
 
-This is the same contribution channel [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) (Android Java + Gradle deps) and
+This is the same contribution channel [`day-piece-text-editor`](https://github.com/daybrite/day/tree/main/crates/day-piece-text-editor) ([Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Java + Gradle deps) and
 [`day-piece-webview`](https://github.com/daybrite/day-piece-webview) (a framework + a permission) use.
 ## 5. Use it
 
@@ -559,12 +559,12 @@ The recommended workflow:
    you want to read carefully, but it is short.
 
 Split this way, supporting one more platform is a ~30-line shim, one `#[cfg]/#[path]` arm, and (on
-Android or iOS) one line of `Cargo.toml` metadata.
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") or [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) one line of `Cargo.toml` metadata.
 
 ---
 
 For the full source, see [`crates/day-part-device/`](https://github.com/daybrite/day/tree/main/crates/day-part-device) in the Day repo, and
 [extending](https://github.com/daybrite/day/blob/main/docs/extending.md) for the shared contribution mechanism that parts and pieces both use.
-[`crates/day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
+[`crates/day-part-connectivity`](https://github.com/daybrite/day/tree/main/crates/day-part-connectivity) (SystemConfiguration + an [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") `frameworks` link + an [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") permission) and
 [`crates/day-part-haptics`](https://github.com/daybrite/day/tree/main/crates/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.

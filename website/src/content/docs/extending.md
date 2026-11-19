@@ -90,7 +90,7 @@ toolkit compiles none of it.
 Two companion macros round this out. `day_pieces::glue_modules!(appkit, gtk, …)` declares the
 feature-and-target-gated module index binding each `lib-<toolkit>.rs`, the one-liner every
 shipped piece uses in place of a hand-written `#[cfg]`/`#[path]` block. Web is the one
-exception to link-time registration: `linkme` has no wasm32 implementation, so a web-dom
+exception to link-time registration: `linkme` has no wasm32 implementation, so a [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
 renderer uses `dom_renderer!` and registers at runtime from the piece's constructor.
 
 A piece that implements some toolkits and not others renders a labeled placeholder on the rest,
@@ -100,7 +100,7 @@ backends for one control.
 
 ### Native dependencies without scaffold edits
 
-Native pieces often wrap a platform *library*: Lottie's iOS framework, a Maps SDK's Gradle
+Native pieces often wrap a platform *library*: Lottie's [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") framework, a Maps SDK's Gradle
 artifact. A piece crate declares these in its Cargo metadata:
 
 ```toml
@@ -133,7 +133,7 @@ The [extending reference](https://github.com/daybrite/day/blob/main/docs/extendi
 At build time, `day build` resolves every piece in your app's dependency graph via
 `cargo metadata` and regenerates the glue the platform projects reference: a local SwiftPM
 package for the Xcode side, a JSON manifest the Gradle build reads for Java sources,
-dependencies, and merged permissions. On macos-appkit the same aggregation produces
+dependencies, and merged permissions. On [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") the same aggregation produces
 `build/day/macos/DayPieces`, which its Xcode host project references. Your checked-in platform scaffolds never change; only
 generated, gitignored files do. (This is the same architecture Flutter uses for plugin
 registration, adapted to Cargo.)
@@ -146,7 +146,7 @@ its tier-1 Rust renderer adopts the views those shims create.
 
 For code that must be *written* in Swift, that need is covered today by
 [SwiftUI embedding](/docs/reference/swiftui): a SwiftPM package's public views become typed Rust
-constructors (`crate::swiftui::MyView(…)`) on macos-appkit and ios-uikit. The matching
+constructors (`crate::swiftui::MyView(…)`) on [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"). The matching
 Kotlin/Compose leg is not built yet.
 
 ## Parts: capabilities without UI

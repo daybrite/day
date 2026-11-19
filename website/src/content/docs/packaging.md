@@ -33,25 +33,25 @@ credentials and check the destination store’s submission requirements.
 
 | Target | Output | Distribution |
 |---|---|---|
-| `macos-appkit` | `.dmg`; `.pkg` with `--formats pkg` | Disk image for direct download; installer package for the [Mac App Store](#the-mac-app-store) |
-| `ios-uikit` | `.ipa` | Device app archive |
-| `android-material` | `.apk`, `.aab` | Direct installation or Google Play |
-| `linux-gtk`, `linux-qt` | `.flatpak`, `.appimage` | Flatpak bundle or executable with bundled libraries |
-| `windows-winui` | `.msix`, `-setup.exe` | Self-contained MSIX package or per-user installer |
-| `harmony-arkui` | `.hap` | HarmonyOS application package |
-| `web-dom` | Static `dist/` directory | Static hosting; use `day build` |
+| [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `.dmg`; `.pkg` with `--formats pkg` | Disk image for direct download; installer package for the [Mac App Store](#the-mac-app-store) |
+| [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `.ipa` | Device app archive |
+| [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `.apk`, `.aab` | Direct installation or Google Play |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | `.flatpak`, `.appimage` | Flatpak bundle or executable with bundled libraries |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `.msix`, `-setup.exe` | Self-contained MSIX package or per-user installer |
+| [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `.hap` | [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") application package |
+| [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Static `dist/` directory | Static hosting; use `day build` |
 
-The development combinations `macos-gtk` and `macos-qt` do not have a `day pack` step. See [platform support](/docs/reference/platforms) for their limitations.
+The development combinations [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") and [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") do not have a `day pack` step. See [platform support](/docs/reference/platforms) for their limitations.
 
-### macOS and iOS
+### [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 
-For macOS, Day assembles the `.app`, signs its nested components with `codesign`, and creates a
+For [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), Day assembles the `.app`, signs its nested components with `codesign`, and creates a
 compressed UDZO disk image with an `/Applications` link. With release credentials configured,
 it signs the disk image, submits it through `notarytool`, and staples the notarization ticket.
 `--formats pkg` builds the [Mac App Store](#the-mac-app-store) package instead, and
 `--formats dmg,pkg` builds both from one build.
 
-For iOS, with an App Store provisioning profile for the app id installed under
+For [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), with an App Store provisioning profile for the app id installed under
 `~/Library/MobileDevice/Provisioning Profiles/` and its distribution certificate in the keychain,
 Day builds the arm64 device app unsigned and then signs the `.ipa` with that profile and identity,
 exactly what `day sign apply` does for a package built elsewhere; xcodebuild's own signing never
@@ -61,22 +61,22 @@ automatic signing through the App Store Connect key and exports the archive with
 Without signing configuration, it produces `<stem>-ios-uikit-unsigned.ipa` for subsequent signing
 or sideloading.
 
-### Android
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 
 Day runs Gradle’s `assembleRelease` and `bundleRelease` with the configured signing settings.
 It verifies the APK with `apksigner` and checks 16 KB page alignment. Use the APK for direct
 installation and the AAB for Google Play submission.
 
-### Linux: Flatpak or AppImage
+### [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"): Flatpak or AppImage
 
-A Flatpak bundle uses a shared runtime: `org.gnome.Platform` for GTK or `org.kde.Platform` for Qt.
+A Flatpak bundle uses a shared runtime: `org.gnome.Platform` for [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or `org.kde.Platform` for [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt").
 The runtime is resolved from Flathub during installation. Install a bundle with:
 
 ```bash
 flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak
 ```
 
-The filename includes the toolkit so GTK and Qt bundles can coexist. The webview crate declares a Qt WebEngine BaseApp requirement, which Day includes when the
+The filename includes the toolkit so [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") bundles can coexist. The webview crate declares a Qt WebEngine BaseApp requirement, which Day includes when the
 binary links that engine. Other dependencies can declare their own
 [Flatpak base requirements](/docs/how-to/packaging#flatpak-dependencies).
 
@@ -88,23 +88,23 @@ chmod +x ./my-app-1.0-linux-gtk-x86_64.appimage
 ```
 
 Day prepares an AppDir and invokes [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) with
-its GTK or Qt plugin. These plugins collect resources that a library dependency scan can miss,
+its [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") plugin. These plugins collect resources that a library dependency scan can miss,
 including image loaders, GIO modules, GSettings schemas, and Qt platform plugins.
 
 Without the matching plugin, packaging can still succeed, but the AppImage requires the toolkit
 to be installed on the user’s machine. Day reports this during packaging.
 
-### Windows and HarmonyOS
+### [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
-Windows packaging uses `makeappx` and `signtool` for MSIX, and NSIS for the per-user `-setup.exe`
+[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") packaging uses `makeappx` and `signtool` for MSIX, and NSIS for the per-user `-setup.exe`
 installer. The NSIS installer does not require elevation, registers with Add/Remove Programs,
-and accepts `/S` for silent installation. A `windows-winui` package is self-contained: the Windows
+and accepts `/S` for silent installation. A [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") package is self-contained: the Windows
 App SDK runtime travels inside the `.msix` and the installer, so users install nothing extra.
 
-HarmonyOS packaging uses hvigor for a release build and `hap-sign-tool` for signing. Day uses
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") packaging uses hvigor for a release build and `hap-sign-tool` for signing. Day uses
 configured release credentials when available, or the public development certificate otherwise.
 
-### Web
+### [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
 
 There is no web packaging step. Run `day build -t web-dom` and deploy the generated `dist/`
 directory to a static host. It contains the HTML host page, JavaScript shim, stylesheet,
@@ -179,9 +179,9 @@ profile = "${DAY_OHOS_PROFILE}"
 `day sign check` reports each platform's readiness (env vars set, key files present) without
 printing any secret value.
 
-### iOS entitlements
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") entitlements
 
-Day signs an iOS app with the app's own entitlements, as Xcode does. The file is
+Day signs an [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") app with the app's own entitlements, as Xcode does. The file is
 `[signing.ios] entitlements` when set, else the `CODE_SIGN_ENTITLEMENTS` that
 `platform/ios/DayApp.xcconfig` names:
 
@@ -400,9 +400,9 @@ See [App Store Submissions](/docs/how-to/app-store-submissions) for iOS, Mac App
 signing secrets, store records and upload lanes. macOS download signing and notarization use the
 shared workflow's [`signing-environment` input](https://github.com/daybrite/actions#signing).
 
-## macOS App Sandbox
+## [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") App Sandbox
 
-Enable `[sandbox.macos-appkit] enabled = true` in Day.toml to sandbox AppKit builds and
+Enable `[sandbox.macos-appkit] enabled = true` in Day.toml to sandbox [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") builds and
 packaged apps. See [macOS sandboxing](/docs/how-to/sandbox) for configuration, native file
 access, persistent bookmarks, and App Store distribution limitations.
 

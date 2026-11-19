@@ -106,13 +106,13 @@ connect metadata and system transport actions to your session.
 
 | Platform / toolkit | Player and constraints |
 | --- | --- |
-| AppKit / UIKit | AVFoundation. Background audio and lock-screen behavior require the appropriate app configuration. |
-| Android | Media3/ExoPlayer. Background audio uses a foreground service and media session. |
-| WinUI | MediaPlayer. Available formats depend on Windows codecs. |
-| Linux GTK | GStreamer. Install the codecs needed for your sources; playback-rate changes are unsupported. |
-| Qt | Qt Multimedia and its platform plugins. Include the runtime plugins in the app package. |
-| HarmonyOS | Native media players. Video supports mute but not adjustable volume. |
-| Web | HTML audio/video. Autoplay, codecs, CORS, and background behavior follow browser policy. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | AVFoundation. Background audio and lock-screen behavior require the appropriate app configuration. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Media3/ExoPlayer. Background audio uses a foreground service and media session. |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | MediaPlayer. Available formats depend on [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") codecs. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | GStreamer. Install the codecs needed for your sources; playback-rate changes are unsupported. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") Multimedia and its platform plugins. Include the runtime plugins in the app package. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Native media players. Video supports mute but not adjustable volume. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | HTML audio/video. Autoplay, codecs, CORS, and background behavior follow browser policy. |
 
 Test the actual formats, streams, and packaged runtime on each target. Use
 [sound effects](/docs/reference/sound) for short clips that do not need a media timeline.

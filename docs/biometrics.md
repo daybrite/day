@@ -44,11 +44,11 @@ biometrics = true   # the reason is the catalog's `permission_biometrics` messag
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| iOS, macOS | Touch ID, Face ID, Optic ID, and the passcode or account password when allowed. |
-| Android | The system's biometric prompt on API 28 and later, with the device credential when allowed; `Unsupported` below. |
-| Windows | Windows Hello (PIN, face, fingerprint), owned by the active window. Hello decides itself what it asks for. |
-| HarmonyOS | The User Authentication Kit's dialog (face, fingerprint, and the PIN when allowed); a passed prompt carries the kit's token. |
-| Linux (GTK / Qt), Web | No API an application may use: `Unsupported`. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Touch ID, Face ID, Optic ID, and the passcode or account password when allowed. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | The system's biometric prompt on API 28 and later, with the device credential when allowed; `Unsupported` below. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") Hello (PIN, face, fingerprint), owned by the active window. Hello decides itself what it asks for. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | The User Authentication Kit's dialog (face, fingerprint, and the PIN when allowed); a passed prompt carries the kit's token. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), Web | No API an application may use: `Unsupported`. |
 
 ## Authoring
 
@@ -120,35 +120,35 @@ Platform guidance: [Apple: Local Authentication](https://developer.apple.com/doc
 
 | OS | API | dependency |
 |---|---|---|
-| iOS, macOS | [`LAContext`](https://developer.apple.com/documentation/localauthentication/lacontext): [`canEvaluatePolicy(_:error:)`](https://developer.apple.com/documentation/localauthentication/lacontext/canevaluatepolicy(_:error:)) and [`biometryType`](https://developer.apple.com/documentation/localauthentication/lacontext/biometrytype) for the probes, [`evaluatePolicy(_:localizedReason:reply:)`](https://developer.apple.com/documentation/localauthentication/lacontext/evaluatepolicy(_:localizedreason:reply:)) for the dialog, [`invalidate()`](https://developer.apple.com/documentation/localauthentication/lacontext/invalidate()) to cancel | `objc2`, `block2`, `objc2-foundation` |
-| Android | [`BiometricManager.canAuthenticate`](https://developer.android.com/reference/android/hardware/biometrics/BiometricManager#canAuthenticate(int)) for the probe, [`BiometricPrompt`](https://developer.android.com/reference/android/hardware/biometrics/BiometricPrompt) for the dialog, a [`CancellationSignal`](https://developer.android.com/reference/android/os/CancellationSignal) to cancel | a Java arm ([`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md)) |
-| Windows | [`UserConsentVerifier.CheckAvailabilityAsync`](https://learn.microsoft.com/en-us/uwp/api/windows.security.credentials.ui.userconsentverifier.checkavailabilityasync) for the probe, [`IUserConsentVerifierInterop::RequestVerificationForWindowAsync`](https://learn.microsoft.com/en-us/windows/win32/api/userconsentverifierinterop/nf-userconsentverifierinterop-iuserconsentverifierinterop-requestverificationforwindowasync) for the dialog, owned by the active window | `windows` |
-| HarmonyOS | [`userAuth.getAvailableStatus`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetavailablestatus9) for the probes, [`getUserAuthInstance(...).start()`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetuserauthinstance10) for the dialog, [`cancel()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.cancel.html) to cancel | an ArkTS arm ([`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md)) |
-| Linux, Web | — | none (`Unsupported`) |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`LAContext`](https://developer.apple.com/documentation/localauthentication/lacontext): [`canEvaluatePolicy(_:error:)`](https://developer.apple.com/documentation/localauthentication/lacontext/canevaluatepolicy(_:error:)) and [`biometryType`](https://developer.apple.com/documentation/localauthentication/lacontext/biometrytype) for the probes, [`evaluatePolicy(_:localizedReason:reply:)`](https://developer.apple.com/documentation/localauthentication/lacontext/evaluatepolicy(_:localizedreason:reply:)) for the dialog, [`invalidate()`](https://developer.apple.com/documentation/localauthentication/lacontext/invalidate()) to cancel | `objc2`, `block2`, `objc2-foundation` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`BiometricManager.canAuthenticate`](https://developer.android.com/reference/android/hardware/biometrics/BiometricManager#canAuthenticate(int)) for the probe, [`BiometricPrompt`](https://developer.android.com/reference/android/hardware/biometrics/BiometricPrompt) for the dialog, a [`CancellationSignal`](https://developer.android.com/reference/android/os/CancellationSignal) to cancel | a Java arm ([`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md)) |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`UserConsentVerifier.CheckAvailabilityAsync`](https://learn.microsoft.com/en-us/uwp/api/windows.security.credentials.ui.userconsentverifier.checkavailabilityasync) for the probe, [`IUserConsentVerifierInterop::RequestVerificationForWindowAsync`](https://learn.microsoft.com/en-us/windows/win32/api/userconsentverifierinterop/nf-userconsentverifierinterop-iuserconsentverifierinterop-requestverificationforwindowasync) for the dialog, owned by the active window | [`windows`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`userAuth.getAvailableStatus`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetavailablestatus9) for the probes, [`getUserAuthInstance(...).start()`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-user-authentication-kit/js-apis-useriam-userauth.md#userauthgetuserauthinstance10) for the dialog, [`cancel()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.cancel.html) to cancel | an ArkTS arm ([`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md)) |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), Web | — | none (`Unsupported`) |
 
 ## How each platform realizes the prompt
 
-- **iOS and macOS**: a fresh `LAContext` per prompt (one that has evaluated once answers the next
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") and [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**: a fresh `LAContext` per prompt (one that has evaluated once answers the next
   evaluation from its cache without showing anything), kept alive until the reply so [`cancel`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.cancel.html) can
   invalidate it. `device_credential` selects the policy: `deviceOwnerAuthentication` falls back to
   the passcode or account password on its own; `deviceOwnerAuthenticationWithBiometrics` asks for
   a biometric only and reports the fallback button as `UserFallback`. [`availability`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.availability.html) always asks
   about the biometric policy. A pass through the mixed policy reports `Method::Unknown`, because
   the reply does not say which credential passed.
-- **Android**: the platform prompt in `android.hardware.biometrics`, which takes an application
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**: the platform prompt in `android.hardware.biometrics`, which takes an application
   context and needs no library. On API 30 and later the prompt is built with
   `BIOMETRIC_STRONG`, plus `DEVICE_CREDENTIAL` when allowed; on API 28 and 29 the device
   credential is offered where the OS supports it, and a biometric-only prompt carries the
   fallback title as its negative button. Each miss is shown in the dialog and not reported until
   the dialog ends. Below API 28 there is no prompt an app may show without the deprecated
   fingerprint API and its own permission, so the crate reports `Unsupported` there.
-- **Windows**: `CheckAvailabilityAsync` first, because a request on a machine with no Hello
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**: `CheckAvailabilityAsync` first, because a request on a machine with no Hello
   credential does not fail, it waits. The dialog is owned by the window handle captured on the
   calling thread (the active window of a Day action) and the verification is awaited on a worker
   thread with its own apartment, so the UI keeps pumping. Hello never says which credential
   passed, so a pass reports `Method::Unknown` and [`biometry()`](https://docs.rs/day-part-biometrics/latest/day_part_biometrics/fn.biometry.html) reports `Unknown` when anything is
   set up. The `device_credential` flag is ignored: Hello offers its PIN itself.
-- **HarmonyOS**: the dialog lists the modalities it is given and refuses one the device lacks, so
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")**: the dialog lists the modalities it is given and refuses one the device lacks, so
   the arm probes face, fingerprint and (when allowed) the PIN with `getAvailableStatus` and lists
   only those with an executor, enrolled or not; a device with nothing enrolled then fails at
   `start()` with `NotEnrolled`. A passed prompt returns the kit's token (up to 1024 bytes), bound

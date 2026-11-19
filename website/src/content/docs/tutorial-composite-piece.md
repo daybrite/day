@@ -24,7 +24,7 @@ Day has two kinds of pieces:
 |---|---|---|
 | What it wraps | a *new* native control (`NSComboBox`, `WKWebView`, …) | *existing* Day pieces |
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
-| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `material` / `xaml` / `winui` | none |
+| Cargo features | [`appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [`gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [`qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / [`uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / `material` / `xaml` / [`winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | none |
 | Build setup | Native shims and platform dependencies; localization generation when needed | Localization generation when needed |
 | Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · [`day-piece-text-editor`](/docs/reference/texteditor) | this tutorial · `example-star-rating` |
 

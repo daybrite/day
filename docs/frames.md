@@ -70,14 +70,14 @@ needed (including retained, offscreen pages). [`in_scope()`](https://docs.rs/day
 
 | Toolkit | Native source |
 | --- | --- |
-| macos-appkit | View-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink) on macOS 14+; `CVDisplayLink` on supported macOS 13, marshaled to the main queue |
-| ios-uikit | Screen-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink), in common run-loop modes |
-| android-material | [`Choreographer.postFrameCallback`](https://developer.android.com/reference/android/view/Choreographer) / `removeFrameCallback` |
-| windows-winui | One-shot registration with `Microsoft.UI.Xaml.Media.CompositionTarget.Rendering` |
-| web-dom | `requestAnimationFrame` / `cancelAnimationFrame` |
-| macos/linux-gtk | Host widget's `add_tick_callback`, timestamped by its [`GdkFrameClock`](https://docs.gtk.org/gdk4/class.FrameClock.html) |
-| macos/linux-qt | Host [`QWindow::requestUpdate()`](https://doc.qt.io/qt-6/qwindow.html) / [`QEvent::UpdateRequest`](https://doc.qt.io/qt-6/qevent.html) |
-| harmony-arkui | [`OH_NativeVSync_RequestFrame`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-nativevsync.md), delivered back onto the ArkUI JS/UI loop |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | View-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink) on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 14+; `CVDisplayLink` on supported macOS 13, marshaled to the main queue |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Screen-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink), in common run-loop modes |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`Choreographer.postFrameCallback`](https://developer.android.com/reference/android/view/Choreographer) / `removeFrameCallback` |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | One-shot registration with `Microsoft.UI.Xaml.Media.CompositionTarget.Rendering` |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `requestAnimationFrame` / `cancelAnimationFrame` |
+| [macos](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")/[linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Host widget's `add_tick_callback`, timestamped by its [`GdkFrameClock`](https://docs.gtk.org/gdk4/class.FrameClock.html) |
+| [macos](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")/[linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Host [`QWindow::requestUpdate()`](https://doc.qt.io/qt-6/qwindow.html) / [`QEvent::UpdateRequest`](https://doc.qt.io/qt-6/qevent.html) |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`OH_NativeVSync_RequestFrame`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-nativevsync.md), delivered back onto the [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") JS/UI loop |
 | mock | Inert; core tests inject a manual timestamp source |
 
 There is no Day timer fallback. [Qt documents](https://doc.qt.io/qt-6/qwindow.html#requestUpdate)

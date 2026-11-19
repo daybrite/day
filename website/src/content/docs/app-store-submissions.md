@@ -75,8 +75,8 @@ record. Do not change an identifier when releasing an update.
 
 | Store | One-time setup |
 | --- | --- |
-| App Store Connect | [Create the app record](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/) for the iOS bundle ID. Configure privacy, age rating, export compliance and availability. Create an App Store Connect API key with access to the app, an Apple distribution certificate, and an App Store provisioning profile. |
-| Mac App Store | Add the macOS platform to the same app record, so one bundle ID covers iPhone, iPad and Mac. Create a Mac Installer Distribution certificate and a Mac App Store Connect provisioning profile for the bundle ID; the Apple Distribution certificate signs both platforms. |
+| App Store Connect | [Create the app record](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/) for the [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") bundle ID. Configure privacy, age rating, export compliance and availability. Create an App Store Connect API key with access to the app, an Apple distribution certificate, and an App Store provisioning profile. |
+| Mac App Store | Add the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") platform to the same app record, so one bundle ID covers iPhone, iPad and Mac. Create a Mac Installer Distribution certificate and a Mac App Store Connect provisioning profile for the bundle ID; the Apple Distribution certificate signs both platforms. |
 | Google Play | Create the app in Play Console and complete its content rating, data safety and audience settings. [Enable the publishing API and grant a service account access](https://developers.google.com/android-publisher/getting_started). Configure Play App Signing and retain the upload keystore. |
 
 Upload the first Android bundle through Play Console before using the API. This is a
@@ -93,11 +93,11 @@ Configure only the stores you use.
 | --- | --- |
 | Apple team | `DAY_APPLE_TEAM` — team ID |
 | App Store Connect API | `DAY_ASC_KEY_ID`, `DAY_ASC_ISSUER`, `DAY_ASC_KEY_B64` — key ID, issuer ID and base64-encoded `.p8` key |
-| iOS signing | `DAY_APPLE_CERT_P12`, `DAY_APPLE_CERT_PASSWORD`, `DAY_IOS_PROFILE_B64` — base64-encoded distribution certificate, its password and base64-encoded provisioning profile |
-| Android signing | `DAY_ANDROID_KEYSTORE_B64`, `DAY_ANDROID_KEY_ALIAS`, `DAY_KS_PASS`, `DAY_KEY_PASS` — base64-encoded upload keystore, alias, keystore password and key password |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") signing | `DAY_APPLE_CERT_P12`, `DAY_APPLE_CERT_PASSWORD`, `DAY_IOS_PROFILE_B64` — base64-encoded distribution certificate, its password and base64-encoded provisioning profile |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") signing | `DAY_ANDROID_KEYSTORE_B64`, `DAY_ANDROID_KEY_ALIAS`, `DAY_KS_PASS`, `DAY_KEY_PASS` — base64-encoded upload keystore, alias, keystore password and key password |
 | Google Play API | `DAY_PLAY_JSON_KEY` — service-account JSON contents |
 | Mac App Store signing | `DAY_MAS_CERT_P12`, `DAY_MAS_CERT_PASSWORD`, `DAY_MAS_PROFILE_B64` — one base64-encoded `.p12` holding both the Apple Distribution and the Mac Installer Distribution identities, its password, and the base64-encoded Mac App Store profile (optional: without it, the workflow has Apple issue one through the API key and `DAY_APPLE_TEAM`) |
-| HarmonyOS signing | `DAY_OHOS_KEYSTORE_B64`, `DAY_OHOS_CERT_B64`, `DAY_OHOS_PROFILE_B64`, `DAY_OHOS_KEY_ALIAS`, `DAY_OHOS_KS_PASS`, `DAY_OHOS_KEY_PASS` — base64-encoded keystore, certificate and profile, the key alias and the two passwords |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") signing | `DAY_OHOS_KEYSTORE_B64`, `DAY_OHOS_CERT_B64`, `DAY_OHOS_PROFILE_B64`, `DAY_OHOS_KEY_ALIAS`, `DAY_OHOS_KS_PASS`, `DAY_OHOS_KEY_PASS` — base64-encoded keystore, certificate and profile, the key alias and the two passwords |
 
 The workflow signs after it builds, and only where it can. The job that compiles the app and
 runs its walkthroughs never sees a key. On a tag, it packs unsigned each store package whose

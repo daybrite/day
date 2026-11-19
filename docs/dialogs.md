@@ -62,18 +62,18 @@ Platform guidance: [Apple: alerts](https://developer.apple.com/design/human-inte
 
 | Toolkit | Dialog / sheet | Prompt |
 |---|---|---|
-| appkit | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) + `beginSheetModalForWindow:` (async) | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) with an [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) accessory |
-| uikit | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) (`.alert` / `.actionSheet`) on the root VC | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) + `addTextField` |
-| gtk | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) (libadwaita 1.5; `response` signal) | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) with a [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) extra-child |
-| qt | [`QMessageBox.open()`](https://doc.qt.io/qt-6/qmessagebox.html) + `finished` (shim) | [`QInputDialog.getText`](https://doc.qt.io/qt-6/qinputdialog.html) (shim) |
-| android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) |
-| arkui | ArkUI `PromptAction.openCustomDialog` modal with themed native `Text` / `Button` content; sheets align to the bottom | Same modal host with native `TextInput`, initial value, placeholder and IME submit |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) + `beginSheetModalForWindow:` (async) | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) with an [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) accessory |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) (`.alert` / `.actionSheet`) on the root VC | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) + `addTextField` |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) (libadwaita 1.5; `response` signal) | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) with a [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) extra-child |
+| [qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QMessageBox.open()`](https://doc.qt.io/qt-6/qmessagebox.html) + `finished` (shim) | [`QInputDialog.getText`](https://doc.qt.io/qt-6/qinputdialog.html) (shim) |
+| [android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) |
+| [arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") `PromptAction.openCustomDialog` modal with themed native `Text` / `Button` content; sheets align to the bottom | Same modal host with native `TextInput`, initial value, placeholder and IME submit |
 | mock | records the spec; resolved programmatically | same |
-| WinUI | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) + [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) + [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) |
 
 The main loop keeps running while a dialog is open.
 
-### ArkUI
+### [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
 Dialogs use the primary window. Alerts support multiple buttons, destructive choices,
 scrolling content, and Back or outside dismissal. Action-sheet choices are vertical.

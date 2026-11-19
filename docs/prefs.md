@@ -34,7 +34,7 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS, Web | Small string values; native stores or files on native targets, localStorage on Web. This is not encrypted secret storage. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Small string values; native stores or files on native targets, localStorage on Web. This is not encrypted secret storage. |
 
 Use [`bind`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.bind.html) to restore a signal’s saved value and persist later changes. For files, use
 [app-local file storage](fs.md). Neither API is an encrypted store for passwords or tokens.
@@ -60,7 +60,7 @@ day::prefs::remove("greeting");                      // delete it
 | [`contains(key) -> bool`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.contains.html) | Whether a value is currently stored under `key`. |
 | [`bind(key, signal)`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.bind.html) | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
 | [`bind_json(key, store)`](https://docs.rs/day-app/latest/day/prefs/fn.bind_json.html) | (`day::prefs`, with the `model` feature.) Keep a keyed [day-model](/docs/explanation/model) store (`Store<Keyed<T>>`, `T: Serialize + DeserializeOwned`) under `key` as one JSON array: seed it from the saved rows now, then save every later change, a field edit as well as an insert, removal or move. An unreadable value leaves the store as it is and logs a warning. Suits a small list; larger documents belong in [day-persistence](persistence.md). |
-| [`install_nav_store()`](https://docs.rs/day-app/latest/day/prefs/fn.install_nav_store.html) | (`day::prefs`.) Install this store as day-core's navigation-persistence sink, so a [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)/[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) marked [`.restore(key)`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) remembers its state across launches (and an Android process death). [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) calls it when the app has installed no store of its own, so an app calls it only when it boots without the facade. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
+| [`install_nav_store()`](https://docs.rs/day-app/latest/day/prefs/fn.install_nav_store.html) | (`day::prefs`.) Install this store as day-core's navigation-persistence sink, so a [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html)/[`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) marked [`.restore(key)`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) remembers its state across launches (and an [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") process death). [`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) calls it when the app has installed no store of its own, so an app calls it only when it boots without the facade. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
 
 Values persist across launches. Platform selection is purely `#[cfg(target_os)]` (plus
 `#[cfg(target_arch = "wasm32")]` for the web), since persistence depends on the OS, not on which
@@ -81,36 +81,36 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
 
 | OS | API | dependency |
 |---|---|---|
-| macOS | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
-| iOS | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
-| Android | [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) (`MODE_PRIVATE`) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
-| Linux | file store in the app's [`$XDG_CONFIG_HOME/<app id>`](https://specifications.freedesktop.org/basedir/latest/) (or `~/.config/<app id>`) | std only, shared `file.rs` |
-| Windows | file store in `%APPDATA%\<app id>` | std only, shared `file.rs` |
-| HarmonyOS | file store, best-effort in the app sandbox (`target_env = "ohos"`) | std only, shared `file.rs` |
-| Web | `localStorage` (per origin, `day.pref.` namespace) via the day-toolkit-dom shim | the `web-dom` host page ([docs/web](web.md)), `web.rs` |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) | `objc2` + `objc2-foundation`, shared `apple.rs` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) (`MODE_PRIVATE`) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | file store in the app's [`$XDG_CONFIG_HOME/<app id>`](https://specifications.freedesktop.org/basedir/latest/) (or `~/.config/<app id>`) | std only, shared `file.rs` |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | file store in `%APPDATA%\<app id>` | std only, shared `file.rs` |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | file store, best-effort in the app sandbox (`target_env = "ohos"`) | std only, shared `file.rs` |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `localStorage` (per origin, `day.pref.` namespace) via the day-toolkit-dom shim | the [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") host page ([docs/web](web.md)), `web.rs` |
 
 ## What each platform does
 
-- **macOS / iOS**: [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) is the system's per-application preferences store (a
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")**: [`NSUserDefaults.standard`](https://developer.apple.com/documentation/foundation/nsuserdefaults) is the system's per-application preferences store (a
   plist under `~/Library/Preferences` on macOS, the app container on iOS). It is toolkit-independent
   (no [`NSApplication`](https://developer.apple.com/documentation/appkit/nsapplication)/[`UIApplication`](https://developer.apple.com/documentation/uikit/uiapplication), run loop, or window), so the crate works in `day-toolkit-qt` binaries
   and plain `cargo test` processes as well as under `day-toolkit-appkit`/`day-toolkit-uikit`. `setObject:forKey:` is
   the only `unsafe` objc2 call (the value must be a property-list type, and we always pass a real
   [`NSString`](https://developer.apple.com/documentation/foundation/nsstring)); writes are immediately readable and flushed to disk by the system. [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html) always
   returns `true`.
-- **Android**: an app-private [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) file named `day_part_preferences`, opened with
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**: an app-private [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) file named `day_part_preferences`, opened with
   `Context.MODE_PRIVATE` from `day-toolkit-material`'s cached `Context` (`DayBridge.ctx`). Writes use
   `Editor.commit()` (synchronous), so [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html)/[`remove`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.remove.html) return the true commit result. No manifest
   permission is required; [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) is private storage. Like the UI pieces, the crate
   stages its own Java shim through `[package.metadata.day.android]` and rides the Day runtime (it
   needs the app's JVM + `Context`).
-- **Linux / Windows / HarmonyOS:** settings use `preferences.store` in the app's
+- **[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"):** settings use `preferences.store` in the app's
   [`configuration directory`](https://docs.rs/day-app/latest/day/storage/fn.config_dir.html).
   See [storage locations](fs.md#where-files-live) for defaults and overrides. A missing or
   unreadable file is treated as an empty store. Writes replace the file through a temporary
   sibling file; [`set`](https://docs.rs/day-part-preferences/latest/day_part_preferences/fn.set.html)
   returns `false` if saving fails.
-- **Web**: `localStorage`, reached through the day-toolkit-dom host shim's `day_dom_pref_*`
+- **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")**: `localStorage`, reached through the day-toolkit-dom host shim's `day_dom_pref_*`
   imports under a `day.pref.` key namespace. Values survive reloads and browser restarts,
   scoped per origin. `localStorage` can throw (private browsing, storage pressure); failures
   report as uncommitted/absent, matching the contract everywhere else. The showcase's Controls
@@ -120,7 +120,7 @@ Platform guidance: [Apple: settings](https://developer.apple.com/design/human-in
   `None`.
 
 > [!WARNING]
-> **Linux / Windows / HarmonyOS: preference migration.**
+> **[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): preference migration.**
 > Preferences stored at the previous `<config-dir>/day/<app-id>.store` location are not migrated
 > automatically. Apps upgrading from that layout must migrate existing settings to
 > `preferences.store` in the app's configuration directory.

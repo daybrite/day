@@ -169,15 +169,15 @@ Everything above works on every toolkit except where noted.
 
 | Toolkit | Limitation |
 | --- | --- |
-| **Web** | A gradient stroke paints the gradient across the path's interior rather than only the stroked band. Canvas2D has no "convert stroke to path", so there is no region to clip to. It looks correct for thin lines and diverges as the width grows. |
-| **windows-winui** | Win2D supports geometric clips, including paths and ellipses, with the same painter for screen and bitmap export. |
-| **appkit**, **uikit** | Solid fills, solid strokes and clips of plain shapes go straight to the Core Graphics context as path calls, the rest through [`NSBezierPath`](https://developer.apple.com/documentation/appkit/nsbezierpath) or `UIBezierPath`. No visual difference; a dense drawing paints several times faster. Where a path object is still used on AppKit, quadratic segments are elevated to cubics, exactly (`NSBezierPath`'s own quadratic API is macOS 14+). |
-| **gtk**, **arkui** | Same quadratic elevation, for the same reason: cairo and [`OH_Drawing`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-drawing.md) have cubics. |
-| **Web** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is the CSS generic families plus the bundled fonts, not the machine's: a browser lists local fonts only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission prompt. `Cap::FontList` answers `Emulated`. |
-| **android** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
-| **arkui** | Canvas fonts and the font list compile against the SDK's `OH_Drawing_FontMgr` API and are exercised by CI on a device, not by a local emulator run. |
+| **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** | A gradient stroke paints the gradient across the path's interior rather than only the stroked band. Canvas2D has no "convert stroke to path", so there is no region to clip to. It looks correct for thin lines and diverges as the width grows. |
+| **[windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** | Win2D supports geometric clips, including paths and ellipses, with the same painter for screen and bitmap export. |
+| **[appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**, **[uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")** | Solid fills, solid strokes and clips of plain shapes go straight to the Core Graphics context as path calls, the rest through [`NSBezierPath`](https://developer.apple.com/documentation/appkit/nsbezierpath) or `UIBezierPath`. No visual difference; a dense drawing paints several times faster. Where a path object is still used on [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), quadratic segments are elevated to cubics, exactly (`NSBezierPath`'s own quadratic API is [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 14+). |
+| **[gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")**, **[arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** | Same quadratic elevation, for the same reason: cairo and [`OH_Drawing`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-drawing.md) have cubics. |
+| **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is the CSS generic families plus the bundled fonts, not the machine's: a browser lists local fonts only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission prompt. `Cap::FontList` answers `Emulated`. |
+| **[android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
+| **[arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** | Canvas fonts and the font list compile against the SDK's `OH_Drawing_FontMgr` API and are exercised by CI on a device, not by a local emulator run. |
 | all | A weight or slant the family does not ship is synthesized where the platform does that (Skia, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango, CoreText). `face_for` on the family's `FontFamilyInfo` says which face will actually draw. |
-| **Qt**, **Android**, **WinUI** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
+| **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")**, **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**, **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
 
 Gradient strokes on Apple work by converting the stroke to the region it covers
 ([`CGContextReplacePathWithStrokedPath`](https://developer.apple.com/documentation/coregraphics/cgcontext/replacepathwithstrokedpath())) and drawing the gradient through that clip, which is exact.
@@ -301,14 +301,14 @@ For chart selection, handle [`on_tap_at`](https://docs.rs/day-pieces/latest/day_
 
 | Toolkit | Hover | Underneath |
 | --- | --- | --- |
-| appkit | ✓ | an [`NSTrackingArea`](https://developer.apple.com/documentation/appkit/nstrackingarea) + `mouseEntered:`/`mouseMoved:`/`mouseExited:`. Like Pan, only `DayCanvas` overrides those, so a hover enabled on another view reports nothing |
-| gtk | ✓ | [`GtkEventControllerMotion`](https://docs.gtk.org/gtk4/class.EventControllerMotion.html) — enter, motion, leave |
-| qt | ✓ | `setMouseTracking(true)` plus `Enter`/`MouseMove`/`Leave` on the event filter |
-| WinUI | ✓ | `PointerEntered`/`Moved`/`Exited`, gated to a Mouse or Pen device |
-| dom | ✓ | `pointerenter`/`move`/`leave`, gated on `pointerType !== 'touch'` |
-| uikit | ✓ (pointer) | [`UIHoverGestureRecognizer`](https://developer.apple.com/documentation/uikit/uihovergesturerecognizer) — an iPad with a trackpad, a mouse, or a hovering Pencil. A finger-only device reports nothing |
-| android | ✓ (pointer) | `setOnHoverListener` — a mouse or a stylus. A finger generates no `HOVER_*` action at all |
-| arkui | — | the C node API's `NODE_ON_HOVER` carries no coordinates, and the contract is a point |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | ✓ | an [`NSTrackingArea`](https://developer.apple.com/documentation/appkit/nstrackingarea) + `mouseEntered:`/`mouseMoved:`/`mouseExited:`. Like Pan, only `DayCanvas` overrides those, so a hover enabled on another view reports nothing |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | ✓ | [`GtkEventControllerMotion`](https://docs.gtk.org/gtk4/class.EventControllerMotion.html) — enter, motion, leave |
+| [qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | ✓ | `setMouseTracking(true)` plus `Enter`/`MouseMove`/`Leave` on the event filter |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | ✓ | `PointerEntered`/`Moved`/`Exited`, gated to a Mouse or Pen device |
+| [dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | ✓ | `pointerenter`/`move`/`leave`, gated on `pointerType !== 'touch'` |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | ✓ (pointer) | [`UIHoverGestureRecognizer`](https://developer.apple.com/documentation/uikit/uihovergesturerecognizer) — an iPad with a trackpad, a mouse, or a hovering Pencil. A finger-only device reports nothing |
+| [android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | ✓ (pointer) | `setOnHoverListener` — a mouse or a stylus. A finger generates no `HOVER_*` action at all |
+| [arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | — | the C node API's `NODE_ON_HOVER` carries no coordinates, and the contract is a point |
 
 The toolkits that gate on device type all do it for the same reason: the platform reports a
 touch contact through the *same* enter/move/exit events, and passing those through would make every
@@ -492,14 +492,14 @@ A call the target cannot run answers `Err(ExportError::Unsupported)` without rea
 
 | Target | Bitmap | PDF | How |
 | --- | --- | --- | --- |
-| **macos-appkit** | yes | yes | A flipped [`CGBitmapContext`](https://developer.apple.com/documentation/coregraphics/cgcontext), and [`CGPDFContext`](https://developer.apple.com/documentation/coregraphics/cgcontext) with title and author |
-| **ios-uikit** | yes | yes | [`UIGraphicsImageRenderer`](https://developer.apple.com/documentation/uikit/uigraphicsimagerenderer) and [`UIGraphicsPDFRenderer`](https://developer.apple.com/documentation/uikit/uigraphicspdfrenderer) |
-| **macos-gtk**, **linux-gtk** | yes | yes | A cairo image surface, and a cairo PDF surface with title and author |
-| **macos-qt**, **linux-qt** | yes | yes | [`QImage`](https://doc.qt.io/qt-6/qimage.html), and [`QPdfWriter`](https://doc.qt.io/qt-6/qpdfwriter.html) at 72 dpi so one unit is one point |
-| **android-material** | yes | yes | A [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap)-backed [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas), and [`android.graphics.pdf.PdfDocument`](https://developer.android.com/reference/android/graphics/pdf/PdfDocument). It has no metadata API, so title and author are dropped, and page sizes round to whole points |
-| **harmony-arkui** | yes | no | An `OH_Drawing_Bitmap`; HarmonyOS has no PDF drawing context |
-| **web-dom** | yes | no | A detached `<canvas>` kept as the bitmap, the one toolkit that answers on a later turn; browsers have no PDF writer |
-| **windows-winui** | yes | no | Win2D drawing sessions on a `CanvasControl` or `CanvasRenderTarget`; WIC encodes PNG. Vector PDF is not implemented |
+| **[macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")** | yes | yes | A flipped [`CGBitmapContext`](https://developer.apple.com/documentation/coregraphics/cgcontext), and [`CGPDFContext`](https://developer.apple.com/documentation/coregraphics/cgcontext) with title and author |
+| **[ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")** | yes | yes | [`UIGraphicsImageRenderer`](https://developer.apple.com/documentation/uikit/uigraphicsimagerenderer) and [`UIGraphicsPDFRenderer`](https://developer.apple.com/documentation/uikit/uigraphicspdfrenderer) |
+| **[macos-gtk](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk")**, **[linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")** | yes | yes | A cairo image surface, and a cairo PDF surface with title and author |
+| **[macos-qt](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt")**, **[linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")** | yes | yes | [`QImage`](https://doc.qt.io/qt-6/qimage.html), and [`QPdfWriter`](https://doc.qt.io/qt-6/qpdfwriter.html) at 72 dpi so one unit is one point |
+| **[android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** | yes | yes | A [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap)-backed [`Canvas`](https://developer.android.com/reference/android/graphics/Canvas), and [`android.graphics.pdf.PdfDocument`](https://developer.android.com/reference/android/graphics/pdf/PdfDocument). It has no metadata API, so title and author are dropped, and page sizes round to whole points |
+| **[harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** | yes | no | An `OH_Drawing_Bitmap`; [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") has no PDF drawing context |
+| **[web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** | yes | no | A detached `<canvas>` kept as the bitmap, the one toolkit that answers on a later turn; browsers have no PDF writer |
+| **[windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** | yes | no | Win2D drawing sessions on a `CanvasControl` or `CanvasRenderTarget`; WIC encodes PNG. Vector PDF is not implemented |
 | **mock** | synthetic | no | A bitmap of the right size and scale with no pixels, so app logic around export runs headless |
 
 ### Rules

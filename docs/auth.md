@@ -47,13 +47,13 @@ The API reference describes the published 0.1.0 release, including feature-gated
 
 | Platform / toolkit | Browser sign-in path | Native credentials |
 | --- | --- | --- |
-| macOS / AppKit | Default browser and a loopback callback by default; system authentication session for configured scheme or HTTPS callbacks. | Apple sign-in; platform passkeys on macOS 13+. |
-| iOS / UIKit | System authentication session and an app callback. | Apple sign-in on iOS 13+; platform passkeys on iOS 16+. |
-| Android | Custom Tab and an app callback. | Google through Credential Manager; passkeys on Android 9+ with a credential provider. |
-| Windows / WinUI | Default browser and a loopback callback. | Windows WebAuthn on Windows 10 1903+. |
-| Linux / GTK / Qt | Default browser and a loopback callback. | Passkeys and the Apple/Google native helpers return `Unsupported`. |
-| HarmonyOS / ArkUI | Default browser and an app callback; the browser tab remains open. | Passkeys and the Apple/Google native helpers return `Unsupported`. |
-| Web / DOM | Popup and a callback to the app's origin; the token client has the clock limitation below. | Browser WebAuthn. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Default browser and a loopback callback by default; system authentication session for configured scheme or HTTPS callbacks. | Apple sign-in; platform passkeys on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 13+. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | System authentication session and an app callback. | Apple sign-in on [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 13+; platform passkeys on iOS 16+. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Custom Tab and an app callback. | Google through Credential Manager; passkeys on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") 9+ with a credential provider. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Default browser and a loopback callback. | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") WebAuthn on Windows 10 1903+. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Default browser and a loopback callback. | Passkeys and the Apple/Google native helpers return `Unsupported`. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Default browser and an app callback; the browser tab remains open. | Passkeys and the Apple/Google native helpers return `Unsupported`. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Popup and a callback to the app's origin; the token client has the clock limitation below. | Browser WebAuthn. |
 
 These are implementation paths, not a promise that an account, associated domain, credential
 provider, or signing entitlement is configured. Handle failure when opening every dialog.
@@ -66,7 +66,7 @@ provider, or signing entitlement is configured. Handle failure when opening ever
 | Run an OAuth / OpenID Connect code flow | [`Client::sign_in()`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.sign_in) | `Result<TokenSet, AuthError>` after the code exchange and applicable ID-token checks. |
 | Supply a custom browser integration | [`Client::start()`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.start) and [`Client::complete(request, callback_url)`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/struct.Client.html#method.complete) | Keep the authorization request with the same client until completion. |
 | Request an Apple credential | [`apple::sign_in(SignInWithApple)`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/fn.sign_in.html) | [`AppleCredential`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/struct.AppleCredential.html); send its token/code to the account service for verification. |
-| Request a Google credential on Android | [`google::sign_in(GoogleSignIn)`](https://docs.rs/day-part-auth/latest/day_part_auth/google/fn.sign_in.html) | [`GoogleCredential`](https://docs.rs/day-part-auth/latest/day_part_auth/google/struct.GoogleCredential.html); verify the ID token at the account service. |
+| Request a Google credential on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`google::sign_in(GoogleSignIn)`](https://docs.rs/day-part-auth/latest/day_part_auth/google/fn.sign_in.html) | [`GoogleCredential`](https://docs.rs/day-part-auth/latest/day_part_auth/google/struct.GoogleCredential.html); verify the ID token at the account service. |
 | Register or use a passkey | [`passkeys::create(&options)`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.create.html) / [`passkeys::get(&options)`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.get.html) | Credential JSON; the relying-party server must verify it. |
 
 OAuth authorizes access to APIs. OpenID Connect adds an ID token describing the account that
@@ -133,10 +133,10 @@ late result cannot restore the session.
 
 | [`Redirect`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/enum.Redirect.html) | Behavior |
 | --- | --- |
-| `Auto` | Uses the app scheme with `/auth/callback` on iOS, Android, and HarmonyOS; a loopback listener on desktops; the page URL without its fragment on Web. |
+| `Auto` | Uses the app scheme with `/auth/callback` on [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"); a loopback listener on desktops; the page URL without its fragment on Web. |
 | `Scheme(String)` | Uses a custom scheme registered by the app. The provider must allow that exact callback. |
 | `Loopback { port, path }` | Binds `127.0.0.1`; port `0` chooses a free port. [`Redirect::loopback()`](https://docs.rs/day-part-auth/latest/day_part_auth/authorize/enum.Redirect.html#method.loopback) uses port `0` and `/callback`. Intended for desktops. |
-| `Https(String)` | Requires a callback the app owns and can receive, such as a configured associated domain or Android App Link. Setting the enum alone does not configure that association. |
+| `Https(String)` | Requires a callback the app owns and can receive, such as a configured associated domain or [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") App Link. Setting the enum alone does not configure that association. |
 
 For scheme callbacks, merge this into the app's existing `Day.toml` `[app]` table. The identifier
 is a protocol value; choose one specific to the app and register `exampleaccount://auth/callback`
@@ -156,7 +156,7 @@ listener, not every native sheet. `completion_page` replaces the listener's HTML
 provide localized content from generated accessors if the app uses it.
 
 > [!NOTE]
-> **AppKit / UIKit: HTTPS callbacks.**
+> **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"): HTTPS callbacks.**
 > The system session's HTTPS callback API requires macOS 14.4 or iOS 17.4 and the appropriate
 > associated-domain configuration. [`session::capabilities().https_callback`](https://docs.rs/day-part-auth/latest/day_part_auth/session/fn.capabilities.html) currently reports
 > the Apple target family without checking that OS version.
@@ -206,7 +206,7 @@ Revoking a token and signing out of the provider's browser session are separate 
 Serialize refresh requests, and replace stored refresh tokens when the provider rotates them.
 
 > [!WARNING]
-> **Web / DOM: token clock.**
+> **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom"): token clock.**
 > ID-token validation, key caching, and token expiry use `std::time::SystemTime`, which traps on
 > the current `wasm32-unknown-unknown` build. Browser compilation does not establish a working
 > OAuth/OIDC token client. The separate browser WebAuthn API does not use this token clock.
@@ -227,7 +227,7 @@ may be supplied only on the first authorization; retain needed values after serv
 [`apple::credential_state(user)`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/fn.credential_state.html) checks Apple's authorization state for a previously returned user.
 
 > [!WARNING]
-> **AppKit / UIKit: nonce and state.**
+> **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"): nonce and state.**
 > The native request sends a hexadecimal SHA-256 nonce, but [`AppleCredential::hashed_nonce`](https://docs.rs/day-part-auth/latest/day_part_auth/apple/struct.AppleCredential.html#structfield.hashed_nonce)
 > currently contains a base64url digest. Those values differ. The helper also substitutes the
 > requested state when the returned state is absent instead of validating it. Correct these
@@ -245,7 +245,7 @@ server exchange or a `form_post` callback handler. Keep the signing key on the s
 
 ### Sign in with Google
 
-On Android, [`google::sign_in(GoogleSignIn::new(server_client_id))`](https://docs.rs/day-part-auth/latest/day_part_auth/google/fn.sign_in.html) requests a Google ID credential
+On [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [`google::sign_in(GoogleSignIn::new(server_client_id))`](https://docs.rs/day-part-auth/latest/day_part_auth/google/fn.sign_in.html) requests a Google ID credential
 through Credential Manager. Use the **web application/server** OAuth client ID for the token
 audience, with the Android app registration and signing certificate configured in the same
 project. The result includes `id_token`, account/profile fields, and the request nonce.
@@ -270,7 +270,7 @@ JSON; they do not maintain an account database or verify a server session.
 | [`passkeys::create(&options).await`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.create.html) | Server-issued creation options with `rp`, `user`, `challenge`, and credential parameters. | Registration credential JSON, including `clientDataJSON` and `attestationObject`. |
 | [`passkeys::get(&options).await`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.get.html) | Server-issued request options with a challenge and relying-party information. | Assertion JSON, including authenticator data, signature, and optional user handle. |
 | [`passkeys::support()`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.support.html) | No arguments. | Whether the target has an implementation. |
-| [`passkeys::platform_authenticator_available().await`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.platform_authenticator_available.html) | No arguments. | A capability hint, not proof of a configured account, entitlement, or available credential. Apple and Android currently use broad OS/API checks. |
+| [`passkeys::platform_authenticator_available().await`](https://docs.rs/day-part-auth/latest/day_part_auth/passkeys/fn.platform_authenticator_available.html) | No arguments. | A capability hint, not proof of a configured account, entitlement, or available credential. Apple and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") currently use broad OS/API checks. |
 
 Binary fields use base64url in the JSON. Obtain challenges from the server, bind each to a
 pending operation, and expire it after use. Send the returned credential to that server, which
@@ -279,14 +279,14 @@ granting access. The [WebAuthn specification](https://www.w3.org/TR/webauthn-3/)
 registration and assertion checks.
 
 > [!WARNING]
-> **AppKit / UIKit: creation options.**
+> **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"): creation options.**
 > The current implementation uses the platform authenticator and does not honor every JSON
 > option, including algorithm selection, authenticator attachment, and attestation preference.
 > Excluded credentials are passed through only on iOS 17.4 / macOS 14.4 and later. Do not assume
 > an arbitrary server WebAuthn policy is enforced by this adapter.
 
 > [!WARNING]
-> **Windows / WinUI: credential metadata.**
+> **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"): credential metadata.**
 > The current adapter reports `authenticatorAttachment = "platform"` and registration transport
 > `internal` even when a security key was used. Treat those metadata fields as unreliable until
 > corrected. The adapter constructs `clientDataJSON` with `https://<rp.id>` by default, or the
@@ -300,21 +300,21 @@ returned credential in that demo is not evidence of an authenticated account.
 
 | Platform / toolkit | Native API and setup |
 | --- | --- |
-| AppKit / UIKit | [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) for configured system browser sessions. Passkeys use [`ASAuthorizationPlatformPublicKeyCredentialProvider`](https://developer.apple.com/documentation/authenticationservices/asauthorizationplatformpublickeycredentialprovider); follow [Apple's passkey setup](https://developer.apple.com/documentation/authenticationservices/supporting-passkeys) and configure the relying party as a `webcredentials:` associated domain. |
-| Android | [Custom Tabs](https://developer.chrome.com/docs/android/custom-tabs) receive redirects through [deep links](/docs/reference/deep-links). [Credential Manager](https://developer.android.com/identity/sign-in/credential-manager) handles passkeys and Google credentials. Publish the app/domain association described in [Digital Asset Links setup](https://developer.android.com/identity/credential-manager/prerequisites). |
-| Windows / WinUI | [`WebAuthNAuthenticatorMakeCredential`](https://learn.microsoft.com/en-us/windows/win32/api/webauthn/nf-webauthn-webauthnauthenticatormakecredential) and [`WebAuthNAuthenticatorGetAssertion`](https://learn.microsoft.com/en-us/windows/win32/api/webauthn/nf-webauthn-webauthnauthenticatorgetassertion) provide the passkey dialogs. Browser sign-in opens the default browser. |
-| Linux / GTK / Qt | Browser sign-in uses [Day's URL-opening API](/docs/reference/applications) and a loopback listener, following [OAuth for native apps](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3). This crate has no native passkey adapter for these toolkits. |
-| HarmonyOS / ArkUI | Browser sign-in uses [Day's URL-opening API](/docs/reference/applications) and [app callbacks](/docs/reference/deep-links). It does not close the external browser tab. |
-| Web / DOM | [`CredentialsContainer.create()` and `get()`](https://www.w3.org/TR/webauthn-3/#sctn-api) request passkeys in a secure context. The relying-party ID must satisfy the browser's domain rules. Start browser UI from a user gesture and handle popup blocking and credential-provider refusal. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`ASWebAuthenticationSession`](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession) for configured system browser sessions. Passkeys use [`ASAuthorizationPlatformPublicKeyCredentialProvider`](https://developer.apple.com/documentation/authenticationservices/asauthorizationplatformpublickeycredentialprovider); follow [Apple's passkey setup](https://developer.apple.com/documentation/authenticationservices/supporting-passkeys) and configure the relying party as a `webcredentials:` associated domain. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [Custom Tabs](https://developer.chrome.com/docs/android/custom-tabs) receive redirects through [deep links](/docs/reference/deep-links). [Credential Manager](https://developer.android.com/identity/sign-in/credential-manager) handles passkeys and Google credentials. Publish the app/domain association described in [Digital Asset Links setup](https://developer.android.com/identity/credential-manager/prerequisites). |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`WebAuthNAuthenticatorMakeCredential`](https://learn.microsoft.com/en-us/windows/win32/api/webauthn/nf-webauthn-webauthnauthenticatormakecredential) and [`WebAuthNAuthenticatorGetAssertion`](https://learn.microsoft.com/en-us/windows/win32/api/webauthn/nf-webauthn-webauthnauthenticatorgetassertion) provide the passkey dialogs. Browser sign-in opens the default browser. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Browser sign-in uses [Day's URL-opening API](/docs/reference/applications) and a loopback listener, following [OAuth for native apps](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3). This crate has no native passkey adapter for these toolkits. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Browser sign-in uses [Day's URL-opening API](/docs/reference/applications) and [app callbacks](/docs/reference/deep-links). It does not close the external browser tab. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | [`CredentialsContainer.create()` and `get()`](https://www.w3.org/TR/webauthn-3/#sctn-api) request passkeys in a secure context. The relying-party ID must satisfy the browser's domain rules. Start browser UI from a user gesture and handle popup blocking and credential-provider refusal. |
 
 > [!NOTE]
-> **AppKit: sandboxed loopback sign-in.**
+> **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"): sandboxed loopback sign-in.**
 > A sandboxed app needs outgoing network access for provider requests and incoming network access
 > for the loopback listener. Check the app's signing entitlements before using the default
 > desktop redirect; see [Apple's App Sandbox network permissions](https://developer.apple.com/documentation/security/app-sandbox).
 
 > [!NOTE]
-> **Android: local demo traffic.**
+> **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"): local demo traffic.**
 > A demo provider on `127.0.0.1` needs `cleartext-domains = ["127.0.0.1"]` in the existing
 > `[android]` table of `Day.toml`. Keep this exception limited to the demo; provider traffic in a
 > released app must use HTTPS. The crate contributes its Gradle dependencies and `INTERNET`

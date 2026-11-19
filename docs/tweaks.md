@@ -15,7 +15,7 @@ an app needs an option beyond the shared API while keeping the control's existin
 lifetime management.
 
 For example, a tweak can call an additional
-[`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) or WinUI
+[`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) or [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button)
 method through the handle Day manages. A piece with a tweak applied is a **Tweaked Piece**; Day
 retains control of its managed properties.
@@ -62,16 +62,16 @@ then whatever context that toolkit needs:
 
 | toolkit | accessor | closure gets | tier |
 |---|---|---|---|
-| AppKit  | `day_toolkit_appkit::with_native` / [`.tweak(appkit(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | `&Retained<NSView>`, `class`, `MainThreadMarker` (objc2 `downcast_ref` to the class) | typed |
-| UIKit   | `day_toolkit_uikit::with_native` / [`.tweak(uikit(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak)   | `&Retained<UIView>`, `class`, marker | typed |
-| GTK     | `day_toolkit_gtk::with_native` / [`.tweak(gtk(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak)       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
-| Android | `day_toolkit_material::with_native` / [`.tweak(android(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
-| Qt      | `day_toolkit_qt::with_native_raw` / [`.tweak(qt_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
-| WinUI   | `day_toolkit_winui::with_native_raw` / [`.tweak(xaml_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
-| ArkUI   | `day_toolkit_arkui::with_native_raw` / [`.tweak(arkui_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")  | `day_toolkit_appkit::with_native` / [`.tweak(appkit(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | `&Retained<NSView>`, `class`, `MainThreadMarker` (objc2 `downcast_ref` to the class) | typed |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")   | `day_toolkit_uikit::with_native` / [`.tweak(uikit(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak)   | `&Retained<UIView>`, `class`, marker | typed |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")     | `day_toolkit_gtk::with_native` / [`.tweak(gtk(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak)       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `day_toolkit_material::with_native` / [`.tweak(android(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")      | `day_toolkit_qt::with_native_raw` / [`.tweak(qt_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")   | `day_toolkit_winui::with_native_raw` / [`.tweak(xaml_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")   | `day_toolkit_arkui::with_native_raw` / [`.tweak(arkui_raw(…))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
 
-The `windows` crate ships no XAML bindings (neither WinUI 3's `Microsoft.UI.Xaml` nor the system
-`Windows.UI.Xaml`), which is why WinUI is a raw tier: the pointer is real and the C++/WinRT recipe
+The [`windows`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") crate ships no XAML bindings (neither [WinUI 3](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")'s `Microsoft.UI.Xaml` nor the system
+`Windows.UI.Xaml`), which is why [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") is a raw tier: the pointer is real and the C++/WinRT recipe
 below is short, but there is no typed Rust surface to hand you.
 
 ```rust
@@ -90,7 +90,7 @@ button(res::str::save()).tweak(appkit(|view, class, _mtm| {
 A tweak has to know *what* it is poking. Day realizes each piece as a specific native widget, and
 the accessor hands you that widget's concrete class name:
 
-- **Typed tiers** (AppKit/UIKit/GTK) report the *live* widget's runtime class: objc
+- **Typed tiers** ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")/[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")/[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")) report the *live* widget's runtime class: objc
   `object_getClass` (`"NSSlider"`, `"UILabel"`), GTK's GType name (`"GtkScale"`). Because it reads
   the real object, it stays correct even when a piece has a **conditional backing**, which is no
   longer hypothetical: a [`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) label on UIKit is realized as a read-only [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview),
@@ -110,7 +110,7 @@ the accessor hands you that widget's concrete class name:
   This is the piece of metadata that lets your C++ cast the pointer *knowingly*: pass the class
   across the FFI and guard the cast instead of a blind `static_cast` (see the recipes below).
 
-Android reports the Java class its `DayBridge` factory realizes (`"android.widget.TextView"`,
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") reports the Java class its `DayBridge` factory realizes (`"android.widget.TextView"`,
 `"com.google.android.material.slider.Slider"`, and for a text field the Material
 `"com.google.android.material.textfield.TextInputLayout"` box, whose `getEditText()` is the
 editable). The name is `""` for layout-only nodes and for
@@ -120,8 +120,8 @@ kinds whose stored handle is a container rather than a single leaf widget.
 
 The native class behind a piece is **not part of Day's API**. Day picks the best class for the
 piece's current modifiers on each platform, and that choice can change with a modifier (a
-[`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) label on UIKit), with a platform version, or with a Day release. SwiftUI works
-the same way underneath: when iOS 16 moved `List` from [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) to [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview),
+[`.selectable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.selectable) label on [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")), with a platform version, or with a Day release. SwiftUI works
+the same way underneath: when [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 16 moved `List` from [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) to [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview),
 hardcoded [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) casts stopped matching, and swiftui-introspect handles that with
 per-OS-version pins on every view type. Day owns realization, so the accessor reports the
 concrete class of the live widget and keeps the node's handle pointed at whatever is on screen,
@@ -152,10 +152,10 @@ calls per toolkit and **no-ops where it has no coverage**; the consuming app wri
 
 | crate | scope | demonstrates |
 |---|---|---|
-| `crates/day-tweak-button-bezel` | AppKit only | the minimal shape: one enum of symbolic constants, one setter |
-| `crates/day-tweak-tooltip` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
-| `crates/day-tweak-slider-tick-marks` | AppKit, GTK, Android, Qt, WinUI, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own Qt C++, WinRT C++, and NDK C++ |
-| `crates/day-tweak-tree-style` | AppKit, GTK | styling a composite control's subcontrols (`with_native_subcontrol` reaches the [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) inside the tree's scroll host; GTK adds a CSS class to the [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html)) |
+| `crates/day-tweak-button-bezel` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") only | the minimal shape: one enum of symbolic constants, one setter |
+| `crates/day-tweak-tooltip` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
+| `crates/day-tweak-slider-tick-marks` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") C++, WinRT C++, and NDK C++ |
+| `crates/day-tweak-tree-style` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | styling a composite control's subcontrols (`with_native_subcontrol` reaches the [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) inside the tree's scroll host; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") adds a CSS class to the [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html)) |
 
 The Cargo shape mirrors piece crates: per-toolkit `[features]` gating optional deps, plus
 
@@ -173,7 +173,7 @@ as `Day-Showcase/Cargo.toml` does.
 Pass the `class` the accessor gave you across the FFI so your C++ can guard the cast; Rust can't
 type the pointer for you, but it can tell you what it is.
 
-**Qt.** The handle is the [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html). Compile a few lines of C++ in your crate's `build.rs` with
+**[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt").** The handle is the [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html). Compile a few lines of C++ in your crate's `build.rs` with
 `cc` + `pkg-config Qt6Widgets` (Qt itself is already linked by day-toolkit-qt-sys):
 
 ```rust
@@ -194,11 +194,11 @@ extern "C" void my_ticks(void* w, const char* cls, int interval) {
 }
 ```
 
-**WinUI.** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
+**[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui").** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
 function, plus the class. In your C++/WinRT (compiled with `cc`; mirror
 `crates/day-tweak-slider-tick-marks/build.rs`, which adds
 [`day_toolchain::winappsdk::shim_includes(&cppwinrt)`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_includes.html) and defines `DAY_WINUI` when
-[`day_toolchain::winappsdk::shim_is_winui()`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_is_winui.html)). For `windows-winui`, use `Microsoft.UI.Xaml`:
+[`day_toolchain::winappsdk::shim_is_winui()`](https://docs.rs/day-toolchain/latest/day_toolchain/winappsdk/fn.shim_is_winui.html)). For [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), use `Microsoft.UI.Xaml`:
 
 ```cpp
 #include <cstring>
@@ -213,10 +213,10 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
 }
 ```
 
-The crate also declares a `winui` feature (`winui = ["xaml", "day-toolkit-winui/winui"]`) and lists
+The crate also declares a [`winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") feature (`winui = ["xaml", "day-toolkit-winui/winui"]`) and lists
 `"winui"` in its `backends`.
 
-**ArkUI.** The handle is the NDK `ArkUI_NodeHandle` and the class is the node type name
+**[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui").** The handle is the NDK `ArkUI_NodeHandle` and the class is the node type name
 (`"Slider"`); resolve the node API with [`OH_ArkUI_GetModuleInterface`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) and `setAttribute` away (see
 `crates/day-tweak-slider-tick-marks/src/ticks-arkui.cpp`).
 
@@ -249,7 +249,7 @@ The crate also declares a `winui` feature (`winui = ["xaml", "day-toolkit-winui/
 `node_handle_any(node) -> Option<Box<dyn Any>>` (a clone of the handle: a retain / gobject ref /
 `GlobalRef` clone / `Copy` pointer), and each toolkit's `ext` module downcasts to its concrete
 handle type. The **class name** rides alongside with no new trait method: typed tiers introspect
-the downcast handle directly (objc `object_getClass`, GTK `type_().name()`), and raw tiers read the
+the downcast handle directly (objc `object_getClass`, [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") `type_().name()`), and raw tiers read the
 node's semantic kind from the same interface (`node_kind`) and map it to the native class Day realized
 for it. [`.tweak`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) is an ordinary decorator: build the piece, hand the node to the closure, by which
 point `realize` has already run. `NativeRef` is a `Cell<Option<RNode>>` plus a reactive `Trigger`,

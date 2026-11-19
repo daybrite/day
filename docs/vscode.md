@@ -64,7 +64,7 @@ npm install && npm run compile
 
 Press **F5** (Run → "Run Day Extension") to open an Extension Development Host, then open any
 Day project (this repo works: the **Day** sidebar shows the Showcase app and its targets).
-Tick `macos-appkit`, click **Run**, and the app launches in a terminal; tick `ios-uikit` too
+Tick [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), click **Run**, and the app launches in a terminal; tick [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") too
 and both run at once; use the inline stop/restart buttons per target. `npx @vscode/vsce
 package` produces an installable `.vsix`.
 

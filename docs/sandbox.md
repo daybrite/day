@@ -9,9 +9,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# macOS App Sandbox
+# [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") App Sandbox
 
-Day can sign `macos-appkit` applications with Apple's App Sandbox during ordinary builds,
+Day can sign [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") applications with Apple's App Sandbox during ordinary builds,
 launches, and packaging. Day-Showcase enables it. App Sandbox is required for Mac App Store
 applications; it is separate from hardened runtime, notarization, and privacy consent (TCC).
 See Apple's [App Sandbox documentation](https://developer.apple.com/documentation/security/app-sandbox).
@@ -37,7 +37,7 @@ bluetooth = false
 These are the defaults except `enabled`, which defaults to false. An absent table preserves
 legacy custom entitlements. Set `enabled = false` to disable sandboxing explicitly; changing
 metadata does not change an already-built executable. `--skip-build` reuses its existing policy.
-This table applies only to AppKit. Qt and GTK's current macOS development executables are not
+This table applies only to [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"). [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") and [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")'s current [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") development executables are not
 bundled/sandboxed by this setting.
 
 `user-selected-files` accepts `none`, `read-only`, or `read-write`. The latter allows save dialogs.
@@ -71,7 +71,7 @@ codesign --display --entitlements - --xml path/to/MyApp.app
 
 ## Open, save, and reopen
 
-Use Day's native [file pickers](files.md). AppKit uses `NSOpenPanel` and `NSSavePanel`, which
+Use Day's native [file pickers](files.md). [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") uses `NSOpenPanel` and `NSSavePanel`, which
 ask the system's Powerbox to authorize the user's selection. A path typed into your own text
 field, received over automation, or read from preferences grants no access by itself. Normal
 file I/O can still fail after selection (for example, a removed volume); handle errors.

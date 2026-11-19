@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Run and publish a web app
 
-Use the `web-dom` target to run a Day app in a browser. Rust compiles to WebAssembly, and
+Use the [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") target to run a Day app in a browser. Rust compiles to WebAssembly, and
 Day presents controls as HTML elements. The target is
 [Tier 3 · Experimental](/docs/reference/platforms#support-tiers); check the capabilities your
 app needs before publishing it.
@@ -55,7 +55,7 @@ capabilities at runtime and provide an alternative when a feature is unavailable
 | Files | Open uses a browser file picker; save initiates a download. Folder dialogs are unsupported. |
 | Persistent databases | Require the storage and hosting capabilities described below. |
 | Clipboard, location, and sensors | Depend on browser support, permissions, a secure context, and sometimes a live user gesture. |
-| Windows | The app runs within its page. Desktop window placement and additional OS windows are unavailable. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | The app runs within its page. Desktop window placement and additional OS [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") are unavailable. |
 
 Use [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) and
 [`day::sleep`](https://docs.rs/day-app/latest/day/fn.sleep.html) for asynchronous work.
@@ -145,7 +145,7 @@ Day's local server sends these headers. On hosts that cannot provide them, such 
 Pages, the persistence extension reports `durable: false` and refuses file-database opens.
 Check [Persistence](/docs/reference/persistence#the-web) before choosing a host.
 
-The reusable Day app workflow can deploy the web build to GitHub Pages. Include `web-dom` in
+The reusable Day app workflow can deploy the web build to GitHub Pages. Include [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") in
 its targets and set `deploy-web: true`; follow the complete
 [GitHub Actions instructions](/docs/how-to/github-actions#deploy-to-github-pages) for permissions
 and repository settings. The local `/dayscript` bridge and `/day-http-ok` demonstration endpoint

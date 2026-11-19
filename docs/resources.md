@@ -19,9 +19,9 @@ tools.
 
 | Project dir | Kind | API (typed) | Native store |
 |---|---|---|---|
-| `resource/images/` | processed images | [`image(res::images::logo)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | SwiftPM `.process` → `Assets.car` (iOS) · bundle file (macOS) · `res/drawable` → `R` (Android) · GResource (GTK) · `.qrc` (Qt) · MRT / loose (WinUI) · rawfile (ArkUI) |
-| `resource/assets/` | arbitrary data | [`resource(res::assets::stations_json)`](https://docs.rs/day-core/latest/day_core/fn.resource.html) | bundle file + mmap (Apple) · [`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) (Android) · [`g_resources_lookup_data`](https://docs.gtk.org/gio/func.resources_lookup_data.html) (GTK) · [`QResource`](https://doc.qt.io/qt-6/qresource.html) (Qt) · loose file (WinUI) · rawfile fd (ArkUI) |
-| `resource/fonts/` | custom fonts | [`Font::custom(res::fonts::family, pt)`](https://docs.rs/day-spec/latest/day_spec/enum.Font.html#method.custom) | CoreText registration (Apple) · `res/font` → `R.font` (Android) · fontconfig/CoreText (GTK) · [`QFontDatabase`](https://doc.qt.io/qt-6/qfontdatabase.html) (Qt) · WinUI `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` (ArkUI) |
+| `resource/images/` | processed images | [`image(res::images::logo)`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) | SwiftPM `.process` → `Assets.car` ([iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) · bundle file ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")) · `res/drawable` → `R` ([Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")) · GResource ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")) · `.qrc` ([Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) · MRT / loose ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) · rawfile ([ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) |
+| `resource/assets/` | arbitrary data | [`resource(res::assets::stations_json)`](https://docs.rs/day-core/latest/day_core/fn.resource.html) | bundle file + mmap (Apple) · [`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) ([Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")) · [`g_resources_lookup_data`](https://docs.gtk.org/gio/func.resources_lookup_data.html) ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")) · [`QResource`](https://doc.qt.io/qt-6/qresource.html) ([Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) · loose file ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) · rawfile fd ([ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) |
+| `resource/fonts/` | custom fonts | [`Font::custom(res::fonts::family, pt)`](https://docs.rs/day-spec/latest/day_spec/enum.Font.html#method.custom) | CoreText registration (Apple) · `res/font` → `R.font` ([Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")) · fontconfig/CoreText ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")) · [`QFontDatabase`](https://doc.qt.io/qt-6/qfontdatabase.html) ([Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) · [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") `ms-appx:///fonts/<file>#family` (WinUI) · rawfile + ArkTS `registerFont` ([ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) |
 
 ## Referencing resources: typed constants
 
@@ -88,23 +88,23 @@ each image into the target's native image pipeline; [`image(res::images::logo)`]
 resolves the name through the native by-name API. Nothing about the piece API changes, only how
 the toolkit resolves the name.
 
-- **iOS (UIKit):** a generated `Media.xcassets` is placed in the `DayResources` SwiftPM package with
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ([UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")):** a generated `Media.xcassets` is placed in the `DayResources` SwiftPM package with
   `resources: [.process(...)]`. xcodebuild runs `actool` → an optimized, deduplicated `Assets.car` in
   `DayResources_DayResources.bundle`; the toolkit loads via
   [`UIImage(named:in:compatibleWith:)`](https://developer.apple.com/documentation/uikit/uiimage).
-- **macOS (AppKit):** the image is a file in the `.app` bundle, loaded with
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")):** the image is a file in the `.app` bundle, loaded with
   [`NSImage(contentsOfFile:)`](https://developer.apple.com/documentation/appkit/nsimage); the `platform/macos/` Xcode host stages images into
   `Contents/Resources` through its `day xcode-backend stage-resources` phase rather than through
   an asset catalog. (Optimization is whatever the source already is; no `actool` runs for
   images.)
-- **Android:** staged into `res/drawable*/` (density buckets from `@Nx` variants); aapt2 crunches and
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"):** staged into `res/drawable*/` (density buckets from `@Nx` variants); aapt2 crunches and
   assigns an `R.drawable` id. Runtime resolves the name with `Resources.getIdentifier(name,
   "drawable", pkg)` (cached) → `getDrawable`.
-- **GTK / Qt:** compiled into the binary as a GResource / `.qrc` and loaded by a stable virtual path
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"):** compiled into the binary as a GResource / `.qrc` and loaded by a stable virtual path
   (`/dev/<appid>/logo.png`, `:/logo.png`).
-- **WinUI:** staged as `logo.scale-{100,200,400}.png`; MRT auto-selects by DPI when packaged, a
+- **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"):** staged as `logo.scale-{100,200,400}.png`; MRT auto-selects by DPI when packaged, a
   WIC/DPI resolver picks the file when unpackaged.
-- **ArkUI:** staged into `resources/rawfile/day/`; the native NodeAPI image node is set to
+- **[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"):** staged into `resources/rawfile/day/`; the native NodeAPI image node is set to
   `resource://RAWFILE/day/logo.png` (rawfile is the only store the OpenHarmony NDK can reach).
 
 ## Data: [`resource(res::assets::name)`](https://docs.rs/day-core/latest/day_core/fn.resource.html)
@@ -170,31 +170,31 @@ from the requested name. The size scales with the platform accessibility text sc
 
 Per platform:
 
-- **macOS (AppKit):** files register with [`CTFontManagerRegisterFontsForURL`](https://developer.apple.com/documentation/coretext/ctfontmanagerregisterfontsforurl(_:_:_:)) (process scope) in
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")):** files register with [`CTFontManagerRegisterFontsForURL`](https://developer.apple.com/documentation/coretext/ctfontmanagerregisterfontsforurl(_:_:_:)) (process scope) in
   [`run()`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.run); [`NSFont(name:size:)`](https://developer.apple.com/documentation/appkit/nsfont) then resolves family/full/PostScript names. Dev launch reads
   `DAY_FONT_ROOT` (set by `day launch` to the project's `resource/fonts/`); packed apps read
   `Contents/Resources/fonts` (copied by `day pack`).
-- **iOS (UIKit):** fonts ride the DayPieces SwiftPM bundle as a `.copy("fonts")` resource
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ([UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")):** fonts ride the DayPieces SwiftPM bundle as a `.copy("fonts")` resource
   (`DayPieces_DayPieces.bundle/fonts/…`): `.copy`, not `.process`, so the bytes land verbatim.
   `day build` also syncs a [`UIAppFonts`](https://developer.apple.com/documentation/bundleresources/information-property-list/uiappfonts) array into `platform/ios/Runner/Info.plist` (managed key,
   rewritten each build), and day-toolkit-uikit registers the bundle dir with CoreText at launch; the
   registration covers dev loops and any path iOS declines to load from the plist.
-- **Android:** staged as `res/font/<ident>.<ext>`; aapt2 assigns `R.font.<ident>`.
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"):** staged as `res/font/<ident>.<ext>`; aapt2 assigns `R.font.<ident>`.
   `DayBridge.setLabelFont` takes the family string, re-derives `<ident>` with the same
   sanitization, resolves via `Resources.getIdentifier(…, "font", pkg)` → `getFont` (API 26+;
   older devices log and fall back), caches the Typeface, and builds
   `Typeface.create(base, weight, italic)` on API 28+.
-- **GTK:** `FcConfigAppFontAddFile` on Linux; on macOS both CoreText and fontconfig (Homebrew
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"):** `FcConfigAppFontAddFile` on Linux; on macOS both CoreText and fontconfig (Homebrew
   Pango may sit on either fontmap); `AddFontResourceExW(FR_PRIVATE)` best-effort on Windows.
   The label carries a Pango `AttrString::new_family` attribute.
-- **Qt:** [`QFontDatabase::addApplicationFont`](https://doc.qt.io/qt-6/qfontdatabase.html) per file at startup (shim `day_qt_register_font`);
+- **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"):** [`QFontDatabase::addApplicationFont`](https://doc.qt.io/qt-6/qfontdatabase.html) per file at startup (shim `day_qt_register_font`);
   labels get [`QFont::setFamily`](https://doc.qt.io/qt-6/qfont.html) on top of the size/weight/italic font.
-- **WinUI:** [`run()`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.run) stages every bundled font into `<exe>/fonts/` (a no-op when packed;
+- **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"):** [`run()`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.run) stages every bundled font into `<exe>/fonts/` (a no-op when packed;
   `day pack` already ships them there). The shim sets
   `FontFamily("ms-appx:///fonts/<file>#<family>")`, resolving the font relative to the executable.
   The family→file mapping is resolved (and cached)
   through [`day_spec::fonts::resolve_font_file`](https://docs.rs/day-fonts/latest/day_fonts/fn.resolve_font_file.html) against `DAY_FONT_ROOT` / the exe-relative `fonts/` dir.
-- **ArkUI:** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
+- **[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"):** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
   (`[{family, file}]`); the platform/harmony scaffold's EntryAbility feeds it to ArkTS
   `font.registerFont` (building the rawfile `Resource` object by hand; `$rawfile()` only takes
   literals) before the native UI loads, and day-toolkit-arkui sets `NODE_FONT_FAMILY`.

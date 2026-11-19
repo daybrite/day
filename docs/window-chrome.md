@@ -88,7 +88,7 @@ being built, and otherwise for the first window.
 |---|---|
 | `Opaque` | The platform's window background. |
 | `Transparent` | The desktop, wherever the content leaves pixels unpainted: rounded and shaped splash screens, overlays. Turn `shadow` off for a shape that should not cast a rectangular shadow. |
-| `Material(m)` | A translucent system material: `WindowMaterial::Window` (macOS window background, Windows 11 Mica), `Sidebar` (macOS sidebar, Windows 11 Mica Alt), `Transient` (macOS popover, Windows 11 Acrylic). |
+| `Material(m)` | A translucent system material: `WindowMaterial::Window` ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") window background, [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") 11 Mica), `Sidebar` (macOS sidebar, Windows 11 Mica Alt), `Transient` (macOS popover, Windows 11 Acrylic). |
 
 ## Drag regions
 
@@ -113,14 +113,14 @@ positions, so there `At` behaves like `Automatic` (`Cap::WindowPosition`).
 
 Platform guidance: [Apple: windows](https://developer.apple.com/design/human-interface-guidelines/windows); [Windows: windowing](https://learn.microsoft.com/en-us/windows/apps/develop/ui-input/windowing-overview).
 
-| Toolkit | Frameless | Overlay | Transparent | Material | Drag region |
+| Toolkit | Frameless | Overlay | Transparent | [Material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Drag region |
 |---|---|---|---|---|---|
-| AppKit | Native | Native | Native | Native | Native |
-| Windows (WinUI) | Native | Native | Unsupported | Native on Windows 11 22H2+ | Native |
-| GTK | Native | Native | Native on a compositing display | Unsupported | Native |
-| Qt | Native | Unsupported (keeps the standard frame) | Native on a compositing display | Unsupported | Native |
-| iOS, Android, HarmonyOS | Unsupported (ignored) | Unsupported | Unsupported | Unsupported | Unsupported |
-| Web | Unsupported | Emulated in an installed Chromium app | Unsupported | Unsupported | Emulated in an installed Chromium app |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Native | Native | Native | Native | Native |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) | Native | Native | Unsupported | Native on [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") 11 22H2+ | Native |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Native | Native | Native on a compositing display | Unsupported | Native |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Native | Unsupported (keeps the standard frame) | Native on a compositing display | Unsupported | Native |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Unsupported (ignored) | Unsupported | Unsupported | Unsupported | Unsupported |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Unsupported | Emulated in an installed Chromium app | Unsupported | Unsupported | Emulated in an installed Chromium app |
 
 Probe the matching `Cap` before relying on an option: `FramelessWindow`, `OverlayTitleBar`,
 `TransparentWindow`, `WindowMaterial`, `DragRegion`. An option the toolkit cannot honor falls
@@ -128,24 +128,24 @@ back to the standard frame or the opaque background.
 
 ### How each toolkit does it
 
-- **AppKit.** `Frameless` is a borderless window that can still become key. `Overlay` is a full-size
+- **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit").** `Frameless` is a borderless window that can still become key. `Overlay` is a full-size
   content view with a transparent, untitled title bar. Materials are an [`NSVisualEffectView`](https://developer.apple.com/documentation/appkit/nsvisualeffectview)
   behind the content. A drag region answers a press on its own background with
   `performWindowDragWithEvent:`, and reads the user's double-click setting
   (`AppleActionOnDoubleClick`).
-- **Windows (WinUI).** `Frameless` keeps the caption and sizing styles and returns 0 from
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")).** `Frameless` keeps the caption and sizing styles and returns 0 from
   `WM_NCCALCSIZE`, so the shadow, rounded corners and Aero Snap stay. `Overlay` uses DWM's custom
   frame ([`DwmExtendFrameIntoClientArea`](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmextendframeintoclientarea), [`DwmDefWindowProc`](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmdefwindowproc)). Materials set
   `DWMWA_SYSTEMBACKDROP_TYPE`. Drag regions answer `HTCAPTION` from the window's hit test, which
   brings the system's own move, snap and double-click maximize; the WinUI island's windows pass
   those hits through. These paths are compile-checked; the Windows runtime pass is pending.
-- **GTK.** `Frameless` drops the header bar; with `shadow: false` the window is undecorated and
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk").** `Frameless` drops the header bar; with `shadow: false` the window is undecorated and
   Day resizes it from its edges with [`gdk::Toplevel::begin_resize`](https://docs.gtk.org/gdk4/method.Toplevel.begin_resize.html). `Overlay` replaces the header
   bar with [`GtkWindowControls`](https://docs.gtk.org/gtk4/class.WindowControls.html) over the content's top band and reports the band's height as the
   inset. A drag region moves the window with [`gdk::Toplevel::begin_move`](https://docs.gtk.org/gdk4/method.Toplevel.begin_move.html) once a drag passes the
   platform threshold; a double click follows `gtk-titlebar-double-click`, and a secondary click
   opens the window menu. GTK 4 cannot place windows, so [`placement`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.placement) is the window manager's.
-- **Qt.** `Frameless` is `Qt::FramelessWindowHint`, resized from its edges with
+- **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt").** `Frameless` is `Qt::FramelessWindowHint`, resized from its edges with
   [`QWindow::startSystemResize`](https://doc.qt.io/qt-6/qwindow.html). A drag region calls [`QWindow::startSystemMove`](https://doc.qt.io/qt-6/qwindow.html) once a drag passes
   `startDragDistance`, and a double click toggles maximize. Qt has no way to keep the window
   controls while removing the title bar, so `Overlay` keeps the standard frame and reports no

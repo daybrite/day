@@ -27,10 +27,10 @@ own native shim (day-toolkit-xaml-sys, the `day-piece-*`/`day-tweak-*` crates, a
 Build scripts emit `cargo:rerun-if-env-changed=` for their overrides, so changing one re-runs
 the affected script instead of keeping stale results.
 
-## macOS and iOS
+## [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 
-Building `macos-appkit` or `ios-uikit` requires **full Xcode 27 or newer**. Day's
-macOS and iOS templates use `DayApp.xcodeproj/project.xcproj`, Xcode 27's JSON5
+Building [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") or [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") requires **full Xcode 27 or newer**. Day's
+[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") templates use `DayApp.xcodeproj/project.xcproj`, Xcode 27's JSON5
 project format. The project is derived under `build/day/xcode/<platform>/` by default;
 `day project add-target <target> --persist-xcode-project` creates an app-owned override
 under `platform/`. `day open -t <target>` prepares and opens either form.
@@ -54,7 +54,7 @@ Review the conversion before removing any remaining legacy file. `day lint` uses
 Runner, configurations, Rust/resource callbacks, script sandboxing, and DayPieces
 references. Generated packages and assets need not exist for linting a fresh checkout.
 
-## Windows
+## [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 
 | Variable | Meaning | Fallback when unset |
 |---|---|---|
@@ -64,21 +64,21 @@ references. Generated packages and assets need not exist for linting a fresh che
 | `DAY_WINDOWS_KIT` | A bin directory containing `signtool.exe`/`makeappx.exe` directly (`day pack` tool lookup) | PATH, then `bin\<ver>\<arch>` under the kits roots |
 | `DAY_MAKENSIS` | The `makensis` executable for NSIS installers | PATH, then `%ProgramFiles(x86)%`/`%ProgramFiles%` + `NSIS`, then chocolatey (`%ChocolateyInstall%\bin` shim, else `…\lib\nsis\tools\<ver>`) |
 
-## Android / JDK
+## [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") / JDK
 
 | Variable | Meaning | Fallback when unset |
 |---|---|---|
-| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK root (standard) | `~/Library/Android/sdk` (macOS), `%LOCALAPPDATA%\Android\Sdk` (Windows), `~/Android/Sdk` (Linux); if absent, the SDK path Android Studio's settings record (`options/android.sdk.path.xml`) |
+| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") SDK root (standard) | `~/Library/Android/sdk` ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")), `%LOCALAPPDATA%\Android\Sdk` ([Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")), `~/Android/Sdk` ([Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")); if absent, the SDK path [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio's settings record (`options/android.sdk.path.xml`) |
 | `ANDROID_NDK_HOME` | NDK root | newest NDK under `<sdk>/ndk` |
-| `ANDROID_STUDIO_HOME` | An Android Studio install outside the standard locations (for its bundled JDK) | the macOS app bundle, the Windows installer dir, or on Linux the Snap, `/opt/android-studio`, `/usr/local/android-studio`, `~/android-studio`, JetBrains Toolbox, Flathub |
-| `JAVA_HOME` | JDK for Gradle (AGP 9 needs 17+; Gradle 9.7 runs on 17…26) | Android Studio's bundled JDK (`jbr/`, any host); then macOS: `/usr/libexec/java_home -v 17+`, then a Homebrew `openjdk` keg (either prefix) |
+| `ANDROID_STUDIO_HOME` | An [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio install outside the standard locations (for its bundled JDK) | the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") app bundle, the [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") installer dir, or on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") the Snap, `/opt/android-studio`, `/usr/local/android-studio`, `~/android-studio`, JetBrains Toolbox, Flathub |
+| `JAVA_HOME` | JDK for Gradle (AGP 9 needs 17+; Gradle 9.7 runs on 17…26) | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio's bundled JDK (`jbr/`, any host); then [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"): `/usr/libexec/java_home -v 17+`, then a Homebrew `openjdk` keg (either prefix) |
 | `DAY_ANDROID_ABI` | Force the cargo-ndk ABI list for the build (comma/space-separated); **takes precedence over any connected device** (CI walkthrough: `x86_64`; dual-ABI pack: `arm64-v8a,x86_64`; each ABI needs its rustup target) | connected devices' ABIs, else `arm64-v8a` |
 
-## OpenHarmony
+## [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
 | Variable | Meaning |
 |---|---|
-| `OHOS_SDK_NATIVE` | The SDK's `native` dir (the NDK). Read by cargo-ohos, which drives the cross-compile and also accepts `OHOS_NDK_HOME`, `OHOS_SDK_HOME`, `DEVECO_SDK_HOME`, DevEco Studio's install on macOS, and its own `cargo ohos init sdk` download, in that order. CI hands it setup-ohos-sdk's `native` output |
+| `OHOS_SDK_NATIVE` | The SDK's `native` dir (the NDK). Read by cargo-ohos, which drives the cross-compile and also accepts `OHOS_NDK_HOME`, `OHOS_SDK_HOME`, `DEVECO_SDK_HOME`, DevEco Studio's install on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), and its own `cargo ohos init sdk` download, in that order. CI hands it setup-ohos-sdk's `native` output |
 | `OHOS_NDK_HOME` | Read by napi-ohos's build script and the C++ shims of pieces; `day build` sets it to the dir cargo-ohos resolved |
 | `OHOS_BASE_SDK_HOME` / `OHOS_SDK_HOME` | SDK root(s) hvigor packages against; also probed for `hap-sign-tool.jar` |
 | `DAY_OHOS_ARCH` | Force the build arch (`device` / `arm64` / `x86_64`). Takes precedence over any connected device, so a `day pack` produces the same hap whether or not an emulator is running; leave it unset to build for each attached target |
@@ -89,13 +89,13 @@ references. Generated packages and assets need not exist for linting a fresh che
 |---|---|---|
 | `RUSTUP_HOME` | rustup root for cross-std toolchains (mobile targets need rustup's per-target std; a Homebrew/system rustc has none) | `~/.rustup`; among installed toolchains a `stable-*` one is preferred |
 
-## Linux packaging
+## [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") packaging
 
 | Variable | Meaning |
 |---|---|
-| `DAY_GNOME_RUNTIME` / `DAY_KDE_RUNTIME` | Pin the flatpak runtime branch `day pack` targets (GTK ⇒ org.gnome.Platform, Qt ⇒ org.kde.Platform) |
+| `DAY_GNOME_RUNTIME` / `DAY_KDE_RUNTIME` | Pin the flatpak runtime branch `day pack` targets ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") ⇒ org.gnome.Platform, [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") ⇒ org.kde.Platform) |
 | `DAY_LINUXDEPLOY` | The `linuxdeploy` executable that builds the `.appimage`. Checked before PATH, because linuxdeploy ships as a downloaded AppImage rather than a package |
-| `DAY_LINUXDEPLOY_PLUGIN_GTK` / `DAY_LINUXDEPLOY_PLUGIN_QT` | Same, for the toolkit plugin. Absent, `day pack` still builds an AppImage and warns that it carries no GTK/Qt modules |
+| `DAY_LINUXDEPLOY_PLUGIN_GTK` / `DAY_LINUXDEPLOY_PLUGIN_QT` | Same, for the toolkit plugin. Absent, `day pack` still builds an AppImage and warns that it carries no [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")/[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") modules |
 
 ## Variables day removes
 
@@ -125,12 +125,12 @@ which run the app without `day` in between.
 | Variable | Meaning |
 |---|---|
 | `DAY_LOCAL` | Make `day new` scaffolds depend on a local day checkout instead of the git remote (CI) |
-| `DAY_THEME` | `light` \| `dark` — forces the app's theme on every toolkit (AppKit appearance, libadwaita color scheme, Qt 6.8+ color scheme, UIKit interface style, Android night mode, WinUI element theme, OHOS color mode); unset = follow the system. CI's themed screenshot cycles pass it via `day launch --env`. An app that applies its own persisted appearance at startup must honor the env-wins rule ([docs/prefs](prefs.md)): skip the boot application when `DAY_THEME` is set, or the app clears the forced theme right back; `day-piece-settings::apply_startup` does this for you, and Day Showcase's hand-rolled menu plumbing shows the guard (`src/commands.rs`) |
+| `DAY_THEME` | `light` \| `dark` — forces the app's theme on every toolkit ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") appearance, libadwaita color scheme, [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") 6.8+ color scheme, [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") interface style, [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") night mode, [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") element theme, OHOS color mode); unset = follow the system. CI's themed screenshot cycles pass it via `day launch --env`. An app that applies its own persisted appearance at startup must honor the env-wins rule ([docs/prefs](prefs.md)): skip the boot application when `DAY_THEME` is set, or the app clears the forced theme right back; `day-piece-settings::apply_startup` does this for you, and Day Showcase's hand-rolled menu plumbing shows the guard (`src/commands.rs`) |
 | `DAY_WINDOW` | `<width>x<height>` (e.g. `700x850`) — overrides the app's initial window size for responsive-layout testing on desktop toolkits; mobile/web size to the screen and ignore it |
 | `DAY_CAPTURE_SIZE` | `<width>x<height>[@<scale>]` in pixels, or `window` — read by `day launch --script`: what the run captures desktop-class targets at, over Day.toml `[screenshots]` and under `--capture-size` (website docs "dayscript", "Capture size") |
-| `DAY_CAPTURE_SCALE` | the scale a window snapshot is rendered at (`2`) — set by `day launch --script` from the capture size; honored by the toolkits that render their own snapshot (GTK, Qt), and on GTK and WinUI it also marks the window size as the size of the CAPTURE rather than of the window around it |
-| `DAY_CAPTURE_DISPLAY` | `native` or `virtual` — read by `day launch --script` on macOS: never, or always, create the HiDPI virtual display a macos-appkit capture uses when no attached display has the capture's scale. Unset decides by the displays attached |
-| `DAY_WINDOW_SCREEN` | a [`CGDirectDisplayID`](https://developer.apple.com/documentation/coregraphics/cgdirectdisplayid) — macos-appkit opens its window on that display; set by `day launch --script` to the capture display it created |
+| `DAY_CAPTURE_SCALE` | the scale a window snapshot is rendered at (`2`) — set by `day launch --script` from the capture size; honored by the toolkits that render their own snapshot ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), and on GTK and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") it also marks the window size as the size of the CAPTURE rather than of the window around it |
+| `DAY_CAPTURE_DISPLAY` | `native` or `virtual` — read by `day launch --script` on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"): never, or always, create the HiDPI virtual display a [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") capture uses when no attached display has the capture's scale. Unset decides by the displays attached |
+| `DAY_WINDOW_SCREEN` | a [`CGDirectDisplayID`](https://developer.apple.com/documentation/coregraphics/cgdirectdisplayid) — [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") opens its window on that display; set by `day launch --script` to the capture display it created |
 | `DAY_SCREENSHOT_RAW` | any value — read by `day launch --script`: keep each capture as the capture tool wrote it. Unset, the runner rewrites every capture as a normalized PNG (8-bit RGB or RGBA, tagged sRGB, pixels unchanged; [docs/screenshot-archive](screenshot-archive.md#normalized-captures)) |
 | `DAY_WEB_DRIVER_VIEWPORT` | `<width>x<height>[@<scale>]` in points — the bundled web driver's viewport and device scale factor; set by `day launch --script` from the capture size, default `1280x800@2` |
 | `DAY_APP_VERSION`, `DAY_SCRIPT` | The app's version and the driving script's file name, set by `day launch` on every run. A debug build appends them to every window title as `(version/toolkit[/script])` — [docs/windows](windows.md). Release builds ignore both |

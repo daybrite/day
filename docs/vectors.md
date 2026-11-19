@@ -44,29 +44,29 @@ Text must be outlined (`<text>` is a hard build error; shaping is not compiled i
 At build, every glyph gets a raster cache PNG (`build/day/vectors/raster/`, 256 px), a
 staged glyph SVG (`build/day/vectors/svg/`), and, where the art converts, XAML geometry
 (`build/day/vectors/xaml/`). `day pack` stages the same caches on the one path that does not
-run a build first (iOS packs straight through xcodebuild), so a packed app carries its glyphs
+run a build first ([iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") packs straight through xcodebuild), so a packed app carries its glyphs
 whether or not the tree was built before.
 
 The raster cache is a build input, not a shipping form. A target's
 `build/day/vectors/fallback/<toolkit>/` contains only art its vector pipeline cannot express.
-GTK and Qt render the staged SVGs and ship no automatic raster copies.
+[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") render the staged SVGs and ship no automatic raster copies.
 Bundling the rest would ship a second copy of every glyph and would let a broken
-vector path go unnoticed behind a raster that still looks right (two WinUI bugs survived their
+vector path go unnoticed behind a raster that still looks right (two [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") bugs survived their
 first review that way). `day build` reports the split per target
 (`Vectors xaml: 81/81 glyph(s) vector`). What ships on top:
 
 | Toolkit | Native form |
 |---|---|
-| android-material | **VectorDrawable** in `res/drawable/` (solid fills/strokes, both fill rules, and linear/radial gradients on fill and stroke via `aapt:attr`, API 24, which is the scaffold's `minSdk`; clips/masks/filters, and the gradients VD's model cannot state, fall back to the raster at xxxhdpi, loudly). Intrinsic dimensions retain the SVG’s authored size and proportions, so native fit/crop matches the viewport without introducing rounding from a reduced icon size. A VD gradient carries no transform: linear bands are perpendicular to start→end and a radial is a true circle, so a gradient sheared out of perpendicular, a radial stretched to an ellipse, or an SVG focal point rasterizes rather than drawing subtly wrong art. `gradientUnits="objectBoundingBox"` is not such a case; usvg resolves it to user space before the emitter sees it |
-| linux-gtk, macos-gtk | retained **SVG** through librsvg 2.52+ and Cairo in a [`GdkPaintable`](https://docs.gtk.org/gdk4/iface.Paintable.html). [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) supplies fit/fill/stretch; snapshots render the geometry at the requested size. Icon paintables declare logical dimensions and are centered in their controls |
-| linux-qt, macos-qt | retained **SVG** through [`QSvgRenderer`](https://doc.qt.io/qt-6/qsvgrenderer.html) in the image widget and a [`QIconEngine`](https://doc.qt.io/qt-6/qiconengine.html) for SVG icon slots. Geometry is rendered at paint time; tint layers use the painter's device transform, including screenshot scale, instead of a fixed pixmap size |
-| macos-appkit | the staged **SVG** via `DAY_VECTOR_SVG_ROOT` ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) renders SVG files at display size on macOS 11+); other desktop dev launches use the raster cache via `DAY_VECTOR_RASTER_ROOT` (probed by `resolve_image_file`) |
-| ios-uikit | the **SVG** in a DayPieces asset-catalog imageset with `preserves-vector-representation` (Xcode 12+), so [`UIImage(named:)`](https://developer.apple.com/documentation/uikit/uiimage) renders at display size |
-| web-dom | the **SVG** beside `assets/images/`; day-toolkit-dom asks for `.svg` for the names in the page's `window.__DAY_VECTORS` list (via the shim's `vector:` env keys) and the browser renders it; the raster stays beside it as the older-host fallback |
-| harmony-arkui | the **SVG** in `rawfile day/` (same stem as the raster); day-toolkit-arkui probes `day/<name>.svg` via the resource manager and ArkUI's Image renders it natively; raster names keep the png |
-| windows-winui | **XAML geometry** via `DAY_VECTOR_XAML_ROOT`: a `Path` in a scaling `Viewbox` in page content, a `PathIcon` in the nav pane's icon slot, so the glyph is redrawn at every size rather than scaled from a cache. Emitted by the CLI ([`day_vector::to_xaml_geometry`](https://docs.rs/day-vector/latest/day_vector/fn.to_xaml_geometry.html)) as absolute `M`/`L`/`C`/`Z` only: the grammar is SVG's, but a command XAML's parser rejects fails the whole geometry, so quadratics are elevated to cubics (exact) and arcs are flattened upstream by usvg. Same subset as the VectorDrawable emission — gradients/clips/masks/filters stage no geometry and fall back to the raster |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | **VectorDrawable** in `res/drawable/` (solid fills/strokes, both fill rules, and linear/radial gradients on fill and stroke via `aapt:attr`, API 24, which is the scaffold's `minSdk`; clips/masks/filters, and the gradients VD's model cannot state, fall back to the raster at xxxhdpi, loudly). Intrinsic dimensions retain the SVG’s authored size and proportions, so native fit/crop matches the viewport without introducing rounding from a reduced icon size. A VD gradient carries no transform: linear bands are perpendicular to start→end and a radial is a true circle, so a gradient sheared out of perpendicular, a radial stretched to an ellipse, or an SVG focal point rasterizes rather than drawing subtly wrong art. `gradientUnits="objectBoundingBox"` is not such a case; usvg resolves it to user space before the emitter sees it |
+| [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [macos-gtk](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") | retained **SVG** through librsvg 2.52+ and Cairo in a [`GdkPaintable`](https://docs.gtk.org/gdk4/iface.Paintable.html). [`GtkPicture`](https://docs.gtk.org/gtk4/class.Picture.html) supplies fit/fill/stretch; snapshots render the geometry at the requested size. Icon paintables declare logical dimensions and are centered in their controls |
+| [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [macos-qt](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") | retained **SVG** through [`QSvgRenderer`](https://doc.qt.io/qt-6/qsvgrenderer.html) in the image widget and a [`QIconEngine`](https://doc.qt.io/qt-6/qiconengine.html) for SVG icon slots. Geometry is rendered at paint time; tint layers use the painter's device transform, including screenshot scale, instead of a fixed pixmap size |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the staged **SVG** via `DAY_VECTOR_SVG_ROOT` ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) renders SVG files at display size on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 11+); other desktop dev launches use the raster cache via `DAY_VECTOR_RASTER_ROOT` (probed by `resolve_image_file`) |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | the **SVG** in a DayPieces asset-catalog imageset with `preserves-vector-representation` (Xcode 12+), so [`UIImage(named:)`](https://developer.apple.com/documentation/uikit/uiimage) renders at display size |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the **SVG** beside `assets/images/`; day-toolkit-dom asks for `.svg` for the names in the page's `window.__DAY_VECTORS` list (via the shim's `vector:` env keys) and the browser renders it; the raster stays beside it as the older-host fallback |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the **SVG** in `rawfile day/` (same stem as the raster); day-toolkit-arkui probes `day/<name>.svg` via the resource manager and [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")'s Image renders it natively; raster names keep the png |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | **XAML geometry** via `DAY_VECTOR_XAML_ROOT`: a `Path` in a scaling `Viewbox` in page content, a `PathIcon` in the nav pane's icon slot, so the glyph is redrawn at every size rather than scaled from a cache. Emitted by the CLI ([`day_vector::to_xaml_geometry`](https://docs.rs/day-vector/latest/day_vector/fn.to_xaml_geometry.html)) as absolute `M`/`L`/`C`/`Z` only: the grammar is SVG's, but a command XAML's parser rejects fails the whole geometry, so quadratics are elevated to cubics (exact) and arcs are flattened upstream by usvg. Same subset as the VectorDrawable emission — gradients/clips/masks/filters stage no geometry and fall back to the raster |
 
-GTK's tint is a render-node color matrix that preserves coverage alpha. Qt uses a fresh
+[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")'s tint is a render-node color matrix that preserves coverage alpha. [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") uses a fresh
 alpha-compositing layer at the current paint resolution. Both preserve authored strokes,
 fill rules, holes, and partial opacity; resizing does not enlarge a previously rendered
 image. Parsed documents are retained across repaints and tint changes. Qt toolbar ink
@@ -80,8 +80,8 @@ sidebar rows, and toolbar icons use the retained SVG path.
 The symbolic cache explicitly selects the SVG decoder, so leading license comments do not
 make a valid glyph fail image-format detection. Its decode preserves aspect ratio and alpha.
 
-These toolkits require development libraries at build time: `qt6-svg-dev` for Qt and
-`librsvg2-dev` (2.52+) for GTK on Debian/Ubuntu, or Homebrew's `qt` / `librsvg` on macOS.
+These toolkits require development libraries at build time: `qt6-svg-dev` for [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") and
+`librsvg2-dev` (2.52+) for [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") on Debian/Ubuntu, or Homebrew's `qt` / `librsvg` on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit").
 `day doctor` checks them. SVG feature
 coverage follows the native renderer version; this does not add browser scripting or SVG
 animation to Day's static vector contract.
@@ -90,7 +90,7 @@ Packed desktop apps carry the same forms without the launch env: a `.app` ships
 `Contents/Resources/vectors/{svg,raster}` (probed exe-relative: the SVGs by
 `resolve_vector_svg`, the rasters by `resolve_image_file`); an AppImage/flatpak ships
 `share/<name>/vectors/{raster,svg}` with the launcher exporting the same
-`DAY_VECTOR_*_ROOT` roots a dev launch would; the Windows payload merges the raster cache
+`DAY_VECTOR_*_ROOT` roots a dev launch would; the [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") payload merges the raster cache
 into the exe-relative `images/`, where both the piece resolution and the nav rows'
 `ms-appx:///images/` loads already look, and ships `vectors/xaml` beside the exe; geometry
 specs are not loadable images, so they cannot merge into `images/`. The glyph SVGs do not ship
@@ -201,7 +201,7 @@ re-cuts the mask from the new name, so a recycled row shows the icon it was rebo
 
 `day lint` validates every vector source: unreadable/unparseable art, glyph-embedded `<text>`
 (a template's Notes/Guides documentation text is fine; only the extracted glyph matters), an
-empty `.symbolset`, a template whose Regular variant fails extraction, and, when `android-material`
+empty `.symbolset`, a template whose Regular variant fails extraction, and, when [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 is a declared target, art outside the VectorDrawable subset (`day::lint::vector-raster-fallback`,
 a heads-up that Android ships the raster).
 

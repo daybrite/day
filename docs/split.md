@@ -53,9 +53,9 @@ splitter draws the divider, drags it and sizes the panes:
 
 | Toolkit | Splitter | Notes |
 |---|---|---|
-| macos-appkit | [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) (thin divider), `vertical` set from the axis | pane frames native-owned, reported through `Event::FrameChanged` as an inspector pane's are; a drag reports `Event::ValueChanged` with the new share |
-| gtk | [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html), orientation from the axis, both children filling `DayCell`s | the position-notify reports the share |
-| qt | [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html), orientation from the axis | `splitterMoved` reports the share |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) (thin divider), `vertical` set from the axis | pane frames native-owned, reported through `Event::FrameChanged` as an inspector pane's are; a drag reports `Event::ValueChanged` with the new share |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html), orientation from the axis, both children filling `DayCell`s | the position-notify reports the share |
+| [qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html), orientation from the axis | `splitterMoved` reports the share |
 
 Each pane is a `kinds::SPLIT_PANE` whose frame the splitter owns; Day lays the pane's content
 out inside the size the toolkit last reported, the same native-owned-frame contract as nav

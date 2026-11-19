@@ -90,7 +90,7 @@ icons there, and hvigor — whose resource roots are fixed — gets gitignored s
 | Family | Files under `build/day/host/` |
 |---|---|
 | `png/` | `day-icon-{16,32,64,128,192,256,512,1024}.png` — favicons, the web app manifest's icons, catalogs, general use |
-| `macos/` | margin-composed squircle set (824 pt art on 1024, radius 184) `-{16,32,128,256,512,1024}.png`, `day-icon.icns`, and `Assets.xcassets/` (the catalog the macOS Xcode project compiles) |
+| `macos/` | margin-composed squircle set (824 pt art on 1024, radius 184) `-{16,32,128,256,512,1024}.png`, `day-icon.icns`, and `Assets.xcassets/` (the catalog the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") Xcode project compiles) |
 | `ios/` | `Assets.xcassets/` with the opaque 1024 px universal image (App Store validation rejects alpha), plus `AppIcon.icon/` (Icon Composer) |
 | `android/` | `res/mipmap-xxxhdpi/ic_launcher{,_foreground,_background}.png`, `res/mipmap-anydpi-v26/ic_launcher.xml`, the themed-icon drawable; beside them `ic_launcher-legacy-192.png` and `play-store-512.png` for store listings |
 | `harmony/` | `media/{startIcon.png, foreground.png, background.png, layered_image.json}` — the one set both module roots link to |
@@ -122,10 +122,10 @@ Both are digested into the lock, so editing one invalidates it like editing the 
 
 Beyond the legacy set, a **layered SVG master** also produces:
 
-* **Android themed icon** (Android 13): a monochrome drawable the system tints
+* **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") themed icon** (Android 13): a monochrome drawable the system tints
   (`day:monochrome` as a VectorDrawable when it fits the subset, else the adaptive foreground's
   alpha as a bitmap mask), wired into the generated `mipmap-anydpi-v26/ic_launcher.xml`.
-* **HarmonyOS layered icon**: `layered_image.json` + `foreground.png`/`background.png` (216 px)
+* **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") layered icon**: `layered_image.json` + `foreground.png`/`background.png` (216 px)
   in the linked media set, with `app.json5`/`module.json5` icon slots rewired to
   `$media:layered_image` (`startWindowIcon` keeps the flat `startIcon.png`). That rewrite of a
   source file is the one edit `prepare` makes under `platform/`, and it is idempotent.

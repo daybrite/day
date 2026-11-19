@@ -334,7 +334,7 @@ canonical metadata, sitemap, and generated domain file.
 | A release-tag deploy is skipped or refused | Allow release tags in the `github-pages` environment's deployment rules. |
 | Pages deployment reports a permission error | Check the caller job's `pages: write` and `id-token: write`, the Pages publishing source, and organization Actions policies. |
 | Downloads or screenshots are missing | Check which channel you are viewing and whether its release or workflow produced those artifacts. |
-| The web build is required but missing | Include `web-dom` in the targets, or disable `deploy-web` for a site that does not host it. |
+| The web build is required but missing | Include [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") in the targets, or disable `deploy-web` for a site that does not host it. |
 | A theme checkout or install fails | Check its repository/ref, publication status, local path, and committed npm lockfile. |
 | Customization reports an unsupported renderer | Update the pinned `daysite-version` and ensure the reusable actions revision supports customization. |
 | Project Pages links or canonical URLs are wrong | Check `host`, including repository capitalization and path; preserve the factory's staging/output settings in your Astro configuration. |

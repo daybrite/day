@@ -1,0 +1,13 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import PlatformIcon from './PlatformIcon.astro';
+import { toolkitLabel } from '../lib/toolkit-labels.mjs';
+interface Props { id: string; }
+const label = toolkitLabel(Astro.props.id);
+---
+<span class="doc-target-label" {...label.attributes}>{label.marks.map(mark => <span class="doc-toolkit-mark" data-pf={mark.id} aria-hidden="true"><PlatformIcon id={mark.icon} /></span>)}<slot>{label.name}</slot></span>
+<style>
+  .doc-toolkit-mark { display: inline-flex; align-self: center; color: color-mix(in srgb, var(--pf) 65%, var(--text)); }
+  .doc-toolkit-mark :global(.pf-icon) { width: 0.95em; height: 0.95em; }
+</style>

@@ -32,8 +32,8 @@ Declare the SwiftPM package in Cargo metadata as shown in [The typed path](#the-
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit | SwiftUI hosting; requires the Apple SDK and a declared SwiftPM package. |
-| GTK, Qt, Android, WinUI, ArkUI, Web | SwiftUI embedding is unavailable. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | SwiftUI hosting; requires the Apple SDK and a declared SwiftPM package. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | SwiftUI embedding is unavailable. |
 
 ## The typed path
 
@@ -171,7 +171,7 @@ tabs keep their parameters across tab switches and page revisits alike.
 
 Platform guidance: [Apple: integrating SwiftUI](https://developer.apple.com/documentation/swiftui/framework-integration).
 
-| | macOS (AppKit) | iOS (UIKit) |
+| | [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")) | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ([UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) |
 |---|---|---|
 | host | [`NSHostingView<AnyView>`](https://developer.apple.com/documentation/swiftui/nshostingview) | [`UIHostingController<AnyView>`](https://developer.apple.com/documentation/swiftui/uihostingcontroller)'s view |
 | retention | provider via associated object | provider + controller via associated objects |
@@ -180,26 +180,26 @@ Platform guidance: [Apple: integrating SwiftUI](https://developer.apple.com/docu
 
 The hosting view is an ordinary native handle to Day: framed, measured (`fill_measure`: it fills
 what it is offered; constrain with [`.frame`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame)), snapshotted, and disposed like a built-in.
-[`UIHostingController`](https://developer.apple.com/documentation/swiftui/uihostingcontroller) is not parented to a view controller in v1, so UIKit appearance
+[`UIHostingController`](https://developer.apple.com/documentation/swiftui/uihostingcontroller) is not parented to a view controller in v1, so [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") appearance
 callbacks do not fire inside the hosted view.
 
-### The macOS leg
+### The [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") leg
 
-macos-appkit builds through a derived `build/day/xcode/macos/DayApp.xcodeproj`
+[macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") builds through a derived `build/day/xcode/macos/DayApp.xcodeproj`
 (or a checked-in `platform/macos/DayApp.xcodeproj` override),
-whose JSON5 `project.xcproj` (Xcode 27+) references the generated `DayPieces` package directly, the same shape as iOS.
+whose JSON5 `project.xcproj` (Xcode 27+) references the generated `DayPieces` package directly, the same shape as [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit").
 `day build` regenerates `build/day/macos/DayPieces` (staged shims + generated glue +
 `Package.swift`) before every xcodebuild, touching only files whose bytes changed so the Swift
 incremental build stays warm, and writes it even when nothing contributes Swift: the host project's
 package reference must resolve, so an empty package still exists. xcodebuild compiles and links
-the package with the Runner; the installed binary uses the OS Swift dylibs (macOS ≥ 10.14.4).
+the package with the Runner; the installed binary uses the OS Swift dylibs ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ≥ 10.14.4).
 `day pack -t macos-appkit` needs nothing extra: the Swift code is inside the bundle's binary and
 codesign/notarize are unchanged. (The retired bare-cargo build carried its own `swift build`
 prepass and `cargo rustc` link; both went with that path in 2026-08.)
 
 ### Deployment floors
 
-The macOS package defaults to macOS 13. The iOS package takes the app's own
+The [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") package defaults to macOS 13. The [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") package takes the app's own
 `IPHONEOS_DEPLOYMENT_TARGET` — the one in `platform/ios/DayApp.xcconfig`, which the scaffold
 writes as 15.0, day-toolkit-uikit's floor (lowered from 16.0 in 2026-09 once the toolkit's iOS 16 calls
 were guarded) — so that line and the package move together. A contribution's `platform` key raises the floor from there (the max
@@ -209,7 +209,7 @@ package targets without editing the scaffold. Command-line settings do not apply
 inside Xcode, so for IDE work raise the value in `DayApp.xcconfig` itself.
 
 Lowering it below the scaffold's 15.0 is the app's call, and the app owns what follows: 15 is
-day-toolkit-uikit's own floor. The UIKit calls it makes that arrived in iOS 16 — navigation-bar item
+day-toolkit-uikit's own floor. The [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") calls it makes that arrived in [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 16 — navigation-bar item
 groups ([docs/toolbars](toolbars.md)), a bar item's menu representation, a list or tree cell's default
 background configuration — are guarded on the runtime version (2026-09, verified on an iOS 15
 iPad), so an app at 15 gets the iOS 15 shape of each; nothing below 15 has been run.

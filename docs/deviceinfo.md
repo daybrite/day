@@ -29,8 +29,8 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | OS and device information; individual fields can be unknown. |
-| Web | Fallback values only; model and system version are unknown. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | OS and device information; individual fields can be unknown. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Fallback values only; model and system version are unknown. |
 
 ## Authoring
 
@@ -62,38 +62,38 @@ framework at all.
 
 | OS | API | dependency |
 |---|---|---|
-| macOS | [`ProcessInfo.operatingSystemVersion`](https://developer.apple.com/documentation/foundation/processinfo/operatingsystemversion) + `sysctl hw.model` | `objc2-foundation` + `libc` |
-| iOS | [`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) `model` / `systemName` / `systemVersion` | `objc2` + `objc2-ui-kit` |
-| Windows | [`RtlGetVersion`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlgetversion) (ntdll, resolved via `#[link]`) | raw FFI |
-| Linux | [`/etc/os-release`](https://www.freedesktop.org/software/systemd/man/latest/os-release.html) + `/sys/.../dmi/id/product_name` | std only |
-| HarmonyOS | [`OH_GetOSFullName`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetDisplayVersion`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetProductModel`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) (`libdeviceinfo_ndk.so`) | raw FFI (deviceinfo.h) |
-| Android | [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`ProcessInfo.operatingSystemVersion`](https://developer.apple.com/documentation/foundation/processinfo/operatingsystemversion) + `sysctl hw.model` | `objc2-foundation` + `libc` |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) `model` / `systemName` / `systemVersion` | `objc2` + `objc2-ui-kit` |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`RtlGetVersion`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlgetversion) (ntdll, resolved via `#[link]`) | raw FFI |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | [`/etc/os-release`](https://www.freedesktop.org/software/systemd/man/latest/os-release.html) + `/sys/.../dmi/id/product_name` | std only |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`OH_GetOSFullName`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetDisplayVersion`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) / [`OH_GetProductModel`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-deviceinfo.md) (`libdeviceinfo_ndk.so`) | raw FFI (deviceinfo.h) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
 
 ## What each platform reports
 
 Every field is best-effort; each platform reports what it can:
 
-- **macOS**: `system_name` is a fixed `"macOS"`; `system_version` is [`ProcessInfo.operatingSystemVersion`](https://developer.apple.com/documentation/foundation/processinfo/operatingsystemversion)
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**: `system_name` is a fixed `"macOS"`; `system_version` is [`ProcessInfo.operatingSystemVersion`](https://developer.apple.com/documentation/foundation/processinfo/operatingsystemversion)
   (the actual running version, unlike the deprecated Gestalt/`sw_vers` paths); `model` is the BSD
   `sysctl` node `hw.model` (e.g. `MacBookPro18,2`, `Macmini9,1`). There is no simulator concept, so
   `is_simulator` is always `false`.
-- **iOS**: [`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) gives `model` (the marketing class `"iPhone"` / `"iPad"`, not the hardware
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")**: [`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) gives `model` (the marketing class `"iPhone"` / `"iPad"`, not the hardware
   identifier), `systemName` (`"iOS"` / `"iPadOS"`) and `systemVersion`. [`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is main-thread-only, so
   off the main thread the OS fields fall back to `"Unknown"`. `is_simulator` is definitive from the `sim`
   target ABI, with the simulator's `SIMULATOR_UDID` / `SIMULATOR_DEVICE_NAME` env as a fallback.
-- **Windows**: [`RtlGetVersion`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlgetversion) (ntdll) reports the actual running version (`major.minor.build`), unlike
+- **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**: [`RtlGetVersion`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-rtlgetversion) (ntdll) reports the actual running version (`major.minor.build`), unlike
   the Win32 `GetVersionExW`, which reports an older version on Windows 8+ without a compatibility
   manifest. `system_name` is
   `"Windows"`; `model` is a best-effort `"PC"` (there is no cheap portable hardware-model source). Written
   blind, like the rest of the WinUI toolkit.
-- **Linux**: no single portable API is guaranteed, so the crate reads the two files every desktop distro
+- **[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")**: no single portable API is guaranteed, so the crate reads the two files every desktop distro
   provides: [`/etc/os-release`](https://www.freedesktop.org/software/systemd/man/latest/os-release.html) (`NAME` / `PRETTY_NAME` for `system_name`, `VERSION_ID` for
   `system_version`) and the DMI node `/sys/devices/virtual/dmi/id/product_name` for `model` (falling back
   to `"Linux"`). `is_simulator` is always `false`.
-- **HarmonyOS**: the native `deviceinfo.h` C API: `OH_GetOSFullName()` (e.g. `"OpenHarmony-5.0.0.0"`,
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")**: the native `deviceinfo.h` C API: `OH_GetOSFullName()` (e.g. `"OpenHarmony-5.0.0.0"`,
   whose head becomes `system_name`), `OH_GetDisplayVersion()` (`system_version`, falling back to the
   version tail of the full name) and `OH_GetProductModel()` (`model`). No permission required.
-- **Android**: [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build), read through a Java shim (`model` from `MANUFACTURER` + `MODEL`,
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**: [`android.os.Build.*`](https://developer.android.com/reference/android/os/Build), read through a Java shim (`model` from `MANUFACTURER` + `MODEL`,
   `system_name` `"Android"`, `system_version` `VERSION.RELEASE`). `is_simulator` is a heuristic over the
   standard emulator fingerprints (`FINGERPRINT` contains `generic`/`emulator`, `PRODUCT` contains `sdk`,
   `HARDWARE` is `goldfish`/`ranchu`, …). [`Build.*`](https://developer.android.com/reference/android/os/Build) are static fields, so unlike the battery/network/

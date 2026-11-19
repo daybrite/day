@@ -77,7 +77,7 @@ one item rather than rebuilding the bar.
 Placement names an item's ROLE on the chrome carrying it, never a surface: which bar it rides
 already follows from where it was declared.
 
-| Placement | Desktop toolbar | iOS | Android | Web |
+| Placement | Desktop toolbar | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|
 | `Automatic` (default) | after the leading group | trailing item group | menu action, `IF_ROOM` | strip, declaration order |
 | `Navigation` | leading edge of its column | `leftBarButtonItems`, after the back button | leading | leading |
@@ -117,7 +117,7 @@ column's commands to sit over that column — Mail, Notes and Finder all do. Day
 an item came from, because the declaration site already said so, and stamps it on the item.
 **An app never writes it.**
 
-`macos-appkit` realizes it with a tracking separator at each divider: AppKit vends
+[`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") realizes it with a tracking separator at each divider: AppKit vends
 `NSToolbarSidebarTrackingSeparatorItemIdentifier` for the sidebar's, and Day builds the second
 with [`NSTrackingSeparatorToolbarItem`](https://developer.apple.com/documentation/appkit/nstrackingseparatortoolbaritem) bound to the split at divider 1. Windows carry
 `NSWindowStyleMaskFullSizeContentView` so those items can find their dividers. The sidebar's
@@ -140,7 +140,7 @@ host it was built for ([`Toolkit::toggle_sidebar(host)`](https://docs.rs/day-spe
 that window's sidebar and a dayscript `toolbar:` step presses it like any other item. Each
 toolkit does what its platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`,
 Qt keeps the button on the bar when its pane collapses (the track shrinks to it), WinUI drops it because
-[`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) draws its own pane button, and **UIKit drops it entirely** — [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller)
+[`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) draws its own pane button, and **[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") drops it entirely** — [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller)
 and `.tabSidebar` each supply one, and Day's copy was both dead on a phone and doubled on an iPad.
 Suppress it with [`.no_sidebar_toggle()`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.no_sidebar_toggle).
 
@@ -310,12 +310,12 @@ that narrow.
 
 Platform guidance: [Apple: toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars); [Android: app bars](https://developer.android.com/develop/ui/views/components/appbar); [Windows: command bars](https://learn.microsoft.com/en-us/windows/apps/design/controls/command-bar).
 
-| | AppKit | GTK | Qt | WinUI | UIKit | Android | ArkUI | Web |
+| | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|---|---|---|
 | placement | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
 | column | ✓ | — | ✓ | — | — | — | — | ✓ |
 
-| | AppKit | GTK | Qt | WinUI |
+| | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") |
 |---|---|---|---|---|
 | bar | [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar), unified style | the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) | [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) |
 | button | [`NSToolbarItem`](https://developer.apple.com/documentation/appkit/nstoolbaritem) (bordered) | flat [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) | [`QAction`](https://doc.qt.io/qt-6/qaction.html) | [`AppBarButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.appbarbutton) |
@@ -327,7 +327,7 @@ Platform guidance: [Apple: toolbars](https://developer.apple.com/design/human-in
 
 Notes that are not obvious from the table:
 
-- **ArkUI**: the primary window's toolbar rides `Navigation` / `NavDestination.menus`.
+- **[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")**: the primary window's toolbar rides `Navigation` / `NavDestination.menus`.
   A custom menu builder uses native `Button`, `Menu`, and `MenuItem` components: template
   images explicitly use system foreground colors (the array API's [`icon`](https://docs.rs/day-pieces/latest/day_pieces/struct.ToolbarEntry.html#method.icon) loads black SVGs
   literally in dark mode). Page commands take the visible slots before window commands;
@@ -339,21 +339,21 @@ Notes that are not obvious from the table:
   entries still flatten into the action list. A future bottom-placement implementation
   should use native `toolbarConfiguration`, preserving its landscape adaptation.
 
-- **AppKit**: macOS toolbars have no separator item, so [`toolbar_separator(id)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_separator.html) renders as the
+- **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**: [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") toolbars have no separator item, so [`toolbar_separator(id)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toolbar_separator.html) renders as the
   system's own fixed space, which is what macOS uses between groups. The toolbar is created once
   per window and edited in place (a replaced [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar) flashes the title bar and drops
   focus). User customization is off: the item list is app-declared and reactive, so an autosaved
   arrangement would be in permanent conflict with the next edit. Adding or removing the toolbar
   resizes the content view without a window resize, so the toolkit reports the new content size
   itself.
-- **GTK**: could express COLUMNS — a per-pane [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) over each pane of the navigation
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")**: could express COLUMNS — a per-pane [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) over each pane of the navigation
   split is the GNOME idiom, and Nautilus and Text Editor both do it. Day does not yet; the
   column is dropped and one header bar carries everything. That is a gap, not a toolkit limit.
-- **GTK**: GNOME has no separate toolbar. The header bar is the toolbar, and GTK4 removed
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")**: GNOME has no separate toolbar. The header bar is the toolbar, and [GTK4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") removed
   [`GtkToolbar`](https://docs.gtk.org/gtk3/class.Toolbar.html) outright, so items go into the [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) the window already has, around the
   title: into two boxes Day packs at its start and end, so items go in and out one at a time
   without Adwaita's own children in the way. Buttons get the `flat` class, per the GNOME HIG.
-- **Qt**: the bar is a [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) parented to the window and laid out with the menu bar, not a
+- **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")**: the bar is a [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) parented to the window and laid out with the menu bar, not a
   [`QMainWindow`](https://doc.qt.io/qt-6/qmainwindow.html) dock; the geometry there is already hand-managed. It is a real [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) either
   way: it takes its icon size and its icon/text style from the user's Qt settings, which is the
   KDE convention and why the toolkit sets neither. It does not get dragging between dock
@@ -368,7 +368,7 @@ Notes that are not obvious from the table:
   agreed on a box, so every toolbar glyph is fitted by its ink to the same fraction of the bar's
   icon box and tinted to the palette text color; the box is 24 points on macOS (an [NSToolbar](https://developer.apple.com/documentation/appkit/nstoolbar)
   glyph's), and the user's setting on the Linux desktops.
-- **WinUI**: [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) right-aligns `PrimaryCommands`, left-aligns `Content` and folds
+- **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**: [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) right-aligns `PrimaryCommands`, left-aligns `Content` and folds
   `SecondaryCommands` into its overflow — which is exactly the three groups Day's placements
   reduce to, so `Navigation`/`Principal` land in `Content`, `Automatic`/`Primary` in
   `PrimaryCommands` and `Secondary` in the overflow. A crowded bar folds its right-hand commands
@@ -398,14 +398,14 @@ Notes that are not obvious from the table:
 - Web toolbar tracks are measured when the bar is recomposed; pane-width changes can leave
   a track's width stale until the next composition.
 
-## UIKit toolbar layout
+## [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") toolbar layout
 
-On an expanded UIKit split, `ToolbarColumn` places sidebar, list, and reader commands
+On an expanded [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") split, `ToolbarColumn` places sidebar, list, and reader commands
 on their respective navigation bars. Window commands accompany the reader. Collapsing
 merges visible contributions into the stack's bar. The supplementary list omits the
 repeated root title while expanded, retaining its controller title for collapsed navigation.
 
-iOS 16+ uses native optional/pinned item groups for overflow. On iOS 15, and on shared
+[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 16+ uses native optional/pinned item groups for overflow. On iOS 15, and on shared
 tab bars using plain items, Day limits the navigation bar to three controls including
 an ellipsis menu. Navigation actions take priority, then Primary actions; Secondary
 and excess actions remain in the native menu, including their checked/disabled state

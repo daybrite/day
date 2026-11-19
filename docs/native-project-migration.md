@@ -21,10 +21,10 @@ paths and callbacks, or remove the project folder to use the generated host.
 
 `day project migrate-xcode` and `day prepare --migrate` have been removed. Old icon lockfiles
 are not read; remove obsolete generated icons and update custom project references manually.
-HarmonyOS custom hosts use `platform/harmony/` and identity overrides use `[app.harmony]`;
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") custom hosts use `platform/harmony/` and identity overrides use `[app.harmony]`;
 the old `ohos` spellings are rejected. SDK, permission and signing keys keep their OHOS names.
 
-For app-specific Android declarations, keep an optional overlay at
+For app-specific [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") declarations, keep an optional overlay at
 `platform/android/AndroidManifest.xml`. Day's Gradle plugin merges it above the host and piece
 contributions in every app variant, using Android's standard rules. This path alone does not
 select a persistent host. Keep only custom declarations and explicit merge markers; do not copy
@@ -42,7 +42,7 @@ App-owned Swift sources, plists, string catalogs, and `.xcconfig` files remain i
 Apple hosts. Unmodified `platform/<macos|ios>/day-cli.sh` launchers can also be removed: Day
 writes the default launcher beside the generated Xcode project. Keep customized launchers;
 Day uses and preserves them. Persisted Xcode projects get a missing launcher recreated beside
-their source configuration during preparation. Preserve custom Android resources as source overlays:
+their source configuration during preparation. Preserve custom [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") resources as source overlays:
 
 ```toml
 [android]
@@ -57,13 +57,13 @@ vendor = "daybrite"
 `cleartext-traffic = true` permits HTTP from arbitrary hosts when an app needs it. Otherwise,
 use exact-host `cleartext-domains` exceptions; the base policy denies cleartext. Overlays
 replace generated resources, and regeneration prunes removed overlay files. Arbitrary themes
-remain native Android XML.
+remain native [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") XML.
 
-Android settings apply only to generated hosts. A persistent Gradle project retains its own
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") settings apply only to generated hosts. A persistent Gradle project retains its own
 policy and resources; preparation and builds warn if `[android]` configuration would be ignored.
-HarmonyOS vendor metadata applies to staged persistent hosts as well as generated hosts.
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") vendor metadata applies to staged persistent hosts as well as generated hosts.
 
-Check custom icon pipelines before removing native projects. Preserve adaptive Android artwork,
+Check custom icon pipelines before removing native projects. Preserve adaptive [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") artwork,
 Apple asset catalogs, and custom product names until equivalent generated outputs are verified.
 Permissions and shortcuts should remain in their supported Day.toml declarations and localized
 resource catalogs rather than being copied from previously generated platform output.

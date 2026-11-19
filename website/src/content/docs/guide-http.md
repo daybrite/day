@@ -103,12 +103,12 @@ the UI thread. Format generated messages there or in a reactive label closure.
 
 ## Account for the target
 
-The source selects NSURLSession on Apple, OkHttp on Android, WinHTTP on Windows, the browser
-transport on wasm32, and an ArkTS bridge on OpenHarmony. Linux uses system libcurl loaded at runtime. Unknown targets have no transport. [`tier()`](https://docs.rs/day-part-http/latest/day_part_http/fn.tier.html) describes the HTTP implementation, not the website's maintenance tier;
+The source selects NSURLSession on Apple, OkHttp on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), WinHTTP on [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), the browser
+transport on wasm32, and an ArkTS bridge on [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"). [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") uses system libcurl loaded at runtime. Unknown targets have no transport. [`tier()`](https://docs.rs/day-part-http/latest/day_part_http/fn.tier.html) describes the HTTP implementation, not the website's maintenance tier;
 [`capabilities()`](https://docs.rs/day-part-http/latest/day_part_http/fn.capabilities.html) describes available options.
 
 Blocking [`fetch`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch.html), [`fetch_to_file`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_to_file.html), and [`fetch_streamed`](https://docs.rs/day-part-http/latest/day_part_http/fn.fetch_streamed.html) must stay off the UI thread. Browser
-blocking calls return `Unsupported`; OpenHarmony also rejects blocking waits on its JS thread.
+blocking calls return `Unsupported`; [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") also rejects blocking waits on its JS thread.
 Browser requests remain subject to CORS and restricted headers. TLS, cleartext, proxy, and
 credential behavior depend on the selected transport and host configuration.
 

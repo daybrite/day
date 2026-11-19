@@ -36,7 +36,7 @@ verbatim on every toolkit:
 |---|---|---|
 | `Compact` | `< 480` | phone landscape |
 | `Medium` | `480–899` | phone portrait, tablet landscape |
-| `Expanded` | `≥ 900` | tablet portrait, most desktop windows |
+| `Expanded` | `≥ 900` | tablet portrait, most desktop [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") |
 
 One table across every toolkit means one answer: a 700pt window is `Medium` on a Mac, in a
 browser, and on a tablet, so an app that lays out from the class gets the same layout at the same
@@ -133,16 +133,16 @@ back.
 
 | toolkit | `NavSplit` | `NavRepresent` | notes |
 |---|---|---|---|
-| web-dom | ✅ | ✅ | the shim rebuilds chrome; page elements move between containers intact |
-| macos-appkit | ✅ | ✅ | one [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) either way — a stack is that split with its sidebar item collapsed |
-| linux-qt / macos-qt | ✅ | ✅ | one [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html) either way, back header installed in both |
-| linux-gtk | ✅ | — | see below |
-| windows-winui | ✅ | — | a [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
-| ios-uikit | ✅ | **observed** | [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller), both columns navigation controllers |
-| android-material | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |
-| harmony-arkui | ✅ | **observed** | ArkUI `Navigation` in `NavigationMode.Auto`: the nav bar (the rows) tiles beside the content where `navBarWidth` + `minContentWidth` fit, stacks otherwise; `onNavigationModeChange` reports which, through `navModeChanged`. A literal `Stack` host (a nested [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html)) runs `NavigationMode.Stack` |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | ✅ | ✅ | the shim rebuilds chrome; page elements move between containers intact |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | ✅ | ✅ | one [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) either way — a stack is that split with its sidebar item collapsed |
+| [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / [macos-qt](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") | ✅ | ✅ | one [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html) either way, back header installed in both |
+| [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | ✅ | — | see below |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | ✅ | — | a [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | ✅ | **observed** | [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller), both columns navigation controllers |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | ✅ | **observed** | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") `Navigation` in `NavigationMode.Auto`: the nav bar (the rows) tiles beside the content where `navBarWidth` + `minContentWidth` fit, stacks otherwise; `onNavigationModeChange` reports which, through `navModeChanged`. A literal `Stack` host (a nested [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html)) runs `NavigationMode.Stack` |
 
-GTK is the odd one out among the desktops. Everywhere else both presentations are the same
+[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") is the odd one out among the desktops. Everywhere else both presentations are the same
 container with different chrome, so a morph re-homes pages inside a host Day already holds. On
 GTK they are different widgets (nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s for the split, [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html) for the
 stack), and Day holds the host handle, so it cannot be swapped underneath. The route there is
@@ -167,18 +167,18 @@ build time, because the container collapses itself. `Stack` in `NavProps` is the
 marks a host that is a stack at *every* size (a pinned request, or the nested [`nav_stack()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) piece
 under a split host), and the toolkit realizes it as a plain navigation controller.
 
-## Mobile windows
+## Mobile [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 
-Mobile apps can run in resizable windows, split-screen layouts, and rotated or folded devices.
+Mobile apps can run in resizable [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), split-screen layouts, and rotated or folded devices.
 Use the app window's available size rather than its device name or physical screen size.
 
-### Android: survive the resize
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"): survive the resize
 
 Entering split-screen, or dragging a desktop-windowing edge across a size bucket, changes
 `screenLayout` and `smallestScreenSize`. An activity that has not claimed those in
 `android:configChanges` is **destroyed and recreated**. Day survives that (a recreation re-mounts
 the tree, the path a theme switch takes on purpose: [settings](settings.md), "Appearance on
-Android"), but a resize is not a reason to rebuild the app, so the scaffold's manifest claims them,
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")"), but a resize is not a reason to rebuild the app, so the scaffold's manifest claims them,
 `day lint` fails a manifest that does not (`day::lint::android-not-resizable`), and the resize
 reaches Day as a window resize with everything still in place.
 
@@ -187,23 +187,23 @@ The `<layout>` element carries the window's minimum and its desktop-windowing de
 window for an app that supports one. `resizeableActivity` is not declared, because it already
 defaults to true at `targetSdk` 24+ and API 36 ignores it.
 
-### iOS: measure the scene, not the screen
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"): measure the scene, not the screen
 
 [`UIScreen`](https://developer.apple.com/documentation/uikit/uiscreen)'s bounds are the display. A scene has not filled the display since iPad multitasking,
-and on iPadOS 26 it usually does not even at launch. Measured on an iPad Pro 13-inch, a Day app
+and on [iPadOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 26 it usually does not even at launch. Measured on an iPad Pro 13-inch, a Day app
 opens into a **635×1376pt window on a 1032×1376pt screen**. Sizing the window from the screen made
 the first size class wrong by 397 points, so a nav host resolved a three-column split for a window
 that had room for two and then corrected itself once the first layout pass ran.
 
 day-toolkit-uikit takes its launch geometry from the scene's own coordinate space
-(`effectiveGeometry.coordinateSpace` on iOS 26+, the direct property below it; the same value either
+(`effectiveGeometry.coordinateSpace` on [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 26+, the direct property below it; the same value either
 way). `DayHolderView` reports every later change against **its own scene**, which matters as soon as
-there are two windows: reporting a secondary's geometry against the primary re-framed the wrong
+there are two [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"): reporting a secondary's geometry against the primary re-framed the wrong
 window's root view and re-bucketed the wrong window's class.
 
 ### Declaring a minimum size
 
-One declaration serves both layers. Android reads it from the manifest at build time and iOS at
+One declaration serves both layers. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") reads it from the manifest at build time and [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") at
 run time:
 
 ```toml
@@ -214,17 +214,17 @@ min_width = 320
 min_height = 400
 ```
 
-`day build` writes the `<layout>` element's attributes and the iOS `Info.plist` keys day-toolkit-uikit
+`day build` writes the `<layout>` element's attributes and the [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") `Info.plist` keys day-toolkit-uikit
 reads back for [`UIWindowScene.sizeRestrictions`](https://developer.apple.com/documentation/uikit/uiwindowscene). An app that sets `WindowOptions.min_size` in Rust
 still wins over both. On iOS the minimum is a **preference the system satisfies on a best-effort
 basis**; laying out sensibly at whatever size arrives is still the app's job.
 
 ### What still works on an older OS
 
-Nothing here raises a floor. Android's `minSdk` stays 24 and everything used is API 24+ except the
-multi-instance `<property>` (API 35+, and older platforms skip unknown tags). iOS deploys to 15.0
+Nothing here raises a floor. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s `minSdk` stays 24 and everything used is API 24+ except the
+multi-instance `<property>` (API 35+, and older platforms skip unknown tags). [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") deploys to 15.0
 and needs no gated API on the critical path, because the class comes from geometry rather than from
-UIKit traits: the scene's coordinate space reads the same from iOS 15 to iOS 27. The one API
+[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") traits: the scene's coordinate space reads the same from iOS 15 to iOS 27. The one API
 newer than the floor ([`UITabBarController.mode`](https://developer.apple.com/documentation/uikit/uitabbarcontroller), annotated `ios(18.0)`) is guarded on
 `respondsToSelector:` rather than on a version number, which is the fact the call depends
 on. It responds on iOS 15.5 and 17.5 as well; gating it on the version instead made

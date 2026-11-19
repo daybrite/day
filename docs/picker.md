@@ -28,7 +28,7 @@ and re-exported through `day::prelude::*`. No additional crate or control featur
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
 
 ## Authoring
 
@@ -98,21 +98,21 @@ moving a mark, and a picker whose choices are constant should stay constant.
 
 Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-interface-guidelines/pickers); [Android: spinners](https://developer.android.com/develop/ui/views/components/spinner); [Windows: combo boxes](https://learn.microsoft.com/en-us/windows/apps/design/controls/combo-box).
 
-| style | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI |
+| style | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") |
 |---|---|---|---|---|---|---|---|
 | **Menu** | [`NSPopUpButton`](https://developer.apple.com/documentation/appkit/nspopupbutton) | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton)+[`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) pull-down | [`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) | [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) | [`Spinner`](https://developer.android.com/reference/android/widget/Spinner) | [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) | ArkTS `Select` (wheel on an older host) |
 | **Segmented** | [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) | [`UISegmentedControl`](https://developer.apple.com/documentation/uikit/uisegmentedcontrol) | `.linked` grouped [`GtkToggleButton`](https://docs.gtk.org/gtk4/class.ToggleButton.html)s | checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)s in a [`QButtonGroup`](https://doc.qt.io/qt-6/qbuttongroup.html) | button-row [`LinearLayout`](https://developer.android.com/reference/android/widget/LinearLayout) (dim unselected) | horizontal `RadioButton` [`StackPanel`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.stackpanel) | compact ArkTS button row (wheel on an older host) |
 | **Inline** | vertical [`NSStackView`](https://developer.apple.com/documentation/appkit/nsstackview) of radio [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton)s | checkmark-row [`UIStackView`](https://developer.apple.com/documentation/uikit/uistackview) | grouped [`GtkCheckButton`](https://docs.gtk.org/gtk4/class.CheckButton.html)s (radio) | [`QRadioButton`](https://doc.qt.io/qt-6/qradiobutton.html)s in a [`QButtonGroup`](https://doc.qt.io/qt-6/qbuttongroup.html) | `RadioGroup` | vertical `RadioButton` [`StackPanel`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.stackpanel) | [`TextPicker`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-textpicker.md) wheel |
 
-ArkUI renders **Menu** as HarmonyOS's own dropdown, the ArkTS `Select` component. The C node API
+[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") renders **Menu** as [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")'s own dropdown, the ArkTS `Select` component. The C node API
 has no select kind, so it is a built-in ArkTS piece the host page registers (`DaySelect.ets` in
 day-toolkit-arkui's host, passed to `registerDayPieces`); it is sized once for its widest option, so a choice
 never changes its width. **Segmented** uses a compact row of native ArkTS buttons with an
 accessible selected state, sized for the widest label. **Inline**, and hosts too old to register
-the ArkTS picker, use the native [`ARKUI_NODE_TEXT_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) wheel. The Qt and WinUI renderers each carry a C++ shim in the
+the ArkTS picker, use the native [`ARKUI_NODE_TEXT_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) wheel. The [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") renderers each carry a C++ shim in the
 matching `-sys` crate (`crates/day-toolkit-qt-sys/src/shim-picker.cpp`,
 `crates/day-toolkit-xaml-sys/src/shim-picker.cpp`); the WinUI shim boxes its WinUI element into a Day handle
-through the `day_xaml_box`/`day_xaml_unbox` functions. Android's Java factory
+through the `day_xaml_box`/`day_xaml_unbox` functions. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s Java factory
 (`crates/day-toolkit-material/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
 All toolkits report selection through `Event::SelectionChanged(i64)`; programmatic selection is
 echo-guarded per toolkit so it never loops.

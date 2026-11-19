@@ -38,10 +38,10 @@ panic aborts the process. Day's logger never panics on a failed write.
 
 | Platform | Sink |
 |---|---|
-| macOS, Linux, Windows | stderr — your terminal |
-| iOS | stderr — the Xcode console |
-| Android | logcat |
-| Web | the browser's JavaScript console |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | stderr — your terminal |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | stderr — the Xcode console |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | logcat |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the browser's JavaScript console |
 
 In a browser each level maps to the matching console method, so devtools' level filter works on
 Day's output the way it does on your page's. Lines read `LEVEL target: message`, where the target

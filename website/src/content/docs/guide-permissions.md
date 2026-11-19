@@ -187,12 +187,12 @@ declaration in `Day.toml` and the translated explanation in the catalog.
 
 The [reference](/docs/reference/permissions) carries the full matrix. Apple platforms go
 through each framework's authorization API and ask the user once; after a denial, only
-Settings can change the answer. Android shows its dialog via `requestPermissions`
+Settings can change the answer. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") shows its dialog via `requestPermissions`
 and cannot tell "never asked" from "permanently denied" without app-side state, which Day
 does not keep, so record it yourself in the [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) callback if you need the distinction.
-HarmonyOS can check but not yet prompt from Day, so [`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) is false there. The web
-answers through `navigator.permissions` and the per-API request calls. Desktop Linux and
-Windows resolve immediately as `Granted`.
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") can check but not yet prompt from Day, so [`can_prompt`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) is false there. The web
+answers through `navigator.permissions` and the per-API request calls. Desktop [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") and
+[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") resolve immediately as `Granted`.
 
 ## Pitfalls
 
@@ -205,7 +205,7 @@ Windows resolve immediately as `Granted`.
   `Unsupported`; a [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) resolves immediately with `Unsupported` and no prompt. The reverse case
   also exists: `Granted` on an ungated desktop is not a promise the hardware exists; ask the
   capability's own part about that.
-- The current `macos-appkit` build/launch path uses an Xcode host app bundle. Verify its generated
+- The current [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") build/launch path uses an Xcode host app bundle. Verify its generated
   `Info.plist` and identity when diagnosing permission failures. A manually launched bare Rust
   binary is a different environment and cannot establish the bundle's permission behavior.
 - Dropping a `StatusFuture` does not dismiss the prompt. No platform can take its own

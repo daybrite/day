@@ -5,6 +5,8 @@ order: 33.2
 section: Reference
 ---
 
+import Toolkit from '../../../components/Toolkit.astro';
+
 {/*
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -13,7 +15,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's iOS target connects shared Rust UI code to UIKit controls for iPhone and iPad. This reference
 covers the Apple tools and host configuration needed to build, run, and distribute the app.
 
-`ios-uikit` is a [Tier 1](/docs/reference/platforms#support-tiers) target. Device distribution
+<Toolkit id="ios-uikit"><code>ios-uikit</code></Toolkit> is a [Tier 1](/docs/reference/platforms#support-tiers) target. Device distribution
 requires the relevant signing and provisioning setup.
 
 ## Getting started
@@ -70,7 +72,7 @@ device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signi
 The generated [coverage matrix](https://github.com/daybrite/day/blob/main/docs/coverage-matrix.md), checked in CI, covers every toolkit;
 this table adds links and notes.
 
-| Day piece | UIKit class |
+| Day piece | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") class |
 |---|---|
 | [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html) / [`row`](https://docs.rs/day-pieces/latest/day_pieces/fn.row.html) / [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) / [`section`](https://docs.rs/day-pieces/latest/day_pieces/fn.section.html) | [`UIView`](https://developer.apple.com/documentation/uikit/uiview) |
 | [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) | [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) |

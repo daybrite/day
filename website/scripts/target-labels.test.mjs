@@ -2,104 +2,79 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import accentTargets from '../plugins/accent-target-code.mjs';
+import { createMarkdownProcessor } from '@astrojs/markdown-remark';
+import explicitToolkitLabels from '../plugins/accent-target-code.mjs';
+import { toolkitLabel } from '../src/lib/toolkit-labels.mjs';
+import contentLinks from '../plugins/content-links.mjs';
 import admonitions from '../plugins/admonitions.mjs';
-const text = value => ({type:'text',value});
-const element = (tagName,...children) => ({type:'element',tagName,properties:{},children});
-const nodes = node => [node,...(node.children??[]).flatMap(nodes)];
+const text = value => ({ type: 'text', value });
+const element = (tagName, ...children) => ({ type: 'element', tagName, properties: {}, children });
+const nodes = node => [node, ...(node.children ?? []).flatMap(nodes)];
 const labels = node => nodes(node).filter(n => n.properties?.className?.includes('doc-target-label'));
+const marked = (id, name) => ({ ...element('a', text(name)), properties: { href: '/docs/reference/platforms', title: `toolkit:${id}` } });
 
-test('toolkit notes and tables reuse target marks, including secondary combinations',()=>{
-  const tree=element('div',element('strong',text('AppKit / UIKit: behavior.')),
-    element('th',text('GTK')),element('td',text('Qt')),
-    element('code',text('macos-gtk')));
-  accentTargets()(tree);
-  assert.deepEqual(labels(tree).map(n=>n.properties['data-pf']),['macos-appkit','ios-uikit','linux-gtk','linux-qt','macos-gtk']);
-  for(const n of labels(tree))assert.equal(n.children[0].properties.ariaHidden,'true');
-  assert.match(tree.children[3].children[0].children[0].properties.style,/data:image\/svg\+xml/);
-});
-test('code blocks, API names, and ordinary prose are preserved',()=>{
-  const tree=element('div',element('pre',element('code',text('macos-appkit'))),
-    element('p',text('AppKit renders this control.')),
-    element('td',element('code',text('Qt::SomeType'))));
-  const original=structuredClone(tree);accentTargets()(tree);assert.deepEqual(tree,original);
-});
-test('a platform warning retains its severity, text, and stable anchor',()=>{
-  const tree=element('div',element('blockquote',element('p',text('[!WARNING]\n'),
-    element('strong',text('Windows / WinUI: alpha selection.')),text('\nNative alpha selection is unverified.'))));
-  accentTargets()(tree);admonitions()(tree);
-  const warning=tree.children[0];assert.equal(warning.tagName,'aside');
-  assert.equal(warning.properties['data-kind'],'warning');
-  assert.equal(warning.properties.id,'admonition-windows-winui-alpha-selection');
-  assert.equal(labels(warning).length,2);
-  assert.ok(nodes(warning).some(n=>n.value?.includes('Native alpha selection is unverified.')));
+test('ordinary words and target IDs remain untouched in every prose context', () => {
+  for (const tag of ['h2', 'h3', 'p', 'strong', 'th', 'td', 'li', 'code']) {
+    const tree = element('div', element('h2', text('Toolkit implementations')),
+      element(tag, text('web page, web shells, browser permissions, material, DOM, AppKit, GTK, web-dom')));
+    const original = structuredClone(tree);
+    explicitToolkitLabels()(tree);
+    assert.deepEqual(tree, original);
+  }
+  const link = { ...element('a', text('Web')), properties: { href: '/docs/reference/platforms/web-dom', title: 'Web guide' } };
+  const original = structuredClone(link);
+  explicitToolkitLabels()(link);
+  assert.deepEqual(link, original);
 });
 
-
-test('lowercase, mixed markup, and mid-heading names receive marks without changing text', () => {
-  const link = element('a', element('code', text('NSSplitView')));
-  link.properties.href = 'https://developer.apple.com/documentation/appkit/nssplitview';
-  const tree = element('div',
-    element('h3', text('The iOS tabs host is driven by '), element('code', text('UITab'))),
-    element('td', text('gtk / qt / winui')),
-    element('strong', text('macOS '), link, text(' / Qt '), element('code', text('QSplitter'))),
-    element('th', element('a', text('Android'))),
-    element('td', element('code', text('arkui'))));
-  const content = n => n.type === 'text' ? n.value : (n.children ?? []).map(content).join('');
-  const before = content(tree);
-  accentTargets()(tree);
-  assert.equal(content(tree), before);
-  assert.deepEqual(labels(tree).map(n => n.properties['data-pf']), [
-    'ios-uikit', 'linux-gtk', 'linux-qt', 'windows-winui', 'macos-appkit', 'linux-qt',
-    'android-material', 'harmony-arkui',
-  ]);
-  assert.equal(link.properties.href, 'https://developer.apple.com/documentation/appkit/nssplitview');
-  assert.equal(labels(link).length, 0);
+test('explicit labels preserve links, formatting and accessible text and are idempotent', () => {
+  const link = marked('macos-gtk', 'GTK');
+  link.children = [element('code', text('macos-gtk'))];
+  link.properties.className = ['existing'];
+  explicitToolkitLabels()(link);
+  assert.equal(link.properties.href, '/docs/reference/platforms');
+  assert.equal(link.properties.title, undefined);
+  assert.deepEqual(link.properties.className, ['existing']);
+  assert.equal(labels(link)[0].properties['data-pf'], 'macos-gtk');
+  const icon = labels(link)[0].children[0];
+  assert.equal(icon.properties.ariaHidden, 'true');
+  assert.match(icon.properties.style, /data:image\/svg\+xml/);
+  assert.equal(labels(link)[0].children[1].tagName, 'code');
+  const once = structuredClone(link);
+  explicitToolkitLabels()(link);
+  assert.deepEqual(link, once);
 });
 
-test('platform-section prose is decorated once per paragraph and ends at the next peer heading', () => {
-  const tree = element('div', element('h2', text('Toolkit implementations')),
-    element('p', text('GTK and Qt use native controls. GTK measures its child.')),
-    element('h3', text('Sizing')), element('p', text('AppKit measures the content.')),
-    element('h2', text('Authoring')), element('p', text('AppKit renders this control.')),
-    element('pre', element('code', text('gtk Qt AppKit'))));
-  accentTargets()(tree);
-  assert.deepEqual(labels(tree).map(n => n.properties['data-pf']), ['linux-gtk', 'linux-qt', 'macos-appkit']);
-  assert.equal(labels(tree.children[5]).length, 0);
-  assert.equal(labels(tree.children[6]).length, 0);
+test('OS-family labels retain both marks; component defaults come from the target catalog', () => {
+  const link = marked('linux-gtk,linux-qt', 'Linux');
+  explicitToolkitLabels()(link);
+  assert.equal(labels(link)[0].properties['data-targets'], 'linux-gtk linux-qt');
+  assert.equal(labels(link)[0].children.filter(n => n.properties?.ariaHidden === 'true').length, 2);
+  assert.equal(toolkitLabel('web-dom').name, 'Web DOM');
+  assert.equal(toolkitLabel('macos-qt').marks[0].icon, 'linux-qt');
 });
 
-test('OS-wide labels retain both relevant target marks', () => {
-  const tree = element('th', text('Linux / Apple'));
-  accentTargets()(tree);
-  assert.deepEqual(labels(tree).map(n => n.properties['data-targets']), [
-    'linux-gtk linux-qt', 'macos-appkit ios-uikit',
-  ]);
-  for (const n of labels(tree)) assert.equal(n.children.filter(c => c.properties?.ariaHidden === 'true').length, 2);
+test('missing, duplicate, capture-only and unknown IDs fail instead of silently omitting styling', () => {
+  for (const id of [undefined, '', 'web', 'web-dmo', 'ios-uikit-ipad', 'linux-gtk,linux-gtk', 'linux-gtk,linux-qt,web-dom']) {
+    assert.throws(() => toolkitLabel(id), /Invalid toolkit label ID/);
+    assert.throws(() => explicitToolkitLabels()(marked(id ?? '', 'Synthetic invalid label')), /Invalid toolkit label ID/);
+  }
 });
 
-test('WinUI and legacy system XAML labels do not relabel XAML markup or features', () => {
-  const tree = element('div',
-    element('td', text('WinUI')),
-    element('td', text('system XAML')),
-    element('td', text('XAML geometry')),
-    element('td', element('code', text('xaml'))),
-    element('td', element('code', text('Microsoft.UI.Xaml.Controls.TextBox'))));
-  const untouched = structuredClone(tree.children.slice(2));
-  accentTargets()(tree);
-  assert.deepEqual(labels(tree).map(n => n.properties['data-pf']), [
-    'windows-winui', 'windows-xaml',
-  ]);
-  assert.deepEqual(tree.children.slice(2), untouched);
-});
-
-
-test('tight list items have independent labels, including sentence-final names', () => {
-  const tree = element('div', element('h2', text('Toolkit notes')), element('ul',
-    element('li', element('strong', text('GTK / Qt')), text(' measures content.')),
-    element('li', element('strong', text('macOS ')), text(' has a different result than Qt.'))));
-  accentTargets()(tree);
-  assert.deepEqual(labels(tree).map(n => n.properties['data-pf']), [
-    'linux-gtk', 'linux-qt', 'macos-appkit', 'linux-qt',
-  ]);
+test('Markdown labels keep heading anchors, code samples, link destinations and warning severity', async () => {
+  const processor = await createMarkdownProcessor({ rehypePlugins: [contentLinks, explicitToolkitLabels, admonitions] });
+  const source = '## Web shells\n\nA web page uses browser permissions.\n\n' +
+    '## [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")\n\n' +
+    '| Target | Notes |\n| --- | --- |\n| [`macos-gtk`](/docs/reference/platforms "toolkit:macos-gtk") | material and DOM |\n\n' +
+    '> [!WARNING]\n> **[WinUI](/docs/reference/platforms/windows-winui "toolkit:windows-winui"): alpha selection.**\n> Synthetic warning.\n\n' +
+    '```md\n[Web](/docs/reference/platforms/web-dom "toolkit:web-dom")\n```';
+  const result = await processor.render(source);
+  assert.deepEqual(result.metadata.headings.map(h => h.slug), ['web-shells', 'web']);
+  assert.match(result.code, /<h2 id="web-shells">Web shells<\/h2>/);
+  assert.match(result.code, /<p>A web page uses browser permissions\.<\/p>/);
+  assert.match(result.code, /href="\/docs\/reference\/platforms\/web-dom"/);
+  assert.equal((result.code.match(/class="doc-target-label"/g) ?? []).length, 3);
+  assert.match(result.code, /data-kind="warning"/);
+  assert.match(result.code, /id="admonition-winui-alpha-selection"/);
+  await assert.rejects(processor.render('[Web](/docs/reference/platforms "toolkit:web-typo")'), /Invalid toolkit label ID/);
 });

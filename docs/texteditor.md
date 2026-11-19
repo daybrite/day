@@ -33,8 +33,8 @@ automatically. No dependency entry is needed in `Day.toml`.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, Android, Web | Native or browser rich-text editing. |
-| WinUI, ArkUI | Editor implementation is present; selection and editing limitations below remain unverified. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), Web | Native or browser rich-text editing. |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Editor implementation is present; selection and editing limitations below remain unverified. |
 
 ## Authoring
 
@@ -159,25 +159,25 @@ when only spell-check should be disabled.
 
 | Toolkit | Editor | Formatting limits |
 | --- | --- | --- |
-| AppKit | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) | Uses TextKit character and paragraph styles. |
-| UIKit | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) | Uses TextKit character and paragraph styles. |
-| GTK | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) | Dotted underline becomes a single rule; wavy underline uses the error underline. |
-| Qt | [`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) | Double underline becomes a single rule. |
-| Android | [`EditText`](https://developer.android.com/reference/android/widget/EditText) | Dotted and wavy underlines become a single rule; paragraph justification and paragraph spacing are unavailable. |
-| WinUI | [`RichEditBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richeditbox) | See the native editing validation limits below. |
-| ArkUI | [`RichEditor`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) | One decoration per span; strikethrough takes precedence over underline. |
-| Web | Browser `contenteditable` | Browser editing and selection behavior applies. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) | Uses TextKit character and paragraph styles. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) | Uses TextKit character and paragraph styles. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) | Dotted underline becomes a single rule; wavy underline uses the error underline. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) | Double underline becomes a single rule. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`EditText`](https://developer.android.com/reference/android/widget/EditText) | Dotted and wavy underlines become a single rule; paragraph justification and paragraph spacing are unavailable. |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`RichEditBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richeditbox) | See the native editing validation limits below. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`RichEditor`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) | One decoration per span; strikethrough takes precedence over underline. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Browser `contenteditable` | Browser editing and selection behavior applies. |
 
 Toolkits without a styled editor, including the mock toolkit, fall back to plain text and
 report `Support::Emulated`. The fallback preserves text but does not display its formatting.
 
 > [!WARNING]
-> **Windows / WinUI: native editing.**
+> **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"): native editing.**
 > Caret stability during restyling, selection reporting, suppression of Ctrl+B/I/U, and
 > empty-document placeholders remain unverified. Test these interactions in your editor.
 
 > [!WARNING]
-> **HarmonyOS / ArkUI: native editing.**
+> **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): native editing.**
 > Device behavior remains unverified, including selection, restyling, placeholders, and
 > delivery of committed edits from input methods. Test the languages your app supports.
 

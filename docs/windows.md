@@ -9,14 +9,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Secondary windows
+# Secondary [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 
-Windows give documents or tasks separate places to appear. Where the platform supports multiple
+[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") give documents or tasks separate places to appear. Where the platform supports multiple
 windows, people can arrange them to compare content or work on several things at once.
 
 Day uses a native window where supported and a fullscreen cover otherwise. Query the capability at
-runtime: normal windows and preferences covers have different support on iPad, Android, and
-OpenHarmony.
+runtime: normal [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") and preferences covers have different support on iPad, [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), and
+[OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui").
 
 ## Signature and defaults
 
@@ -58,7 +58,7 @@ Evidence: [window options](../crates/day-spec/src/lib.rs) and
 One tree has many roots: a secondary window's content container is adopted as an additional
 boundary root of the same thread-local tree (the `create_cell_anchor` trick the primary root
 and list cells already use), laid out at that window's own size. Bindings, `find_by_id`,
-navigation state, and dayscript therefore work across windows with no window parameter;
+navigation state, and dayscript therefore work across [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") with no window parameter;
 unique element ids remain reachable globally, and a control in one window can drive a label
 in another through ordinary signals. When a reusable form mounts the same ids in multiple
 windows, lookup prefers the focused window (including a cover-backed window). Recycled
@@ -68,12 +68,12 @@ precedence over the primary window. Keep ids unique within each window.
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
 
-## Titles: what the platform manages windows by
+## Titles: what the platform manages [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") by
 
 Every platform's automatic window management identifies a window by its **title**, and supplies
-no fallback when there isn't one. On macOS an untitled window is skipped when AppKit builds the
+no fallback when there isn't one. On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") an untitled window is skipped when [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") builds the
 Window menu and shows a blank tab in a tab group; on iPad it is an unlabeled card in the app
-switcher; on Android an unlabeled recents entry; on GTK/Qt/Windows an unlabeled entry in the
+switcher; on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") an unlabeled recents entry; on [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")/[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")/[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") an unlabeled entry in the
 window list or taskbar. So a window with no title is missing from every place the system lists
 windows.
 
@@ -98,23 +98,23 @@ fn window_shell() -> impl Piece {
 }
 ```
 
-Two windows sharing one title are two windows the user cannot tell apart in the Window menu, the
+Two [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") sharing one title are two windows the user cannot tell apart in the Window menu, the
 tab bar, Mission Control, or the app switcher, so title them by content wherever there is content
 to name. [`WindowHandle::set_title`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_title) remains the imperative form for a window you hold a handle to.
 
-**The platform places windows.** macOS staggers each new window from the last
+**The platform places [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui").** [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") staggers each new window from the last
 (`cascadeTopLeftFromPoint:`) rather than centering it, since two centered windows would hide each
 other, and remembers the primary window's frame between launches under an autosave name. That restore is
 turned off while `DAY_SCRIPT` or `DAY_WINDOW` is set, so captured screenshots keep the size the
 script asked for instead of the size the developer last dragged. Every other desktop leaves
 placement to its window manager, which is that platform's convention.
 
-`WindowKind::Preferences` is centered and kept out of the macOS Window menu, the convention stock
+`WindowKind::Preferences` is centered and kept out of the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") Window menu, the convention stock
 apps follow. On macOS it is centered on the screen the primary window is on, as is a window with
-`WindowPlacement::Centered`: AppKit's own `center` uses the screen with the keyboard focus, which
+`WindowPlacement::Centered`: [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")'s own `center` uses the screen with the keyboard focus, which
 on a Mac with several displays can be another one.
 
-## Opening windows
+## Opening [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 
 ```rust
 let win = day::open_window(
@@ -156,7 +156,7 @@ the main window) or
   A programmatic close immediately excludes the window from focused-window state and command
   lookup, even while a native dialog or cover is still animating its dismissal.
 - Closing the last primary window quits the app, taking secondary windows with it; a settings
-  panel does not keep an app alive, however long it has been up. **macOS is the exception**:
+  panel does not keep an app alive, however long it has been up. **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") is the exception**:
   `applicationShouldTerminateAfterLastWindowClosed` defaults to false there, an app
   with no windows keeps its menu bar live, and ⌘N reopens one. So on macOS the app stays up and
   its secondary windows stay with it; every other desktop treats the last primary as the app.
@@ -181,10 +181,10 @@ day::open_preferences();
 
 Registering a preferences piece enables the following, without any menu code in the app:
 
-- **macOS**: "Settings…" + ⌘, in the App menu, directly under About, in both the default
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**: "Settings…" + ⌘, in the App menu, directly under About, in both the default
   menu (apps that never call [`app_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.app_menu.html)) and an installed one (the item is hoisted out of
   the model into its standard position).
-- **GTK/Qt/WinUI**: a Preferences item with the platform accelerator (Ctrl+comma; Qt's
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")/[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")/[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**: a Preferences item with the platform accelerator (Ctrl+comma; Qt's
   menu-role relocates it into the app menu on macOS, and macOS-gtk additionally enables the
   stock GTK app menu's *Settings…* through an `app.preferences` action). day-core injects it
   into the first (File) menu when the app didn't place a [`menu_role(MenuRole::Preferences)`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_role.html)
@@ -194,7 +194,7 @@ Registering a preferences piece enables the following, without any menu code in 
   fullscreen. The default title is the platform's word (`day_settings`).
 
 Apps rarely call these directly: [`day-piece-settings`](/docs/reference/settings) ([docs/settings](settings.md))
-declares the settings and About once and registers both windows, the menu items and the
+declares the settings and About once and registers both [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), the menu items and the
 mobile navigation presentation itself.
 
 ## About
@@ -210,23 +210,23 @@ day::open_about();
 
 [`register_about`](https://docs.rs/day-core/latest/day_core/windows/fn.register_about.html) names what the About command does; [`register_about_window`](https://docs.rs/day-core/latest/day_core/windows/fn.register_about_window.html) is the common
 case, a Day window under the singleton key `day.about` as `WindowKind::About` (the same fixed,
-centered, untabbed panel chrome as Preferences, a dialog over the app window on GTK, a cover
+centered, untabbed panel chrome as Preferences, a dialog over the app window on [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), a cover
 on mobile). With an About registered,
-`MenuRole::About` items lower to it: the macOS App menu's "About <App>" (replacing the stock
+`MenuRole::About` items lower to it: the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") App menu's "About <App>" (replacing the stock
 Info.plist panel), Help ▸ About on the other desktops, in both the default bar and an installed
 [`app_menu`](https://docs.rs/day-pieces/latest/day_pieces/fn.app_menu.html). [`day::register_check_for_updates(action)`](https://docs.rs/day-app/latest/day/fn.register_check_for_updates.html) adds the updater's Check for Updates…
 command the same way (`MenuRole::CheckForUpdates`, under About on macOS, in Help elsewhere).
 
-## New Window + the macOS Window menu
+## New Window + the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") Window menu
 
 [`day::register_new_window(|| shell())`](https://docs.rs/day-app/latest/day/fn.register_new_window.html) names the builder behind [`menu_role(MenuRole::NewWindow)`](https://docs.rs/day-pieces/latest/day_pieces/fn.menu_role.html)
-(File ▸ New Window, ⌘N/Ctrl+N; lowers disabled when unregistered) and the macOS tab-bar "+"
+(File ▸ New Window, ⌘N/Ctrl+N; lowers disabled when unregistered) and the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") tab-bar "+"
 (`newWindowForTab:`). Each call opens an independent `Normal` window, and mark secondary shells'
 routed navs [`.local()`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.local) so [`navigate()`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) stays unambiguous (the showcase's `window_root(primary)`
 is the pattern). The starter uses one main window.
 
 Because the builder runs again per window, whatever state that shell reaches for decides whether
-the windows are independent; a `thread_local!` gives all of them one selection.
+the [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") are independent; a `thread_local!` gives all of them one selection.
 [docs/state](state.md) covers this: [`T::scoped(…)`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.scoped) for per-window state, [`T::ambient()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.ambient)
 to read it back anywhere below, and [`T::focused()`](https://docs.rs/day-core/latest/day_core/trait.Ambient.html#method.focused) for the app-wide menu bar, whose items belong
 to no window and have to resolve the front one when they run. The same shell should call
@@ -239,10 +239,10 @@ lists them.
 > with; the inherited launch title makes that correct rather than blank, but it does not follow
 > content yet.
 
-On macOS, day-toolkit-appkit also auto-installs the standard **Window menu** (Minimize ⌘M, Zoom,
-Bring All to Front) registered as [`NSApp.windowsMenu`](https://developer.apple.com/documentation/appkit/nsapplication/windowsmenu), so AppKit appends the open-window
+On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), day-toolkit-appkit also auto-installs the standard **Window menu** (Minimize ⌘M, Zoom,
+Bring All to Front) registered as [`NSApp.windowsMenu`](https://developer.apple.com/documentation/appkit/nsapplication/windowsmenu), so [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") appends the open-window
 list and, while automatic tabbing is live, the tab commands (Show Next/Previous Tab,
-Merge All Windows). `Normal` Day windows share the `day.normal` tabbing identifier and
+Merge All [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")). `Normal` Day windows share the `day.normal` tabbing identifier and
 group as native tabs per the system "prefer tabs" setting. When no new-window builder is
 registered, automatic tabbing is turned off entirely, so there is no tab bar and the menu carries no tab
 commands. An
@@ -288,10 +288,10 @@ bar, the keyboard or a gesture. Writing it asks the platform for that state. The
 last word: the signal settles on the state the window actually reached, so a request the platform
 declines (a browser refusing fullscreen outside a click) reads back as the state the window kept.
 [`set_state(s)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_state) is the same write spelled as an action. Wayland compositors do not tell an app
-when the user minimizes it, so under Wayland GTK and Qt report `Minimized` only for a minimize the
+when the user minimizes it, so under Wayland [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") report `Minimized` only for a minimize the
 app asked for, until the window is next activated.
 
-| State | Desktops | iOS | Android | HarmonyOS | Web |
+| State | Desktops | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|
 | `Minimized`, `Maximized` (`Cap::WindowStates`) | Native | Unsupported | Unsupported | Unsupported | Unsupported |
 | `Fullscreen` (`Cap::WindowFullscreen`) | Native | Emulated: status bar hidden, home indicator auto-hidden | Native: system bars hidden, shown again by a swipe | Native | Native during a click or key press |
@@ -299,13 +299,13 @@ app asked for, until the window is next activated.
 ### Content protection
 
 [`set_content_protected(true)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_content_protected) keeps a window out of screenshots, screen recordings and screen
-sharing, for passwords, payment details and private messages (`Cap::ContentProtection`). macOS
-([`NSWindowSharingNone`](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum/none)), Windows (`WDA_EXCLUDEFROMCAPTURE`), Android (`FLAG_SECURE`) and
-HarmonyOS (privacy mode) protect natively. HarmonyOS needs the app to opt in with
+sharing, for passwords, payment details and private messages (`Cap::ContentProtection`). [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
+([`NSWindowSharingNone`](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum/none)), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") (`WDA_EXCLUDEFROMCAPTURE`), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") (`FLAG_SECURE`) and
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") (privacy mode) protect natively. HarmonyOS needs the app to opt in with
 `screen-privacy = true` in Day.toml's `[permissions]` ([docs/permissions](permissions.md));
-without it `Cap::ContentProtection` answers `Unsupported` there. iOS has no switch for it: Day
+without it `Cap::ContentProtection` answers `Unsupported` there. [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") has no switch for it: Day
 covers the window while the screen is being recorded or mirrored, and a screenshot still
-captures it. Linux and the web cannot protect a window.
+captures it. [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") and the web cannot protect a window.
 
 ### Size, position and stacking
 
@@ -315,9 +315,9 @@ captures it. Linux and the web cannot protect a window.
 | [`frame()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame) | The window's outer frame on the desktop, where the platform says | `WindowGeometry` |
 | [`set_limits(min, max)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_limits) | The sizes the user can resize between | `WindowGeometry` |
 | [`set_resizable(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_resizable) | Whether the user can resize at all | `WindowGeometry` |
-| [`set_level(WindowLevel::Floating)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_level) | Stay above other apps' windows | `WindowLevel` |
+| [`set_level(WindowLevel::Floating)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_level) | Stay above other apps' [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `WindowLevel` |
 | [`set_on_all_workspaces(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_on_all_workspaces) | Show on every Space or virtual desktop | `WindowLevel` |
-| [`set_skip_taskbar(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_skip_taskbar) | Leave the window out of the taskbar and window switcher (the Window menu on macOS) | `WindowLevel` |
+| [`set_skip_taskbar(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_skip_taskbar) | Leave the window out of the taskbar and window switcher (the Window menu on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")) | `WindowLevel` |
 | [`set_minimizable`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_minimizable), [`set_maximizable`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_maximizable), [`set_closable`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_closable) | Offer or withhold the title-bar controls | `WindowStates` |
 | [`set_visible(bool)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_visible) | Hide the window without closing it, or show it again | `WindowStates` |
 | [`set_appearance(Option<bool>)`](https://docs.rs/day-core/latest/day_core/fn.set_appearance.html) | This window's own light or dark appearance, over the app-wide [`set_appearance`](https://docs.rs/day-core/latest/day_core/fn.set_appearance.html) | `WindowAppearance` |
@@ -328,18 +328,18 @@ and the frame options in [docs/window-chrome](window-chrome.md).
 
 | Toolkit | What it supports |
 |---|---|
-| AppKit | Everything above. Taskbar exclusion is the Window menu's, since macOS has no taskbar. |
-| Windows (WinUI) | Everything except showing a window on every virtual desktop. Compile-checked; the Windows runtime pass is pending. |
-| Qt | Everything except per-window appearance and every-desktop windows. Under Wayland the compositor places windows, so [`set_frame`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_frame)'s origin and `WindowPosition` are unsupported there. |
-| GTK | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. GTK 4 removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and [`frame()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame) answers `None`. On Linux the Qt toolkit covers those. |
-| iOS | Per-window appearance (`overrideUserInterfaceStyle`). |
-| Android, HarmonyOS, web | None: the platform sizes and places the app's window. The web follows the app-wide appearance per page. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Everything above. Taskbar exclusion is the Window menu's, since [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") has no taskbar. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) | Everything except showing a window on every virtual desktop. Compile-checked; the [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") runtime pass is pending. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Everything except per-window appearance and every-desktop [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"). Under Wayland the compositor places windows, so [`set_frame`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_frame)'s origin and `WindowPosition` are unsupported there. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. [GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and [`frame()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame) answers `None`. On [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") the [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") toolkit covers those. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Per-window appearance (`overrideUserInterfaceStyle`). |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), web | None: the platform sizes and places the app's window. The web follows the app-wide appearance per page. |
 
 [`set_frame`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_frame)'s size is the size Day lays the content out at, the size `WindowResized` reports;
 the toolkit adds the title bar, the frame and any menu bar around it. [`frame()`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.frame) reports the
 outer frame, chrome included.
 
-GTK reports the content wrapper's allocated size, excluding the header and client-side
+[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") reports the content wrapper's allocated size, excluding the header and client-side
 decoration borders. This keeps Day layout and content snapshots in the same coordinate
 system on X11 (including headless Xvfb), Wayland and other GTK window systems.
 
@@ -347,7 +347,7 @@ system on X11 (including headless Xvfb), Wayland and other GTK window systems.
 
 [`day::monitors()`](https://docs.rs/day-app/latest/day/fn.monitors.html) lists the displays: an id, a name, the frame, the work area (the frame minus
 the menu bar, Dock, taskbar or panels), the scale, and which one is primary, all in desktop
-points (`Cap::Monitors`). A phone or the web reports its one screen. GTK 4 exposes no work area or
+points (`Cap::Monitors`). A phone or the web reports its one screen. [GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") exposes no work area or
 primary display, so there the work area is the whole display and the first one is primary.
 
 ### Remembered frames
@@ -364,21 +364,21 @@ See [storage locations](fs.md#where-files-live) for platform paths and overrides
 no attached display shows any more is dropped, so a window never reopens off-screen; the size is
 kept. A minimized or fullscreen window keeps the last ordinary frame it had.
 
-## Window tabs on macOS
+## Window tabs on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
 
-Ordinary windows group as native macOS tabs per the user's "Prefer tabs" setting. `WindowOptions::
+Ordinary [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") group as native [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") tabs per the user's "Prefer tabs" setting. `WindowOptions::
 tabbing` puts a window in a tab group of its own:
 
 | `WindowTabbing` | Effect |
 |---|---|
-| `Automatic` | The default: the window tabs with the app's other ordinary windows; preferences windows never do. |
-| `Group(id)` | Tab only with windows of the same group, following the user's setting. |
+| `Automatic` | The default: the window tabs with the app's other ordinary [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"); preferences windows never do. |
+| `Group(id)` | Tab only with [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") of the same group, following the user's setting. |
 | `Preferred(id)` | Always open as a tab of a window in the group. |
 | `Disallowed` | Never become a tab. |
 
 [`register_new_window_for(group, build)`](https://docs.rs/day-core/latest/day_core/windows/fn.register_new_window_for.html) is the builder behind the tab bar's "+" in that group's
-windows. A group without one falls back to the app's [`register_new_window`](https://docs.rs/day-core/latest/day_core/windows/fn.register_new_window.html) builder. AppKit and
-Qt on macOS (through `crates/day-platform-macos`) answer `Cap::WindowTabbing`; every other
+[windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"). A group without one falls back to the app's [`register_new_window`](https://docs.rs/day-core/latest/day_core/windows/fn.register_new_window.html) builder. [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and
+[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") (through `crates/day-platform-macos`) answer `Cap::WindowTabbing`; every other
 platform has no system window tabs and ignores the option.
 
 ## Keeping the app running
@@ -409,31 +409,31 @@ The join follows two rules. An **empty** title stays empty, so a window the app 
 untitled does not grow a bar of build metadata. And an already-tagged title is left alone, since
 the same window can be retitled many times.
 
-The tag is on the window title only. The macOS App menu, the About panel and the process name
+The tag is on the window title only. The [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") App menu, the About panel and the process name
 read the app's *name*, so [`launch_with`](https://docs.rs/day-core/latest/day_core/fn.launch_with.html) pins [`WindowOptions::app_name`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.app_name) to the undecorated title
 before tagging; an app that sets only [`title`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.title) still shows "Day News" in its App menu.
 
 ## Toolkit implementations
 
-| Toolkit | Additional windows |
+| Toolkit | Additional [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") |
 | --- | --- |
-| AppKit | Native windows, including macOS window tabs. |
-| GTK | Native application windows. Preferences and About normally use dialogs over the active window; on macOS they use separate windows. |
-| Qt | Native windows. |
-| WinUI | Native windows; check keyboard accelerators in secondary windows. |
-| UIKit | Native scenes on supported iPads; a cover on iPhone. Register a new-window builder to supply content for scenes opened by the OS. |
-| Android | Document-style activities; Preferences uses a cover. |
-| ArkUI | Additional abilities when the host registers the launchers; Preferences uses a cover. |
-| Web | Covers within the app page. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Native [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), including [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") window tabs. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Native application [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"). Preferences and About normally use dialogs over the active window; on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") they use separate windows. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | Native [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"). |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Native [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"); check keyboard accelerators in secondary windows. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Native scenes on supported iPads; a cover on iPhone. Register a new-window builder to supply content for scenes opened by the OS. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Document-style activities; Preferences uses a cover. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Additional abilities when the host registers the launchers; Preferences uses a cover. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Covers within the app page. |
 
-On macOS with GTK, native embedded views can cover an in-window dialog. Day presents affected
-alerts in separate windows. On HarmonyOS, check covers with actual device captures; interaction
+On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") with [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), native embedded views can cover an in-window dialog. Day presents affected
+alerts in separate [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"). On [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), check covers with actual device captures; interaction
 and capture behavior can differ.
 
 ## Document-window tabs
 
 [`document_tabs`](https://docs.rs/day-pieces/latest/day_pieces/fn.document_tabs.html) can present resident
-documents in OS window groups on AppKit and macOS Qt. GTK uses
+documents in OS window groups on [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"). [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") uses
 [AdwTabView](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html).
 Document content retains its reactive state when moved between presentations.
 

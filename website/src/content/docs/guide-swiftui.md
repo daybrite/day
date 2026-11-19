@@ -19,7 +19,7 @@ typed Rust constructors for calling them from the rest of the UI:
 crate::swiftui::TemperatureDial(room_name, 21.5)
 ```
 
-**Works on:** `macos-appkit`, `ios-uikit`. Every other target compiles the same code and you
+**Works on:** [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"). Every other target compiles the same code and you
 gate the UI with a support probe (below). The full contract is in
 [the swiftui reference](/docs/reference/swiftui).
 
@@ -130,9 +130,9 @@ fn climate_card(temp: Signal<f64>) -> AnyPiece {
 - Arguments are reactive. Each parameter takes a constant, a `Signal`, or a closure. When a reactive
   argument changes, Day re-invokes the view's initializer with the new values, and SwiftUI
   reconciles it like any parent-driven update, so `@State` inside the view survives.
-- Gate with [`support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html). [`day_piece_swiftui::support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html) is `Native` only on `macos-appkit` and
-  `ios-uikit`. A `#[cfg(target_os = "macos")]` is the wrong gate: it is also true on `macos-gtk` and
-  `macos-qt`, where there is no AppKit view tree to host into.
+- Gate with [`support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html). [`day_piece_swiftui::support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html) is `Native` only on [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and
+  [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"). A `#[cfg(target_os = "macos")]` is the wrong gate: it is also true on [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") and
+  [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt"), where there is no AppKit view tree to host into.
 
 The hosted view fills the space it's offered, like [`image`](https://docs.rs/day-pieces/latest/day_pieces/fn.image.html) or [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html); constrain it with
 [`.frame(w, h)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.frame) when it shouldn't.

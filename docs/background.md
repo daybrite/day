@@ -34,8 +34,8 @@ reports persistent and in-process scheduling separately.
 
 | Need | Scheduler | Platforms |
 | --- | --- | --- |
-| Retain a request after the app process exits | Persistent OS scheduling | iOS and Android |
-| Run delayed work while the process remains alive | In-process scheduling | iOS, Android, macOS, Windows, and Linux |
+| Retain a request after the app process exits | Persistent OS scheduling | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") |
+| Run delayed work while the process remains alive | In-process scheduling | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), and [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") |
 
 Persistent scheduling never falls back to in-process work. Desktop persistent scheduling is
 unsupported; web and HarmonyOS support neither scheduler. In-process scheduling does not keep
@@ -112,10 +112,10 @@ active, including cancelled handlers that have not yet returned.
 
 | Platform | Setup and limits |
 | --- | --- |
-| iOS / UIKit | Uses `BGProcessingTaskRequest`. List task identifiers in `BGTaskSchedulerPermittedIdentifiers` and include `processing` in `UIBackgroundModes`. Repeating tasks resubmit before execution. |
-| Android / Material | Uses WorkManager, with dependencies and manifest permissions contributed by the package. A Worker can start the Rust handler without an Activity. Force-stop prevents execution until the user opens the app again. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Uses `BGProcessingTaskRequest`. List task identifiers in `BGTaskSchedulerPermittedIdentifiers` and include `processing` in `UIBackgroundModes`. Repeating tasks resubmit before execution. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") / Material | Uses WorkManager, with dependencies and manifest permissions contributed by the package. A Worker can start the Rust handler without an Activity. Force-stop prevents execution until the user opens the app again. |
 
-In the iOS host configuration, declare each registered identifier:
+In the [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") host configuration, declare each registered identifier:
 
 ```xml
 <key>BGTaskSchedulerPermittedIdentifiers</key>
@@ -125,7 +125,7 @@ In the iOS host configuration, declare each registered identifier:
 ```
 
 See Day's [native project configuration](/docs/how-to/native-projects), Apple's
-[Background Tasks](https://developer.apple.com/documentation/backgroundtasks), and Android's
+[Background Tasks](https://developer.apple.com/documentation/backgroundtasks), and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s
 [WorkManager guide](https://developer.android.com/develop/background-work/background-tasks/persistent-work).
 This package does not provide continuous execution, foreground services, or background file
 transfers. OS scheduling does not guarantee eventual execution.

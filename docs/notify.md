@@ -30,9 +30,9 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android | Posting and scheduled delivery; Android exact scheduling requires an additional grant. |
-| HarmonyOS | Immediate delivery only. |
-| Windows, Linux (GTK / Qt), Web | Posting is unsupported. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Posting and scheduled delivery; [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") exact scheduling requires an additional grant. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Immediate delivery only. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), Web | Posting is unsupported. |
 
 ## API
 
@@ -75,20 +75,20 @@ promise to replace their chosen importance. Apple acceptance is not permission o
 Platform guidance: [Apple: notifications](https://developer.apple.com/design/human-interface-guidelines/notifications); [Android: notifications](https://developer.android.com/develop/ui/views/notifications).
 
 These values follow each toolkit's [`capabilities()`](https://docs.rs/day-part-local-notify/latest/day_part_local_notify/fn.capabilities.html) implementation. Query it at runtime:
-Android and HarmonyOS depend on their native bridge being available, and macOS requires an app bundle.
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") and [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") depend on their native bridge being available, and [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") requires an app bundle.
 
 | Platform | Post | Schedule after exit | Exact scheduling | User channel settings | Badge | Custom icon | Tap route |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS / iOS | Yes | Yes | Yes | No | Yes | No | Yes |
-| Android | Yes | Yes | With exact-alarm grant | Yes | Launcher-dependent | Yes | Yes |
-| HarmonyOS | Yes | No | No | No | Yes | No | Yes |
-| Linux / Windows / browser | No | No | No | No | No | No | No |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Yes | Yes | Yes | No | Yes | No | Yes |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Yes | Yes | With exact-alarm grant | Yes | Launcher-dependent | Yes | Yes |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Yes | No | No | No | Yes | No | Yes |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / browser | No | No | No | No | No | No | No |
 
-HarmonyOS uses Notification Kit. Importance maps to system notification slots rather than
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") uses Notification Kit. Importance maps to system notification slots rather than
 app-defined channel settings. A delayed notification uses an in-process timer: exiting loses
 it, and background suspension can delay it. Request notification permission before posting.
 
-Apple schedules through the system notification center. Android persists schedules and uses
+Apple schedules through the system notification center. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") persists schedules and uses
 an `AlarmManager` receiver, including re-arming after reboot. Without the exact-alarm grant,
 Android falls back to an inexact alarm. See the [scheduling guide](/docs/how-to/guide-notifications#4-schedule-and-cancel).
 

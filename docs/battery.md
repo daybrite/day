@@ -28,8 +28,8 @@ or dependency entry in `Day.toml` are needed.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Battery information where hardware and OS reporting are available. |
-| Web | Unavailable; [`status()`](https://docs.rs/day-part-device/latest/day_part_device/battery/fn.status.html) returns `None`. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Battery information where hardware and OS reporting are available. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Unavailable; [`status()`](https://docs.rs/day-part-device/latest/day_part_device/battery/fn.status.html) returns `None`. |
 
 ## Authoring
 
@@ -51,19 +51,19 @@ an OS concern rather than a toolkit one. `crates/day-part-device/examples/batter
 
 | OS | API | dependency |
 |---|---|---|
-| macOS | IOKit [`IOPowerSources`](https://developer.apple.com/documentation/iokit/iopowersources_h) (CoreFoundation) | `core-foundation`, IOKit framework |
-| iOS | [`UIDevice.batteryLevel`](https://developer.apple.com/documentation/uikit/uidevice) / `batteryState` | `objc2-ui-kit` |
-| Windows | [`GetSystemPowerStatus`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getsystempowerstatus) | raw FFI (kernel32) |
-| Linux | [`/sys/class/power_supply`](https://docs.kernel.org/power/power_supply_class.html) | std only |
-| HarmonyOS | native [`OH_BatteryInfo_GetCapacity`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) / [`GetPluggedType`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
-| Android | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-toolkit-material` + [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) ([bridge](bridge.md)) |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | IOKit [`IOPowerSources`](https://developer.apple.com/documentation/iokit/iopowersources_h) (CoreFoundation) | `core-foundation`, IOKit framework |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIDevice.batteryLevel`](https://developer.apple.com/documentation/uikit/uidevice) / `batteryState` | `objc2-ui-kit` |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [`GetSystemPowerStatus`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getsystempowerstatus) | raw FFI (kernel32) |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | [`/sys/class/power_supply`](https://docs.kernel.org/power/power_supply_class.html) | std only |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | native [`OH_BatteryInfo_GetCapacity`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) / [`GetPluggedType`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/capi-oh-batteryinfo.md) (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`BatteryManager`](https://developer.android.com/reference/android/os/BatteryManager) via the inline Java arm in `src/android.rs` | `day-toolkit-material` + [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) ([bridge](bridge.md)) |
 
-iOS reads on the main thread ([`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is `MainThreadOnly`); off it, [`status()`](https://docs.rs/day-part-device/latest/day_part_device/battery/fn.status.html) returns `None`. The
+[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") reads on the main thread ([`UIDevice`](https://developer.apple.com/documentation/uikit/uidevice) is `MainThreadOnly`); off it, [`status()`](https://docs.rs/day-part-device/latest/day_part_device/battery/fn.status.html) returns `None`. The
 simulator has no battery, so you get `level: None, state: Unknown` (the API path still runs).
 
-HarmonyOS is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`
 and uses the native BasicServicesKit C API instead. That's pure FFI: it needs neither a permission
-nor the Day runtime (unlike Android). The native API exposes capacity + plugged type but no explicit
+nor the Day runtime (unlike [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")). The native API exposes capacity + plugged type but no explicit
 charge state, so the state is inferred from whether external power is connected. The showcase's
 Device & sensors page shows a live readout ([docs/harmonyos](harmonyos.md)).
 

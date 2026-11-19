@@ -82,12 +82,12 @@ The default `mock` feature supports editor checks. `day build` selects the targe
 
 ## 4. Prepare the native host
 
-On macOS, generate the Swift runner and host configuration:
+On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), generate the Swift runner and host configuration:
 
 <!-- tutorial-step: first-app/host -->
 
 Keep the files under `platform/macos/`. Builds generate the Xcode project.
-Windows and Linux use `main.rs` and skip this command.
+[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") and [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") use `main.rs` and skip this command.
 
 ## 5. Build and open the window
 

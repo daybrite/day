@@ -32,8 +32,8 @@ sender credentials on the server.
 
 | Cargo feature | Provider crate | Platform |
 | --- | --- | --- |
-| `ios-apns` (default) | `day-part-push-ios-apns` | iOS / UIKit |
-| `android-fcm` (default) | `day-part-push-android-fcm` | Android / Material with Google Play services |
+| `ios-apns` (default) | `day-part-push-ios-apns` | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") |
+| `android-fcm` (default) | `day-part-push-android-fcm` | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") / Material with Google Play services |
 | `relay` | Optional client for the demo relay | A configured HTTPS relay |
 
 Each native provider is restricted to its target OS. Desktop, web, and HarmonyOS do not have
@@ -96,14 +96,14 @@ registration and clears the cached token. Remove the installation from your serv
 
 | Platform | Setup and delivery behavior |
 | --- | --- |
-| iOS / UIKit | Enable Push Notifications for the app identifier and provision it with that capability. Include `aps-environment` in signing entitlements. Development tokens use the APNs sandbox; distribution tokens use production. |
-| Android / Material | Register the exact application ID in Firebase and provide its client resources. Foreground messages reach the app; background notification payloads are displayed by the OS and returned when tapped. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | Enable Push Notifications for the app identifier and provision it with that capability. Include `aps-environment` in signing entitlements. Development tokens use the APNs sandbox; distribution tokens use production. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") / Material | Register the exact application ID in Firebase and provide its client resources. Foreground messages reach the app; background notification payloads are displayed by the OS and returned when tapped. |
 
-On iOS, the provider shares Day's notification delegate with [local notifications](/docs/reference/notify).
+On [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), the provider shares Day's notification delegate with [local notifications](/docs/reference/notify).
 Silent-push background execution and notification service extensions are outside this API.
 See Apple's [remote notification registration guide](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns).
 
-On Android, supply `google_app_id`, `gcm_defaultSenderId`, `google_api_key`, and `project_id` in
+On [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), supply `google_app_id`, `gcm_defaultSenderId`, `google_api_key`, and `project_id` in
 Android XML resources under `platform/android/res/values/`. The provider reads these with
 Firebase's resource-based configuration; the Google Services Gradle plugin is not required.
 These values are client configuration, not the service-account private key. Automatic messaging

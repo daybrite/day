@@ -111,7 +111,7 @@ shape whichever tool captured them. Set `DAY_SCREENSHOT_RAW=1` to keep the captu
 | Waiting | `wait_for` (an id appears; `timeout_secs` raises its budget), `wait_idle`, `pause` |
 | Acting | `tap` (`repeat`), `input`, `set_value`, `toggle`, `select`, `activate` (invoke a list row without changing selection), `submit`, `focus`, `scroll_to` (to an `edge`, an `x`/`y` offset, or an element to reveal), `reorder` (list row `from` → `to`), `drag`, `hover` (`at`, or `leave`), `pan` (`by`), `pinch` (`scale`), `rotate` (`rotation`, in radians) |
 | Navigation | `navigate`, `nav_back`, `assert_route` |
-| Window chrome | `menu` (`item`/`key`/`path`), `context_menu` (an element's context menu or a `menu_button`'s menu: `id`, then `item_id`/`item`/`key`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`; omitted: the initial window, which ends the app — pair with `expect_exit`; GTK today) |
+| Window chrome | `menu` (`item`/`key`/`path`), `context_menu` (an element's context menu or a `menu_button`'s menu: `id`, then `item_id`/`item`/`key`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`; omitted: the initial window, which ends the app — pair with `expect_exit`; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") today) |
 | Asserting | `assert_visible`, `assert_hidden` (missing, empty, or hidden natively), `assert_text` (`timeout_secs` raises its budget), `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
 | Web views | `web_eval` (`id`, `script`, `text`/`contains`; `timeout_secs` raises its budget for cold engine startup or slow page loads) |
 | Dialogs | `assert_presented`, `respond` (a `button` index, prompt `text`, file `path`, or `dismiss`) |
@@ -153,12 +153,12 @@ Target elements by ids you know to be interactive, and scroll explicitly when a 
 element brought into view.
 
 Any step can be gated per target: `skip_on:` drops it where it names, and `only_on:` is its
-mirror, keeping the step only where it names. Both take a target (`web-dom`), a toolkit
+mirror, keeping the step only where it names. Both take a target ([`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")), a toolkit
 (`uikit`), or a platform, the first part of a target name: `ios`, `android`, `macos`, `linux`,
 `windows`, `harmony`, `web`. Opt a step in by platform when it belongs to a few places
 (`only_on: [ios, web]`), and opt it out when one place lacks what it needs (`skip_on:
 [web-dom]`). A token that names nothing is reported as a likely misspelling. One walkthrough then
-covers every [toolkit](/docs/reference/glossary#backend). Use `winui` or `windows-winui` to
+covers every [toolkit](/docs/reference/glossary#backend). Use `winui` or [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") to
 match the Windows WinUI target.
 
 The same two gates match a [build flavor](/docs/how-to/flavors), written `flavor:<name>`, with
@@ -323,11 +323,11 @@ narrow-layout run stays narrow. How each target reaches the scale:
 
 | target | how |
 | --- | --- |
-| `linux-gtk`, `macos-gtk` | renders its own snapshot through a scale transform, on any display, a 1× xvfb included |
-| `linux-qt`, `macos-qt` | renders the widget into a pixmap with that device pixel ratio |
-| `web-dom` | the driver browser's viewport and device scale factor |
-| `macos-appkit` | reads the window server's pixels, so the scale is the display's. Where no attached display has it (a CI runner's is 1×), `day launch` creates a HiDPI virtual display for the run and the app opens its window there. Where the window server will not run that display at 2× (GitHub's macOS runners), it runs it at 1×, which still holds the whole window: a 1280×800-point capture is then 1280×800 pixels. `DAY_CAPTURE_DISPLAY=native` turns that off; `=virtual` forces it |
-| `windows-winui` | reads the window's real pixels at the desktop's scale, frame included. At 100% scaling the default capture is 1280×800, which the Mac App Store also takes |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") | renders its own snapshot through a scale transform, on any display, a 1× xvfb included |
+| [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") | renders the widget into a pixmap with that device pixel ratio |
+| [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the driver browser's viewport and device scale factor |
+| [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | reads the window server's pixels, so the scale is the display's. Where no attached display has it (a CI runner's is 1×), `day launch` creates a HiDPI virtual display for the run and the app opens its window there. Where the window server will not run that display at 2× (GitHub's [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") runners), it runs it at 1×, which still holds the whole window: a 1280×800-point capture is then 1280×800 pixels. `DAY_CAPTURE_DISPLAY=native` turns that off; `=virtual` forces it |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | reads the window's real pixels at the desktop's scale, frame included. At 100% scaling the default capture is 1280×800, which the Mac App Store also takes |
 
 ## Recording
 

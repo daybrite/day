@@ -66,12 +66,12 @@ messages on the UI thread. See [async ownership](/docs/explanation/async).
 
 | Platform | Engine and limits |
 | --- | --- |
-| macOS / iOS | [AVSpeechSynthesizer](https://developer.apple.com/documentation/avfaudio/avspeechsynthesizer); uses the system voice. |
-| Android | [TextToSpeech](https://developer.android.com/reference/android/speech/tts/TextToSpeech); engine initialization can delay the first utterance. |
-| Windows | [Speech API](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee125663(v=vs.85)); uses an installed SAPI voice. |
-| Linux / GTK / Qt | speech-dispatcher must be installed and available. Completion returns `Unobserved`; it does not track the end of audible speech. |
-| HarmonyOS | Core Speech Kit integration is reported as emulated and uses a Chinese voice configuration. |
-| Web | [SpeechSynthesis](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis); installed voices and playback policy depend on the browser. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [AVSpeechSynthesizer](https://developer.apple.com/documentation/avfaudio/avspeechsynthesizer); uses the system voice. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [TextToSpeech](https://developer.android.com/reference/android/speech/tts/TextToSpeech); engine initialization can delay the first utterance. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [Speech API](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee125663(v=vs.85)); uses an installed SAPI voice. |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | speech-dispatcher must be installed and available. Completion returns `Unobserved`; it does not track the end of audible speech. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Core Speech Kit integration is reported as emulated and uses a Chinese voice configuration. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | [SpeechSynthesis](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis); installed voices and playback policy depend on the browser. |
 
 Handle unsupported and engine-error results even after checking availability. The API does not
 expose voice selection, rate, pitch, or a per-utterance language. When language choice is

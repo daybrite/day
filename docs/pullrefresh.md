@@ -25,9 +25,9 @@ its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| UIKit, Android, ArkUI | Native refresh control and pull gesture. |
-| AppKit, GTK | Emulated indicator with native overscroll detection. |
-| Qt, WinUI, Web | Composed indicator; start refresh programmatically rather than relying on a native pull gesture. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Native refresh control and pull gesture. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Emulated indicator with native overscroll detection. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), Web | Composed indicator; start refresh programmatically rather than relying on a native pull gesture. |
 
 ## Authoring
 
@@ -70,12 +70,12 @@ Platform guidance: [Android: swipe-to-refresh](https://developer.android.com/dev
 
 | Target | Tier | Mechanism |
 |---|---|---|
-| ios-uikit | **Native** | A passthrough host view attaches a [`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol) to the descendant [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview) when day mounts it (`didAddSubview:`, which covers [`list()`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html), since a [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) is a [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview)). |
-| android-material | **Native** | The Android toolkit's `DayPullRefresh extends SwipeRefreshLayout` (AndroidX, added to Gradle via `[package.metadata.day.android]`); the scrollable mounts directly into it. |
-| harmony-arkui | **Native** | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) created by the toolkit's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
-| macos-appkit | Emulated | Spinner-chip overlay + the pull gesture from elastic scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
-| gtk | Emulated | Overlay + [`GtkScrolledWindow::edge-overshot`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) (Top), GTK's purpose-built overshoot signal. |
-| Qt / WinUI | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; WinUI's `RefreshContainer` is touch-only; a native tier is a follow-up for touch devices). |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | **Native** | A passthrough host view attaches a [`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol) to the descendant [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview) when day mounts it (`didAddSubview:`, which covers [`list()`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html), since a [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) is a [`UIScrollView`](https://developer.apple.com/documentation/uikit/uiscrollview)). |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | **Native** | The [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") toolkit's `DayPullRefresh extends SwipeRefreshLayout` (AndroidX, added to Gradle via `[package.metadata.day.android]`); the scrollable mounts directly into it. |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | **Native** | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) created by the toolkit's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Emulated | Spinner-chip overlay + the pull gesture from elastic scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | Emulated | Overlay + [`GtkScrolledWindow::edge-overshot`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) (Top), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")'s purpose-built overshoot signal. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Emulated | Overlay + programmatic only (desktop [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") has no elastic overscroll; [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")'s `RefreshContainer` is touch-only; a native tier is a follow-up for touch devices). |
 | mock | Emulated | Composition path; drives the piece's tests via `ToggleChanged`. |
 
 The emulated indicator is the built-in [`spinner()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spinner.html) in a floating chip, shown while `refreshing`:

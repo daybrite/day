@@ -56,12 +56,12 @@ day::window_image().chrome().capture()?
 
 | | content (default) | [`.chrome()`](https://docs.rs/day-app/latest/day/struct.WindowImage.html#method.chrome) |
 |---|---|---|
-| macOS | the content view | plus the titlebar and window toolbar |
-| iOS | the app's root view | plus the status bar |
-| Linux | the content area | plus the GTK HeaderBar (client-side decorations) |
-| Android | the activity's decor content | plus the status bar (same pixel size where the app draws edge-to-edge; the bar's own pixels appear, the frame does not grow) |
-| Windows, Qt | the window, already including in-window chrome; see below | same image |
-| HarmonyOS | the window root node | same image |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the content view | plus the titlebar and window toolbar |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | the app's root view | plus the status bar |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | the content area | plus the [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") HeaderBar (client-side decorations) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | the activity's decor content | plus the status bar (same pixel size where the app draws edge-to-edge; the bar's own pixels appear, the frame does not grow) |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | the window, already including in-window chrome; see below | same image |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the window root node | same image |
 
 On Windows and Qt, the capture already includes the chrome drawn inside the window.
 Calling [`chrome()`](https://docs.rs/day-app/latest/day/struct.WindowImage.html#method.chrome)
@@ -78,7 +78,7 @@ window, an IME candidate popup, a screen-recording indicator) is part of any cap
 if day::window_image_support() == Support::Native { /* offer the command */ }
 ```
 
-It answers `Support::Unsupported` on **Web**, where a
+It answers `Support::Unsupported` on **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")**, where a
 DOM cannot rasterize itself. Gate the UI on it (the Showcase's Screenshot menu item
 does) rather than offering a command that can only fail.
 
@@ -89,23 +89,23 @@ no window on screen yet, a zero-size window, a compositor that declined.
 
 | toolkit | API |
 |---|---|
-| macOS (AppKit) | [`CGWindowListCreateImage`](https://developer.apple.com/documentation/coregraphics/cgwindowlistcreateimage), cropped to the content view; `cacheDisplayInRect` into an [`NSBitmapImageRep`](https://developer.apple.com/documentation/appkit/nsbitmapimagerep) when the window server declines |
-| iOS (UIKit) | [`UIGraphicsImageRenderer`](https://developer.apple.com/documentation/uikit/uigraphicsimagerenderer) + `drawViewHierarchyInRect:afterScreenUpdates:` |
-| macOS (GTK) | Window-server image cropped to the GTK widget, including Cocoa child views; GTK widget rendering when the window server declines |
-| Linux (GTK) | [`GtkWidgetPaintable`](https://docs.gtk.org/gtk4/class.WidgetPaintable.html) rendered through the window's own `GskRenderer` |
-| Qt | [`QWidget::grab()`](https://doc.qt.io/qt-6/qwidget.html) |
-| Windows (WinUI) | Windows Graphics Capture (WGC), including window chrome and compositor content; `RenderTargetBitmap` of the content tree when WGC is unavailable |
-| Android | [`View.draw(Canvas)`](https://developer.android.com/reference/android/view/View) into a [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap), [`Bitmap.compress(PNG)`](https://developer.android.com/reference/android/graphics/Bitmap); a software canvas ignores outline clipping, so Day's containers clip their rounded corners by hand there |
-| HarmonyOS (ArkUI) | [`OH_ArkUI_GetNodeSnapshot`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) + the native image packer |
-| Web | unsupported |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")) | [`CGWindowListCreateImage`](https://developer.apple.com/documentation/coregraphics/cgwindowlistcreateimage), cropped to the content view; `cacheDisplayInRect` into an [`NSBitmapImageRep`](https://developer.apple.com/documentation/appkit/nsbitmapimagerep) when the window server declines |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ([UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) | [`UIGraphicsImageRenderer`](https://developer.apple.com/documentation/uikit/uigraphicsimagerenderer) + `drawViewHierarchyInRect:afterScreenUpdates:` |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")) | Window-server image cropped to the [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") widget, including Cocoa child views; GTK widget rendering when the window server declines |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")) | [`GtkWidgetPaintable`](https://docs.gtk.org/gtk4/class.WidgetPaintable.html) rendered through the window's own `GskRenderer` |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QWidget::grab()`](https://doc.qt.io/qt-6/qwidget.html) |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") Graphics Capture (WGC), including window chrome and compositor content; `RenderTargetBitmap` of the content tree when WGC is unavailable |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`View.draw(Canvas)`](https://developer.android.com/reference/android/view/View) into a [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap), [`Bitmap.compress(PNG)`](https://developer.android.com/reference/android/graphics/Bitmap); a software canvas ignores outline clipping, so Day's containers clip their rounded corners by hand there |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") ([ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) | [`OH_ArkUI_GetNodeSnapshot`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) + the native image packer |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | unsupported |
 
-AppKit and UIKit in-process PNG captures use sRGB. UIKit explicitly selects an sRGB renderer
+[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") in-process PNG captures use sRGB. UIKit explicitly selects an sRGB renderer
 with standard dynamic range, so a wide-gamut display does not change the bytes that
 `sample_pixel` compares. This converts the rendered colors; it does not relabel P3 bytes.
 External `simctl` screenshots keep their own color profile.
 
-**AppKit prefers the window server.** `cacheDisplayInRect` renders the view hierarchy the app
-drew and nothing else, so macOS's composited materials (a Liquid Glass sidebar, vibrancy)
+**[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") prefers the window server.** `cacheDisplayInRect` renders the view hierarchy the app
+drew and nothing else, so [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")'s composited materials (a Liquid Glass sidebar, vibrancy)
 come back blank. [`CGWindowListCreateImage`](https://developer.apple.com/documentation/coregraphics/cgwindowlistcreateimage) asks the window server for the pixels the user is
 looking at. It has the opposite limitation: it has no image for a window that is not on
 screen, so the offscreen render remains the fallback. That is also why the window server is
@@ -114,7 +114,7 @@ document tabs the primary window is an off-screen host and each document has a w
 own in the tab group, so a capture of the main window shows the group's selected document
 window instead.
 
-**ArkUI encodes natively.** The obvious route is the ArkTS host (that is how
+**[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") encodes natively.** The obvious route is the ArkTS host (that is how
 day-toolkit-arkui reaches the file picker and the browser), but `@ohos.multimedia.image` has no
 synchronous packer at all (`packToData` and `packing` are Promise/callback only), so bridging
 through the host would have forced [`window_image()`](https://docs.rs/day-app/latest/day/fn.window_image.html) to be async on **every** toolkit to satisfy
@@ -150,7 +150,7 @@ different goal, and it does **not** call this API directly.
   capture per shot only to discard it cost 819ms each on the iOS simulator, 33.6s across one
   walkthrough variant. The idle wait that makes a capture land on a settled frame happens either
   way, because the wait is the step's purpose rather than a side effect of the encoding.
-- **Web** — the `DAY_WEB_DRIVER` browser captures the page.
+- **[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** — the `DAY_WEB_DRIVER` browser captures the page.
 
 `day drive` follows the same precedence, so the same screen frames the same way whichever entry
 point took the picture.
@@ -166,14 +166,14 @@ step; they do not authorize a stale capture.
 
 | Toolkit / platform targets | Freshness boundary |
 |---|---|
-| ArkUI / HarmonyOS | Every ArkTS piece module's `settle` ([docs/extending](extending.md); the web view waits for four animation frames and any CSS transition in its page, capped), then an ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
-| GTK / Linux, macOS, Windows | Selected window's frame clock `after-paint`, following a requested draw |
-| Android / Material Components | `registerFrameCommitCallback`; after-draw fallback for software rendering and Android before API 29 |
-| DOM / web | Two animation-frame turns; the browser screenshot operation performs final capture synchronization |
-| Qt / Linux, macOS, Windows | Synchronous [`QWidget::render`](https://doc.qt.io/qt-6/qwidget.html) / `grab` in the capture itself |
-| AppKit / macOS | Layout, display and Core Animation flush in the window capture |
-| UIKit / iOS | In-process capture uses `afterScreenUpdates: true`; external `simctl` capture keeps its existing transition check and capture semantics |
-| WinUI | CompositionTarget/DwmFlush checkpoint followed by selection of a fresh WGC frame |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Every ArkTS piece module's `settle` ([docs/extending](extending.md); the web view waits for four animation frames and any CSS transition in its page, capped), then an ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Selected window's frame clock `after-paint`, following a requested draw |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") / Material Components | `registerFrameCommitCallback`; after-draw fallback for software rendering and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") before API 29 |
+| [DOM](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") / [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | Two animation-frame turns; the browser screenshot operation performs final capture synchronization |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Synchronous [`QWidget::render`](https://doc.qt.io/qt-6/qwidget.html) / `grab` in the capture itself |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Layout, display and Core Animation flush in the window capture |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | In-process capture uses `afterScreenUpdates: true`; external `simctl` capture keeps its existing transition check and capture semantics |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | CompositionTarget/DwmFlush checkpoint followed by selection of a fresh WGC frame |
 
 A host that paints outside the toolkit's frame on every platform — an offscreen engine
 presented through a Day canvas, whose frames arrive after an asynchronous read-back and

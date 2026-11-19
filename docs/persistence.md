@@ -30,7 +30,7 @@ persistence.
   management, SQL execution and tracing, typed records, and JSON import/export.
 - [Regression tests](https://github.com/daybrite/day-persistence/tree/main/crates/day-persistence/tests)
 
-## The web
+## The [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
 
 The extension's `day-sqlite-worker` crate owns its SQLite engine, OPFS worker, and browser
 protocol. Day discovers its browser files through `[package.metadata.day.web]`, just like any

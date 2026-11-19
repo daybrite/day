@@ -105,12 +105,12 @@ See [element IDs](element-ids.md) before writing script locators.
 
 | Toolkit | Native document presentation |
 |---|---|
-| AppKit | OS window tabs; composed mode parks pages in an NSTabView. |
-| Qt | [QTabWidget](https://doc.qt.io/qt-6/qtabwidget.html); macOS can move documents into OS window tabs. |
-| GTK | AdwTabView/AdwTabBar, including macOS. OS-window grouping is unsupported because GDK owns window decorations. |
-| WinUI | TabView with close requests and within-strip dragging. |
-| Android | Scrollable Material TabLayout with add/close controls and host-scoped long-press dragging. |
-| UIKit, ArkUI, DOM | Composed strip; UIKit uses a [UIViewController](https://developer.apple.com/documentation/uikit/uiviewcontroller) container for documents. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | OS window tabs; composed mode parks pages in an NSTabView. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [QTabWidget](https://doc.qt.io/qt-6/qtabwidget.html); [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") can move documents into OS window tabs. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | AdwTabView/AdwTabBar, including [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"). OS-window grouping is unsupported because GDK owns window decorations. |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | TabView with close requests and within-strip dragging. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Scrollable Material TabLayout with add/close controls and host-scoped long-press dragging. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), DOM | Composed strip; [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") uses a [UIViewController](https://developer.apple.com/documentation/uikit/uiviewcontroller) container for documents. |
 
 Toolkit duties distinguish OS-window grouping ([`native_window_tabs`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.native_window_tabs)) from in-window chrome
 (`native_document_tabs`). Both default to false. `DocumentTabsConfig` carries localized labels
@@ -186,10 +186,10 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 
 | Presentation | Native container |
 |---|---|
-| `Split` | a NavigationSplitView: macOS [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) with a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem) (system material, source-list [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview), full-height under the titlebar) + detail; GTK two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s (sidebar | list | detail, every divider draggable); Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); iOS [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller); Android `SlidingPaneLayout`. |
-| `Stack` | one page at a time, back-navigable: [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), the Android back stack, or a desktop back-header above the pages. |
-| `Tabs` | the rows drawn as a tab bar: [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) / Material [`NavigationBarView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationBarView) / [`NavigationView.PaneDisplayMode = Top`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) / an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) on macOS / an [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) on GTK / a [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) on Qt / a composed bar on Web. |
-| `Rail` | the rows as a narrow strip: Material [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView), `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
+| `Split` | a NavigationSplitView: [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) with a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem) (system material, source-list [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview), full-height under the titlebar) + detail; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s (sidebar | list | detail, every divider draggable); [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller); [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") `SlidingPaneLayout`. |
+| `Stack` | one page at a time, back-navigable: [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), the [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") back stack, or a desktop back-header above the pages. |
+| `Tabs` | the rows drawn as a tab bar: [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) / Material [`NavigationBarView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationBarView) / [`NavigationView.PaneDisplayMode = Top`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) / an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / an [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) on [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / a [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) on [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / a composed bar on Web. |
+| `Rail` | the rows as a narrow strip: Material [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView), `PaneDisplayMode = LeftCompact`, an [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") vertical `Tabs`; **roundable** where a toolkit has none. |
 
 [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.html) is one primitive, a selection-bound switcher, and a presentation is chrome plus page
 lifetime rather than a different host. That is why a window crossing a breakpoint re-presents
@@ -204,14 +204,14 @@ navigation existed.
 
 | Toolkit | Tabs presentation | Adaptive |
 |---------|-------------------|----------|
-| macos-appkit | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
-| ios-uikit | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, driven by [`UITab`](https://developer.apple.com/documentation/uikit/uitab) on iOS 18+ and by `viewControllers` below it; see the iOS notes below | yes |
-| android-material | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) too; see the iOS notes below | yes |
-| linux-gtk | [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) of resident pages, each in a filling `DayCell` | no |
-| linux-qt | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) — Qt's own one-of-N container | no |
-| web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
-| harmony-arkui | a composed suite over resident pages, built from Day's primitives (ArkUI's native node set has no tab container): a bottom bar on a compact window, a rail on a medium one, a sidebar column on an expanded one, by the host's width ([docs/size-classes](size-classes.md)) | yes |
-| windows-winui | the same [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, driven by [`UITab`](https://developer.apple.com/documentation/uikit/uitab) on [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 18+ and by `viewControllers` below it; see the iOS notes below | yes |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView) too; see the [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") notes below | yes |
+| [linux-gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) of resident pages, each in a filling `DayCell` | no |
+| [linux-qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) — [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")'s own one-of-N container | no |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | a composed tab bar (`.day-nav.tabs`) | yes |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | a composed suite over resident pages, built from Day's primitives ([ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")'s native node set has no tab container): a bottom bar on a compact window, a rail on a medium one, a sidebar column on an expanded one, by the host's width ([docs/size-classes](size-classes.md)) | yes |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | the same [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
 
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
 desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and pushes.
@@ -241,7 +241,7 @@ this from the widget the style maps to (an [`NSOutlineView`](https://developer.a
 nothing of Day's in front of it: keys go to whatever has focus and no route sits above them
 ([docs/menus](menus.md)).
 
-**Web** has no such widget, so the toolkit builds the behavior: `.day-navmenu` carries the tab
+**[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** has no such widget, so the toolkit builds the behavior: `.day-navmenu` carries the tab
 stop and `role="listbox"`, its rows carry `role="option"` and `aria-selected`, and the shim moves
 the selection by reporting the new index the way the click handler does. It also holds the focus
 across the page swap its own key press caused: a detail pane can contain an element the browser
@@ -419,31 +419,31 @@ nav(section)
 arbitrary rich row (an avatar + preview + badge); a master list that needs those is a [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html), and
 combining a rich master list with native master-detail push is a separate, not-yet-built feature.
 
-**Toolkit support (2026-07):** dynamic add/remove/reselect renders on `macos-appkit`, `linux-gtk`,
-`linux-qt`, and `web-dom` (and their host variants), verified in the showcase walkthrough. The
-`ios-uikit` sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/WinUI
+**Toolkit support (2026-07):** dynamic add/remove/reselect renders on [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"),
+[`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), and [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") (and their host variants), verified in the showcase walkthrough. The
+[`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/WinUI
 tab widgets is in progress (those toolkits ignore the item-set patch until then, so the initial set
 still shows). The item logic is toolkit-independent and covered by
 `mock_e2e::nav_data_driven_items_reconcile`.
 
-### iOS tabs
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") tabs
 
 Tabs use [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller).
-On iOS 18 and later, UIKit can adapt the tab bar into a sidebar; older versions use the
+On [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 18 and later, [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") can adapt the tab bar into a sidebar; older versions use the
 conventional tab bar. Section headings do not collapse destinations into tab groups.
 
 Author tab icons at their intended display size. A bundled vector's declared dimensions
 can affect its native tab image size; see [Vectors](/docs/reference/vectors).
 
-### iOS sidebar
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") sidebar
 
 The sidebar uses a [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview)
-list with UIKit's sidebar appearance and section headings. A page rooted in a scroll view
+list with [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")'s sidebar appearance and section headings. A page rooted in a scroll view
 extends beneath translucent navigation bars, with UIKit adjusting its scroll insets. Other
 content is laid out inside the safe area. Avoid adding a second safe-area inset around a
 navigation host.
 
-### Android sidebar
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") sidebar
 
 The sidebar uses Material's
 [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView),
@@ -485,11 +485,11 @@ gesture and route the back through Day instead (`NavPatch::GuardTop`). What that
 
 | toolkit | native-gesture arming while guarded |
 |---|---|
-| iOS (UIKit) | swipe disabled; the back **button** is vetoed via a [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) subclass's `navigationBar:shouldPopItem:`, which emits the back to Day |
-| Android | a higher-priority [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) routes the system/gesture back and the toolbar up-arrow to Day (the predictive-back preview is unavailable while armed) |
-| HarmonyOS (ArkUI) | the top `NavDestination`'s `onBackPressed` consumes the native back and defers to Day |
-| GTK | the top [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html) sets `can-pop = false` (swipe/Escape disabled; the app drives back through its own control, which is guarded) |
-| macOS / Qt / WinUI / web | no-op — the back button already routes through Day, so the guard runs with no native arming needed |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ([UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) | swipe disabled; the back **button** is vetoed via a [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) subclass's `navigationBar:shouldPopItem:`, which emits the back to Day |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | a higher-priority [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) routes the system/gesture back and the toolbar up-arrow to Day (the predictive-back preview is unavailable while armed) |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") ([ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) | the top `NavDestination`'s `onBackPressed` consumes the native back and defers to Day |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | the top [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html) sets `can-pop = false` (swipe/Escape disabled; the app drives back through its own control, which is guarded) |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / web | no-op — the back button already routes through Day, so the guard runs with no native arming needed |
 
 The guard's logic (intercept, defer, proceed, never-on-programmatic-write) is identical everywhere
 and covered by `mock_e2e::nav_stack_on_back_guard_intercepts_and_defers`.
@@ -552,10 +552,10 @@ enabled, and releases it as soon as none is:
 
 | toolkit | system back while a handler is enabled |
 |---|---|
-| Android | an [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) added first, in `DayActivity.onCreate`, sits beneath every other: a cover's, a nav host's guard and section back, and the `FragmentManager`'s. It is enabled only while a handler is, so a pushed page still pops with the predictive-back preview, and a back that would leave the app still shows the "back to home" preview whenever no handler wants it. Enabled, it passes the press to Day as `NavBack` on `WINDOW_NODE`, and the predictive preview does not show for that press. |
-| HarmonyOS (ArkUI) | the entry page's `onBackPress`, reached once `Navigation` has nothing to pop and no cover is up, consumes the back and passes it to Day. `nav_back: { native: true }` reaches the handler the same way; ArkUI has no call that presses the system back, so the native form does not pop a destination there. |
-| iOS / macOS / GTK / Qt / WinUI | no system back to take: the handler runs for [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html) and dayscript's `nav_back` |
-| web | the browser's Back is history-based and left to the browser; the handler runs for [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html) |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | an [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) added first, in `DayActivity.onCreate`, sits beneath every other: a cover's, a nav host's guard and section back, and the `FragmentManager`'s. It is enabled only while a handler is, so a pushed page still pops with the predictive-back preview, and a back that would leave the app still shows the "back to home" preview whenever no handler wants it. Enabled, it passes the press to Day as `NavBack` on `WINDOW_NODE`, and the predictive preview does not show for that press. |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") ([ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) | the entry page's `onBackPress`, reached once `Navigation` has nothing to pop and no cover is up, consumes the back and passes it to Day. `nav_back: { native: true }` reaches the handler the same way; [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") has no call that presses the system back, so the native form does not pop a destination there. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") / [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | no system back to take: the handler runs for [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html) and dayscript's `nav_back` |
+| [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the browser's Back is history-based and left to the browser; the handler runs for [`nav_back()`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_back.html) |
 
 The precedence, the enabled toggling, and both dayscript forms are covered by
 `mock_e2e::system_back_handler_runs_after_covers_and_pushed_pages`,
@@ -671,7 +671,7 @@ no longer parses) is ignored rather than restoring a broken state.
 [`day::prefs::install_nav_store()`](https://docs.rs/day-app/latest/day/prefs/fn.install_nav_store.html) before the UI mounts unless the app installed a store of its
 own with [`day_core::set_nav_store`](https://docs.rs/day-core/latest/day_core/fn.set_nav_store.html) first (or turned off the `day-app` crate's `prefs` feature).
 
-The prefs store is disk-backed, so restore also survives an **Android process death**: the OS
+The prefs store is disk-backed, so restore also survives an **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") process death**: the OS
 reclaims a backgrounded app and rebuilds it on return, and the value is still on disk. With no
 store installed, [`.restore`](https://docs.rs/day-pieces/latest/day_pieces/trait.NavBuilder.html#tymethod.restore) is a silent no-op, so the same code compiles and runs on a target
 where you don't want persistence: the Showcase installs the store on web only, where a reload is
@@ -827,7 +827,7 @@ breakpoints, what survives a re-presentation, and which toolkits morph today.
 > is push navigation: a list-backed tab is a nested navigation controller, not a swap.
 
 > [!IMPORTANT]
-> A tab bar has nowhere to place the list as a column (on `ios-uikit` a `Pane::List` page
+> A tab bar has nowhere to place the list as a column (on [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") a `Pane::List` page
 > handed to a `.tabSidebar` controller becomes a stray tab), so a host presenting as tabs is
 > never given the native pane. The nav host composes the flow instead, and with
 > `detail_visible` the list-backed tab is a navigation controller of its own: the list at the
@@ -918,7 +918,7 @@ Keyboard: pair the list's content with [`.focusable()`](https://docs.rs/day-piec
 
 Platform guidance: [Apple: navigation and search](https://developer.apple.com/design/human-interface-guidelines/navigation-and-search); [Windows: navigation design](https://learn.microsoft.com/en-us/windows/apps/design/basics/navigation-basics).
 
-- **GTK** adopts libadwaita throughout (`adw::Application` loads the Adwaita stylesheet). The
+- **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")** adopts libadwaita throughout (`adw::Application` loads the Adwaita stylesheet). The
   window is an [`AdwApplicationWindow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ApplicationWindow.html) whose content is an [`AdwToolbarView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ToolbarView.html) (an [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html)
   supplies the title, window controls, and drag; Day's content sits below it). Navigation:
   `Sidebar` → two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s — sidebar | (list | detail) — with a user-draggable
@@ -953,8 +953,8 @@ Platform guidance: [Apple: navigation and search](https://developer.apple.com/de
   either not wanted (dayscript screenshots the instant a toggle returns) or done by the fold
   above. `DAY_GTK_SPLIT`, which used to select the paned, is no longer read.
 > [!NOTE]
-> **The macOS sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
-> its pane to a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem), so AppKit supplies the material (on macOS 26 a
+> **The [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
+> its pane to a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem), so [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") supplies the material (on macOS 26 a
 > `NSContainerConcentricGlassEffectView` floating glass panel). That material samples what is
 > behind the window, and the dayscript screenshot path renders the window offscreen
 > (`cacheDisplayInRect`), where there is nothing to sample: the sidebar comes out a flat white
@@ -963,12 +963,12 @@ Platform guidance: [Apple: navigation and search](https://developer.apple.com/de
 > material altogether, and it is why the gallery's macOS sidebar shots need a window-server
 > capture rather than an offscreen one.
 
-- **macOS [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) / Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html)** honor the resolved presentation: `Split` shows both panes; a
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html)** honor the resolved presentation: `Split` shows both panes; a
   [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) collapses the empty sidebar and stacks every page (top visible) in the detail pane,
   with a **back header** (chevron + centered title, hidden at the root) above the pages;
   desktop has no system back affordance, so a pushed page carries its own way out. The button
   emits the same `NavBack` event mobile back does, writing the pop into the path signal.
-- **Android** hosts each page in an androidx **Fragment** that retains its Day-owned view
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** hosts each page in an androidx **Fragment** that retains its Day-owned view
   (the react-native-screens pattern: the FragmentManager owns when a page shows, Day owns
   what it shows). An adaptive host keeps its current section outside fragment history,
   matching Android’s [two-pane navigation guidance](https://developer.android.com/develop/ui/views/layout/twopane).

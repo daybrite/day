@@ -50,36 +50,36 @@ Everything else depends on which targets you build.
 
 ## Which targets build on which host
 
-| Target | macOS | Linux | Windows |
+| Target | [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") |
 |---|:--:|:--:|:--:|
-| `macos-appkit` | ✅ | — | — |
-| `ios-uikit` | ✅ | — | — |
-| `windows-winui` | — | — | ✅ |
-| `linux-gtk` / `linux-qt` | — | ✅ | in WSL 2 |
-| `macos-gtk` / `macos-qt` | ✅ | — | — |
-| `android-material` | ✅ | ✅ | ✅ |
-| `harmony-arkui` | ✅ | ✅ | ✅ |
-| `web-dom` | ✅ | ✅ | ✅ |
+| [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | ✅ | — | — |
+| [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | ✅ | — | — |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | — | — | ✅ |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | — | ✅ | in WSL 2 |
+| [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") / [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") | ✅ | — | — |
+| [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | ✅ | ✅ | ✅ |
+| [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | ✅ | ✅ | ✅ |
+| [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | ✅ | ✅ | ✅ |
 
-Apple's toolkits build only on macOS, and WinUI and legacy system XAML only on Windows, because they compile
-against SDKs that exist only on the host OS. GTK and Qt are portable, so a Mac can build and run them for
-development as `macos-gtk` and `macos-qt`, even though you ship `linux-gtk` and `linux-qt`.
+Apple's toolkits build only on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") and legacy [system XAML](https://daybrite.dev/docs/reference/platforms "toolkit:windows-xaml") only on [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), because they compile
+against SDKs that exist only on the host OS. [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") are portable, so a Mac can build and run them for
+development as [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") and [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt"), even though you ship [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt").
 
-## macOS
+## [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
 
-macOS and iOS app builds require **Xcode 27 or newer**. Your macOS version must support
+[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") app builds require **Xcode 27 or newer**. Your macOS version must support
 that Xcode release; check
 [Apple's minimum requirements](https://developer.apple.com/support/xcode/) if you are on an older
 release. Continuous integration builds on the current `macos-latest` runner (Apple silicon).
 
-The GTK, Qt, Android, and web targets need Apple’s command-line development tools on macOS:
+The [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), and web targets need Apple’s command-line development tools on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"):
 
 ```bash
 xcode-select --install
 ```
 
 Full Xcode 27 or newer ([App Store](https://apps.apple.com/us/app/xcode/id497799835)) is required for
-`macos-appkit` and `ios-uikit`, whose builds run through `xcodebuild`. Point the command-line tools at it once
+[`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), whose builds run through `xcodebuild`. Point the command-line tools at it once
 installed:
 
 ```bash
@@ -88,7 +88,7 @@ rustup target add aarch64-apple-ios-sim
 ```
 
 Day derives `build/day/xcode/macos/DayApp.xcodeproj` unless an app supplies its own
-`platform/macos/DayApp.xcodeproj`. `macos-appkit` builds through
+`platform/macos/DayApp.xcodeproj`. [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") builds through
 `xcodebuild`, so it needs full Xcode 27 or newer too. (An app that predates the scaffold adopts it with
 `day project add-target macos-appkit`.)
 
@@ -107,20 +107,20 @@ brew install qemu                          # the HarmonyOS emulator
 Swift is needed only when a dependency embeds SwiftUI ([SwiftUI embedding](/docs/how-to/guide-swiftui));
 Xcode and the command-line tools both provide it.
 
-## Windows
+## [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")
 
-`windows-winui` builds on Windows 10 or 11. It renders WinUI 3 from the Windows App SDK 2.5.1;
+[`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") builds on [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") 10 or 11. It renders [WinUI 3](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") from the Windows App SDK 2.5.1;
 see the [Windows platform page](/docs/reference/platforms/windows-winui) for the details.
 
-For `windows-winui`, install the
+For [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), install the
 [Visual Studio 2022 C++ Build Tools](https://visualstudio.microsoft.com/downloads/) (MSVC plus the
-Windows 10/11 SDK) and the MSVC Rust toolchain:
+[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") 10/11 SDK) and the MSVC Rust toolchain:
 
 ```powershell
 rustup default stable-msvc
 ```
 
-Development builds (`day build`, `day launch`) also need the **Windows App Runtime 2.5.1 or
+Development builds (`day build`, `day launch`) also need the **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") App Runtime 2.5.1 or
 newer**, from Microsoft's [Windows App SDK
 downloads](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads); an app started
 without it offers that page. The Windows App SDK packages themselves need no install: the build
@@ -131,18 +131,18 @@ the cache. `day doctor --toolkit winui` checks the toolchain and the runtime.
 A packed app is self-contained: the runtime travels inside the `.msix` and the installer, so your
 users install nothing extra.
 
-To work on the GTK or Qt targets from a Windows machine, build `linux-gtk` or `linux-qt` inside
-[WSL 2](https://learn.microsoft.com/windows/wsl/install), installing the Linux packages below in
+To work on the [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") targets from a [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") machine, build [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") inside
+[WSL 2](https://learn.microsoft.com/windows/wsl/install), installing the [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") packages below in
 the WSL distribution. On Windows 11, WSL shows Linux apps' windows on the Windows desktop.
 
-## Linux
+## [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")
 
-Day's minimums are library versions: **GTK 4.10 with libadwaita 1.5**, and **Qt 6**. Any
+Day's minimums are library versions: **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") 4.10 with libadwaita 1.5**, and **[Qt 6](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")**. Any
 distribution whose repositories carry those development packages works. Continuous integration
 builds on Ubuntu 24.04.
 
-Native vector rendering also requires **librsvg 2.52+ development files** for GTK and
-**Qt SVG development files** for Qt. `day doctor` checks these build dependencies.
+Native vector rendering also requires **librsvg 2.52+ development files** for [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and
+**[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") SVG development files** for Qt. `day doctor` checks these build dependencies.
 
 ```bash
 # Debian / Ubuntu
@@ -151,10 +151,10 @@ sudo apt install qt6-base-dev qt6-svg-dev pkg-config                    # linux-
 sudo apt install qemu-system-x86 qemu-system-gui unzip       # harmony-arkui (emulator)
 ```
 
-The GTK minimums are hard requirements. Day builds stack navigation on [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), and
+The [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") minimums are hard requirements. Day builds stack navigation on [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), and
 its file and alert dialogs on [`GtkFileDialog`](https://docs.gtk.org/gtk4/class.FileDialog.html) and [`GtkAlertDialog`](https://docs.gtk.org/gtk4/class.AlertDialog.html); none of those exist in earlier
-releases. Debian 12 ships GTK 4.8 and cannot build `linux-gtk`; run `-p
-linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day doctor` reports the
+releases. Debian 12 ships GTK 4.8 and cannot build [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"); run `-p
+linux-qt` there, which needs only [Qt 6](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), or build against a newer runtime. `day doctor` reports the
 installed versions against these minimums, so run it first; a version miss otherwise surfaces as a
 build failure inside `gdk4-sys`.
 
@@ -172,10 +172,10 @@ is unaffected.
 
 | Toolkit | Package | Engine |
 |---|---|---|
-| GTK | `libwebkitgtk-6.0-dev` (Debian/Ubuntu) | [WebKitGTK](https://webkitgtk.org) 6 |
-| Qt | `qt6-webengine-dev` (Debian/Ubuntu) | [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-index.html) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `libwebkitgtk-6.0-dev` (Debian/Ubuntu) | [WebKitGTK](https://webkitgtk.org) 6 |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | `qt6-webengine-dev` (Debian/Ubuntu) | [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-index.html) |
 
-Homebrew's `webkitgtk` vends the GTK 3 API and has no bottle, so `macos-gtk` builds without a web
+Homebrew's `webkitgtk` vends the GTK 3 API and has no bottle, so [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") builds without a web
 view.
 
 ## Optional: media playback
@@ -214,26 +214,26 @@ distribution](/docs/how-to/packaging) covers the formats themselves.
 
 | Target | Tool | Install |
 |---|---|---|
-| `linux-gtk`, `linux-qt` | `flatpak-builder` | [flatpak.org](https://flatpak.org/setup/), plus the Flathub remote |
-| `linux-gtk`, `linux-qt` | `linuxdeploy` and its GTK or Qt plugin | [linuxdeploy releases](https://github.com/linuxdeploy/linuxdeploy/releases) |
-| `windows-winui` | `makeappx`, `signtool` | the Windows 10/11 SDK (installed with the Build Tools) |
-| `windows-winui` | `makensis` | [NSIS](https://nsis.sourceforge.io), or `choco install nsis` |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | `flatpak-builder` | [flatpak.org](https://flatpak.org/setup/), plus the Flathub remote |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | `linuxdeploy` and its [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") or [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") plugin | [linuxdeploy releases](https://github.com/linuxdeploy/linuxdeploy/releases) |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `makeappx`, `signtool` | the [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") 10/11 SDK (installed with the Build Tools) |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `makensis` | [NSIS](https://nsis.sourceforge.io), or `choco install nsis` |
 
 Without the `linuxdeploy` GTK or Qt plugin an AppImage still builds, but it will only run on a
 machine that already has the toolkit installed.
 
-## Android
+## [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 
-Android cross-compiles the app to a JNI shared library and runs it inside a Gradle app, so it needs
+[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") cross-compiles the app to a JNI shared library and runs it inside a Gradle app, so it needs
 the Android SDK, an NDK, and a JDK regardless of which host you are on.
 
-1. Install the **Android SDK**, using
+1. Install the **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") SDK**, using
    [Android Studio](https://developer.android.com/studio), or the standalone
    [command-line tools](https://developer.android.com/tools). Day finds it at the platform default
-   (`~/Library/Android/sdk` on macOS, `%LOCALAPPDATA%\Android\Sdk` on Windows, `~/Android/Sdk` on
+   (`~/Library/Android/sdk` on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), `%LOCALAPPDATA%\Android\Sdk` on [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), `~/Android/Sdk` on
    Linux). If you moved it in Android Studio's settings, Day reads the new location from there.
    Set `ANDROID_HOME` to override either.
-2. Install an **NDK**. Android Studio's SDK Manager does not install one by default: open
+2. Install an **NDK**. [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio's SDK Manager does not install one by default: open
    *Settings ▸ Languages & Frameworks ▸ Android SDK ▸ SDK Tools* and check *NDK (Side by side)*.
    Without Studio, run `sdkmanager --install "ndk;<version>"`. Studio does not put `sdkmanager`
    on `PATH`: it lives at `<sdk>/cmdline-tools/latest/bin/sdkmanager` once the *Android SDK
@@ -248,7 +248,7 @@ the Android SDK, an NDK, and a JDK regardless of which host you are on.
    (`brew install openjdk@21`, or [Adoptium](https://adoptium.net)) and set `JAVA_HOME` if the
    `java` on your `PATH` is older than 17.
 
-`day doctor` shows what it found for each of these, including which Android Studio it is using.
+`day doctor` shows what it found for each of these, including which [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio it is using.
 4. Add the Rust target and `cargo-ndk`:
 
 ```bash
@@ -257,14 +257,14 @@ rustup target add x86_64-linux-android     # x86_64 emulator
 cargo install cargo-ndk
 ```
 
-To open, build, or run the app from Android Studio, use **Android Studio 2026.1.4 (Quail 4) or
+To open, build, or run the app from [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio, use **Android Studio 2026.1.4 (Quail 4) or
 newer**. Day's Gradle plugin builds with the Android Gradle Plugin 9.4, and Android Studio syncs
 only the AGP versions it supports. `day build` and `day launch` run Gradle themselves, so they work
 with any Android Studio release.
 
 ### Setting up an emulator
 
-Create an AVD in Android Studio's **Device Manager**, or with `avdmanager create avd`, then start
+Create an AVD in [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio's **Device Manager**, or with `avdmanager create avd`, then start
 it:
 
 ```bash
@@ -281,9 +281,9 @@ removed, so `day devices boot` checks the image first and names the package to r
 
 A booted emulator is needed only to run an app.
 
-## iOS
+## [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 
-`ios-uikit` builds on a macOS host with full Xcode 27 or newer, as covered above. Xcode installs one iOS
+[`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") builds on a [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") host with full Xcode 27 or newer, as covered above. Xcode installs one [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 simulator runtime; add others from Xcode's settings under *Platforms* (or *Components*, depending
 on your Xcode version); Apple documents the flow in
 [Installing additional simulator runtimes](https://developer.apple.com/documentation/xcode/installing-additional-simulator-runtimes).
@@ -296,9 +296,9 @@ xcrun simctl boot "iPhone 16 Pro"  # or open Simulator.app
 `day launch -t ios-uikit` installs into a booted simulator, so boot one first. Apps ship to a
 physical device through Xcode's normal signing setup.
 
-## HarmonyOS
+## [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
-HarmonyOS has two halves with different tool needs, which is why a partial install is common. The
+[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") has two halves with different tool needs, which is why a partial install is common. The
 [HarmonyOS platform page](/docs/reference/platforms/harmony-arkui) has the detail.
 
 1. **The Rust cross-compile** runs through [`cargo-ohos`](https://crates.io/crates/cargo-ohos),
@@ -326,10 +326,10 @@ HarmonyOS has two halves with different tool needs, which is why a partial insta
 `hdc`, which installs and launches the app, sits in the SDK's `toolchains/` directory, beside
 `native/`; Day finds it there or on `PATH`.
 
-### On Linux
+### On [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")
 
-The Linux command-line-tools bundle carries everything above: hvigor, ohpm, a bundled node, and
-an API 18 OpenHarmony SDK (`native`, `ets`, `toolchains` with `hdc` and the signing material)
+The [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") command-line-tools bundle carries everything above: hvigor, ohpm, a bundled node, and
+an API 18 [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") SDK (`native`, `ets`, `toolchains` with `hdc` and the signing material)
 whose tools run natively on a Linux x86_64 host. So one download covers the whole build, with no
 separate SDK. It needs about 2.1 GB to download and 6.5 GB unpacked:
 
@@ -352,25 +352,25 @@ export OHOS_BASE_SDK_HOME=$HOME/ohos/sdk
 export PATH=$OHOS_CLT/bin:$OHOS_CLT/tool/node/bin:$OHOS_CLT/sdk/default/openharmony/toolchains:$PATH
 ```
 
-The bundle's `bin/hvigorw` and `bin/ohpm` run as-is on Linux, using the bundle's own node, and
+The bundle's `bin/hvigorw` and `bin/ohpm` run as-is on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), using the bundle's own node, and
 `tool/node/bin` puts that node on `PATH` for signing, so no separate node install is needed. The
-node wrapper scripts in the [HarmonyOS notes](/docs/how-to/harmonyos) are only for macOS. `day
+node wrapper scripts in the [HarmonyOS notes](/docs/how-to/harmonyos) are only for [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"). `day
 doctor --toolkit harmonyos` should now pass every check.
 
-### On macOS
+### On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
 
-Use the same Linux command-line-tools bundle for hvigor and ohpm, which are pure JavaScript,
+Use the same [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") command-line-tools bundle for hvigor and ohpm, which are pure JavaScript,
 through the node wrappers in the [HarmonyOS notes](/docs/how-to/harmonyos). The bundle's SDK
 tools are Linux binaries, though, so hvigor fails with `spawn ENOEXEC`. Take the SDK from
-`cargo ohos init sdk --api 18` instead: it is the macOS public SDK in the layout hvigor wants, so
+`cargo ohos init sdk --api 18` instead: it is the [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") public SDK in the layout hvigor wants, so
 `cargo ohos` finds its NDK by itself, `hdc` sits in its `toolchains/`, and `OHOS_BASE_SDK_HOME` is
 the `<version>/darwin` directory the download prints.
 
 ### Setting up the Oniro emulator
 
-Day runs the [Oniro](https://oniroproject.org) OpenHarmony emulator directly under QEMU, from a
-public image download. You need `qemu-system-x86_64` (on Linux your distribution's, with its
-display modules: `sudo apt install qemu-system-x86 qemu-system-gui`; on macOS `brew install qemu`)
+Day runs the [Oniro](https://oniroproject.org) [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") emulator directly under QEMU, from a
+public image download. You need `qemu-system-x86_64` (on [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") your distribution's, with its
+display modules: `sudo apt install qemu-system-x86 qemu-system-gui`; on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") `brew install qemu`)
 and about 7 GB of disk: a 1.4 GB zip that unpacks to 5.5 GB of images. The
 zip holds an `images/` directory, so unpacking it in `~/ohos/emulator` lands the images at the
 default location:
@@ -384,10 +384,10 @@ day devices boot -t harmony-arkui                       # --headless for no wind
 
 The image comes from the
 [device_board_oniro releases](https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases)
-(v6.1, OpenHarmony 6.1, is what Day's CI runs). Set `DAY_OHOS_EMULATOR` if you keep the images
+(v6.1, [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") 6.1, is what Day's CI runs). Set `DAY_OHOS_EMULATOR` if you keep the images
 anywhere other than `~/ohos/emulator/images`.
 
-To test on **OpenHarmony 7.0**, use the `x86_64_virt` phone package from
+To test on **[OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") 7.0**, use the `x86_64_virt` phone package from
 [harmony-contrib/ohos-qemu](https://github.com/harmony-contrib/ohos-qemu/releases) instead
 (0.7 GB download, 4.7 GB unpacked). `day devices boot` recognizes its layout by its extra
 `sys_prod.img` and `chip_prod.img`, so every `day` command works against either image:
@@ -400,10 +400,10 @@ export DAY_OHOS_EMULATOR=~/ohos/ohos-qemu/openharmony-qemu-x86_64-x86_64_virt-ph
 day devices boot -t harmony-arkui --headless
 ```
 
-Apps built for API 18 install and run on 7.0 unchanged. Boot prints which OpenHarmony came up. Boot returns once the guest has finished starting, and QEMU keeps
+Apps built for API 18 install and run on 7.0 unchanged. Boot prints which [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") came up. Boot returns once the guest has finished starting, and QEMU keeps
 running in the background; `day launch -t harmony-arkui` then installs and starts the app on it.
 
-On an x86_64 Linux host, the emulator runs KVM-accelerated when you can open `/dev/kvm`. That
+On an x86_64 [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") host, the emulator runs KVM-accelerated when you can open `/dev/kvm`. That
 normally means membership in the `kvm` group:
 
 ```bash
@@ -412,9 +412,9 @@ sudo usermod -aG kvm $USER      # then log out and back in
 
 Without it, Day falls back to TCG software emulation, and boot takes several minutes. The
 emulator gets six vCPUs, or as many as the host has cores when that is fewer; set
-`DAY_OHOS_SMP` to override. On macOS the emulator always runs under TCG.
+`DAY_OHOS_SMP` to override. On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") the emulator always runs under TCG.
 
-On Linux the emulator window is QEMU's SDL display, as the Oniro image's own `run.sh` opens it, at
+On [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") the emulator window is QEMU's SDL display, as the Oniro image's own `run.sh` opens it, at
 the panel `--device` names (a 360×720 phone unless you say otherwise). That needs your
 distribution's QEMU with its display modules (`sudo apt install qemu-system-x86
 qemu-system-gui`); Homebrew's QEMU has no SDL display, and `day` refuses it for a windowed boot. A
@@ -425,9 +425,9 @@ the requested panel. To watch a headless emulator, take screenshots with
 The x86_64 emulator image carries an arm64-only ArkWeb engine, so the web view piece does not
 render there. It works on a physical device.
 
-## Web
+## [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
 
-`web-dom` needs only the wasm target, which the first `day build -t web-dom` adds; to add it
+[`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") needs only the wasm target, which the first `day build -t web-dom` adds; to add it
 yourself:
 
 ```bash
@@ -448,13 +448,13 @@ development machine needs.
 
 | Target | Minimum |
 |---|---|
-| `macos-appkit` | macOS 13 |
-| `ios-uikit` | iOS 15 |
-| `android-material` | API level 24 (Android 7.0), compiled against API 37 |
-| `harmony-arkui` | API level 18 |
-| `windows-winui` | Windows 10 version 1809 (Windows 11 recommended); packed apps carry the Windows App SDK runtime |
-| `linux-gtk` / `linux-qt` | GTK 4.10 with libadwaita 1.5 / Qt 6 |
-| `web-dom` | a current browser, served as static files |
+| [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") 13 |
+| [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") 15 |
+| [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | API level 24 ([Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") 7.0), compiled against API 37 |
+| [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | API level 18 |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") 10 version 1809 (Windows 11 recommended); packed apps carry the Windows App SDK runtime |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") 4.10 with libadwaita 1.5 / [Qt 6](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") |
+| [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | a current browser, served as static files |
 
 ## Check your toolchain
 

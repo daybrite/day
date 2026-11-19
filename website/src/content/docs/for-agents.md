@@ -26,7 +26,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 - `Day.toml` is the app manifest.
 - A **Piece** describes a UI control or container.
 - A **Signal** stores reactive state.
-- A **target** pairs an OS and toolkit, such as `macos-appkit` or `ios-uikit`.
+- A **target** pairs an OS and toolkit, such as [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") or [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit").
 
 ## Architecture
 
@@ -94,13 +94,13 @@ height = 640
 - **Reactivity rule:** pass a signal to a generated message, as in
   [`label(res::str::counter_value(count))`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html). For computed values, format the message inside
   a label's closure. [`label(res::str::hi())`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html) also follows locale changes.
-- A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
-  `android-material`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `web-dom` (wasm in a browser; no process
+- A **target** is `(OS, toolkit)`: [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk"), [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt"), [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"),
+  [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") (wasm in a browser; no process
   environment, so pass runtime flags with `day launch --env K=V` and read them with [`day::env("K")`](https://docs.rs/day-app/latest/day/fn.env.html), which is portable to every target).
 - Each target has a **support tier** ([definitions](/docs/reference/platforms#support-tiers)), which tells
-  you how much to trust it: `ios-uikit`, `android-material`, `macos-appkit` are Tier 1 (thoroughly
-  tested); `linux-gtk`, `linux-qt`, `windows-winui` are Tier 2; `harmony-arkui` and `web-dom` are
-  Tier 3 (experimental, with real gaps); `macos-gtk` and `macos-qt` are
+  you how much to trust it: [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") are Tier 1 (thoroughly
+  tested); [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") are Tier 2; [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") and [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") are
+  Tier 3 (experimental, with real gaps); [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") and [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") are
   Tier 4 development combos that no app ships on and `day pack` refuses. Verify a user-facing
   change on a Tier 1 target unless the change is that platform's.
 
@@ -214,7 +214,7 @@ let text = Signal::new(String::new());
 combo_box(items, text).id(id!(combo))
 ```
 
-SwiftUI views embed via [`day-piece-swiftui`](/docs/reference/swiftui) on macos-appkit / ios-uikit only:
+SwiftUI views embed via [`day-piece-swiftui`](/docs/reference/swiftui) on [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") only:
 [`swiftui("name")`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.swiftui.html) resolves a provider class, or a local SwiftPM package's views become typed
 `crate::swiftui::MyView(…)` constructors. Gate the UI on the probe ([`support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html) is fixed per
 binary, so a plain `if` at build time is right):
@@ -228,8 +228,8 @@ if day_piece_swiftui::support() == Support::Native {
 ```
 
 **Invariant:** [`support()`](https://docs.rs/day-piece-swiftui/latest/day_piece_swiftui/fn.support.html) probes are the only correct gate for platform-limited pieces. Never
-gate on `target_os` or toolkit-feature cfgs; `target_os = "macos"` also covers macos-gtk and
-macos-qt, which have no AppKit view tree.
+gate on `target_os` or toolkit-feature cfgs; `target_os = "macos"` also covers [macos-gtk](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") and
+[macos-qt](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt"), which have no [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") view tree.
 
 ## API quick reference
 

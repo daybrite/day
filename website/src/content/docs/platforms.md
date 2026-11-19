@@ -47,16 +47,16 @@ fail CI; the HarmonyOS job also tolerates build and packaging failures.
 
 | Target | Tier | UI walkthrough in CI | Package formats |
 |---|---|---|---|
-| `macos-appkit` | [Tier 1](/docs/reference/platforms#support-tiers) | Full | `.dmg` |
-| `ios-uikit` | [Tier 1](/docs/reference/platforms#support-tiers) | Full, Simulator | `.ipa` |
-| `android-material` | [Tier 1](/docs/reference/platforms#support-tiers) | Full, emulator; failures tolerated | `.apk`, `.aab` |
-| `linux-gtk` | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
-| `linux-qt` | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
-| `windows-winui` | [Tier 2](/docs/reference/platforms#support-tiers) | Full | `.msix`, installer |
-| `harmony-arkui` | [Tier 3](/docs/reference/platforms#support-tiers) | Best-effort, emulator | `.hap` |
-| `web-dom` | [Tier 3](/docs/reference/platforms#support-tiers) | Full, headless Chromium | Static `dist/` |
-| `macos-gtk` | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
-| `macos-qt` | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
+| [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [Tier 1](/docs/reference/platforms#support-tiers) | Full | `.dmg` |
+| [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [Tier 1](/docs/reference/platforms#support-tiers) | Full, Simulator | `.ipa` |
+| [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [Tier 1](/docs/reference/platforms#support-tiers) | Full, emulator; failures tolerated | `.apk`, `.aab` |
+| [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
+| [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Tier 2](/docs/reference/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
+| [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [Tier 2](/docs/reference/platforms#support-tiers) | Full | `.msix`, installer |
+| [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [Tier 3](/docs/reference/platforms#support-tiers) | Best-effort, emulator | `.hap` |
+| [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | [Tier 3](/docs/reference/platforms#support-tiers) | Full, headless Chromium | Static `dist/` |
+| [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
+| [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
 
 Check the [CI run](https://github.com/daybrite/day/actions/workflows/ci.yml) for the revision you
 intend to ship. A tolerated failure does not block the remaining jobs.
@@ -68,22 +68,22 @@ for the current checkout.
 ### Development combinations
 
 GTK and Qt on macOS support toolkit compatibility testing on a Mac. They do not have release
-packaging, and `macos-gtk` also lacks an accessibility tree. On Windows, build `linux-gtk` and
-`linux-qt` inside [WSL 2](/docs/reference/system-requirements#windows) instead.
+packaging, and [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") also lacks an accessibility tree. On Windows, build [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and
+[`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") inside [WSL 2](/docs/reference/system-requirements#windows) instead.
 
 ## Per-platform notes
 
 Each primary target has a setup guide, known limitations, and a mapping from Day pieces to native
 controls, with links to the platform’s API documentation.
 
-### macOS (`macos-appkit`) — [full page](/docs/reference/platforms/macos-appkit)
+### [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ([`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")) — [full page](/docs/reference/platforms/macos-appkit)
 [Tier 1 · Supported](/docs/reference/platforms#support-tiers)
-Day drives AppKit directly through `objc2`, with a native menu bar, dialogs, and window
+Day drives [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") directly through `objc2`, with a native menu bar, dialogs, and window
 management. Builds require full **Xcode 27 or newer** for the JSON5 host project.
 Packaging produces a signed, notarized `.dmg` when credentials are configured
 ([packaging](/docs/how-to/packaging)).
 
-### iOS (`ios-uikit`) — [full page](/docs/reference/platforms/ios-uikit)
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") ([`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")) — [full page](/docs/reference/platforms/ios-uikit)
 [Tier 1 · Supported](/docs/reference/platforms#support-tiers)
 Day derives a JSON5 Xcode project under `build/day/xcode/`, requiring **Xcode 27 or newer**.
 A checked-in project remains an optional customization override.
@@ -93,7 +93,7 @@ development targets the Simulator; App Store `.ipa` export exists in `day pack` 
 Apple credentials. Without `signing.ios` configuration, the output is an unsigned device archive
 with an `-unsigned.ipa` filename. Physical-device debugging gets less use than the Simulator.
 
-### Android (`android-material`) — [full page](/docs/reference/platforms/android-material)
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") ([`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")) — [full page](/docs/reference/platforms/android-material)
 [Tier 1 · Supported](/docs/reference/platforms#support-tiers)
 Day renders Material Components widgets over JNI, with a generated Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
@@ -101,29 +101,29 @@ with the right ABI. Accessibility annotations are partial
 ([details](/docs/how-to/accessibility#current-limits)), and process-death restoration is a cold
 start unless your app persists its own state.
 
-### Linux (`linux-gtk`, `linux-qt`) — full pages: [GTK](/docs/reference/platforms/linux-gtk), [Qt](/docs/reference/platforms/linux-qt)
+### [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) — full pages: [GTK](/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](/docs/reference/platforms/linux-qt "toolkit:linux-qt")
 [Tier 2 · Demi-supported](/docs/reference/platforms#support-tiers)
-Day renders GTK 4 + libadwaita via `gtk4-rs`, and Qt 6 Widgets via a small compiled C++ shim.
+Day renders [GTK 4](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") + libadwaita via `gtk4-rs`, and [Qt 6](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") Widgets via a small compiled C++ shim.
 The configured walkthrough uses a headless display. Flatpak packages both. The runtime supplies the
-toolkit, so bundles stay app-sized. Pick GTK by default; pick Qt for its cross-OS accessibility bridge or for the Qt library set. The webview piece is
-functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
+toolkit, so bundles stay app-sized. Pick [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") by default; pick [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") for its cross-OS accessibility bridge or for the Qt library set. The webview piece is
+functional on GTK/[Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") (WebKitGTK) and Qt (QtWebEngine).
 
-### Windows (`windows-winui`) — [full page](/docs/reference/platforms/windows-winui)
+### [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") ([`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) — [full page](/docs/reference/platforms/windows-winui)
 [Tier 2 · Demi-supported](/docs/reference/platforms#support-tiers)
-Day renders WinUI 3 controls from the Windows App SDK 2.5.1, hosted in a Win32 window through the
+Day renders [WinUI 3](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") controls from the [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") App SDK 2.5.1, hosted in a Win32 window through the
 SDK's `DesktopWindowXamlSource`. It builds with MSVC, and its C++/WinRT shim follows the same
-pattern as Qt's. Development builds need the Windows App Runtime installed; `day pack` ships the
+pattern as [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")'s. Development builds need the Windows App Runtime installed; `day pack` ships the
 runtime inside the `.msix` and installer, so users install nothing extra. Fewer applications have
-shipped on it than on the Apple, Linux, and Android targets.
+shipped on it than on the Apple, [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") targets.
 
-### HarmonyOS (`harmony-arkui`) — [full page](/docs/reference/platforms/harmony-arkui)
+### [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") ([`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) — [full page](/docs/reference/platforms/harmony-arkui)
 [Tier 3 · Experimental](/docs/reference/platforms#support-tiers)
-The newest toolkit drives ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
-an ArkTS host project. The toolchain requires the OpenHarmony SDK and command-line tools, which
+The newest toolkit drives [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") via the NDK C API, packaged as a `.hap` by hvigor with
+an ArkTS host project. The toolchain requires the [OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") SDK and command-line tools, which
 take the most setup steps of the supported platforms; `day doctor --toolkit harmonyos`
 and the [HarmonyOS notes](/docs/how-to/harmonyos) cover the install. CI allows failures in the emulator checks.
 
-### Web (`web-dom`) — [full page](/docs/reference/platforms/web-dom)
+### Web ([`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")) — [full page](/docs/reference/platforms/web-dom)
 [Tier 3 · Experimental](/docs/reference/platforms#support-tiers)
 The same Rust compiled to WebAssembly drives DOM elements (`<button>`, `<dialog>`,
 `<input type="range">`) that the browser lays out and draws; the build runs through cargo and

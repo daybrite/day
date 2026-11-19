@@ -107,9 +107,9 @@ a reader, or a game.
 
 | Toolkit | Mechanism |
 |---|---|
-| iOS | `prefersStatusBarHidden` on the window's root view controller and on each cover's view controller, updated with a fade |
-| Android | `WindowInsetsControllerCompat.hide(statusBars())`; a swipe from the top edge shows the bar briefly |
-| HarmonyOS | the window's `setSpecificSystemBarEnabled('status', …)`, called from the ArkTS host |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `prefersStatusBarHidden` on the window's root view controller and on each cover's view controller, updated with a fade |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `WindowInsetsControllerCompat.hide(statusBars())`; a swipe from the top edge shows the bar briefly |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | the window's `setSpecificSystemBarEnabled('status', …)`, called from the ArkTS host |
 | desktop, web | nothing to hide; the modifier has no effect |
 
 Check [`day_core::capability(Cap::StatusBarHidden)`](https://docs.rs/day-core/latest/day_core/fn.capability.html) before offering a setting for it: the three
@@ -172,14 +172,14 @@ Platform guidance: [Apple: sheets](https://developer.apple.com/design/human-inte
 
 | Toolkit | Present | Dismiss request | Hidden report |
 |---|---|---|---|
-| uikit | `DayCoverVC` (fullscreen modal, a form sheet for [`.sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.sheet), or a page sheet for [`.half_sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.half_sheet)) over a `DayNavPageView`, through the dialog FIFO | none fullscreen; a sheet's pull-down arrives as `NavBack` from the presentation controller's delegate | dismiss completion block (immediate when the sheet is already down) |
-| android | `DayCover` shell re-homed onto the activity content root, slide-up `ValueAnimator` | [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) → `NavBack` | slide-out completion, shell becomes GONE |
-| arkui | Stack re-homed into a dedicated full-window NodeContent layer above Navigation and its NavDestinations (no transition) | native Back targets the top cover, honoring the dismissal shield | posted immediately on dismiss |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `DayCoverVC` (fullscreen modal, a form sheet for [`.sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.sheet), or a page sheet for [`.half_sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.half_sheet)) over a `DayNavPageView`, through the dialog FIFO | none fullscreen; a sheet's pull-down arrives as `NavBack` from the presentation controller's delegate | dismiss completion block (immediate when the sheet is already down) |
+| [android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `DayCover` shell re-homed onto the activity content root, slide-up `ValueAnimator` | [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) → `NavBack` | slide-out completion, shell becomes GONE |
+| [arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Stack re-homed into a dedicated full-window NodeContent layer above Navigation and its NavDestinations (no transition) | native Back targets the top cover, honoring the dismissal shield | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
-| AppKit / GTK / Qt / WinUI / Web | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") / [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / Web | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |
 
-The toolkit owns the presented cover’s frame, including during window resizing. GTK uses the
-window content area. On macOS, content lays out below the title bar while the background extends
+The toolkit owns the presented cover’s frame, including during window resizing. [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") uses the
+window content area. On [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), content lays out below the title bar while the background extends
 under it. On Web, a cover opened as a window puts its toolbar, navigation title, and back
 button in a strip above the content and reports the remaining content height.
 
@@ -192,9 +192,9 @@ fixed when the piece is built; omit [`.sheet()`](https://docs.rs/day-pieces/late
 
 | Toolkit | Presentation |
 |---|---|
-| appkit | a native sheet attached to the primary window, the window less a margin, at most 640 by 620 ([`SHEET_MAX`](https://docs.rs/day-spec/latest/day_spec/props/constant.SHEET_MAX.html)) |
-| uikit | `FormSheet` (a narrow modal panel on iPad, adapting to compact windows); its pull-down arrives as the cover's back request, so the bound signal follows what the user did |
-| Android, ArkUI, GTK, Qt, WinUI, Web | composed (`Cap::CoverSheet` = `Unsupported`): on a window wider than compact, the cover turns clear and holds a dimmed fill (`SurfaceRole::Scrim`) with a rounded card in the window's own color (`SurfaceRole::Window`), centered at AppKit's proportions; on a compact window, the full-window cover |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | a native sheet attached to the primary window, the window less a margin, at most 640 by 620 ([`SHEET_MAX`](https://docs.rs/day-spec/latest/day_spec/props/constant.SHEET_MAX.html)) |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `FormSheet` (a narrow modal panel on iPad, adapting to compact [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")); its pull-down arrives as the cover's back request, so the bound signal follows what the user did |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), Web | composed (`Cap::CoverSheet` = `Unsupported`): on a window wider than compact, the cover turns clear and holds a dimmed fill (`SurfaceRole::Scrim`) with a rounded card in the window's own color (`SurfaceRole::Window`), centered at [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")'s proportions; on a compact window, the full-window cover |
 
 On Web the fill frosts the page rather than dimming it: a light blur and tint that leave the
 page recognizable but plainly out of reach. A sheet with toolbar items (a Done button) carries
@@ -228,9 +228,9 @@ keeps everything above, Escape included; only the size changes.
 
 | Toolkit | Presentation |
 |---|---|
-| appkit | the window sheet, the window less a margin, at most 1040 by 880 ([`LARGE_SHEET_MAX`](https://docs.rs/day-spec/latest/day_spec/props/constant.LARGE_SHEET_MAX.html)) |
-| uikit | `PageSheet`, the wider panel iPadOS gives a document; a full-screen sheet on a phone |
-| Android, ArkUI, GTK, Qt, WinUI, Web | the composed card at the same size as on macOS; on a compact window, the full-window cover |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the window sheet, the window less a margin, at most 1040 by 880 ([`LARGE_SHEET_MAX`](https://docs.rs/day-spec/latest/day_spec/props/constant.LARGE_SHEET_MAX.html)) |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `PageSheet`, the wider panel [iPadOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") gives a document; a full-screen sheet on a phone |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), Web | the composed card at the same size as on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"); on a compact window, the full-window cover |
 
 ## Half sheet
 
@@ -241,11 +241,11 @@ as every cover does, so the content lays out inside the sheet.
 
 | Toolkit | Presentation | Dismissal |
 |---|---|---|
-| uikit | `PageSheet` with the medium and large detents, medium selected and undimmed, so the content underneath stays interactive; a grabber | the pull-down gesture (reported as the cover's back request), programmatic |
-| android | the `DayCover` shell as a Material [`BottomSheetBehavior`](https://developer.android.com/reference/com/google/android/material/bottomsheet/BottomSheetBehavior) child of a [`CoordinatorLayout`](https://developer.android.com/reference/androidx/coordinatorlayout/widget/CoordinatorLayout) over the content root, sized to the bottom half, rounded with a drag handle; the host consumes no touch outside the sheet | pulled down past the hide threshold (the back request), system back, programmatic |
-| dom | the cover element anchored to the bottom at half the viewport (`.day-half`), rounded, lifted, with a grabber strip | programmatic |
-| ArkUI, GTK, Qt, WinUI | the emulated cover placed over the bottom half of its layer or content area | programmatic (Android-style back on HarmonyOS) |
-| appkit | the native-sheet tier: a window sheet as for [`.sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.sheet), standing half the parent window's height | the sheet's own controls, programmatic |
+| [uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `PageSheet` with the medium and large detents, medium selected and undimmed, so the content underneath stays interactive; a grabber | the pull-down gesture (reported as the cover's back request), programmatic |
+| [android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | the `DayCover` shell as a Material [`BottomSheetBehavior`](https://developer.android.com/reference/com/google/android/material/bottomsheet/BottomSheetBehavior) child of a [`CoordinatorLayout`](https://developer.android.com/reference/androidx/coordinatorlayout/widget/CoordinatorLayout) over the content root, sized to the bottom half, rounded with a drag handle; the host consumes no touch outside the sheet | pulled down past the hide threshold (the back request), system back, programmatic |
+| [dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | the cover element anchored to the bottom at half the viewport (`.day-half`), rounded, lifted, with a grabber strip | programmatic |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | the emulated cover placed over the bottom half of its layer or content area | programmatic (Android-style back on [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")) |
+| [appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the native-sheet tier: a window sheet as for [`.sheet()`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.sheet), standing half the parent window's height | the sheet's own controls, programmatic |
 
 The [`interactive_dismiss_disabled`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.interactive_dismiss_disabled) shield holds on every tier that has a gesture. A half sheet
 has no toolbar strip of its own on Web; put the sheet's controls in its content.

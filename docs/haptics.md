@@ -32,8 +32,8 @@ Android and HarmonyOS vibration permissions are contributed by the crate during 
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| iOS, macOS, Android, HarmonyOS | Haptic output on compatible hardware. macOS uses the Force Touch trackpad. |
-| Windows, Linux (GTK / Qt), Web | No haptic implementation; [`play()`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.play.html) has no effect. |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Haptic output on compatible hardware. [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") uses the Force Touch trackpad. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")), Web | No haptic implementation; [`play()`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.play.html) has no effect. |
 
 ## Authoring
 
@@ -69,30 +69,30 @@ Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/h
 
 | OS | API | dependency |
 |---|---|---|
-| iOS | [`UIImpactFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator) / [`UINotificationFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator) / [`UISelectionFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator) | `objc2` + `objc2-ui-kit` |
-| macOS | [`NSHapticFeedbackManager.defaultPerformer`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) (Force Touch trackpad) | `objc2-app-kit` |
-| Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
-| HarmonyOS | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) + `[package.metadata.day.ohos]` |
-| Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, [`is_supported() == false`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.is_supported.html)) |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`UIImpactFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator) / [`UINotificationFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator) / [`UISelectionFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator) | `objc2` + `objc2-ui-kit` |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [`NSHapticFeedbackManager.defaultPerformer`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) (Force Touch trackpad) | `objc2-app-kit` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-toolkit-material` + `[package.metadata.day.android]` |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](https://github.com/daybrite/day/blob/main/docs/bridge.md) + `[package.metadata.day.ohos]` |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") · desktop [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")/[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | — (no haptic engine wired) | none (no-op, [`is_supported() == false`](https://docs.rs/day-part-haptics/latest/day_part_haptics/fn.is_supported.html)) |
 
 ## How each platform realizes the styles
 
-- **iOS**: a direct one-to-one mapping. Light/Medium/Heavy pick the matching
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")**: a direct one-to-one mapping. Light/Medium/Heavy pick the matching
   [`UIImpactFeedbackStyle`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator/feedbackstyle); Success/Warning/Error pick the matching [`UINotificationFeedbackType`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator/feedbacktype);
   Selection calls `selectionChanged()`. The generators are `MainThreadOnly` and are `prepare()`d
   before firing to minimize latency; day runs on the main thread, so a call off it is a safe no-op.
   The Simulator has no Taptic engine, so the calls are silently ignored there.
-- **macOS**: [`NSHapticFeedbackManager`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) offers only three patterns, so the seven styles fold onto
+- **[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")**: [`NSHapticFeedbackManager`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) offers only three patterns, so the seven styles fold onto
   them: Light/Selection → `Alignment` (the subtlest snap), Medium/Heavy → `LevelChange` (a firmer
   detent), Success/Warning/Error → `Generic`. A Mac without a Force Touch trackpad feels
   nothing; the call is harmless.
-- **Android**: a Java shim (`DayHaptics.java`) resolves the [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) (via [`VibratorManager`](https://developer.android.com/reference/android/os/VibratorManager) on
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**: a Java shim (`DayHaptics.java`) resolves the [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) (via [`VibratorManager`](https://developer.android.com/reference/android/os/VibratorManager) on
   API 31+), and on API 29+ plays a predefined [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect): `EFFECT_TICK` (Light/Selection),
   `EFFECT_CLICK` (Medium), `EFFECT_HEAVY_CLICK` (Heavy/Warning), `EFFECT_DOUBLE_CLICK`
   (Success/Error). Older APIs fall back to a short one-shot buzz whose length stands in for
   intensity. Requires `android.permission.VIBRATE`, a normal install-time permission the crate
   contributes to the manifest itself (see below).
-- **HarmonyOS**: an ArkTS daybridge arm ([docs/bridge](bridge.md)) plays the system's own haptic presets
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")**: an ArkTS daybridge arm ([docs/bridge](bridge.md)) plays the system's own haptic presets
   through the Sensor Service Kit's `vibrator`: `haptic.effect.soft` (Light), `haptic.clock.timer`
   (Medium/Selection), `haptic.effect.hard` (Heavy/Warning/Error), `haptic.effect.sharp` (Success).
   A device without a preset gets a timed buzz whose length stands in for strength, like Android's

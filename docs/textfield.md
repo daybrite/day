@@ -29,7 +29,7 @@ and re-exported through `day::prelude::*`. No additional crate or control featur
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Built-in control; see [toolkit implementations](#toolkit-implementations) for presentation differences. |
 
 ## Authoring
 
@@ -230,7 +230,7 @@ and ArkUI do not deliver them from a text field.
 
 Platform guidance: [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields); [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method); [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
 
-| | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
+| | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") |
 |---|---|---|---|---|---|---|---|---|
 | field | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) | [`UITextField`](https://developer.apple.com/documentation/uikit/uitextfield) | [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) | [`TextInputEditText`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputEditText) | [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) | [`ARKUI_NODE_TEXT_INPUT`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) | `<input>` |
 | secure | [`NSSecureTextField`](https://developer.apple.com/documentation/appkit/nssecuretextfield) | `secureTextEntry` | `visibility` | `EchoMode::Password` | password input type and transformation | `PasswordBox` | password input type | `type="password"` |
@@ -242,9 +242,9 @@ Platform guidance: [Apple: text fields](https://developer.apple.com/design/human
 
 A dash means the toolkit has no such notion: a desktop keyboard's Return key carries no label.
 
-On AppKit and WinUI the secure field is a different native class from the plain one, so a change
+On [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") the secure field is a different native class from the plain one, so a change
 of [`secure`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.secure) rebuilds the widget. [`Toolkit::set_input_traits`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#tymethod.set_input_traits) returns the replacement and day-core
-points the node at it, the same contract `set_selectable` uses for a UIKit label that becomes
+points the node at it, the same contract `set_selectable` uses for a [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") label that becomes
 selectable ([docs/text](text.md)). The toolkit builds the replacement through the code that
 `realize` runs, hands it the text, placeholder, enabled state, frame, accessibility identity and
 focus, and puts it in the old widget's place among its siblings. A [`.tweak`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tweak) applied to the field
@@ -253,17 +253,17 @@ before the change does not carry over, and day-core logs a warning when that hap
 
 Details that differ by platform:
 
-- **AppKit** resolves the content types at run time, because most arrived in macOS 14. On
+- **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")** resolves the content types at run time, because most arrived in macOS 14. On
   macOS 13 the username, password and one-time-code types apply and the others are skipped.
-- **UIKit** re-enters the text when [`secure`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.secure) changes on a focused field, which keeps the caret
+- **[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")** re-enters the text when [`secure`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.secure) changes on a focused field, which keeps the caret
   and stops the next keystroke from clearing a field that has just turned secure.
-- **Android** masks with an explicit transformation method as well as the input type, so a phone
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** masks with an explicit transformation method as well as the input type, so a phone
   or decimal field can be secure too.
-- **WinUI**'s `PasswordBox` has no read-only property. A read-only secure field leaves hit
+- **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")**'s `PasswordBox` has no read-only property. A read-only secure field leaves hit
   testing and the tab order instead: it keeps its look and takes no edits.
-- **ArkUI** (API 18) has no URL input type, so `Url` takes the text keyboard. The built-in
+- **[ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** (API 18) has no URL input type, so `Url` takes the text keyboard. The built-in
   show-password icon is turned off, so [`secure`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextFieldBuilder.html#tymethod.secure) is the one switch.
-- **web** keeps `type="text"` for every purpose and picks the keyboard with `inputmode`. The typed
+- **[web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")** keeps `type="text"` for every purpose and picks the keyboard with `inputmode`. The typed
   inputs (`email`, `url`, `number`) trim or coerce what the user types, and a controlled input
   has to hold exactly the text it reports.
 

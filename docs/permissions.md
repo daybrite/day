@@ -32,19 +32,19 @@ Declare the required capabilities and usage explanations in [Day.toml permission
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| macOS, iOS, Android, HarmonyOS, Web | Permission checks and requests vary by capability. Device prompts remain unverified. |
-| Windows, Linux (GTK / Qt) | Reports static gate results; does not open system permission prompts. |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), Web | Permission checks and requests vary by capability. Device prompts remain unverified. |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") ([GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") / [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")) | Reports static gate results; does not open system permission prompts. |
 
 ## Declare before you ask
 
 Every mobile OS requires a **build-time declaration** in addition to the runtime request,
 and the failure modes are not symmetric:
 
-- **iOS and macOS terminate the process** when it touches a gated API without the matching
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") and [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") terminate the process** when it touches a gated API without the matching
   `NS…UsageDescription` key. There is no exception to catch: TCC terminates the process.
-- **Android** reports an undeclared permission as [`Status::Restricted`]: a request returns denied
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** reports an undeclared permission as [`Status::Restricted`]: a request returns denied
   in the same frame, with no dialog, and Settings offers nothing.
-- **HarmonyOS** refuses the request outright.
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** refuses the request outright.
 
 So declare what you use in `Day.toml`, and `day build` generates each platform's manifest entry:
 
@@ -103,7 +103,7 @@ if status(Permission::Camera) != Status::Granted {
 | [`status(perm) -> Status`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) | what the OS will do if you use it now (never blocks) |
 | [`status_async`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_async.html) / [`status_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status_future.html) | the same, but authoritative where the platform is async |
 | [`can_prompt(perm) -> bool`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.can_prompt.html) | whether [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) would show a dialog |
-| [`should_show_rationale(perm)`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.should_show_rationale.html) | Android's "explain first" signal; `false` elsewhere |
+| [`should_show_rationale(perm)`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.should_show_rationale.html) | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")'s "explain first" signal; `false` elsewhere |
 | [`request`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request.html) / [`request_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_future.html) | ask the OS |
 | [`request_many`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_many.html) / [`request_many_future`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.request_many_future.html) | ask for several in one prompt sequence |
 | [`open_settings(perm) -> bool`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.open_settings.html) | the remedy when the answer is already final |
@@ -121,7 +121,7 @@ lets an ungated platform answer accurately:
 | `Gate` | meaning |
 |---|---|
 | `Prompts` | the OS keeps a consent record and can show a dialog |
-| `Ungated` | the capability exists and nothing gates it (desktop Linux, Windows) |
+| `Ungated` | the capability exists and nothing gates it (desktop [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt"), [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")) |
 | `Absent` | no such capability here at all |
 
 | `Status` | meaning |
@@ -160,12 +160,12 @@ Platform guidance: [Apple: privacy](https://developer.apple.com/design/human-int
 
 | OS | check | request | dependency |
 |---|---|---|---|
-| iOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager), [`AVCaptureDevice`](https://developer.apple.com/documentation/avfoundation/avcapturedevice), [`PHPhotoLibrary`](https://developer.apple.com/documentation/photos/phphotolibrary), [`UNUserNotificationCenter`](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter) (async-only), [`CMMotionActivityManager`](https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager) | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
-| macOS | the same TCC APIs where they exist; no CoreMotion | same | shared `apple.rs` |
-| Android | [`Context.checkSelfPermission`](https://developer.android.com/reference/android/content/Context#checkSelfPermission(java.lang.String)) + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-toolkit-material` + the crate's own Java shim |
-| HarmonyOS | [`OH_AT_CheckSelfPermission`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-ability-kit/capi-ability-access-control-h.md); for notifications, `notificationManager.isNotificationEnabledSync` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-toolkit-arkui` (found in the app's own library by `dlsym`, so the part links no toolkit); for notifications, `requestEnableNotification` | raw FFI; the notification switch through an ArkTS daybridge arm |
-| Web | [`navigator.permissions.query`](https://www.w3.org/TR/permissions/#dom-permissions-query) + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-toolkit-dom shim |
-| Linux / Windows | constants | resolves immediately | — |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager), [`AVCaptureDevice`](https://developer.apple.com/documentation/avfoundation/avcapturedevice), [`PHPhotoLibrary`](https://developer.apple.com/documentation/photos/phphotolibrary), [`UNUserNotificationCenter`](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter) (async-only), [`CMMotionActivityManager`](https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager) | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
+| [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | the same TCC APIs where they exist; no CoreMotion | same | shared `apple.rs` |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [`Context.checkSelfPermission`](https://developer.android.com/reference/android/content/Context#checkSelfPermission(java.lang.String)) + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-toolkit-material` + the crate's own Java shim |
+| [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | [`OH_AT_CheckSelfPermission`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-ability-kit/capi-ability-access-control-h.md); for notifications, `notificationManager.isNotificationEnabledSync` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-toolkit-arkui` (found in the app's own library by `dlsym`, so the part links no toolkit); for notifications, `requestEnableNotification` | raw FFI; the notification switch through an ArkTS daybridge arm |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | [`navigator.permissions.query`](https://www.w3.org/TR/permissions/#dom-permissions-query) + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-toolkit-dom shim |
+| [Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt") / [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | constants | resolves immediately | — |
 
 Two platform facts apply everywhere:
 
@@ -176,7 +176,7 @@ Two platform facts apply everywhere:
   recorded, so the next [`status()`](https://docs.rs/day-part-permissions/latest/day_part_permissions/fn.status.html) is correct. Aborting a [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) that awaits one therefore
   leaves the dialog on screen.
 
-### Android cannot tell "never asked" from "permanently denied"
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") cannot tell "never asked" from "permanently denied"
 
 It cannot without app-side state, and **Day keeps none**. A denied-but-declared permission with no
 rationale flag is reported as `Prompt` either way. That is safe (asking after a permanent refusal
@@ -190,7 +190,7 @@ day_part_permissions::request(perm, move |s| {
 });
 ```
 
-### macOS: the desktop dev loop cannot exercise permissions
+### [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"): the desktop dev loop cannot exercise permissions
 
 `day launch -t macos-appkit` runs the bare binary, not a bundle. TCC reads usage descriptions from a
 bundle's `Info.plist`, so an unbundled process is denied (or killed) regardless of what Day.toml
@@ -200,7 +200,7 @@ unbundled aborts the process.
 
 ## What the declaration pipeline generates
 
-| portable name | Android | iOS `Info.plist` | macOS | HarmonyOS |
+| portable name | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") `Info.plist` | [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") |
 |---|---|---|---|---|
 | `location-when-in-use` | `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION` | [`NSLocationWhenInUseUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nslocationwheninuseusagedescription) | + [`NSLocationUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nslocationusagedescription) | `APPROXIMATELY_LOCATION` + `LOCATION` |
 | `location-always` | + `ACCESS_BACKGROUND_LOCATION` | that key **and** the when-in-use one (Apple suppresses the prompt without both) | + [`NSLocationUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nslocationusagedescription) | + `LOCATION_IN_BACKGROUND` |
@@ -245,10 +245,10 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 
 ### Where each file is written, and what Day owns in it
 
-- **Android** — `build/day/android/day-pieces-manifest.xml`, gitignored and regenerated, merged by
+- **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** — `build/day/android/day-pieces-manifest.xml`, gitignored and regenerated, merged by
   AGP. That filename is a compatibility surface: it is baked into every scaffold `day new` has
   generated, and a source set has one manifest slot, so it is widened, never moved.
-- **iOS/macOS** — the checked-in `platform/ios/Runner/Info.plist` and
+- **[iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")/[macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")** — the checked-in `platform/ios/Runner/Info.plist` and
   `platform/macos/Runner/Info.plist`, each from its platform's column of the table, edited in
   place (the macOS host since 2026-10; before that a macOS bundle carried no usage descriptions,
   and TCC terminated a sandboxed app at its first camera or location request). Day owns exactly
@@ -263,7 +263,7 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   four project entries the first time a build has a translation to write. The macOS host gets its
   catalog the same way, and the generated Xcode project references it once it exists. Regenerated from the
   same plan as the plist and byte-stable, so open it in Xcode to read, not to edit.
-- **HarmonyOS** — Day copies the native host into `build/day/harmony/project/` and merges
+- **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** — Day copies the native host into `build/day/harmony/project/` and merges
   permissions into that copy's `entry/src/main/module.json5`. The referenced
   `day_perm_reason_*` strings go into the staged `resources/base/element/string.json` and
   per-locale files such as `resources/fr/element/string.json` and
@@ -280,7 +280,7 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 > each permission your app requests.
 
 > [!WARNING]
-> **HarmonyOS / ArkUI: permissions manifest.**
+> **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): permissions manifest.**
 > Generated permissions have not been verified in a device build. Check the packaged
 > manifest and permission behavior on your target device.
 
@@ -304,12 +304,12 @@ did not happen would surface minutes later as a failed assertion with nothing to
 
 | target | `--grant` |
 |---|---|
-| `android-material` | `pm grant`, every runtime permission in the table row |
-| `ios-uikit` on the simulator | `simctl privacy grant`: `location-when-in-use`, `location-always`, `microphone`, `photos`, `motion`. The simulator has no camera, so no camera service, and no service for notifications |
-| `ios-uikit` on a device (`--ios-device`) | refused: the consent record is the device's own |
-| `harmony-arkui` | refused: HarmonyOS ships no tool that marks a `user_grant` permission from outside the app |
+| [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `pm grant`, every runtime permission in the table row |
+| [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") on the simulator | `simctl privacy grant`: `location-when-in-use`, `location-always`, `microphone`, `photos`, `motion`. The simulator has no camera, so no camera service, and no service for notifications |
+| [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") on a device (`--ios-device`) | refused: the consent record is the device's own |
+| [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | refused: [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") ships no tool that marks a `user_grant` permission from outside the app |
 | `macos-*` | refused: `tccutil` resets TCC, it never grants (see above) |
-| `web-dom` | refused: the driver's own grants stand ([docs/web](web.md)) |
+| [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | refused: the driver's own grants stand ([docs/web](web.md)) |
 | `linux-*`, `windows-*` | nothing gates the capability, so the launch notes that and carries on |
 
 The shared CI workflow's `grant-permissions` input names the grants per target, so one call can

@@ -145,7 +145,7 @@ minikin, QFontMetrics) reports the wrapped height. The result depends on the bac
 wrapping in the scripts and [locales](/docs/reference/glossary#locale) your app ships; source
 inspection alone does not establish identical measurement and rendering on every target.
 
-The cost is that measurement is a real call into the toolkit, and on Android it's a JNI
+The cost is that measurement is a real call into the toolkit, and on [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") it's a JNI
 round-trip. Negotiation multiplies these probes, so Day carries a **measure cache** per node,
 keyed by the quantized proposal, and bounds the distinct proposals a parent may probe per child
 per pass. The design assumes the cache: the mock toolkit's tests assert measure-call counts, so
@@ -176,7 +176,7 @@ Relayout needs boundaries because, inside a negotiated stack, one child's new si
 siblings' proposals, so pruning is only safe from a node whose own proposal is stable.
 Mock-toolkit golden tests pin this behavior down.
 
-## Windows, safe areas, and direction
+## [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), safe areas, and direction
 
 - **Window sizing:** the minimum window size is the one the app declares
   ([`WindowOptions::min_size`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.min_size), an `Option<Size>` that defaults to none), applied verbatim; Day

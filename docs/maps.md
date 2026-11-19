@@ -17,8 +17,8 @@ The external [Day maps repository](https://github.com/daybrite/day-piece-map) su
 | Provider | Platforms | Rendering |
 | --- | --- | --- |
 | Day canvas | All Day targets | Day's canvas renderer, supporting MapLibre styles and vector tiles |
-| Apple Maps | iOS/UIKit, macOS/AppKit | Swift [MKMapView](https://developer.apple.com/documentation/mapkit/mkmapview) |
-| Google Maps | Android/Material | [Maps SDK for Android](https://developers.google.com/maps/documentation/android-sdk/overview) |
+| Apple Maps | [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")/[UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")/[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Swift [MKMapView](https://developer.apple.com/documentation/mapkit/mkmapview) |
+| Google Maps | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")/Material | [Maps SDK for Android](https://developers.google.com/maps/documentation/android-sdk/overview) |
 
 ## Dependencies
 
@@ -148,7 +148,7 @@ The Swift view owns its delegate state. Rust owns the retained native view. Rend
 clears callbacks and delegate references before Day releases the view. These APIs fit Day's
 existing deployment floors; newer MapKit APIs must be guarded in Swift when added.
 
-## Google extensions and Android setup
+## Google extensions and [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") setup
 
 ```rust
 use day_piece_map_google::{GoogleMapBuilder, GoogleOptions, MapType};
@@ -167,7 +167,7 @@ compass, zoom controls, pitch, and local Google style JSON (`style_json`). MapLi
 cannot be used as Google style JSON. Google marker color uses its standard marker hue and alpha;
 it does not reproduce arbitrary saturation and brightness. Labels use the SDK's locale.
 
-Like Lottie's Android adapter, the crate contributes Java source and its Maven dependency through
+Like Lottie's [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") adapter, the crate contributes Java source and its Maven dependency through
 `[package.metadata.day.android]`. Day adds `com.google.android.gms:play-services-maps:20.0.0` to
 the generated Gradle project. That SDK requires Android API 23 or later and Google Play services.
 The provider also contributes an optional `org.apache.http.legacy` manifest entry for devices
@@ -176,7 +176,7 @@ The adapter forwards attachment, activity resume/pause/start/stop, low-memory, s
 final destruction to the SDK's `MapView`. Switching providers unregisters activity callbacks and
 removes native map listeners. Day's shared camera is the source of state when a view is remounted.
 
-Enable **Maps SDK for Android** in a Google Cloud project with billing, create a key restricted
+Enable **Maps SDK for [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** in a Google Cloud project with billing, create a key restricted
 to the application's Android package and signing certificate, and supply it through the app's
 `platform/android/AndroidManifest.xml` overlay:
 

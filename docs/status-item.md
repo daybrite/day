@@ -74,7 +74,7 @@ LXQt panels have one, and GNOME has one only with the AppIndicator extension (Ub
 Without a host the answer is `Unsupported`, so an app can keep a window instead of disappearing
 into a tray nobody shows.
 
-## Runtime status images on macOS
+## Runtime status images on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
 
 [`StatusItem::raster(day::StatusImage)`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.raster) displays pixels computed by the app, for a status grid,
 meter or sparkline. [`StatusImage::rgba(width, height, scale, pixels)`](https://docs.rs/day-spec/latest/day_spec/struct.StatusImage.html#method.rgba) returns `Some` for a valid
@@ -84,14 +84,14 @@ mismatched byte counts, nonpositive/nonfinite scales, buffers over 16 MiB and lo
 over 4096 points are rejected with `None`.
 
 A raster is drawn in color by default; [`.template()`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.template) uses only its alpha silhouette.
-AppKit preserves its aspect ratio and logical width, scaling down proportionally only when it
+[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") preserves its aspect ratio and logical width, scaling down proportionally only when it
 is taller than 18 points. Unlike bundled glyphs, a wide raster is **not squeezed into 18×18**.
 The status item owns the shared source bytes, and the native image owns a copy of the pixels;
 it survives closing the producing window and is released on replacement or item removal.
 Unchanged images are reused when only menu entries, title or tooltip change. The tooltip is
 also the native button's accessibility label, so a grid needs a localized textual description.
 
-This extension currently renders on **AppKit only**. Keep an [`.icon(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.icon), [`.vector(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.vector) or
+This extension currently renders on **[AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") only**. Keep an [`.icon(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.icon), [`.vector(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.vector) or
 [`.image(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.image) fallback for other desktop toolkits, which ignore [`raster`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.raster). Set the fallback
 before [`.raster(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.StatusItem.html#method.raster) so that the latter selects full-color rendering. `Cap::StatusItem` still
 reports ordinary status-item support; it does not promise runtime-raster support. The mock
@@ -104,7 +104,7 @@ That is the default policy, `KeepRunning::Automatic`; [`day::set_keep_running`](
 
 | `KeepRunning` | When the last window closes |
 |---|---|
-| `Automatic` | Keep running while a status item is shown; otherwise follow the platform's rule (macOS ends the app when its first window closes, the other desktops when the last one does). |
+| `Automatic` | Keep running while a status item is shown; otherwise follow the platform's rule ([macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") ends the app when its first window closes, the other desktops when the last one does). |
 | `Always` | Keep running, status item or not: a background helper, an app reopened from the Dock or a global shortcut. |
 | `Never` | End the app, on every platform. |
 
@@ -112,7 +112,7 @@ That is the default policy, `KeepRunning::Automatic`; [`day::set_keep_running`](
 delivered first. On macOS a click on the Dock icon with no window open opens one through the
 app's [`register_new_window`](https://docs.rs/day-core/latest/day_core/windows/fn.register_new_window.html) builder.
 
-## Menu-bar apps on macOS
+## Menu-bar apps on [macOS](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit")
 
 A menu-bar app shows no Dock icon and lives in its status item. Declare it in Day.toml so the
 icon never appears, not even for the first frame:
@@ -127,14 +127,14 @@ dock = false
 "Show in Dock" setting (`Cap::DockVisibility`).
 
 To launch without showing a window, also pass [`res::window_options().start_hidden()`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.start_hidden) to
-[`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) (or the `options:` argument of `day_start!`). On AppKit,
+[`day::launch`](https://docs.rs/day-app/latest/day/fn.launch.html) (or the `options:` argument of `day_start!`). On [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"),
 the initial window is created and its root mounted, but it is never ordered front and launch
 does not activate the app. Timers and status-item updates run normally. Register Preferences
 with separate, default-visible options so the status menu can open Settings on demand. There
 is no need to show and then close the initial host; it remains available through
 [`initial_window()`](https://docs.rs/day-core/latest/day_core/windows/fn.initial_window.html) and can be shown explicitly with [`set_visible(true)`](https://docs.rs/day-core/latest/day_core/windows/struct.WindowHandle.html#method.set_visible).
 
-[`start_hidden`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.start_hidden) also applies to secondary AppKit windows. It defaults to `false`, is currently
+[`start_hidden`](https://docs.rs/day-spec/latest/day_spec/struct.WindowOptions.html#method.start_hidden) also applies to secondary [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") [windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"). It defaults to `false`, is currently
 ignored by other toolkits, and does not change `KeepRunning` or the window's lifetime.
 
 ## Progress on the Dock or taskbar icon
@@ -155,11 +155,11 @@ Platform guidance: [Apple: the menu bar](https://developer.apple.com/design/huma
 
 | Toolkit | Status item | Progress | Dock visibility |
 |---|---|---|---|
-| AppKit | Native: [`NSStatusItem`](https://developer.apple.com/documentation/appkit/nsstatusitem) in the menu bar | Native: a bar drawn on the Dock tile | Native: the activation policy |
-| Windows | Native: `Shell_NotifyIcon` (compile-checked; runtime pending) | Native: [`ITaskbarList3`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-itaskbarlist3) (compile-checked) | Unsupported |
-| GTK (Linux) | Native while a StatusNotifierItem host runs, through the `day-platform-linux` crate | Emulated: the Unity launcher protocol (KDE Plasma, Dash to Dock) | Unsupported |
-| Qt (Linux) | Native where [`QSystemTrayIcon`](https://doc.qt.io/qt-6/qsystemtrayicon.html) finds a tray | Emulated: the Unity launcher protocol | Unsupported |
-| iOS, Android, HarmonyOS, web | Unsupported | Unsupported | Unsupported |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | Native: [`NSStatusItem`](https://developer.apple.com/documentation/appkit/nsstatusitem) in the menu bar | Native: a bar drawn on the Dock tile | Native: the activation policy |
+| [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | Native: `Shell_NotifyIcon` (compile-checked; runtime pending) | Native: [`ITaskbarList3`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-itaskbarlist3) (compile-checked) | Unsupported |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") ([Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")) | Native while a StatusNotifierItem host runs, through the `day-platform-linux` crate | Emulated: the Unity launcher protocol (KDE Plasma, Dash to Dock) | Unsupported |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") ([Linux](https://daybrite.dev/docs/reference/platforms "toolkit:linux-gtk,linux-qt")) | Native where [`QSystemTrayIcon`](https://doc.qt.io/qt-6/qsystemtrayicon.html) finds a tray | Emulated: the Unity launcher protocol | Unsupported |
+| [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"), web | Unsupported | Unsupported | Unsupported |
 
 On a phone the nearest equivalent of a tray icon is an ongoing notification, which is a
 notifications feature ([docs/notify](notify.md)), not a status item.

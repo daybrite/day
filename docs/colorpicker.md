@@ -26,8 +26,8 @@ its availability after the Day runtime starts.
 
 | Platforms / toolkits | Availability |
 | --- | --- |
-| AppKit, UIKit, GTK, Qt, WinUI, Web | Native chooser; Windows alpha selection remains unverified. |
-| Android, ArkUI | Composed picker; HarmonyOS device behavior remains unverified. |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), Web | Native chooser; [Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") alpha selection remains unverified. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Composed picker; [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") device behavior remains unverified. |
 
 [`color_picker(Signal<Color>)`](https://docs.rs/day-pieces/latest/day_pieces/colorpicker/fn.color_picker.html) is a **color well**: a swatch showing the current color that opens a
 chooser when pressed. Both idioms give the app that same control and differ only in who draws the
@@ -83,17 +83,17 @@ Platform guidance: [Apple: color](https://developer.apple.com/design/human-inter
 
 | Target | Tier | Native chooser | Notes |
 |---|---|---|---|
-| macos-appkit | **Native** | [`NSColorWell`](https://developer.apple.com/documentation/appkit/nscolorwell) → the shared [`NSColorPanel`](https://developer.apple.com/documentation/appkit/nscolorpanel) | wheel, sliders, palettes, image spectrum, crayons, screen eyedropper |
-| ios-uikit | **Native** | [`UIColorWell`](https://developer.apple.com/documentation/uikit/uicolorwell) → [`UIColorPickerViewController`](https://developer.apple.com/documentation/uikit/uicolorpickerviewcontroller) | grid / spectrum / sliders, eyedropper, iPad popover anchoring — all from the well |
-| gtk | **Native** | [`GtkColorDialogButton`](https://docs.gtk.org/gtk4/class.ColorDialogButton.html) → [`GtkColorDialog`](https://docs.gtk.org/gtk4/class.ColorDialog.html) | GTK 4.10+, which day-toolkit-gtk already requires |
-| qt | **Native** | swatch [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) → [`QColorDialog`](https://doc.qt.io/qt-6/qcolordialog.html) | Qt has no color-well widget; the shim paints the swatch |
-| windows-winui | **Native** | swatch [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) → [`ColorPicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.colorpicker) in a `Flyout` | `Microsoft.UI.Xaml.Controls.ColorPicker` |
-| web-dom | **Native** | `<input type="color">` | the browser's own picker, which on desktop IS the system chooser |
-| android-material | Composed | — | Android ships no color picker in the framework, in Material, or in AndroidX |
-| harmony-arkui | Composed | — | the ArkUI C node API has no picker node, and ArkTS has no `ColorPicker` component |
+| [macos-appkit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | **Native** | [`NSColorWell`](https://developer.apple.com/documentation/appkit/nscolorwell) → the shared [`NSColorPanel`](https://developer.apple.com/documentation/appkit/nscolorpanel) | wheel, sliders, palettes, image spectrum, crayons, screen eyedropper |
+| [ios-uikit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | **Native** | [`UIColorWell`](https://developer.apple.com/documentation/uikit/uicolorwell) → [`UIColorPickerViewController`](https://developer.apple.com/documentation/uikit/uicolorpickerviewcontroller) | grid / spectrum / sliders, eyedropper, iPad popover anchoring — all from the well |
+| [gtk](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | **Native** | [`GtkColorDialogButton`](https://docs.gtk.org/gtk4/class.ColorDialogButton.html) → [`GtkColorDialog`](https://docs.gtk.org/gtk4/class.ColorDialog.html) | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") 4.10+, which day-toolkit-gtk already requires |
+| [qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | **Native** | swatch [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) → [`QColorDialog`](https://doc.qt.io/qt-6/qcolordialog.html) | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") has no color-well widget; the shim paints the swatch |
+| [windows-winui](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | **Native** | swatch [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) → [`ColorPicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.colorpicker) in a `Flyout` | `Microsoft.UI.Xaml.Controls.ColorPicker` |
+| [web-dom](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | **Native** | `<input type="color">` | the browser's own picker, which on desktop IS the system chooser |
+| [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | Composed | — | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") ships no color picker in the framework, in Material, or in AndroidX |
+| [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | Composed | — | the [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") C node API has no picker node, and ArkTS has no `ColorPicker` component |
 | mock | Native leaf | — | records the leaf's realize/patch traffic; `tests/mock.rs` drives both idioms |
 
-Neither android-material nor harmony-arkui grew a hand-written chooser in Java or ArkTS. Writing one
+Neither [android-material](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") nor [harmony-arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") grew a hand-written chooser in Java or ArkTS. Writing one
 twice, in two languages, would have produced two dialogs that matched neither the platform nor each
 other, for more work than one panel written once in Rust that every other target can also opt
 into.
@@ -174,11 +174,11 @@ the user was in, a dynamic system color) is described in [Colors](color.md).
 - **Anything `Color` cannot carry**, covered in [color](color.md).
 
 > [!WARNING]
-> **Windows / WinUI: alpha selection.**
+> **[Windows](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") / [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"): alpha selection.**
 > Native alpha selection has not been validated. Test transparent color selection before
 > relying on [`.alpha()`](https://docs.rs/day-pieces/latest/day_pieces/colorpicker/trait.ColorPickerBuilder.html#tymethod.alpha) in a Windows app.
 
 > [!WARNING]
-> **HarmonyOS / ArkUI: composed picker.**
+> **[HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") / [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): composed picker.**
 > The composed picker has not been exercised on a device. Validate selection, cancellation,
 > and the final color in your app before shipping.

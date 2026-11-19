@@ -237,6 +237,27 @@ website/
 └── public/                 # favicon and static assets
 ```
 
+## Toolkit labels
+
+Platform names are styled only when the author marks them. In Markdown, use an ordinary
+link with a toolkit title:
+
+```markdown
+[Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
+```
+
+In MDX, import `Toolkit.astro` from `src/components/` using the page's relative path:
+
+```mdx
+<Toolkit id="web-dom" />
+<Toolkit id="web-dom">Web</Toolkit>
+```
+
+The component and Markdown plugin validate IDs against `src/lib/platforms.mjs`. Two
+comma-separated IDs retain both marks for an OS family. Plain words and inline code are
+never automatically decorated. See the [authoring style guide](authoring/style-guide.md#name-and-label-toolkits)
+for examples and placement guidance.
+
 ## Support-tier badges
 
 Every target's support tier (Tier 1 supported … Tier 5 deprecated) is recorded once in

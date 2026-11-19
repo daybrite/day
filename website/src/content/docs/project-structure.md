@@ -92,7 +92,7 @@ One [toolkit](/docs/reference/glossary#toolkit) is compiled per binary. The AppK
 its JNI bridge. Standalone [pieces](/docs/reference/glossary#piece) (say, a Lottie or map piece) contribute their own native code and
 dependencies through Cargo metadata, so the app never re-declares per-piece build wiring.
 
-### Desktop: `macos-appkit`, `linux-gtk`, `linux-qt`, `windows-winui`, and the GTK/Qt combinations
+### Desktop: [`macos-appkit`](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [`linux-gtk`](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [`linux-qt`](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [`windows-winui`](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), and the [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")/[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") combinations
 
 Desktop targets are the simplest: the artifact is the Cargo binary itself.
 
@@ -111,11 +111,11 @@ src/*.rs ──► cargo build -p my-app --features appkit     (per-target CARGO
          day pack: macOS .app + ad-hoc codesign + .dmg
 ```
 
-Because GTK and Qt are portable, `macos-gtk` and `macos-qt` build the same way on a Mac. Resources that need a native compiler (GResource, `.qrc`) are
+Because [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") are portable, [`macos-gtk`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-gtk") and [`macos-qt`](https://daybrite.dev/docs/reference/platforms "toolkit:macos-qt") build the same way on a Mac. Resources that need a native compiler (GResource, `.qrc`) are
 compiled if the tool is on `PATH` and otherwise fall back to filesystem loading, so a missing
 `glib-compile-resources` never fails the build.
 
-### iOS: `ios-uikit`
+### [iOS](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit"): [`ios-uikit`](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit")
 
 The Xcode project owns the bundle; the Rust code arrives as a static library through a build-phase
 callback into the `day` CLI:
@@ -237,9 +237,9 @@ Xcode still supplies its current Swift compiler; the language mode controls sour
 and concurrency checking. Xcode 27.2 rejects an omitted language version, so Day sets it
 explicitly. SwiftPM packages use the language modes selected by their own manifests.
 
-### Android: `android-material`
+### [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"): [`android-material`](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")
 
-On Android, `day` runs Cargo first, then hands Gradle a project whose source sets already point at
+On [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), `day` runs Cargo first, then hands Gradle a project whose source sets already point at
 everything Day staged:
 
 ```text
@@ -265,16 +265,16 @@ adb install … && am start DayActivity                   (day launch)
 An optional app-owned `platform/android/AndroidManifest.xml` supplies manifest customizations
 without persisting the Gradle project; see [manifest customization](/docs/reference/platforms/android-material#manifest-customization).
 An existing `platform/android/` Gradle project takes precedence over the generated default.
-`day open -t android-material` prepares and opens the selected project in Android Studio.
+`day open -t android-material` prepares and opens the selected project in [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") Studio.
 Day's Gradle plugin configures that project from `build/day/android/`
 ([The Gradle project](/docs/reference/platforms/android-material#the-gradle-project)). A build started from Android
 Studio packages the Rust `.so` from the last `day build`.
 
-### HarmonyOS: `harmony-arkui`
+### [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui"): [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
 
-The newest pipeline follows the Android shape with HarmonyOS tooling: an ArkTS host project
+The newest pipeline follows the [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") shape with [HarmonyOS](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") tooling: an ArkTS host project
 derived under `build/day/harmony/project/`, a cross-compiled NAPI library, and a post-build signing step with the public
-OpenHarmony development certificate:
+[OpenHarmony](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") development certificate:
 
 ```text
 day build -t harmony-arkui
@@ -296,7 +296,7 @@ build/day/harmony/project/entry/build/…/my-app-signed.hap
 hdc install … && aa start EntryAbility                  (day launch)
 ```
 
-### Web: `web-dom`
+### [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom"): [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")
 
 This is the shortest of the five pipelines, and the only one with no host project to check in. The
 app's lib crate is compiled straight to wasm and dropped next to the host page:
