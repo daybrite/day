@@ -3007,7 +3007,33 @@ pub fn build_android(
     }
     // Bounded: a wedged gradle daemon (or a device query inside the build) must not hold the
     // job past the build ceiling.
-    let out = crate::ops::run_capture_within(&mut cmd, "gradle", crate::ops::BUILD_TIMEOUT)?;
+    let mut attempt = 1;
+    let out = loop {
+        let out = crate::ops::run_capture_within(&mut cmd, "gradle", crate::ops::BUILD_TIMEOUT)?;
+        let failed_fetching = !out.status.success()
+            && gradle_repository_hiccup(&format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        if !failed_fetching || attempt == GRADLE_FETCH_ATTEMPTS {
+            break out;
+        }
+        // A repository that throttles or drops a download says nothing about the project.
+        // Gradle keeps what it already fetched, so the next attempt asks only for the rest.
+        let wait = std::time::Duration::from_secs(20 * u64::from(attempt));
+        crate::ops::status(
+            "Retrying",
+            &format!(
+                "gradle in {}s: a dependency download was refused or dropped (attempt {} of \
+                 {GRADLE_FETCH_ATTEMPTS})",
+                wait.as_secs(),
+                attempt + 1
+            ),
+        );
+        std::thread::sleep(wait);
+        attempt += 1;
+    };
     if !out.status.success() {
         if crate::ops::verbose() {
             // Full log already streamed live.
@@ -4078,5 +4104,58 @@ mod macos_usage_tests {
         sync_macos_usage_descriptions(&project).unwrap();
         assert_eq!(std::fs::read_to_string(&plist).unwrap(), before);
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// How many times a Gradle build is started when a dependency download fails for a reason that
+/// is the repository's, not the project's.
+const GRADLE_FETCH_ATTEMPTS: u32 = 3;
+
+/// Whether a failed Gradle run stopped on a repository throttling or dropping a download: Maven
+/// Central answers hosted runners with 429 in bursts, and a 5xx or a reset is the same story.
+/// A missing artifact (404) or a version that does not exist is the project's own mistake and is
+/// not retried.
+fn gradle_repository_hiccup(output: &str) -> bool {
+    let output = output.to_ascii_lowercase();
+    [
+        "received status code 429",
+        "received status code 500",
+        "received status code 502",
+        "received status code 503",
+        "received status code 504",
+        "read timed out",
+        "connect timed out",
+        "connection reset",
+        "remote host terminated the handshake",
+    ]
+    .iter()
+    .any(|reason| output.contains(reason))
+}
+
+#[cfg(test)]
+mod gradle_retry_tests {
+    use super::gradle_repository_hiccup;
+
+    #[test]
+    fn a_throttled_or_dropped_download_is_retried() {
+        for output in [
+            "> Could not GET 'https://repo.maven.apache.org/maven2/com/airbnb/android/lottie/6.6.0/lottie-6.6.0.aar'. Received status code 429 from server: Too Many Requests",
+            "Could not GET 'https://dl.google.com/x.pom'. Received status code 503 from server: Service Unavailable",
+            "> Read timed out",
+            "java.net.SocketException: Connection reset",
+        ] {
+            assert!(gradle_repository_hiccup(output), "{output}");
+        }
+    }
+
+    #[test]
+    fn a_missing_artifact_or_a_compile_error_is_not() {
+        for output in [
+            "Could not GET 'https://repo.maven.apache.org/maven2/a/b/1.0/b-1.0.pom'. Received status code 404 from server: Not Found",
+            "> Could not find com.example:missing:9.9.9.",
+            "e: file:///src/Main.kt:3:5 Unresolved reference: nope",
+        ] {
+            assert!(!gradle_repository_hiccup(output), "{output}");
+        }
     }
 }

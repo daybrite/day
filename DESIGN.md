@@ -6739,6 +6739,13 @@ triggers retain their existing behavior.
    ([§20.2](#202-release-signing-isolation), [docs/store.md](docs/store.md)). The website's `/showcase/` page
    therefore links the release assets of `daybrite/Day-Showcase` over the API
    (`website/scripts/assemble-downloads.mjs`) rather than serving anything this run built.
+   Downloads of system packages are retried as well. Every Linux install goes through `apt-install.sh`
+   (`scripts/ci/apt-install.sh` here, and its twin in daybrite/actions' `setup-day-deps`), which
+   repeats `apt-get update` and `install` up to four times with a growing pause: a mirror outage
+   lasts a minute or two, longer than apt's own immediate retries. The shared action also keeps the
+   package archives in a cache that falls back to the previous runner image's entry, so a new
+   image does not mean a full download. On Android, `day build` starts Gradle again (three
+   attempts) when a repository answers 429 or 5xx or drops the connection.
 
 6. **The website is its own lane** (the `website` and `website-deploy` jobs of `ci.yml`, 2026-10) —
    daybrite.dev builds and deploys beside everything above and depends on none of it. It was the

@@ -666,15 +666,18 @@ jobs:
         with:
           path: ~\AppData\Local\day\winappsdk
           key: winappsdk-${{ runner.arch }}-${{ hashFiles('crates/day-toolchain/src/winappsdk.rs') }}
+      # Through the shared action, not a bare `apt-get`: it installs from a cache of the package
+      # archives and retries with a pause, so a mirror that answers 503 for a minute (four jobs of
+      # one run on 2026-11-19) does not fail the leg. `extras` is what brings the web view's
+      # development libraries, which the backend crates link.
       - name: Toolkit deps
         if: matrix.toolkit == 'gtk' || matrix.toolkit == 'qt'
-        run: |
-          sudo apt-get update
-          if [ "${{ matrix.toolkit }}" = gtk ]; then
-            sudo apt-get install -y libgtk-4-dev libadwaita-1-dev librsvg2-dev libwebkitgtk-6.0-dev
-          else
-            sudo apt-get install -y qt6-base-dev qt6-svg-dev qt6-webengine-dev
-          fi
+        uses: daybrite/actions/.github/actions/setup-day-deps@v1
+        with:
+          target: linux-${{ matrix.toolkit }}
+          extras: true
+          pack: false
+          rust: false
       # The android backend links through the NDK, so the cross-clippy and the scaffold build need
       # cargo-ndk, but not Gradle, which only the packaging step uses.
       - uses: taiki-e/install-action@v2
@@ -994,7 +997,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install toolkit deps
         run: |
-          sudo apt-get update
+          # scripts/ci/apt-install.sh retries with a pause; a mirror outage outlasts apt's own retries.
+          sudo apt-get update || true
           # day-piece-webview needs Qt WebEngine (Qt) / WebKitGTK 6 (GTK) on top of the base libs.
           # fonts-noto-cjk: the runner image ships no CJK-capable font (only Noto Color Emoji +
           # the base DejaVu set, which covers Arabic but not Han), so without it the zh-CN
@@ -1007,13 +1011,13 @@ jobs:
           # in libqt6svg6 there), hence the apt-cache guard.
           case "${{ matrix.toolkit }}" in
             qt)
-              sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config fonts-noto-cjk libpulse0
-              if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then sudo apt-get install -y --no-install-recommends qt6-svg-plugins; fi
+              scripts/ci/apt-install.sh --no-install-recommends qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config fonts-noto-cjk libpulse0
+              if apt-cache show qt6-svg-plugins >/dev/null 2>&1; then scripts/ci/apt-install.sh --no-install-recommends qt6-svg-plugins; fi
               ;;
             # dbus supplies `dbus-run-session`: GTK's file dialogs are portal-backed and a
             # runner has no session bus, so `day launch` starts a private one. Without it GTK
             # reaches the portal through a NULL GDBusConnection and segfaults on the 2nd dialog.
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev librsvg2-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk dbus libpulse0 ;;
+            gtk) scripts/ci/apt-install.sh --no-install-recommends libgtk-4-dev libadwaita-1-dev librsvg2-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk dbus libpulse0 ;;
           esac
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
@@ -1037,7 +1041,7 @@ jobs:
       # runners preinstall neither flatpak-builder nor linuxdeploy.
       - name: Install flatpak tooling
         run: |
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          scripts/ci/apt-install.sh --no-install-recommends flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       # linuxdeploy + its toolkit plugin build the .appimage (§16.5). They ship as downloaded
       # AppImages, so they go to $RUNNER_TEMP (never the workspace, which is the checkout the
@@ -1049,13 +1053,13 @@ jobs:
           set -euo pipefail
           # appimagetool needs FUSE, which a runner does not have; APPIMAGE_EXTRACT_AND_RUN is the
           # documented way round it. xvfb is for the AppImage launch check below.
-          sudo apt-get install -y --no-install-recommends xvfb
+          scripts/ci/apt-install.sh --no-install-recommends xvfb
           sudo apt-get install -y --no-install-recommends fuse3 libfuse2t64 || \
             sudo apt-get install -y --no-install-recommends fuse libfuse2 || true
           # dpkg-dev supplies dpkg-architecture, which the GTK plugin exits on when missing
           # ("Install dpkg-dev then re-run the plugin"). Runners normally have it via
           # build-essential; asking for it explicitly costs nothing and removes the assumption.
-          sudo apt-get install -y --no-install-recommends dpkg-dev
+          scripts/ci/apt-install.sh --no-install-recommends dpkg-dev
           curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/linuxdeploy" \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
 
@@ -1481,11 +1485,23 @@ jobs:
       - name: Build resource regression app
         working-directory: showcase-src
         run: '"$DAY_BIN" build -t web-dom --profile release'
+      # Playwright's `--with-deps` runs apt itself. The mirror drops requests in bursts, so apt gets
+      # per-request retries and timeouts, and the whole install is tried again after a pause;
+      # browsers and archives already fetched are kept between attempts.
       - name: Install browser regression dependencies
         run: |
           npm --prefix website ci
           cd website
-          npx playwright install --with-deps chromium webkit
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+            | sudo tee /etc/apt/apt.conf.d/80-day-ci-timeouts >/dev/null
+          for attempt in 1 2 3 4; do
+            if npx playwright install --with-deps chromium webkit; then exit 0; fi
+            [ "$attempt" = 4 ] && break
+            echo "::warning::playwright install failed (attempt $attempt of 4); trying again in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
+          echo "::error::playwright install failed 4 times"
+          exit 1
       - name: Embedded resources and reloads (Chromium and WebKit)
         run: node scripts/ci/web-resources-test.mjs --showcase-only showcase-src/build/day/cargo/web-dom/release/dist
       - name: Resource regression report
@@ -1589,7 +1605,13 @@ jobs:
       - name: Verify the live shared-signal demo
         working-directory: website
         run: |
-          npx playwright install --with-deps chromium
+          # Tried again after a pause: `--with-deps` runs apt against a mirror that drops requests.
+          for attempt in 1 2 3 4; do
+            if npx playwright install --with-deps chromium; then break; fi
+            if [ "$attempt" = 4 ]; then echo "::error::playwright install failed 4 times"; exit 1; fi
+            echo "::warning::playwright install failed (attempt $attempt of 4); trying again in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
           npm run demo:test
 
       - name: Check rendered API links against rustdoc
