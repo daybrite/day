@@ -172,6 +172,10 @@ export const apps = [
       'A feed reader in three panes on a desktop and three taps on a phone, handling RSS, Atom, RDF and JSON Feed.',
     repo: 'https://github.com/Fleet-Reader/Fleet-Reader',
     metadata: 'https://fleet-reader.app/gallery/gallery.json',
+    stores: {
+      apple: 'https://apps.apple.com/app/id6832401867',
+      google: 'https://play.google.com/store/apps/details?id=org.appfair.app.FleetReader',
+    },
     labels: {
       'seeded-fixtures': 'A seeded library',
       'search-results': 'Search results',
