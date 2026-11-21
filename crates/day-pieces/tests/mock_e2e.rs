@@ -5280,6 +5280,43 @@ fn a_control_with_no_baseline_keeps_its_row_centered() {
 }
 
 #[test]
+fn nested_rows_report_their_placed_text_baseline() {
+    // Synthetic form: Android's slider is taller than its adjacent value label. The outer
+    // form label must follow that label's placed baseline, including the row's alignment.
+    for alignment in [
+        VAlign::Top,
+        VAlign::Center,
+        VAlign::Bottom,
+        VAlign::FirstBaseline,
+    ] {
+        let value = Signal::new(4.0);
+        let probe = boot(move || {
+            form((section((labeled(
+                "Stay",
+                row((slider(value).height(48.0).width(120.0), label("4 nights"))).align(alignment),
+            ),)),))
+        });
+        flush_sync();
+        let baseline = |text: &str| {
+            probe
+                .find_by_kind("day.label")
+                .into_iter()
+                .find(|(_, w)| w.text == text)
+                .expect("synthetic label")
+                .1
+                .frame
+                .origin
+                .y
+                + 12.0
+        };
+        assert!(
+            (baseline("Stay") - baseline("4 nights")).abs() < 0.01,
+            "nested {alignment:?} row must report the value label's actual baseline"
+        );
+    }
+}
+
+#[test]
 fn decorated_children_keep_their_baseline() {
     // `.width(..)`, `.padding(..)` and friends wrap the piece in a layout-only node. If those
     // wrappers reported no baseline the row would silently center the very children the author

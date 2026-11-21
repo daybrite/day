@@ -865,12 +865,8 @@ impl Layout for StackLayout {
     }
 
     /// A stack's own baseline is its first baseline-bearing child's, moved by where that child
-    /// sits: down a column that is the child's offset along the axis, across a row every
-    /// aligned child already shares the deepest baseline (docs/baseline.md).
-    #[expect(
-        clippy::float_cmp,
-        reason = "`f64::MIN` is the fold's seed, compared as a no-baseline sentinel"
-    )]
+    /// sits: down a column that is the child's offset along the axis; across a row it includes
+    /// the vertical alignment offset. Only a baseline-aligned row shares the deepest baseline.
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
         let mut kids = Vec::new();
         Self::flatten(cx, children, &mut kids);
@@ -885,8 +881,20 @@ impl Layout for StackLayout {
                     .zip(&sizes)
                     .map(|(&k, &s)| cx.baseline_of(k, s))
                     .collect();
-                let deepest = baselines.iter().flatten().copied().fold(f64::MIN, f64::max);
-                (deepest != f64::MIN).then_some(deepest)
+                if self.align == CrossAlign::FirstBaseline {
+                    return baselines.iter().flatten().copied().reduce(f64::max);
+                }
+                baselines.iter().zip(&sizes).find_map(|(baseline, child)| {
+                    baseline.map(|b| {
+                        let offset = match self.align {
+                            CrossAlign::Leading => 0.0,
+                            CrossAlign::Center => ((size.height - child.height) / 2.0).max(0.0),
+                            CrossAlign::Trailing => (size.height - child.height).max(0.0),
+                            CrossAlign::FirstBaseline => unreachable!("handled above"),
+                        };
+                        offset + b
+                    })
+                })
             }
             Axis::Vertical => {
                 let mut pos = 0.0;

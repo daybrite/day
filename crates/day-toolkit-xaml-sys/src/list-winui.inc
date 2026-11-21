@@ -45,6 +45,8 @@ struct WinuiList {
     // section header's (none), but never pinned.
     std::set<int> plain;
     winrt::event_token reveal_frame{};
+    // While a glide runs: the frame watch that ends it once its view has gone quiet.
+    winrt::event_token glide_frame{};
     std::weak_ptr<WinuiListCell> drag;
     uint64_t drag_generation = 0;
     double pitch = 44;
@@ -79,13 +81,22 @@ struct WinuiList {
     // settles). A key the reader presses meanwhile stops it before revealing its row: the
     // running animation would otherwise carry on over the key's jump.
     bool gliding = false;
+    // The pending jump has glided already: what is left is the landing check, which corrects
+    // the position without animation and without moving the keyboard focus.
+    bool pending_glided = false;
     // When the running glide last moved (or started), and when the pending row jump was asked
     // for: `day_winui_list_settling` stops counting either once it has gone quiet too long.
     ULONGLONG glide_at = 0, pending_at = 0;
     void notify() { if (host) changed(host); }
+    void unwatch_glide() {
+        if (!glide_frame.value) return;
+        WUXM::CompositionTarget::Rendering(glide_frame);
+        glide_frame = {};
+    }
     void stop_glide() {
         if (!gliding) return;
         gliding = false;
+        unwatch_glide();
         scroll.ChangeView(nullptr, WF::IReference<double>(scroll.VerticalOffset()), nullptr, true);
     }
     void reader_scroll() { if (host && reader) reader(host); }
@@ -142,7 +153,8 @@ static bool winui_list_reveal_landed(WinuiList const& list, int row, bool neares
     return std::abs(destination - offset) <= .5;
 }
 static void winui_list_reveal(WinuiList& list) {
-    if (list.pending == -2 || list.reveal_frame.value || list.count == 0 ||
+    // A running glide is asked nothing more until it ends; its row is checked then.
+    if (list.pending == -2 || list.reveal_frame.value || list.gliding || list.count == 0 ||
         list.scroll.ViewportHeight() <= 0) return;
     int row = list.pending < 0 ? list.count - 1 : (std::min)(list.pending, list.count - 1);
     auto element = list.repeater.GetOrCreateElement(row);
@@ -164,16 +176,41 @@ static void winui_list_reveal(WinuiList& list) {
     element.StartBringIntoView(options);
     if (list.pending_animated) {
         // The platform's own scroll animation runs from here; asking again every frame would
-        // restart it. Its ViewChanged frames report the viewport as it goes.
+        // restart it. Its ViewChanged frames report the viewport as it goes. The request stays
+        // pending: a far row the repeater had not realized can end the glide short of it, so
+        // once the view settles the landing check below runs, and moves the rest of the way.
         list.gliding = true;
         list.glide_at = GetTickCount64();
-        list.pending = -2;
+        list.pending_glided = true;
         list.pending_animated = false;
+        // The row is fixed now: an end request checks the row that was last when it glided,
+        // not one that rows added meanwhile have made last.
+        if (list.pending < 0) {
+            list.pending = row;
+            list.pending_align = 3;
+            list.pending_nearest = false;
+        }
+        // A reveal that moves nothing raises no ViewChanged at all, and one the repeater cuts
+        // short may not finish with a final one: a glide whose view has not changed for a
+        // moment is over, and its row's landing check runs.
+        list.unwatch_glide();
+        std::weak_ptr<WinuiList> glider = winui_list(list.host);
+        list.glide_frame = WUXM::CompositionTarget::Rendering([glider](auto const&, auto const&) {
+            auto l = glider.lock();
+            if (!l) return;
+            if (!l->gliding) { l->unwatch_glide(); return; }
+            if (GetTickCount64() - l->glide_at < 300) return;
+            l->gliding = false;
+            l->pending_at = GetTickCount64();
+            l->unwatch_glide();
+            l->notify();
+        });
         list.notify();
         return;
     }
     // A queued keyboard jump may not have a container until this request runs.
-    if (nearest) if (auto c = element.try_as<WUXC::Control>()) c.Focus(WUX::FocusState::Keyboard);
+    if (nearest && !list.pending_glided)
+        if (auto c = element.try_as<WUXC::Control>()) c.Focus(WUX::FocusState::Keyboard);
     // ItemsRepeater retains its bring-into-view anchor until Rendering. Another request
     // before that frame can replace the anchor while the first scroll is still pending.
     // Keep the request until its target reaches the viewport. Rendering releases the
@@ -511,8 +548,14 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
                 l->armed_at = 0;
                 l->reader_scroll();
             }
-            if (!a.IsIntermediate()) l->gliding = false;
-            else if (l->gliding) l->glide_at = GetTickCount64();
+            if (l->gliding && !a.IsIntermediate()) {
+                // The glide is over: its row's landing check runs with the pass this asks for.
+                l->gliding = false;
+                l->pending_at = GetTickCount64();
+                l->unwatch_glide();
+            } else if (l->gliding) {
+                l->glide_at = GetTickCount64();
+            }
             winui_list_pin(*l);
             l->notify();
         }
@@ -580,6 +623,7 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
             l->stop_glide();
             l->arm();
             l->focus = target; l->pending = target; l->pending_at = GetTickCount64();
+            l->pending_glided = false;
             l->pending_nearest = true;
             l->pending_animated = false;
             winui_list_reveal(*l);
@@ -596,6 +640,7 @@ void day_winui_list_forget(void* host) {
             WUXM::CompositionTarget::Rendering(l->reveal_frame);
             l->reveal_frame = {};
         }
+        l->unwatch_glide();
         l->host = nullptr;
         if (l->pin) {
             if (auto panel = WUXM::VisualTreeHelper::GetParent(l->pin).try_as<WUXC::Panel>()) {
@@ -659,8 +704,10 @@ void day_winui_list_cell_size(void* host, void* cell, uint64_t generation, doubl
 void day_winui_list_scroll(void* host, int row) {
     guard([&] {
         if (auto l = winui_list(host)) {
+            l->stop_glide();
             l->pending = row;
             l->pending_at = GetTickCount64();
+            l->pending_glided = false;
             l->pending_nearest = false;
             l->pending_align = 1;
             l->pending_animated = false;
@@ -673,8 +720,10 @@ void day_winui_list_scroll(void* host, int row) {
 void day_winui_list_scroll_to(void* host, int row, int align, int animated) {
     guard([&] {
         if (auto l = winui_list(host)) {
+            l->stop_glide();
             l->pending = row;
             l->pending_at = GetTickCount64();
+            l->pending_glided = false;
             l->pending_nearest = row >= 0 && align == 0;
             l->pending_align = align;
             l->pending_animated = animated != 0;
@@ -683,10 +732,10 @@ void day_winui_list_scroll_to(void* host, int row, int align, int animated) {
     });
 }
 // Whether the list's own scroll is still on its way (Toolkit::ui_idle, docs/list.md "Visible
-// rows"): a row jump that has not reached its row, or an animated one still moving, on a list
-// that is shown. Each counts for a bounded time only: a jump that has not landed within a
-// second, or a glide whose view has not changed for half a second, no longer holds a script, so
-// a scroll that cannot move can never wedge one.
+// rows"): an animated jump still moving, or a jump that has not reached its row, on a list that
+// is shown. Each counts for a bounded time only: a glide whose view has not changed for half a
+// second, or a jump that has not landed within a second of its request (or of its glide's end),
+// no longer holds a script, so a scroll that cannot move can never wedge one.
 int day_winui_list_settling(void* host) {
     int busy = 0;
     guard([&] {

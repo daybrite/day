@@ -2048,6 +2048,10 @@ Title-size number has a taller ascent than the Caption beside it.
 - `Layout::baseline` lets a container answer for its content, and every single-child wrapper
   forwards its child's. Without that, `.width(90)` on a label would silently remove it from the
   alignment — decorators are invisible at the call site.
+- A horizontal stack reports its first text child's baseline after applying the row's top,
+  center, or bottom alignment offset. A `FirstBaseline` row reports the shared deepest baseline.
+  This keeps a form label aligned with a value label centered beside a taller native slider;
+  `nested_rows_report_their_placed_text_baseline` covers all four alignments in the mock suite.
 - `labeled()` rows are baseline-aligned by default; `row(..).align(VAlign::FirstBaseline)` is the
   explicit opt-in. `Cap::BaselineAlignment` reports where it is real.
 - Deliberately not done: baseline alignment between grid cells ([docs/grid.md](docs/grid.md)), and last-baseline
