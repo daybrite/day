@@ -639,13 +639,17 @@ impl<P: Piece> Piece for Scroll<P> {
             });
         }
         if let Some(scale) = self.zoom_scale {
-            // What the view last reported, so its own report is not sent back to it.
-            let native = Rc::new(std::cell::Cell::new(1.0_f64));
+            // The scale the view last reported, until the binding's watcher sees the write it
+            // made (§4.4 echo guard): the view's own report is not sent back to it. Every other
+            // write is the app's and is sent, even one equal to the view's last report: the
+            // view may be on its way somewhere else (an animated zoom reports only as it moves,
+            // so a reset written straight after a zoom-in matches the scale from before it).
+            let echo: Rc<std::cell::Cell<Option<f64>>> = Rc::new(std::cell::Cell::new(None));
             {
-                let native = native.clone();
+                let echo = echo.clone();
                 cx.on(node, move |event| {
                     if let Event::ScrollZoomed(z) = event {
-                        native.set(*z);
+                        echo.set(Some(*z));
                         scale.set_if_changed(*z);
                     }
                 });
@@ -654,19 +658,20 @@ impl<P: Piece> Piece for Scroll<P> {
             watch(
                 move || scale.get(),
                 move |want: &f64, _| {
-                    let want = range.map_or(*want, |r| want.clamp(r.min, r.max));
-                    if (want - native.get()).abs() > 1e-6 {
-                        day_core::with_tree(|t| {
-                            t.patch(
-                                node,
-                                Box::new(ScrollPatch::Zoom {
-                                    scale: want,
-                                    animated: true,
-                                }),
-                                false,
-                            );
-                        });
+                    if echo.take().is_some_and(|z| (z - want).abs() <= 1e-9) {
+                        return;
                     }
+                    let want = range.map_or(*want, |r| want.clamp(r.min, r.max));
+                    day_core::with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(ScrollPatch::Zoom {
+                                scale: want,
+                                animated: true,
+                            }),
+                            false,
+                        );
+                    });
                 },
             );
         }
@@ -1092,6 +1097,9 @@ pub(crate) mod conformance {
                     button("Far")
                         .action(move || scale.set(9.0))
                         .id(day_core::id!(zoom_far)),
+                    button("Reset")
+                        .action(move || scale.set(1.0))
+                        .id(day_core::id!(zoom_reset)),
                 ))
                 .spacing(8.0)
             })
@@ -1101,7 +1109,17 @@ pub(crate) mod conformance {
                 d.assert_text("zoom", "zoom 2.0").await?;
                 // Past the range: the view stops at its maximum and says so.
                 d.tap("zoom_far").await?;
-                d.assert_text("zoom", "zoom 4.0").await
+                d.assert_text("zoom", "zoom 4.0").await?;
+                d.tap("zoom_reset").await?;
+                d.pause(1.0).await?;
+                d.assert_text("zoom", "zoom 1.0").await?;
+                // A write while the view is still on its way to the one before, back to the
+                // scale it last reported: the view goes where the last write says, and the
+                // zoom it gave up on does not land after it.
+                d.tap("zoom_double").await?;
+                d.tap("zoom_reset").await?;
+                d.pause(1.0).await?;
+                d.assert_text("zoom", "zoom 1.0").await
             })
     }
 

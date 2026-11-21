@@ -210,6 +210,9 @@ pub(super) struct ScrollIvars {
     start: Cell<f64>,
     /// Bumped by every wheel event, so a quiet timer armed before a newer event does nothing.
     wheel: Cell<u64>,
+    /// Bumped by every `ScrollPatch::Zoom`, so an animated zoom that a newer one replaced does
+    /// not land its own scale when its group completes.
+    zooms: Cell<u64>,
 }
 
 define_class!(
@@ -427,6 +430,7 @@ pub(super) fn realize(mtm: MainThreadMarker, node: NodeId, p: &ScrollProps) -> R
         phase: Cell::new(ScrollPhase::Idle),
         start: Cell::new(0.0),
         wheel: Cell::new(0),
+        zooms: Cell::new(0),
     };
     let phased = p.track_phase || p.snap != ScrollSnap::None;
     let sv: Retained<NSScrollView> = if phased {
@@ -532,6 +536,8 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
         return;
     }
     let scale = scale.clamp(range.min, range.max);
+    let zoom = ivars.zooms.get().wrapping_add(1);
+    ivars.zooms.set(zoom);
     let clip = unsafe { sv.contentView() };
     let bounds = clip.bounds();
     let center = NSPoint::new(
@@ -556,11 +562,17 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
     });
     let completion = RcBlock::new(move || {
         ffi_guard::contain((), || {
-            // Exactly the scale asked for, about the center the zoom started from.
-            unsafe { done.setMagnification_centeredAtPoint(scale, center) };
-            if let Some((sv, ivars)) = parts(&done) {
-                report(sv, ivars, true);
+            let Some((sv, ivars)) = parts(&done) else {
+                return;
+            };
+            // A newer zoom replaced this one: AppKit still completes this group, and landing
+            // its scale now would undo the newer zoom, which reports where it rests itself.
+            if ivars.zooms.get() != zoom {
+                return;
             }
+            // Exactly the scale asked for, about the center the zoom started from.
+            unsafe { sv.setMagnification_centeredAtPoint(scale, center) };
+            report(sv, ivars, true);
         });
     });
     unsafe { NSAnimationContext::runAnimationGroup_completionHandler(&changes, Some(&completion)) };

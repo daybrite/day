@@ -8712,6 +8712,11 @@ section switchable without naming targets (the showcase walkthrough's Physics wa
 Android `day-ci-medium-tablet` AVD, detected in `script-setup` after boot. Its known Physics
 animation hang remains unresolved; the skip is reported as a warning and retains coverage on
 phones and other platforms. Local runs leave the switch unset unless explicitly requested.
+And (2026-11) they match the run's layout direction as `rtl` or `ltr`, from the language of the
+run's locale (`--locale`, else the app's default locale), by the same language list as
+`day_core::direction_of_locale`: a step whose expectation depends on reading direction (an
+arrow key that moves toward the end of a mirrored row) carries `skip_on: [rtl]` beside a
+mirrored copy under `skip_on: [ltr]`.
 
 ---
 

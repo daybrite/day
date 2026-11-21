@@ -285,12 +285,28 @@ mod native {
                     // a later turn. Last: AppKit's concurrent scrolling waits on for the rest of
                     // a gesture these few events never finish.
                     follow_in_flight(rows).await;
+                    // Measured from where the gesture starts, not from the end: on a slow
+                    // runner the followed scroll is over before the fingers land, and the list
+                    // moves by the gesture alone. AppKit moves it by the delta of the event that
+                    // begins the gesture (it takes the rest of a gesture from the event queue,
+                    // not from these direct calls), so that one carries more than five rows.
+                    let start = origin_y(&scroll);
                     wheel(&scroll, 0, Some(128)); // may begin: fingers down
-                    wheel(&scroll, 120, Some(1)); // began
+                    wheel(&scroll, 240, Some(1)); // began
                     wheel(&scroll, 120, Some(2)); // changed
                     let fingers = hold_gesture(scroll.clone());
-                    day_core::sleep(300).await;
-                    check(distance(&table) > 5. * ROW, "the gesture moves the list up");
+                    // AppKit applies the changes on a later turn; a loaded runner takes longer.
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+                    while start - origin_y(&scroll) <= 5. * ROW
+                        && std::time::Instant::now() < deadline
+                    {
+                        day_core::sleep(50).await;
+                    }
+                    let moved = start - origin_y(&scroll);
+                    check(
+                        moved > 5. * ROW,
+                        &format!("the gesture moves the list up ({moved:.0} points)"),
+                    );
                     let left = origin_y(&scroll);
                     stays(&table, rows, left, "a gesture").await;
                     end.notify();

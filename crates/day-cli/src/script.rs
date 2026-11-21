@@ -1042,6 +1042,7 @@ fn run_scripts_inner(
     let catalog = startup_catalog(roundtrip(&mut stream, &mut reader, &catalog_line, 0.0))?;
     let catalog_flavor =
         crate::flavor::active().map_or("flavor:none".into(), |name| format!("flavor:{name}"));
+    let direction = direction_gate(locale.or(default_locale.as_deref()));
     for path in scripts {
         let flow = parse_flow(path, &project.root).map_err(ScriptError::Other)?;
         for (index, entry) in flow.steps.iter().enumerate() {
@@ -1053,7 +1054,7 @@ fn run_scripts_inner(
                     .is_some_and(|xs| {
                         xs.iter()
                             .filter_map(|v| v.as_str())
-                            .any(|x| gate_names(x, target, &catalog_flavor))
+                            .any(|x| gate_names(x, target, &catalog_flavor, direction))
                     })
             };
             if matches("skip_on") || (value.get("only_on").is_some() && !matches("only_on")) {
@@ -1213,7 +1214,7 @@ fn run_scripts_inner(
                     if !gate_is_known(token) && warned_gates.insert(token.to_string()) {
                         eprintln!(
                             "  {WARN}!{WARN:#} {op}: `{list}: [{token}]` names no target, toolkit, \
-                             platform or flavor — check the spelling"
+                             platform, flavor or direction — check the spelling"
                         );
                     }
                 }
@@ -1222,10 +1223,10 @@ fn run_scripts_inner(
                 let hit = skips
                     .iter()
                     .filter_map(|v| v.as_str())
-                    .find(|s| gate_names(s, target, &flavor_gate));
+                    .find(|s| gate_names(s, target, &flavor_gate, direction));
                 if let Some(token) = hit {
-                    // An `env:` gate skips it everywhere it is set, not on this target.
-                    if token.starts_with("env:") {
+                    // An `env:` or direction gate skips it wherever it holds, not on this target.
+                    if token.starts_with("env:") || token == direction {
                         eprintln!("  {WARN}–{WARN:#} {op} (skipped: {token})");
                     } else {
                         eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
@@ -1242,7 +1243,7 @@ fn run_scripts_inner(
                 let hit = onlys
                     .iter()
                     .filter_map(|v| v.as_str())
-                    .any(|s| gate_names(s, target, &flavor_gate));
+                    .any(|s| gate_names(s, target, &flavor_gate, direction));
                 if !hit {
                     // Name what actually excluded it: a step kept for one flavor reads as
                     // "not for flavor:none" on the base app, where "not for macos-appkit" would
@@ -2126,20 +2127,27 @@ fn gate_platform(target_name: &str) -> &str {
 
 /// Whether one `skip_on:`/`only_on:` token names this run: the target (`ios-uikit`), its
 /// toolkit (`uikit`), its platform (`ios`, `android`, `macos`, `linux`, `windows`, `harmony`,
-/// `web`), or the build flavor as `flavor:<name>` (`flavor:none` for the base app). The
-/// platform form is what lets a step opt IN by where it applies, `only_on: [ios, android]`,
-/// instead of listing every toolkit it does not.
+/// `web`), the build flavor as `flavor:<name>` (`flavor:none` for the base app), or the run's
+/// layout direction, `rtl` or `ltr` (`direction`, from [`direction_gate`]). The platform form
+/// is what lets a step opt IN by where it applies, `only_on: [ios, android]`, instead of
+/// listing every toolkit it does not.
 ///
 /// `windows-winui` is the XAML backend built against WinUI 3 (docs/winui.md), so a gate naming
 /// the XAML backend (`xaml`, `windows-xaml`) names it too: a step written for XAML's behavior is
 /// WinUI's behavior as well. `winui` / `windows-winui` single the WinUI build out.
-fn gate_names(token: &str, target: &crate::targets::Target, flavor_gate: &str) -> bool {
+fn gate_names(
+    token: &str,
+    target: &crate::targets::Target,
+    flavor_gate: &str,
+    direction: &str,
+) -> bool {
     let token = crate::targets::canonical(token);
     let xaml_family = target.toolkit == "winui" && matches!(token, "xaml" | "windows-xaml");
     token == target.name
         || token == target.toolkit
         || token == gate_platform(target.name)
         || token == flavor_gate
+        || token == direction
         || xaml_family
         || token.strip_prefix("env:").is_some_and(|name| {
             env_gate(name, LAUNCH_ENV.get().map_or(&[], Vec::as_slice), |n| {
@@ -2185,12 +2193,30 @@ fn env_gate(
         })
 }
 
+/// The layout direction gate a run in `locale` matches: `rtl` where the locale's language is
+/// written right to left, else `ltr`. The same language list as `day_core::direction_of_locale`,
+/// which decides the app's own direction from the same locale at launch; the CLI does not link
+/// the runtime, so the list is repeated here.
+fn direction_gate(locale: Option<&str>) -> &'static str {
+    let language = locale
+        .unwrap_or_default()
+        .split(['-', '_'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match language.as_str() {
+        "ar" | "he" | "iw" | "fa" | "ur" | "ps" | "sd" | "ug" | "yi" | "dv" | "ku" => "rtl",
+        _ => "ltr",
+    }
+}
+
 /// Whether a gate token could name anything at all (some target, toolkit or platform in the
-/// catalog, or a `flavor:` or `env:` token), so a misspelling is reported rather than matching
-/// nothing.
+/// catalog, a `flavor:` or `env:` token, or a direction), so a misspelling is reported rather
+/// than matching nothing.
 fn gate_is_known(token: &str) -> bool {
     let token = crate::targets::canonical(token);
-    token.starts_with("flavor:")
+    matches!(token, "rtl" | "ltr")
+        || token.starts_with("flavor:")
         || token
             .strip_prefix("env:")
             .is_some_and(|name| !name.is_empty())
@@ -2977,14 +3003,14 @@ mod gate_tests {
         let web = crate::targets::find("web-dom").expect("web-dom");
         let harmony = crate::targets::find("harmony-arkui").expect("harmony-arkui");
         for token in ["ios-uikit", "uikit", "ios", "flavor:none"] {
-            assert!(gate_names(token, ios, "flavor:none"), "{token}");
+            assert!(gate_names(token, ios, "flavor:none", "ltr"), "{token}");
         }
         for token in ["android", "material", "web-dom", "flavor:paid", "iOS", ""] {
-            assert!(!gate_names(token, ios, "flavor:none"), "{token}");
+            assert!(!gate_names(token, ios, "flavor:none", "ltr"), "{token}");
         }
-        assert!(gate_names("web", web, "flavor:none"));
-        assert!(gate_names("harmony", harmony, "flavor:none"));
-        assert!(gate_names("flavor:paid", ios, "flavor:paid"));
+        assert!(gate_names("web", web, "flavor:none", "ltr"));
+        assert!(gate_names("harmony", harmony, "flavor:none", "ltr"));
+        assert!(gate_names("flavor:paid", ios, "flavor:paid", "ltr"));
     }
 
     /// WinUI is the XAML backend: a gate naming XAML reaches it, a gate naming WinUI reaches
@@ -2994,11 +3020,28 @@ mod gate_tests {
         let winui = crate::targets::find("windows-winui").expect("windows-winui");
         let xaml = crate::targets::find("windows-xaml").expect("windows-xaml");
         for token in ["xaml", "windows-xaml", "winui", "windows-winui", "windows"] {
-            assert!(gate_names(token, winui, "flavor:none"), "{token}");
+            assert!(gate_names(token, winui, "flavor:none", "ltr"), "{token}");
         }
         for token in ["winui", "windows-winui"] {
-            assert!(!gate_names(token, xaml, "flavor:none"), "{token}");
+            assert!(!gate_names(token, xaml, "flavor:none", "ltr"), "{token}");
         }
+    }
+
+    /// `rtl` and `ltr` name the run's layout direction, from its locale's language.
+    #[test]
+    fn a_direction_gate_follows_the_locale() {
+        use super::direction_gate;
+        for locale in ["ar", "ar-EG", "he", "fa-IR", "ur_PK"] {
+            assert_eq!(direction_gate(Some(locale)), "rtl", "{locale}");
+        }
+        for locale in ["en", "fr", "zh-CN", "arn", ""] {
+            assert_eq!(direction_gate(Some(locale)), "ltr", "{locale}");
+        }
+        assert_eq!(direction_gate(None), "ltr");
+        let mac = crate::targets::find("macos-appkit").expect("macos-appkit");
+        assert!(gate_names("rtl", mac, "flavor:none", "rtl"));
+        assert!(!gate_names("rtl", mac, "flavor:none", "ltr"));
+        assert!(gate_names("ltr", mac, "flavor:none", "ltr"));
     }
 
     #[test]
@@ -3012,6 +3055,8 @@ mod gate_tests {
             "macos-appkit",
             "flavor:x",
             "env:SHOWCASE_SKIP_PHYSICS",
+            "rtl",
+            "ltr",
         ] {
             assert!(gate_is_known(token), "{token}");
         }

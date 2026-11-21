@@ -184,6 +184,17 @@ day launch --script dayscript/walkthrough.yaml --env SHOWCASE_SKIP_PHYSICS=1
 
 In CI, the workflow's `launch-env` input passes the same `--env` to every scripted launch.
 
+They also match the run's layout direction, written `rtl` or `ltr`. The direction comes from the
+language of the run's locale (`--locale`, or the app's default locale without one), the same way
+the app decides it at launch. Use it for a step whose result depends on reading direction, such
+as an arrow key in a row that mirrors under Arabic or Hebrew:
+
+```yaml
+- key: { key: ArrowRight, skip_on: [rtl] }
+- key: { key: ArrowLeft, skip_on: [ltr] }
+- assert_text: { id: planet_name, key: planet_saturn }
+```
+
 ## Run reports and background memory sampling
 
 `day launch --script dayscript/walkthrough.yaml` profiles memory by default and saves a
