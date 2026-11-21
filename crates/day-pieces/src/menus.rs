@@ -85,7 +85,7 @@ impl MenuEntry {
     }
     /// Convenience: the platform's primary modifier (⌘ / Ctrl) + `key`. This sets the item's
     /// shortcut; to name the item, use [`MenuEntry::id`].
-    pub fn key(mut self, key: impl Into<String>) -> MenuEntry {
+    pub fn key(mut self, key: impl Into<day_spec::ShortcutKey>) -> MenuEntry {
         self.shortcut = Some(day_spec::Shortcut::primary(key));
         self
     }

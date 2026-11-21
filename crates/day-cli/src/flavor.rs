@@ -130,6 +130,11 @@ struct FlavorManifest {
     /// platform; the ones it leaves out are inherited, values and `${VAR}` references alike.
     #[serde(default)]
     signing: Option<crate::meta::Signing>,
+    /// `[permissions]` entries that replace the base app's, key by key: a development build
+    /// signed with a profile that cannot grant an entitlement turns that permission off
+    /// (`notifications = false`) rather than failing to sign. Keys it leaves out are inherited.
+    #[serde(default)]
+    permissions: BTreeMap<String, crate::meta::Declaration>,
 }
 
 /// `[app]` in a flavor: the overridable identity, the target list, and the same
@@ -190,6 +195,14 @@ fn parse(text: &str) -> Result<FlavorManifest, String> {
     {
         return Err("[app] version is empty — state a version or leave the key out".to_string());
     }
+    for key in flavor.permissions.keys() {
+        if key == "raw" || day_build::permissions::find(key).is_none() {
+            return Err(format!(
+                "[permissions] {key:?} is not a known permission (a flavor can switch portable \
+                 permissions on or off; `raw` declarations stay in Day.toml)"
+            ));
+        }
+    }
     for key in ["app", "cargo", "env", "resources", "store"] {
         if flavor.env.contains_key(key) {
             return Err(format!(
@@ -235,6 +248,7 @@ pub fn apply(root: &Path, manifest: &mut Manifest) -> Result<(), String> {
     });
     merge_app(&mut manifest.app, flavor.app);
     merge_signing(&mut manifest.signing, flavor.signing);
+    manifest.permissions.declared.extend(flavor.permissions);
     let cargo = flavor.cargo.unwrap_or_default();
     let _ = INPUTS.set(FlavorInputs {
         features: cargo.features,
@@ -612,6 +626,16 @@ mod tests {
         let ok = parse("resources = \"resource-paid\"\n[env]\nTIER = \"paid\"\n").expect("parses");
         assert_eq!(ok.resources.as_deref(), Some("resource-paid"));
         assert_eq!(ok.env["TIER"], "paid");
+    }
+
+    #[test]
+    fn a_flavor_switches_a_portable_permission_and_rejects_the_rest() {
+        let ok = parse("[permissions]\nnotifications = false\n").expect("parses");
+        assert!(!ok.permissions["notifications"].enabled());
+        let err = parse("[permissions]\nnotificatons = false\n").expect_err("a typo is caught");
+        assert!(err.contains("not a known permission"), "{err}");
+        let err = parse("[permissions.raw]\nandroid = []\n").expect_err("raw stays in Day.toml");
+        assert!(err.contains("raw"), "{err}");
     }
 
     #[test]

@@ -280,6 +280,62 @@ void day_xaml_read_native(void* h, DayXamlNative* out) {
     });
 }
 
+// What the element shows right now, a running animation included (docs/tween.md "Mid-flight
+// read-back"): the values the storyboards write through the property system. `out` takes the
+// opacity; the transform's translation (x, y); the frame before any transform, in the window
+// content's space (x, y, width, height); and a container's fill (r, g, b, a in 0..1). The
+// result's bits say which were read: 1 opacity, 2 translation, 4 frame, 8 fill.
+int day_xaml_read_displayed(void* h, double* out) {
+    int flags = 0;
+    guard([&] {
+        auto el = elem(h);
+        out[0] = el.Opacity();
+        flags |= 1;
+        out[1] = out[2] = 0;
+        if (auto t = el.RenderTransform().try_as<WUXM::CompositeTransform>()) {
+            out[1] = t.TranslateX();
+            out[2] = t.TranslateY();
+        }
+        flags |= 2;
+        if (auto fe = el.try_as<FrameworkElement>()) {
+            WUXC::Canvas host{nullptr};
+            for (WUX::DependencyObject d = el; d; d = WUXM::VisualTreeHelper::GetParent(d)) {
+                if (is_content_canvas(d)) { host = d.as<WUXC::Canvas>(); break; }
+            }
+            auto parent = WUXM::VisualTreeHelper::GetParent(el).try_as<UIElement>();
+            if (host && parent) {
+                auto num = [](double v, double fallback) { return std::isnan(v) ? fallback : v; };
+                const double left = num(WUXC::Canvas::GetLeft(fe), 0), top = num(WUXC::Canvas::GetTop(fe), 0);
+                auto at = parent.TransformToVisual(host).TransformPoint(
+                    WF::Point{static_cast<float>(left), static_cast<float>(top)});
+                out[3] = at.X;
+                out[4] = at.Y;
+                out[5] = num(fe.Width(), fe.ActualWidth());
+                out[6] = num(fe.Height(), fe.ActualHeight());
+                flags |= 4;
+            }
+        }
+        if (auto canvas = el.try_as<WUXC::Canvas>()) {
+            WUXM::SolidColorBrush brush{nullptr};
+            if (auto s = surface_of(h)) {
+                brush = s->box.Background().try_as<WUXM::SolidColorBrush>();
+            } else if (canvas.Children().Size() > 0) {
+                if (auto r = canvas.Children().GetAt(0).try_as<WUXSh::Rectangle>())
+                    if (r.Name() == L"day_bg") brush = r.Fill().try_as<WUXM::SolidColorBrush>();
+            }
+            if (brush) {
+                auto c = brush.Color();
+                out[7] = c.R / 255.0;
+                out[8] = c.G / 255.0;
+                out[9] = c.B / 255.0;
+                out[10] = c.A / 255.0;
+                flags |= 8;
+            }
+        }
+    });
+    return flags;
+}
+
 // The first element at or under `e` that has an automation peer, at most `depth` levels down.
 // A notification is raised through SOME peer in the window's tree — which one does not matter
 // to the screen reader — but the window's root is a Canvas, and panels create no peer of their

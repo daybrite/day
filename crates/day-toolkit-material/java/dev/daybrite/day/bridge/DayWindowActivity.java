@@ -102,6 +102,23 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
         };
     }
 
+    // Every touch the window receives reaches Day's input observers after the views had it:
+    // the input kind and the presses (docs/gestures.md "Press", "Input kind").
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        boolean handled = super.dispatchTouchEvent(ev);
+        DayBridge.observeTouch(ev);
+        return handled;
+    }
+    @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent ev) {
+        DayBridge.observeGenericMotion(ev);
+        return super.dispatchGenericMotionEvent(ev);
+    }
+    /** A press does not outlast its window's focus (a dialog, a menu, another app). */
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) DayBridge.cancelPresses();
+    }
+
     // Per-window focus (docs/windows.md); app-level day lifecycle stays the primary's.
     @Override protected void onResume() {
         super.onResume();

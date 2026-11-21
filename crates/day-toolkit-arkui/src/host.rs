@@ -27,6 +27,21 @@ pub(crate) fn color_mode_support() -> Support {
     set_color_mode_native_support()
 }
 
+/// The system theme's color for every [`day_spec::SystemColor`] role in the light
+/// (`dark == false`) or the dark appearance, in wire order (docs/color.md): the `sys.color`
+/// resources the ArkTS arm reads through a resource manager whose configuration names that
+/// color mode, so the answer does not wait for the app's own configuration to catch up with a
+/// `set_color_mode`. `None` for the whole table when the arm is not staged, and per role where
+/// the theme has no such color.
+pub(crate) fn system_colors(dark: bool) -> Option<[Option<u32>; day_spec::SystemColor::COUNT]> {
+    let mut out = [None; day_spec::SystemColor::COUNT];
+    for (wire, slot) in out.iter_mut().enumerate() {
+        let role = i32::try_from(wire).unwrap_or(i32::MAX);
+        *slot = u32::try_from(system_color_native(dark, role).ok()?).ok();
+    }
+    Some(out)
+}
+
 /// Put `count` on the app icon; 0 clears it.
 pub(crate) fn set_badge(count: u32) {
     set_badge_native(i32::try_from(count).unwrap_or(i32::MAX));
@@ -79,6 +94,26 @@ pub(crate) fn watch_reduce_motion(on_change: fn()) {
     });
 }
 
+/// The factor the system's text-size setting applies to text (docs/text.md "Text scale"): the
+/// configuration's `fontSizeScale`, which ArkUI's fp units already follow. 1.0 when the arm is
+/// not staged or the value is unusable.
+pub(crate) fn font_scale() -> f64 {
+    font_scale_native()
+        .ok()
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .unwrap_or(1.0)
+}
+
+/// Run `on_change` on Day's UI thread each time the text-size setting changes; the caller
+/// re-reads [`font_scale`].
+pub(crate) fn watch_font_scale(on_change: fn()) {
+    let _ = watch_font_scale_native_stream(move |item| {
+        if let day_bridge::Item::Value(()) = item {
+            day_reactive::on_main(on_change);
+        }
+    });
+}
+
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
@@ -94,6 +129,13 @@ day_bridge::bridge! {
         fn reduce_motion_native() -> Result<bool, day_bridge::Error>;
         /// A tick each time that scale changes; the reader re-queries it.
         fn watch_reduce_motion_native(emit: day_bridge::Emit<()>) -> Result<(), day_bridge::Error>;
+        /// The configuration's font size scale (1 at the default text size).
+        fn font_scale_native() -> Result<f64, day_bridge::Error>;
+        /// A tick each time the font size scale changes; the reader re-queries it.
+        fn watch_font_scale_native(emit: day_bridge::Emit<()>) -> Result<(), day_bridge::Error>;
+        /// The color of the role with wire number `role` in one color mode as `0xAARRGGBB`,
+        /// or -1 where the system theme has no resource for it.
+        fn system_color_native(dark: bool, role: i32) -> Result<i64, day_bridge::Error>;
     }
 
     #[day_bridge::impl(arkts, platforms = [ohos])]
@@ -103,6 +145,7 @@ day_bridge::bridge! {
             import { notificationManager } from '@kit.NotificationKit';
             import { accessibility } from '@kit.AccessibilityKit';
             import { BusinessError, settings } from '@kit.BasicServicesKit';
+            import { resourceManager } from '@kit.LocalizationKit';
         "#,
         body = r#"
             function dayAppContext(): common.ApplicationContext {
@@ -175,6 +218,76 @@ day_bridge::bridge! {
                   watch_reduce_motion_native_emit(emit);
                 });
             }
+            export function font_scale_native(): number {
+              const scale = (getContext() as common.UIAbilityContext).config.fontSizeScale;
+              return scale !== undefined && scale > 0 ? scale : 1;
+            }
+            export function watch_font_scale_native(emit: number): void {
+              let last = font_scale_native();
+              dayAppContext().on('environment', {
+                onConfigurationUpdated: (config: Configuration): void => {
+                  if (config.fontSizeScale !== undefined && config.fontSizeScale !== last) {
+                    last = config.fontSizeScale;
+                    watch_font_scale_native_emit(emit);
+                  }
+                },
+                onMemoryLevel: (): void => {}
+              });
+            }
+
+            // The SystemColor roles in wire order (day-spec ink.rs) as the theme's sys.color
+            // resources; null where the theme has none and Day's own pair stands in.
+            function daySystemColorResources(): (Resource | null)[] {
+              return [
+                $r('sys.color.ohos_id_color_emphasize'),        // Accent
+                $r('sys.color.ohos_id_color_text_primary'),     // Text
+                $r('sys.color.ohos_id_color_text_secondary'),   // SecondaryText
+                $r('sys.color.ohos_id_color_background'),       // Background
+                $r('sys.color.ohos_id_color_card_bg'),          // Surface
+                $r('sys.color.ohos_id_color_text_tertiary'),    // TertiaryText
+                $r('sys.color.ohos_id_color_text_hint'),        // Placeholder
+                $r('sys.color.ohos_id_color_text_hyperlink'),   // Link
+                $r('sys.color.ohos_id_color_list_separator'),   // Separator
+                $r('sys.color.ohos_id_color_button_normal'),    // ControlFill
+                $r('sys.color.ohos_id_color_sub_background'),   // GroupedBackground
+                $r('sys.color.ohos_id_color_dialog_bg'),        // ElevatedSurface
+                $r('sys.color.ohos_id_color_text_highlight_bg'), // Selection
+                $r('sys.color.ohos_id_color_warning'),          // Destructive
+                null,                                            // Success
+                null                                             // Warning
+              ];
+            }
+
+            // One resource manager per color mode, made once: the base manager with its
+            // configuration's color mode replaced.
+            const dayColorManagers: Map<boolean, resourceManager.ResourceManager> = new Map();
+
+            function dayColorManager(dark: boolean): resourceManager.ResourceManager {
+              const known = dayColorManagers.get(dark);
+              if (known !== undefined) {
+                return known;
+              }
+              const base = (getContext() as common.UIAbilityContext).resourceManager;
+              const config: resourceManager.Configuration = base.getConfigurationSync();
+              config.colorMode = dark ? resourceManager.ColorMode.DARK : resourceManager.ColorMode.LIGHT;
+              const manager = base.getOverrideResourceManager(config);
+              dayColorManagers.set(dark, manager);
+              return manager;
+            }
+
+            export function system_color_native(dark: boolean, role: number): number {
+              const res: Resource | null | undefined = daySystemColorResources()[role];
+              if (res === null || res === undefined) {
+                return -1;
+              }
+              try {
+                return dayColorManager(dark).getColorSync(res) >>> 0;
+              } catch (err) {
+                const e = err as BusinessError;
+                console.warn(`day-toolkit-arkui: system color ${role}: ${e.code} ${e.message}`);
+                return -1;
+              }
+            }
         "#,
     );
 
@@ -199,6 +312,21 @@ day_bridge::bridge! {
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn watch_reduce_motion_native(_emit: day_bridge::Emit<()>) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn font_scale_native() -> Result<f64, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn watch_font_scale_native(_emit: day_bridge::Emit<()>) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn system_color_native(_dark: bool, _role: i32) -> Result<i64, day_bridge::Error> {
         Err(day_bridge::Error::Unsupported)
     }
 }

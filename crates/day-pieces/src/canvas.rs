@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The `canvas` immediate-mode drawing surface (record a `Draw` display list that backends
-//! replay natively, with `frame_clock` for per-frame animation), plus the general `Reactive<T>`
-//! (value / `Signal` / closure) abstraction that pieces accept for animatable inputs.
+//! replay natively; `day::motion` and `day::frame` drive per-frame animation), plus the general
+//! `Reactive<T>` (value / `Signal` / `Animated` / closure) abstraction that pieces accept for
+//! animatable inputs.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Scope, Signal};
+use day_reactive::Signal;
 use day_spec::props::*;
 use day_spec::{
-    Color, CornerRadii, DrawOp, Event, ExportError, FillRule, Paint, PathSeg, Point, Rect, Shape,
-    Size, StrokeStyle, kinds,
+    Angle, CornerRadii, DrawOp, Event, ExportError, FillRule, Ink, Paint, PathSeg, Point, Rect,
+    Shape, Size, StrokeStyle, SystemColor, kinds,
 };
 
 use crate::*;
@@ -117,18 +117,18 @@ impl PathBuilder {
     /// SVG renderer make.
     ///
     /// Continues the current subpath when there is one, and starts a new one otherwise.
-    pub fn arc_to(mut self, center: Point, radius: f64, start_deg: f64, sweep_deg: f64) -> Self {
+    pub fn arc_to(mut self, center: Point, radius: f64, start: Angle, sweep: Angle) -> Self {
         // Reach the arc's start: a line from wherever the path is, or a move if it is nowhere.
         // `Close` ends a subpath, so a path that just closed is "nowhere" too.
         let fresh = self.segs.last().is_none_or(|s| matches!(s, PathSeg::Close));
-        let first = day_spec::arc_point(center, radius, start_deg);
+        let first = day_spec::arc_point(center, radius, start);
         self.segs.push(if fresh {
             PathSeg::Move(first)
         } else {
             PathSeg::Line(first)
         });
         self.segs
-            .extend(day_spec::arc_cubics(center, radius, start_deg, sweep_deg));
+            .extend(day_spec::arc_cubics(center, radius, start, sweep));
         self
     }
 
@@ -205,13 +205,14 @@ impl PathBuilder {
 }
 
 /// Canvas text styling (named fields per the API style rule, docs/api-style.md). Fill what you
-/// set and take the rest from `..Default::default()`: 12 points, black, top-leading, the
-/// platform's own face.
+/// set and take the rest from `..Default::default()`: 12 points, the platform's text color,
+/// top-leading, the platform's own face.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextStyle {
     /// Absolute canvas points, with no accessibility scale (docs/canvas.md "Text").
     pub size: f64,
-    pub color: Color,
+    /// Any ink; a role or a light/dark pair re-records the drawing when the appearance changes.
+    pub color: Ink,
     pub anchor: day_spec::TextAnchor,
     /// Family, weight and slant (docs/fonts.md); the default is the platform's UI face.
     pub font: day_spec::CanvasFont,
@@ -221,30 +222,52 @@ impl Default for TextStyle {
     fn default() -> Self {
         TextStyle {
             size: 12.0,
-            color: Color::BLACK,
+            color: Ink::system(SystemColor::Text),
             anchor: day_spec::TextAnchor::LEADING,
             font: day_spec::CanvasFont::default(),
         }
     }
 }
 
-impl Draw {
-    /// Fill a shape with a solid color or a [`day_spec::LinearGradient`] (both convert to [`Paint`];
-    /// gradient unit points resolve against the shape's bounding box, docs/shapes.md §3.2).
-    pub fn fill(&mut self, shape: Shape, paint: impl Into<Paint>) {
-        self.ops.push(DrawOp::Fill(shape, paint.into()));
+/// A paint as a canvas records it: every ink resolved for the current appearance. Reading the
+/// palette is tracked, so a drawing that uses a role or a light/dark pair re-records when the
+/// appearance changes, and one with fixed colors only does not subscribe at all.
+fn recorded(paint: impl Into<Paint>) -> Paint {
+    let paint = paint.into();
+    if paint.is_dynamic() {
+        paint.resolve(&day_core::palette())
+    } else {
+        paint
     }
-    /// Stroke a shape with a solid color at `width`, the everyday case.
-    pub fn stroke(&mut self, shape: Shape, color: Color, width: f64) {
+}
+
+/// An ink as a canvas records it (see [`recorded`]).
+fn recorded_ink(ink: impl Into<Ink>) -> Ink {
+    match ink.into() {
+        Ink::Fixed(c) => Ink::Fixed(c),
+        dynamic => Ink::Fixed(dynamic.resolve(&day_core::palette())),
+    }
+}
+
+impl Draw {
+    /// Fill a shape with any [`Paint`]: a [`Color`](day_spec::Color), a [`SystemColor`], an
+    /// [`Ink`], or a linear, radial or conic gradient, whose unit points resolve against the
+    /// shape's bounding box (docs/shapes.md §3.2). A role or a light/dark pair resolves for the
+    /// current appearance, and the drawing re-records when it changes.
+    pub fn fill(&mut self, shape: Shape, paint: impl Into<Paint>) {
+        self.ops.push(DrawOp::Fill(shape, recorded(paint)));
+    }
+    /// Stroke a shape with one ink at `width`, the everyday case.
+    pub fn stroke(&mut self, shape: Shape, color: impl Into<Ink>, width: f64) {
         self.ops.push(DrawOp::Stroke(
             shape,
-            Paint::Solid(color),
+            Paint::Solid(recorded_ink(color)),
             StrokeStyle::width(width),
         ));
     }
     /// Stroke with a full [`StrokeStyle`] (dash, cap, join) and any paint, gradients included.
     pub fn stroke_styled(&mut self, shape: Shape, paint: impl Into<Paint>, style: StrokeStyle) {
-        self.ops.push(DrawOp::Stroke(shape, paint.into(), style));
+        self.ops.push(DrawOp::Stroke(shape, recorded(paint), style));
     }
     /// Draw `shape` once at every position in `at`: one op for the whole batch.
     ///
@@ -260,7 +283,7 @@ impl Draw {
         self.ops.push(DrawOp::Stamp(Box::new(day_spec::Stamp {
             shape,
             at,
-            paint: paint.into(),
+            paint: recorded(paint),
             stroke: None,
         })));
     }
@@ -276,7 +299,7 @@ impl Draw {
         self.ops.push(DrawOp::Stamp(Box::new(day_spec::Stamp {
             shape,
             at,
-            paint: paint.into(),
+            paint: recorded(paint),
             stroke: Some(style),
         })));
     }
@@ -372,16 +395,63 @@ impl Draw {
             text: text.to_owned(),
             at,
             size: style.size,
-            color: style.color,
+            color: match style.color {
+                Ink::Fixed(c) => c,
+                dynamic => day_core::resolve(dynamic),
+            },
             anchor: style.anchor,
             font: style.font,
         });
     }
-    /// Save the current transform/clip; pair with [`Draw::restore`].
+    /// Cast `shadow` from everything drawn afterwards: each fill, stroke, text and image gets
+    /// its own (docs/canvas.md "Shadows"). `None` stops casting one.
+    ///
+    /// The shadow lasts until the enclosing [`Draw::restore`], like a clip;
+    /// [`Draw::shadowed`] saves, sets, draws and restores for you.
+    pub fn shadow(&mut self, shadow: impl Into<Option<day_spec::Shadow>>) {
+        let shadow = shadow.into().map(|s| day_spec::Shadow {
+            color: recorded_ink(s.color),
+            ..s
+        });
+        self.ops.push(DrawOp::Shadow(shadow));
+    }
+    /// Draw `f` with everything in it casting `shadow`, restoring the previous shadow
+    /// afterwards.
+    ///
+    /// ```ignore
+    /// d.shadowed(Shadow::new(Color::rgba(0.0, 0.0, 0.0, 0.3), 16.0).offset(0.0, 6.0), |d| {
+    ///     d.fill(Shape::RoundedRect(card, 14.0), Color::WHITE);
+    /// });
+    /// ```
+    pub fn shadowed(&mut self, shadow: day_spec::Shadow, f: impl FnOnce(&mut Draw)) {
+        self.save();
+        self.shadow(shadow);
+        f(self);
+        self.restore();
+    }
+    /// Set how everything drawn afterwards combines with what the canvas already holds
+    /// (docs/canvas.md "Blend modes"). Lasts until the enclosing [`Draw::restore`];
+    /// [`Draw::blended`] scopes it for you.
+    pub fn blend(&mut self, mode: day_spec::BlendMode) {
+        self.ops.push(DrawOp::Blend(mode));
+    }
+    /// Draw `f` in blend mode `mode`, restoring the previous mode afterwards.
+    ///
+    /// ```ignore
+    /// d.fill(Shape::RoundedRect(ticket, 14.0), paper);
+    /// d.blended(BlendMode::Erase, |d| d.fill(Shape::Ellipse(hole), Color::BLACK));
+    /// ```
+    pub fn blended(&mut self, mode: day_spec::BlendMode, f: impl FnOnce(&mut Draw)) {
+        self.save();
+        self.blend(mode);
+        f(self);
+        self.restore();
+    }
+    /// Save the current transform, clip, shadow and blend mode; pair with [`Draw::restore`].
     pub fn save(&mut self) {
         self.ops.push(DrawOp::Save);
     }
-    /// Restore the transform/clip saved by the matching [`Draw::save`].
+    /// Restore the transform, clip, shadow and blend mode saved by the matching [`Draw::save`].
     pub fn restore(&mut self) {
         self.ops.push(DrawOp::Restore);
     }
@@ -608,35 +678,6 @@ impl PdfDocument {
     }
 }
 
-/// A frame clock (§8.4): an invisible, zero-size piece that calls `tick` every animation frame with
-/// the wall-clock delta since the previous frame, for as long as it is mounted. Drop it into the
-/// tree (e.g. behind a `canvas` in a `zstack`) to drive a game loop or self-driven animation: the
-/// tick mutates state `Signal`s, and a `canvas` reading them re-records that frame.
-///
-/// Shares `day::frame`'s per-window native display scheduler (docs/frames.md); Day has no
-/// timer fallback. Requests stop when the last consumer unmounts. This legacy piece retains
-/// a first delta of 1/60 s and a <=100 ms clamp; the general frame API exposes raw elapsed time
-/// and pause/resume handles. Inert on the mock backend.
-///
-/// ```ignore
-/// zstack((
-///     canvas(move |d, sz| draw(d, sz, state)).grow(Dimension::Both),
-///     frame_clock(move |dt| step(dt, state)),
-/// ))
-/// ```
-pub fn frame_clock(tick: impl FnMut(std::time::Duration) + 'static) -> impl Piece {
-    type TickSlot = Rc<RefCell<Option<Box<dyn FnMut(std::time::Duration)>>>>;
-    // Registered on first build (in the mounting scope) and removed when that scope is disposed.
-    let slot: TickSlot = Rc::new(RefCell::new(Some(Box::new(tick))));
-    piece_fn(move |cx| {
-        if let Some(cb) = slot.borrow_mut().take() {
-            let id = day_core::add_frame_consumer(cb);
-            Scope::current().on_cleanup(move || day_core::remove_frame_consumer(id));
-        }
-        label("").frame(0.0, 0.0).build(cx)
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Reactive<T>: a value, a Signal, or a closure; the generalization of IntoText/IntoFraction.
 // ---------------------------------------------------------------------------
@@ -669,7 +710,8 @@ impl<T: Clone + 'static> Reactive<T> {
         }
     }
 }
-/// Disjoint-marker conversion (like [`IntoText`]): accepts `T`, `Signal<T>`, or `Fn() -> T`.
+/// Disjoint-marker conversion (like [`IntoText`]): accepts `T`, `Signal<T>`, an
+/// `Animated<T>`, or `Fn() -> T`.
 pub trait IntoReactive<T: Clone + 'static, M> {
     fn into_reactive(self) -> Reactive<T>;
 }
@@ -686,6 +728,82 @@ impl<T: Clone + 'static> IntoReactive<T, SignalMark> for Signal<T> {
 impl<T: Clone + 'static, F: Fn() -> T + 'static> IntoReactive<T, FnMark> for F {
     fn into_reactive(self) -> Reactive<T> {
         Reactive::Dyn(Rc::new(self))
+    }
+}
+/// Marker for the [`IntoReactive`] impl of an animated value.
+pub struct AnimatedMark;
+/// An animated value (`day::motion::Animated`) is a reactive read of itself, so it goes
+/// straight into `.opacity(fade)`, `.translation(0.0, lift)` or `.background(tint)`.
+impl<T: day_core::tween::Lerp + 'static> IntoReactive<T, AnimatedMark>
+    for day_core::motion::Animated<T>
+{
+    fn into_reactive(self) -> Reactive<T> {
+        Reactive::Dyn(Rc::new(move || self.get()))
+    }
+}
+
+/// Marker for the [`IntoReactive`] impls that convert as they read: a [`Color`](day_spec::Color)
+/// where an [`Ink`](day_spec::Ink) is taken, a gradient where a [`Paint`](day_spec::Paint) is,
+/// a [`Radius`](crate::Radius) where a [`Corner`](crate::Corner) is, a [`Space`](crate::Space)
+/// where a length is. `S` names the source, so each conversion is its own impl and a constant,
+/// a signal and a closure of the source all work.
+pub struct IntoMark<S>(std::marker::PhantomData<S>);
+
+/// `IntoReactive<target>` for constants, signals and closures of each source type, converting
+/// with `Into`.
+macro_rules! reactive_into {
+    ($target:ty: $($source:ty),+ $(,)?) => {$(
+        impl IntoReactive<$target, IntoMark<$source>> for $source {
+            fn into_reactive(self) -> Reactive<$target> {
+                Reactive::Const(self.into())
+            }
+        }
+        impl IntoReactive<$target, IntoMark<Signal<$source>>> for Signal<$source> {
+            fn into_reactive(self) -> Reactive<$target> {
+                Reactive::Dyn(Rc::new(move || self.get().into()))
+            }
+        }
+        impl<F: Fn() -> $source + 'static> IntoReactive<$target, IntoMark<fn() -> $source>> for F {
+            fn into_reactive(self) -> Reactive<$target> {
+                Reactive::Dyn(Rc::new(move || self().into()))
+            }
+        }
+    )+};
+}
+
+reactive_into!(day_spec::Ink: day_spec::Color, day_spec::SystemColor);
+reactive_into!(
+    day_spec::Paint: day_spec::Color,
+    day_spec::SystemColor,
+    day_spec::Ink,
+    day_spec::LinearGradient,
+    day_spec::RadialGradient,
+    day_spec::ConicGradient,
+);
+reactive_into!(crate::Corner: f64, crate::Radius);
+reactive_into!(f64: crate::Space);
+reactive_into!(day_spec::Insets: f64, crate::Space);
+
+/// An animated color goes wherever an ink or a paint does: `.background(fade)`.
+impl IntoReactive<day_spec::Ink, IntoMark<day_core::motion::Animated<day_spec::Color>>>
+    for day_core::motion::Animated<day_spec::Color>
+{
+    fn into_reactive(self) -> Reactive<day_spec::Ink> {
+        Reactive::Dyn(Rc::new(move || self.get().into()))
+    }
+}
+impl IntoReactive<day_spec::Paint, IntoMark<day_core::motion::Animated<day_spec::Color>>>
+    for day_core::motion::Animated<day_spec::Color>
+{
+    fn into_reactive(self) -> Reactive<day_spec::Paint> {
+        Reactive::Dyn(Rc::new(move || self.get().into()))
+    }
+}
+impl IntoReactive<day_spec::Paint, IntoMark<day_core::motion::Animated<day_spec::Ink>>>
+    for day_core::motion::Animated<day_spec::Ink>
+{
+    fn into_reactive(self) -> Reactive<day_spec::Paint> {
+        Reactive::Dyn(Rc::new(move || self.get().into()))
     }
 }
 
@@ -796,7 +914,7 @@ pub(crate) mod conformance {
                         if let Some(image) = bitmap.get() {
                             d.transformed(
                                 day_spec::Affine::scale(2.0, 2.0)
-                                    .then(day_spec::Affine::rotate(std::f64::consts::FRAC_PI_2))
+                                    .then(day_spec::Affine::rotate(day_spec::Angle::QUARTER))
                                     .then(day_spec::Affine::translate(160.0, 20.0)),
                                 |d| {
                                     d.image_with_opacity(
@@ -830,6 +948,170 @@ pub(crate) mod conformance {
                 d.sample_pixel("canvas_image::painted", 0.4, 0.5, "#ffffff")
                     .await?;
                 d.sample_pixel("canvas_image::painted", 0.6, 0.2, "#ffffff")
+                    .await
+            })
+    }
+
+    /// A conic gradient turns clockwise from its start angle about the shape's center: with
+    /// four hard-edged quarters, each quadrant of the canvas is one color.
+    #[day_macros::test(day_core)]
+    fn canvas_conic_gradient() -> Case {
+        Case::new()
+            .proves(kinds::CANVAS)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                canvas(|d, size| {
+                    let quarter = |at: f64, color: u32| {
+                        [(at, Color::hex(color)), (at + 0.25, Color::hex(color))]
+                    };
+                    let stops = [
+                        quarter(0.0, 0x00ff_0000),
+                        quarter(0.25, 0x0000_ff00),
+                        quarter(0.5, 0x0000_00ff),
+                        quarter(0.75, 0x00ff_ff00),
+                    ]
+                    .concat();
+                    d.fill(
+                        Shape::Rect(day_spec::Rect::from_size(size)),
+                        day_spec::ConicGradient::centered(day_spec::Angle::ZERO, stops),
+                    );
+                })
+                .frame(100.0, 100.0)
+                .id(day_core::id!(canvas_conic::painted))
+            })
+            .drive(|d: Drive| async move {
+                // 0° is +x and the sweep is clockwise, so the first quarter is bottom-right.
+                d.sample_pixel("canvas_conic::painted", 0.75, 0.75, "#ff0000")
+                    .await?;
+                d.sample_pixel("canvas_conic::painted", 0.25, 0.75, "#00ff00")
+                    .await?;
+                d.sample_pixel("canvas_conic::painted", 0.25, 0.25, "#0000ff")
+                    .await?;
+                d.sample_pixel("canvas_conic::painted", 0.75, 0.25, "#ffff00")
+                    .await
+            })
+    }
+
+    /// A shadow is cast by what is drawn while it is set, lands at its offset, is not moved by
+    /// the canvas transform, and ends with the scope that set it.
+    #[day_macros::test(day_core)]
+    fn canvas_shadow_offset_and_scope() -> Case {
+        Case::new()
+            .proves(kinds::CANVAS)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                canvas(|d, size| {
+                    d.fill(Shape::Rect(day_spec::Rect::from_size(size)), Color::WHITE);
+                    // Drawn at half size under a doubling transform: the box lands on
+                    // (30, 20) to (70, 50), and its shadow 20 points below that, not 40.
+                    d.transformed(day_spec::Affine::scale(2.0, 2.0), |d| {
+                        d.shadowed(
+                            day_spec::Shadow::new(Color::hex(0x0000_0000), 2.0).offset(0.0, 20.0),
+                            |d| {
+                                d.fill(
+                                    Shape::Rect(day_spec::Rect::new(15.0, 10.0, 20.0, 15.0)),
+                                    Color::hex(0x0000_00ff),
+                                );
+                            },
+                        );
+                    });
+                    // After the scope: no shadow under this one.
+                    d.fill(
+                        Shape::Rect(day_spec::Rect::new(130.0, 20.0, 40.0, 30.0)),
+                        Color::hex(0x0000_00ff),
+                    );
+                })
+                .frame(200.0, 100.0)
+                .id(day_core::id!(canvas_shadow::painted))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("canvas_shadow::painted", 0.25, 0.35, "#0000ff")
+                    .await?;
+                d.sample_pixel("canvas_shadow::painted", 0.25, 0.6, "#000000")
+                    .await?;
+                d.sample_pixel("canvas_shadow::painted", 0.25, 0.85, "#ffffff")
+                    .await?;
+                d.sample_pixel("canvas_shadow::painted", 0.75, 0.35, "#0000ff")
+                    .await?;
+                d.sample_pixel("canvas_shadow::painted", 0.75, 0.6, "#ffffff")
+                    .await
+            })
+    }
+
+    /// Multiply and add combine with what the canvas already holds, and the mode ends with the
+    /// scope that set it.
+    #[day_macros::test(day_core)]
+    fn canvas_blend_multiply_and_add() -> Case {
+        Case::new()
+            .proves(kinds::CANVAS)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                canvas(|d, size| {
+                    let third = size.width / 3.0;
+                    let band = |i: f64| {
+                        Shape::Rect(day_spec::Rect::new(third * i, 0.0, third, size.height))
+                    };
+                    d.fill(Shape::Rect(day_spec::Rect::from_size(size)), Color::WHITE);
+                    // Yellow times cyan is green.
+                    d.fill(band(0.0), Color::hex(0x00ff_ff00));
+                    d.blended(day_spec::BlendMode::Multiply, |d| {
+                        d.fill(band(0.0), Color::hex(0x0000_ffff));
+                    });
+                    // Red plus blue is magenta.
+                    d.fill(band(1.0), Color::hex(0x00ff_0000));
+                    d.blended(day_spec::BlendMode::Add, |d| {
+                        d.fill(band(1.0), Color::hex(0x0000_00ff));
+                    });
+                    // Back to normal: blue simply covers yellow.
+                    d.fill(band(2.0), Color::hex(0x00ff_ff00));
+                    d.fill(band(2.0), Color::hex(0x0000_00ff));
+                })
+                .frame(150.0, 60.0)
+                .id(day_core::id!(canvas_blend::painted))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("canvas_blend::painted", 0.16, 0.5, "#00ff00")
+                    .await?;
+                d.sample_pixel("canvas_blend::painted", 0.5, 0.5, "#ff00ff")
+                    .await?;
+                d.sample_pixel("canvas_blend::painted", 0.84, 0.5, "#0000ff")
+                    .await
+            })
+    }
+
+    /// Erase removes what the canvas has drawn and shows what lies behind the canvas, not a
+    /// black or white hole.
+    #[day_macros::test(day_core)]
+    fn canvas_blend_erase_shows_behind() -> Case {
+        Case::new()
+            .proves(kinds::CANVAS)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::hex(0x00ff_0000)),
+                    canvas(|d, size| {
+                        d.fill(Shape::Rect(day_spec::Rect::from_size(size)), Color::WHITE);
+                        d.blended(day_spec::BlendMode::Erase, |d| {
+                            d.fill(
+                                Shape::Ellipse(day_spec::Rect::new(
+                                    size.width / 2.0 - 20.0,
+                                    size.height / 2.0 - 20.0,
+                                    40.0,
+                                    40.0,
+                                )),
+                                Color::hex(0x0000_ff00),
+                            );
+                        });
+                    })
+                    .frame(100.0, 100.0),
+                ))
+                .id(day_core::id!(canvas_erase::ground))
+                .frame(100.0, 100.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("canvas_erase::ground", 0.5, 0.5, "#ff0000")
+                    .await?;
+                d.sample_pixel("canvas_erase::ground", 0.1, 0.1, "#ffffff")
                     .await
             })
     }
@@ -1130,8 +1412,15 @@ mod arc_tests {
     fn an_arc_stays_on_its_circle() {
         let c = Point::new(100.0, 50.0);
         let r = 40.0;
-        for sweep in [15.0, 90.0, 180.0, 359.0, -90.0, -270.0] {
-            let path = PathBuilder::new().arc_to(c, r, 30.0, sweep).build();
+        for sweep in [15.0_f64, 90.0, 180.0, 359.0, -90.0, -270.0] {
+            let path = PathBuilder::new()
+                .arc_to(
+                    c,
+                    r,
+                    day_spec::Angle::deg(30.0),
+                    day_spec::Angle::deg(sweep),
+                )
+                .build();
             let day_spec::Shape::Path(p) = path else {
                 panic!("arc_to builds a path")
             };
@@ -1161,7 +1450,14 @@ mod arc_tests {
         let c = Point::new(0.0, 0.0);
         let near = |a: Point, b: Point| (a.x - b.x).abs() < 1e-9 && (a.y - b.y).abs() < 1e-9;
         let ends = |start: f64, sweep: f64| {
-            let day_spec::Shape::Path(p) = PathBuilder::new().arc_to(c, 10.0, start, sweep).build()
+            let day_spec::Shape::Path(p) = PathBuilder::new()
+                .arc_to(
+                    c,
+                    10.0,
+                    day_spec::Angle::deg(start),
+                    day_spec::Angle::deg(sweep),
+                )
+                .build()
             else {
                 panic!()
             };
@@ -1215,14 +1511,20 @@ mod arc_tests {
             p.segs
         };
         // Nothing before it: the arc opens the subpath.
-        let s = segs(PathBuilder::new().arc_to(c, 5.0, 0.0, 90.0));
+        let s = segs(PathBuilder::new().arc_to(
+            c,
+            5.0,
+            day_spec::Angle::deg(0.0),
+            day_spec::Angle::deg(90.0),
+        ));
         std::assert_matches!(s[0], PathSeg::Move(_), "{:?}", s[0]);
         // Something before it: the arc is reached by a line, so the figure is one contour.
-        let s = segs(
-            PathBuilder::new()
-                .move_to(Point::new(9.0, 9.0))
-                .arc_to(c, 5.0, 0.0, 90.0),
-        );
+        let s = segs(PathBuilder::new().move_to(Point::new(9.0, 9.0)).arc_to(
+            c,
+            5.0,
+            day_spec::Angle::deg(0.0),
+            day_spec::Angle::deg(90.0),
+        ));
         std::assert_matches!(s[1], PathSeg::Line(_), "{:?}", s[1]);
         // After a close there is no current point, so it opens a new subpath rather than drawing
         // a stray line back from wherever the last contour ended.
@@ -1231,13 +1533,28 @@ mod arc_tests {
                 .move_to(Point::new(9.0, 9.0))
                 .line_to(Point::new(1.0, 1.0))
                 .close()
-                .arc_to(c, 5.0, 0.0, 90.0),
+                .arc_to(
+                    c,
+                    5.0,
+                    day_spec::Angle::deg(0.0),
+                    day_spec::Angle::deg(90.0),
+                ),
         );
         std::assert_matches!(s[3], PathSeg::Move(_), "{:?}", s[3]);
         // A degenerate arc still reaches its start point and emits no curve.
-        let s = segs(PathBuilder::new().arc_to(c, 5.0, 0.0, 0.0));
+        let s = segs(PathBuilder::new().arc_to(
+            c,
+            5.0,
+            day_spec::Angle::deg(0.0),
+            day_spec::Angle::deg(0.0),
+        ));
         assert_eq!(s.len(), 1);
-        let s = segs(PathBuilder::new().arc_to(c, 0.0, 0.0, 90.0));
+        let s = segs(PathBuilder::new().arc_to(
+            c,
+            0.0,
+            day_spec::Angle::deg(0.0),
+            day_spec::Angle::deg(90.0),
+        ));
         assert_eq!(s.len(), 1);
     }
 }

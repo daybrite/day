@@ -82,6 +82,28 @@ fn document_window() -> impl Piece {
 after a toolbar makes the title bar taller. The app-wide [`day::safe_area()`](https://docs.rs/day-app/latest/day/fn.safe_area.html) answers for the window
 being built, and otherwise for the first window.
 
+## Safe area
+
+[`day::safe_area()`](https://docs.rs/day-app/latest/day/fn.safe_area.html) is how far system or
+window chrome covers the window's content on each edge. Day's root sits inside the platform's
+safe area wherever the platform puts it there, so what remains is the chrome drawn over the root:
+
+| Toolkit | What reports a nonzero safe area |
+| --- | --- |
+| AppKit, GTK, WinUI, an installed web app | An `Overlay` window's title bar (the top inset) |
+| Android | The system bars, when the app runs edge-to-edge (all four edges) |
+| UIKit, ArkUI | Nothing covers the root: the platform lays it out inside the safe area |
+
+The read is tracked, and [`.padding`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding) takes a closure, so padding by it follows a rotation, a
+toolbar appearing under the title bar, or a system bar showing, while the background still runs
+under the chrome:
+
+```rust
+page_content()
+    .padding(move || day::safe_area())
+    .background(SystemColor::Background)
+```
+
 ## Background
 
 | `WindowBackground` | What shows behind the content |

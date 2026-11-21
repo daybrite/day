@@ -686,9 +686,7 @@ pub(super) fn new(id: NodeId, p: &ListProps) -> *mut c_void {
 
 pub(super) fn patch(h: &WinHandle, patch: &ListPatch) {
     match Some(patch) {
-        Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
-            schedule_list_populate(h.0 as usize)
-        }
+        Some(ListPatch::Reload | ListPatch::Splice(_)) => schedule_list_populate(h.0 as usize),
         Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
         Some(ListPatch::ScrollToRow(row)) => schedule_list_scroll_row(h.0 as usize, *row),
         Some(ListPatch::Selected(rows)) => {

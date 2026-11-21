@@ -38,7 +38,7 @@ impl Piece for ComposedSheet {
             cx.native(
                 kinds::CONTAINER,
                 &day_spec::props::ContainerProps {
-                    background: Some(SHEET_SCRIM),
+                    fill: Some(SHEET_SCRIM.into()),
                     role: Some(day_spec::SurfaceRole::Scrim),
                     ..Default::default()
                 },
@@ -49,10 +49,10 @@ impl Piece for ComposedSheet {
             let card = cx.native(
                 kinds::CONTAINER,
                 &day_spec::props::ContainerProps {
-                    background: None,
                     corner_radius: SHEET_RADIUS,
                     clips: true,
                     role: Some(day_spec::SurfaceRole::Window),
+                    ..Default::default()
                 },
                 Rc::new(FillLayout),
                 fill,

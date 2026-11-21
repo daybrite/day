@@ -62,6 +62,45 @@ form((
   The label also becomes the control's accessible name (a live text follows its source), unless
   the control names itself with [`.a11y`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.a11y)`(|a| a`[`.label`](https://docs.rs/day-pieces/latest/day_pieces/struct.A11yBuilder.html#method.label)`(..))`, so a form needs no repeated label.
 
+## Disabling a group
+
+[`.enabled(reactive)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.enabled)
+on any piece enables or disables everything in it. It takes a constant, a signal or a closure:
+
+```rust
+form((
+    section((labeled(res::str::name(), text_field(name)), labeled(res::str::email(), text_field(email)))),
+    button(res::str::send()).action(send),
+))
+.enabled(move || !sending.get())
+```
+
+While the group is disabled:
+
+- every control in it is disabled the platform's way: dimmed, out of the focus order, and
+  reported disabled to assistive technology;
+- no tap, double tap, long press, press, drag, pan, pinch, rotate, hover or key reaches a
+  handler in it, a link in a label or a Markdown view does not open, and a press under way
+  ends;
+- an [`InteractionState`](gestures.md#state-styling) in it reads `false` for all three states.
+
+A control is enabled when it and every group around it are, so a control's own
+[`.enabled(..)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.enabled) still applies inside an enabled group, and its wish is kept while the group is disabled.
+Composed pieces do not dim on their own: read the same signal in an [`.opacity(..)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.opacity) to show the
+state on a custom row or card.
+
+Day disables buttons, toggles, sliders, pickers and text fields in a group on every toolkit.
+The other native controls, the focus order and the accessibility state of the group are the
+toolkit's part.
+
+### Toolkit support
+
+Every toolkit disables the whole group. GTK and Qt use their own cascading enabled state,
+ArkUI sets `NODE_ENABLED` on the group, the web makes the group `inert`, WinUI disables each
+control and stops hit testing at the group, and AppKit, UIKit and Android walk the group and
+disable each control in it, remembering each one's own state for when the group is enabled
+again.
+
 ## The section-card surface
 
 The card's background is **not** a hard-coded color: the container is realized with

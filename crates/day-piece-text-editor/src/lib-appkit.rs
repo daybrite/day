@@ -21,10 +21,11 @@
 
 use super::*;
 
-use day_toolkit_appkit::AppKit;
+use day_toolkit_appkit::{AppKit, nsink};
 use day_spec::ffi_guard;
+use day_spec::props::TextAlign;
 use day_spec::sidetable::SideTable;
-use day_spec::{NodeId, ParagraphAlign, Proposal, Size, Underline};
+use day_spec::{Decoration, DecorationStyle, NodeId, Proposal, Size};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -45,7 +46,7 @@ const INSET: f64 = 6.0;
 
 struct EdIvars {
     node: NodeId,
-    /// The empty-state prompt, held so the change delegate can show and hide it (NSTextView has
+    /// The empty-state prompt, held so the change delegate can show and hide it (`NSTextView` has
     /// no placeholder of its own).
     placeholder: Retained<NSTextField>,
     /// The two modes whose keys the delegate claims: Return in a single line, Tab in code.
@@ -75,7 +76,7 @@ define_class!(
                     self.ivars().placeholder.setHidden(!text.is_empty());
                     day_toolkit_appkit::emit(self.ivars().node, Event::TextChanged(text));
                 }
-            })
+            });
         }
     }
 
@@ -117,7 +118,7 @@ define_class!(
                     self.ivars().node,
                     Event::custom("texteditor:sel", selection_payload(start, end)),
                 );
-            })
+            });
         }
     }
 );
@@ -185,13 +186,13 @@ fn run_font(spec: day_spec::FontSpec, mtm: MainThreadMarker) -> Retained<NSFont>
 }
 
 /// `Underline` as an `NSUnderlineStyle` bitmask: line style low, pattern second byte.
-fn underline_bits(u: Underline) -> i64 {
-    match u {
-        Underline::None => 0,
-        Underline::Single => 0x01,
-        Underline::Double => 0x09,
-        Underline::Dotted => 0x01 | 0x0100,
-        Underline::Wavy => 0x01 | 0x0400,
+fn underline_bits(u: Option<Decoration>) -> i64 {
+    match u.map(|d| d.style) {
+        None => 0,
+        Some(DecorationStyle::Single) => 0x01,
+        Some(DecorationStyle::Double) => 0x09,
+        Some(DecorationStyle::Dotted) => 0x01 | 0x0100,
+        Some(DecorationStyle::Wavy) => 0x01 | 0x0400,
     }
 }
 
@@ -230,31 +231,47 @@ fn attributed(doc: &StyledText, base: Font, mtm: MainThreadMarker) -> Retained<N
                 &run_font(r.font, mtm),
                 range,
             );
-            if let Some(c) = r.color {
+            // Inks become dynamic colors, which AppKit resolves for the appearance the text
+            // view is drawn in, so a light/dark switch recolors the runs with no patch.
+            if let Some(ink) = r.color {
                 s.addAttribute_value_range(
                     objc2_app_kit::NSForegroundColorAttributeName,
-                    &nscolor(c),
+                    &nsink(ink),
                     range,
                 );
             }
-            if let Some(c) = r.background {
+            if let Some(ink) = r.background {
                 s.addAttribute_value_range(
                     objc2_app_kit::NSBackgroundColorAttributeName,
-                    &nscolor(c),
+                    &nsink(ink),
                     range,
                 );
             }
-            if r.underline.is_on() {
+            if r.underline.is_some() {
                 s.addAttribute_value_range(
                     objc2_app_kit::NSUnderlineStyleAttributeName,
                     &NSNumber::new_i64(underline_bits(r.underline)),
                     range,
                 );
             }
-            if r.strikethrough {
+            if let Some(ink) = r.underline.and_then(|d| d.color) {
+                s.addAttribute_value_range(
+                    objc2_app_kit::NSUnderlineColorAttributeName,
+                    &nsink(ink),
+                    range,
+                );
+            }
+            if r.strikethrough.is_some() {
                 s.addAttribute_value_range(
                     objc2_app_kit::NSStrikethroughStyleAttributeName,
                     &NSNumber::new_i64(1),
+                    range,
+                );
+            }
+            if let Some(ink) = r.strikethrough.and_then(|d| d.color) {
+                s.addAttribute_value_range(
+                    objc2_app_kit::NSStrikethroughColorAttributeName,
+                    &nsink(ink),
                     range,
                 );
             }
@@ -273,10 +290,10 @@ fn attributed(doc: &StyledText, base: Font, mtm: MainThreadMarker) -> Retained<N
         };
         let ps = NSMutableParagraphStyle::new();
         ps.setAlignment(match p.align {
-            ParagraphAlign::Natural => NSTextAlignment::Natural,
-            ParagraphAlign::Center => NSTextAlignment::Center,
-            ParagraphAlign::Trailing => NSTextAlignment::Right,
-            ParagraphAlign::Justified => NSTextAlignment::Justified,
+            TextAlign::Leading => NSTextAlignment::Natural,
+            TextAlign::Center => NSTextAlignment::Center,
+            TextAlign::Trailing => NSTextAlignment::Right,
+            TextAlign::Justified => NSTextAlignment::Justified,
         });
         // A list item's marker sits in the space the indent reserves, which is why the head
         // indent is the full one and the FIRST-line indent stops short of it.
@@ -309,19 +326,19 @@ fn typing_attributes(
         objs.push(Retained::cast_unchecked(font));
         keys.push(objc2_app_kit::NSForegroundColorAttributeName);
         objs.push(Retained::cast_unchecked(
-            style.color.map(nscolor).unwrap_or_else(NSColor::labelColor),
+            style.color.map_or_else(NSColor::labelColor, nscolor),
         ));
         if let Some(c) = style.background {
             keys.push(objc2_app_kit::NSBackgroundColorAttributeName);
             objs.push(Retained::cast_unchecked(nscolor(c)));
         }
-        if style.underline.is_on() {
+        if style.underline.is_some() {
             keys.push(objc2_app_kit::NSUnderlineStyleAttributeName);
             objs.push(Retained::cast_unchecked(NSNumber::new_i64(underline_bits(
                 style.underline,
             ))));
         }
-        if style.strikethrough {
+        if style.strikethrough.is_some() {
             keys.push(objc2_app_kit::NSStrikethroughStyleAttributeName);
             objs.push(Retained::cast_unchecked(NSNumber::new_i64(1)));
         }
@@ -413,8 +430,7 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
     // (an NSFont, NSColors, NSNumbers), which is the whole of what makes this setter unsafe.
     unsafe { tv.setTypingAttributes(&typing_attributes(&RunStyle::plain(p.base), mtm)) };
     let line_h = unsafe { tv.layoutManager() }
-        .map(|lm| lm.defaultLineHeightForFont(&base_font))
-        .unwrap_or(FONT_SIZE * 1.3);
+        .map_or(FONT_SIZE * 1.3, |lm| lm.defaultLineHeightForFont(&base_font));
 
     // Empty-state prompt: a dim label at the text origin, a subview of the text view itself so it
     // sits in the same coordinate space as the first line. Non-interactive, hidden once there is
@@ -425,8 +441,7 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
     ph.setSelectable(false);
     ph.sizeToFit();
     let lfp = unsafe { tv.textContainer() }
-        .map(|tc| tc.lineFragmentPadding())
-        .unwrap_or(0.0);
+        .map_or(0.0, |tc| tc.lineFragmentPadding());
     ph.setFrameOrigin(NSPoint::new(INSET + lfp, INSET));
     ph.setHidden(p.placeholder.is_empty() || !p.doc.is_empty());
     tv.addSubview(<NSTextField as AsRef<NSView>>::as_ref(&ph));
@@ -508,9 +523,9 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
             t.with(key(h), |st| {
                 let avail_w = wanted_w.max(width_floor(st.max_lines));
                 let pad = 2.0 * INSET;
-                let min_h = (st.min_lines as f64) * st.line_h + pad;
+                let min_h = f64::from(st.min_lines) * st.line_h + pad;
                 let max_h = if st.max_lines > 0 {
-                    (st.max_lines as f64) * st.line_h + pad
+                    f64::from(st.max_lines) * st.line_h + pad
                 } else {
                     f64::MAX
                 };
@@ -544,7 +559,7 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
 
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     STATE.with(|t| {
-        t.remove(key(h));
+        let _ = t.remove(key(h));
     });
 }
 

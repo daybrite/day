@@ -547,7 +547,12 @@ mod tests {
 
     fn colors(runs: &[TextRun], text: &str) -> Vec<(String, Option<Color>)> {
         runs.iter()
-            .map(|r| (text[r.range.clone()].to_string(), r.color))
+            .map(|r| {
+                (
+                    text[r.range.clone()].to_string(),
+                    r.color.map(day_spec::Ink::resolved),
+                )
+            })
             .collect()
     }
 
@@ -638,14 +643,14 @@ mod tests {
             .iter()
             .find(|r| &text[r.range.clone()] == "${[ base ]}")
             .expect("the tag is one run");
-        assert_eq!(tag.background, Some(p.template));
-        assert_eq!(tag.color, Some(p.template_text));
+        assert_eq!(tag.background, Some(p.template.into()));
+        assert_eq!(tag.color, Some(p.template_text.into()));
         // The string around it is still a string, split in two.
         let after = runs
             .iter()
             .find(|r| &text[r.range.clone()] == "/x\"")
             .expect("the tail of the string");
-        assert_eq!(after.color, Some(p.string));
+        assert_eq!(after.color, Some(p.string.into()));
         assert!(
             runs.iter()
                 .all(|r| r.background.is_none() || &text[r.range.clone()] == "${[ base ]}")

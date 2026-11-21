@@ -227,6 +227,12 @@ pub(super) fn set_drag_region(view: &NSView, drag: bool) {
     }
 }
 
+/// Whether `view` is a drag region: a press on it is the window's, so it takes the pointer
+/// (docs/gestures.md "Pass-through").
+pub(super) fn is_drag_region(view: &NSView) -> bool {
+    REGIONS.with(|r| r.borrow().iter().any(|x| ptr_of(x) == ptr_of(view)))
+}
+
 /// Whether a press on `view` belongs to the view itself rather than to the region around it:
 /// a button, an editable or selectable field, a text view, any other control.
 fn is_interactive(view: &NSView) -> bool {
@@ -439,6 +445,7 @@ pub(super) fn apply_property(window: &NSWindow, change: &day_spec::WindowChange)
             let appearance =
                 name.and_then(|n| unsafe { objc2_app_kit::NSAppearance::appearanceNamed(n) });
             window.setAppearance(appearance.as_deref());
+            crate::color::refresh_layers_soon();
         }
         C::RequestAttention(a) => {
             let kind = match a {

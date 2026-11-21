@@ -1,4 +1,10 @@
 {
+  "social_links": "Day on social networks",
+  "social_github": "GitHub",
+  "social_mastodon": "Mastodon",
+  "social_mastodon_profile": "Day on Mastodon / Fosstodon",
+  "social_twitter": "Twitter / X",
+  "social_card_alt": "Day: native apps for every platform under the sun, with desktop and mobile app screenshots.",
   "blog_nav": "Blog",
   "blog_title": "The Day Blog",
   "blog_description": "Updates, announcements, and engineering stories from Day.",

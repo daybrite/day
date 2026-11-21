@@ -112,10 +112,11 @@ unsafe extern "C" {
     pub fn day_qt_open_url(url: *const c_char);
     #[cfg(target_os = "macos")]
     pub fn day_qt_share_url(url: *const c_char, title: *const c_char) -> bool;
-    /// Apply a `background`/`corner_radius` surface via a scoped stylesheet (`#objName { ... }`
-    /// so children don't inherit the fill) + `WA_StyledBackground`. `r,g,b` are 0..1, `a` is the
-    /// alpha 0..1; `radius` in px; `clips != 0` requests rounded-child clipping (best-effort).
-    pub fn day_qt_set_opacity(w: *mut c_void, opacity: f64, dur_ms: c_int, curve: c_int);
+    /// The widget's opacity, shown through its `DayEffect`: at once with a null `anim`, which
+    /// also stops a run in flight, or animated under `anim` from the opacity shown now.
+    pub fn day_qt_set_opacity(w: *mut c_void, opacity: f64, anim: *const DayQtAnim);
+    /// The widget's transform (translation in points, scale, rotation in degrees about its
+    /// center), shown through its `DayEffect`, at once or animated as `day_qt_set_opacity` is.
     pub fn day_qt_set_transform(
         w: *mut c_void,
         tx: f64,
@@ -123,18 +124,57 @@ unsafe extern "C" {
         sx: f64,
         sy: f64,
         rot: f64,
-        dur_ms: c_int,
-        curve: c_int,
+        anim: *const DayQtAnim,
     );
+    /// The widget's frame in its parent, at once or animated as `day_qt_set_opacity` is.
+    pub fn day_qt_set_frame(
+        w: *mut c_void,
+        x: c_int,
+        y: c_int,
+        width: c_int,
+        height: c_int,
+        anim: *const DayQtAnim,
+    );
+    /// What the widget shows now, mid-animation included (`Toolkit::read_displayed`).
+    pub fn day_qt_read_displayed(w: *mut c_void, out: *mut DayQtDisplayed);
     /// Update only the background color, preserving the corner radius captured by the last
     /// `day_qt_widget_set_surface` (so a reactive `.background` keeps its rounded corners).
-    pub fn day_qt_widget_set_bg(w: *mut c_void, r: c_double, g: c_double, b: c_double, a: c_double);
+    /// Animated under `anim` from the fill shown now when both ends are a fill; at once
+    /// otherwise.
+    pub fn day_qt_widget_set_bg(
+        w: *mut c_void,
+        r: c_double,
+        g: c_double,
+        b: c_double,
+        a: c_double,
+        anim: *const DayQtAnim,
+    );
+    /// A styled surface (docs/surfaces.md): fill or gradient, per-corner rounding, border and
+    /// shadow on one container. `spec` is 24 numbers (fill r,g,b,a · radius · corner bits ·
+    /// clips · border r,g,b,a · border width · shadow r,g,b,a · shadow blur, dx, dy ·
+    /// gradient kind (0 none, 1 linear, 2 radial, 3 conic) · the gradient's four numbers:
+    /// linear start x,y and end x,y, radial center x,y and radius, conic center x,y and start
+    /// degrees clockwise from +x) and `stops` is `n_stops` groups of (offset, r, g, b, a),
+    /// ascending; `stops` may be null when `n_stops` is 0. The border is drawn over the
+    /// container's children. Idempotent: sent again for a reactive surface and on an
+    /// appearance switch.
+    pub fn day_qt_widget_set_styled_surface(
+        w: *mut c_void,
+        spec: *const c_double,
+        stops: *const c_double,
+        n_stops: c_int,
+    );
+    /// Nonzero once the container paints its own surface (`day_qt_widget_set_styled_surface`).
+    pub fn day_qt_widget_has_styled_surface(w: *mut c_void) -> c_int;
     pub fn day_qt_widget_set_section_card(w: *mut c_void, radius: f64);
     /// `SurfaceRole::Window`: the window's own background (`palette(window)`), rounded and, with
     /// `clips`, clipping its children to the rounding.
     pub fn day_qt_widget_set_window_surface(w: *mut c_void, radius: f64, clips: c_int);
     /// `QWidget::setCursor(Qt::CursorShape)`; a negative shape unsets it (docs/cursor.md).
     pub fn day_qt_widget_set_cursor(w: *mut c_void, shape: c_int);
+    /// Apply a `background`/`corner_radius` surface via a scoped stylesheet (`#objName { ... }`
+    /// so children don't inherit the fill) + `WA_StyledBackground`. `r,g,b` are 0..1, `a` is the
+    /// alpha 0..1; `radius` in px; `clips != 0` requests rounded-child clipping (best-effort).
     pub fn day_qt_widget_set_surface(
         w: *mut c_void,
         r: c_double,
@@ -148,19 +188,54 @@ unsafe extern "C" {
     /// Nonzero when Qt's palette is a dark one (system scheme, `DAY_THEME`, or the
     /// pre-6.8 Fusion fallback alike).
     pub fn day_qt_dark_mode() -> c_int;
+    /// The application palette's color for the `day_spec::SystemColor` wire number `role`,
+    /// written to `rgba` (0..1); 0 when the palette has no color for that role.
+    pub fn day_qt_system_color(role: c_int, rgba: *mut c_double) -> c_int;
+    /// Day's appearance override: 1 dark, 0 light, -1 the system's again
+    /// (`QStyleHints::setColorScheme`, Qt 6.8+). Nonzero when the request was made.
+    pub fn day_qt_set_appearance(mode: c_int) -> c_int;
+    /// Nonzero when this Qt can override the color scheme (6.8+).
+    pub fn day_qt_appearance_settable() -> c_int;
+    /// Called once per turn of the event loop after the palette or the color scheme changed.
+    pub fn day_qt_on_appearance(cb: extern "C" fn());
 
     pub fn day_qt_label_new(text: *const c_char, wraps: c_int) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
+    /// 0 leading, 1 center, 2 trailing, 3 justified; leading and trailing follow the label's
+    /// direction.
     pub fn day_qt_label_set_align(w: *mut c_void, align: c_int);
     pub fn day_qt_label_set_rich_text(w: *mut c_void, html: *const c_char);
     pub fn day_qt_label_on_link(w: *mut c_void, id: u64, cb: extern "C" fn(u64, *const c_char));
+    /// The label's base font. `tabular`, `small_caps` and `oldstyle` ask the face for the
+    /// OpenType `tnum`, `smcp` and `onum` features (Qt 6.7+).
     pub fn day_qt_label_set_font(
         w: *mut c_void,
         pt: c_double,
         weight: c_int,
         italic: c_int,
         tabular: c_int,
+        small_caps: c_int,
+        oldstyle: c_int,
     );
+    /// The paragraph attributes, whole (docs/text.md): the line limit (0 = unlimited), the
+    /// truncation mode (0 tail, 1 head, 2 middle), the letter spacing in ems and the line height
+    /// as a multiple of the font size (nonpositive = natural). Idempotent.
+    pub fn day_qt_label_set_paragraph(
+        w: *mut c_void,
+        max_lines: c_int,
+        truncation: c_int,
+        letter_em: c_double,
+        line_multiple: c_double,
+    );
+    /// Report the reader's selection in the label to `cb(id, start, end)`, byte offsets into
+    /// the text the label displays (`start == end` when cleared).
+    pub fn day_qt_label_on_selection(w: *mut c_void, id: u64, cb: extern "C" fn(u64, c_int, c_int));
+    /// The widget's own reading direction (`Toolkit::set_layout_direction`).
+    pub fn day_qt_widget_set_direction(w: *mut c_void, rtl: c_int);
+    /// The desktop's text-size factor for Day's point-sized text (1.0 at the default).
+    pub fn day_qt_text_scale() -> c_double;
+    /// Call `cb` when [`day_qt_text_scale`] may have changed.
+    pub fn day_qt_on_text_scale(cb: extern "C" fn());
     /// The label's unwrapped single-line natural width (font metrics — not the sizeHint
     /// heuristic, which suggests a narrow "readable" column for word-wrapped labels).
     pub fn day_qt_label_natural_width(w: *mut c_void) -> c_int;
@@ -214,13 +289,14 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_qt_lineedit_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_lineedit_set_placeholder(w: *mut c_void, text: *const c_char);
-    /// Hand Up, Down and Escape to `cb(node, name, modifiers, deliver)` before the line edit
-    /// sees them (docs/textfield.md "Keys"); a nonzero answer claims the key. `deliver` is 0
-    /// for Qt's shortcut-override question, 1 for the press itself.
+    /// Hand Up, Down and Escape to `cb(node, name, modifiers, deliver, phase)` before the line
+    /// edit sees them (docs/textfield.md "Keys"); a nonzero answer claims the key. `deliver` is
+    /// 0 for Qt's shortcut-override question, 1 for the press itself; `phase` 0 down, 1 repeat,
+    /// 2 up (the release of a claimed key, always delivered).
     pub fn day_qt_lineedit_enable_field_keys(
         w: *mut c_void,
         node: u64,
-        cb: extern "C" fn(u64, *const c_char, c_int, c_int) -> c_int,
+        cb: extern "C" fn(u64, *const c_char, c_int, c_int, c_int) -> c_int,
     );
     /// Select characters (Unicode scalar values) `start..end`, held to the text, caret at
     /// `end`. No-op on a widget that is not a `QLineEdit`.
@@ -275,6 +351,19 @@ unsafe extern "C" {
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_bar_inset(w: *mut c_void, vertical: c_int) -> c_int;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
+    /// The scroll piece's preferences (docs/scroll.md): `hidden` drops both scroll bars;
+    /// `snap` 0 = none, 1 = pages, 2 = every `interval` points (emulated: a glide to the
+    /// nearest resting point once the user's scrolling goes quiet).
+    pub fn day_qt_scroll_configure(w: *mut c_void, hidden: c_int, snap: c_int, interval: c_double);
+    /// `track_offset`: report the content offset to `node` through `cb` as it moves, at most
+    /// once per frame and once more at rest.
+    pub fn day_qt_scroll_track_offset(
+        w: *mut c_void,
+        node: u64,
+        cb: extern "C" fn(u64, c_double, c_double),
+    );
+    /// The content offset of any Qt scroll area (the scroll piece or a list), in points.
+    pub fn day_qt_scroll_offset(w: *mut c_void, x: *mut c_double, y: *mut c_double);
     // The list (docs/list.md): a QListView over a count-only model. Day's cells are placed
     // over rows as viewport children and recycled through the Rust side's pool; selection,
     // keys and drag are the view's.
@@ -295,6 +384,30 @@ unsafe extern "C" {
     pub fn day_qt_list_set_count(w: *mut c_void, n: c_int);
     /// One sequential row delta: kind 0 = insert at `a`, 1 = remove `a`, 2 = move `a` to `b`.
     pub fn day_qt_list_splice(w: *mut c_void, kind: c_int, a: c_int, b: c_int) -> c_int;
+    /// A whole splice: `count` `kind, a, b` triples, after which the source holds `final_len`
+    /// rows. Applied delta by delta when they fit the view's rows and end at `final_len`;
+    /// otherwise a model reset to `final_len` that keeps the scroll position. 1 = applied,
+    /// 0 = reset.
+    pub fn day_qt_list_splice_all(
+        w: *mut c_void,
+        triples: *const c_int,
+        count: c_int,
+        final_len: c_int,
+    ) -> c_int;
+    /// The list's supplementary rows (docs/list.md "Header, footer and empty state"): no
+    /// flags, no chrome, sized to their content.
+    pub fn day_qt_list_set_supplements(w: *mut c_void, rows: *const c_int, n: c_int);
+    /// What the list shows: first and last rows with any part in view and the distance from
+    /// the viewport's end to the content's. 0 = nothing to report (no rows, no height).
+    pub fn day_qt_list_viewport(
+        w: *mut c_void,
+        first: *mut c_int,
+        last: *mut c_int,
+        end_distance: *mut c_double,
+    ) -> c_int;
+    /// Scroll to `row` (-1: the end) aligned as `align` says (0 Nearest, 1 Start, 2 Center,
+    /// 3 End), gliding when `animated`; queued behind a pending height relayout.
+    pub fn day_qt_list_scroll(w: *mut c_void, row: c_int, align: c_int, animated: c_int);
     pub fn day_qt_list_set_automatic(w: *mut c_void);
     /// Row `row` is `height` tall; coalesced into one relayout per loop turn.
     pub fn day_qt_list_set_row_height(w: *mut c_void, row: c_int, height: c_int);
@@ -318,6 +431,9 @@ unsafe extern "C" {
     pub fn day_qt_list_visible_rows(w: *mut c_void, first: *mut c_int, last: *mut c_int);
     pub fn day_qt_list_viewport_width(w: *mut c_void) -> c_double;
     pub fn day_qt_list_on_viewport_resized(w: *mut c_void, cb: extern "C" fn(*mut c_void));
+    /// The reader started a scroll (docs/list.md "Following the end"): a wheel step, the scroll
+    /// bar or a key moved the list. Never for a programmatic scroll.
+    pub fn day_qt_list_on_reader_scroll(w: *mut c_void, cb: extern "C" fn(u64));
     /// Programmatic selection sync: no echo back through `on_select`.
     pub fn day_qt_list_set_selected(w: *mut c_void, rows: *const c_int, n: c_int);
     pub fn day_qt_list_scroll_to_row(w: *mut c_void, row: c_int);
@@ -331,7 +447,15 @@ unsafe extern "C" {
     pub fn day_qt_list_pin_cell(w: *mut c_void) -> *mut c_void;
     /// The pinned cell shows header `row` (-1: none), laid `height` tall.
     pub fn day_qt_list_pin_bound(w: *mut c_void, row: c_int, height: c_int);
-    pub fn day_qt_scroll_to_rect(w: *mut c_void, x: c_int, y: c_int, rw: c_int, rh: c_int);
+    /// The least scroll that shows the content rect, gliding when `animated`.
+    pub fn day_qt_scroll_to_rect(
+        w: *mut c_void,
+        x: c_int,
+        y: c_int,
+        rw: c_int,
+        rh: c_int,
+        animated: c_int,
+    );
 
     pub fn day_qt_add_child(parent: *mut c_void, child: *mut c_void);
     /// Raise a presented cover over its siblings; `opaque` fills it with the window color
@@ -429,8 +553,9 @@ unsafe extern "C" {
     pub fn day_qt_bytes_free(p: *mut u8);
     /// Drop a decoded bitmap from the registry.
     pub fn day_qt_image_release(id: u64);
-    /// An image widget showing a decoded bitmap rather than a staged file.
-    pub fn day_qt_image_new_bitmap(id: u64, mode: c_int) -> *mut c_void;
+    /// An image widget showing a decoded bitmap rather than a staged file. `tint` is
+    /// "#aarrggbb" to recolor it keeping its alpha, or "" for the authored colors.
+    pub fn day_qt_image_new_bitmap(id: u64, mode: c_int, tint: *const c_char) -> *mut c_void;
     /// An image widget showing raw encoded bytes.
     pub fn day_qt_image_new_bytes(
         bytes: *const u8,
@@ -456,24 +581,56 @@ unsafe extern "C" {
     pub fn day_qt_register_resource(path: *const c_char);
     pub fn day_qt_resource_data(respath: *const c_char, out_len: *mut usize) -> *const c_void;
     pub fn day_qt_resource_exists(respath: *const c_char) -> c_int;
-    // kind: 0 tap, 1 drag, 2 pinch, 3 pan, 4 hover, 5 rotate. Callback phase codes: 0 tap;
-    // 1..=3 drag began/changed/ended; 4..=6 pinch (tx = cumulative scale); 7..=9 pan (tx/ty =
-    // delta); 10..=12 hover; 13..=15 rotate (tx = cumulative radians, clockwise positive).
+    // kind: 0 tap, 1 drag, 2 pinch, 3 pan, 4 hover, 5 rotate, 6 press, 7 long press, 8 double
+    // tap, 9 touches. Callback phase codes: 0 tap; 1..=3 drag began/changed/ended; 4..=6 pinch
+    // (tx = cumulative scale); 7..=9 pan (tx/ty = delta); 10..=12 hover; 13..=15 rotate (tx =
+    // cumulative radians, clockwise positive); 16 long press; 17 double tap; 18 press in;
+    // 19 press out. The contacts of kind 9 go to the callback `day_qt_set_touches_cb` set.
     pub fn day_qt_enable_gesture(
         w: *mut c_void,
         node: u64,
         kind: c_int,
         cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
     );
+    /// Where the contact lists of every touches recognizer go (docs/gestures.md "Touches"):
+    /// `cb(node, numbers, count)`, six numbers per contact (id, phase, x, y, pressure, kind),
+    /// valid for the call.
+    pub fn day_qt_set_touches_cb(cb: extern "C" fn(u64, *const c_double, c_int));
+    /// The axis `w`'s drag follows: 0 any, 1 horizontal, 2 vertical (docs/gestures.md
+    /// "Gestures inside a scroll view").
+    pub fn day_qt_set_drag_axis(w: *mut c_void, axis: c_int);
+    /// Install the application filter that routes presses for hit slop and pass-through and
+    /// reports the input kind to `cb` (0 touch, 1 mouse, 2 stylus) when it changes. Needs the
+    /// `QApplication`; once is enough, a second call replaces the callback.
+    pub fn day_qt_install_input_router(cb: extern "C" fn(c_int));
+    /// Mark `w` as a Day view that takes no pointer input until a recognizer, a menu, a drag,
+    /// a drop or focus is attached (docs/gestures.md "Pass-through").
+    pub fn day_qt_set_passive(w: *mut c_void);
+    /// Grow the area `w` takes pointer input in by these points per edge; zeros restore its
+    /// bounds (docs/gestures.md "Hit slop").
+    pub fn day_qt_set_hit_slop(
+        w: *mut c_void,
+        top: c_double,
+        leading: c_double,
+        bottom: c_double,
+        trailing: c_double,
+    );
+    /// Disable (0) or enable (1) the subtree under `w`, counted per call (docs/forms.md
+    /// "Disabling a group").
+    pub fn day_qt_subtree_enabled(w: *mut c_void, enabled: c_int);
+    /// `.focusable()` beyond the keys and the focus reports: pointer input and the keyboard
+    /// focus indicator (docs/focus.md).
+    pub fn day_qt_set_focusable(w: *mut c_void);
     // Focus (docs/focus.md): observe via event filter (kind: 1 gained, 0 lost, 2 submitted);
     // drive via setFocus/clearFocus.
     pub fn day_qt_enable_focus(w: *mut c_void, node: u64, cb: extern "C" fn(u64, c_int));
-    /// Make `w` focusable and route its arrow keys to `cb`, which answers whether the app
-    /// claimed the key (docs/menus.md). `code`: 0 left, 1 right, 2 up, 3 down.
+    /// Make `w` focusable and route its arrow keys to `cb(node, code, modifiers, phase)`, which
+    /// answers whether the app claimed the key (docs/menus.md). `code`: 0 left, 1 right, 2 up,
+    /// 3 down, 10..=19 the digits; `phase` 0 down, 1 repeat, 2 up (only for a claimed down).
     pub fn day_qt_enable_keys(
         w: *mut c_void,
         node: u64,
-        cb: extern "C" fn(u64, c_int, c_int) -> c_int,
+        cb: extern "C" fn(u64, c_int, c_int, c_int) -> c_int,
     );
     pub fn day_qt_widget_focus(w: *mut c_void, focused: c_int);
     pub fn day_qt_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));
@@ -605,9 +762,10 @@ unsafe extern "C" {
 
     // The full key route (docs/menus.md "The full route"): the query says whether a node took
     // the whole keyboard, the callback carries every key it did by its day name.
+    // The last argument is the key's phase: 0 down, 1 repeat, 2 up.
     pub fn day_qt_set_text_keys(
         query: extern "C" fn(u64) -> c_int,
-        cb: extern "C" fn(u64, *const c_char, *const c_char, c_int) -> c_int,
+        cb: extern "C" fn(u64, *const c_char, *const c_char, c_int, c_int) -> c_int,
     );
 
     // Menus (docs/menus.md): a flat builder walked from the day-neutral MenuItem tree.
@@ -822,4 +980,57 @@ unsafe extern "C" {
     pub fn day_qt_tree_expand(w: *mut c_void, token: u64, open: c_int);
     pub fn day_qt_tree_select(w: *mut c_void, tokens: *const u64, len: c_int);
     pub fn day_qt_tree_reveal(w: *mut c_void, token: u64);
+}
+
+/// An `AnimSpec` as the shim's animation runs take it (shim.cpp's `DayQtAnim`, docs/tween.md
+/// "The animation contract").
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct DayQtAnim {
+    /// The delay before the first cycle, in milliseconds.
+    pub delay_ms: c_int,
+    /// One cycle, in milliseconds.
+    pub duration_ms: c_int,
+    /// How many cycles play; `-1` repeats until the property is next set.
+    pub cycles: c_int,
+    /// Nonzero when every second cycle plays backwards.
+    pub autoreverse: c_int,
+    /// One forward cycle's progress at `n_keys` evenly spaced points, first `0`, last `1`;
+    /// alive for the call (the shim copies them).
+    pub keys: *const c_double,
+    /// How many `keys` there are.
+    pub n_keys: c_int,
+}
+
+/// What a widget shows now, as `day_qt_read_displayed` writes it (shim.cpp's
+/// `DayQtDisplayed`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DayQtDisplayed {
+    /// The opacity shown, `0..=1`.
+    pub opacity: c_double,
+    /// The translation shown, in points.
+    pub tx: c_double,
+    /// The translation shown, in points.
+    pub ty: c_double,
+    /// Nonzero when `x`, `y`, `w`, `h` were read (not for a window's top widget).
+    pub frame_ok: c_int,
+    /// The frame shown, against the window content, in points.
+    pub x: c_double,
+    /// See `x`.
+    pub y: c_double,
+    /// See `x`.
+    pub w: c_double,
+    /// See `x`.
+    pub h: c_double,
+    /// Nonzero when the widget paints a fill, given in `r`, `g`, `b`, `a` (sRGB, `0..=1`).
+    pub fill_ok: c_int,
+    /// See `fill_ok`.
+    pub r: c_double,
+    /// See `fill_ok`.
+    pub g: c_double,
+    /// See `fill_ok`.
+    pub b: c_double,
+    /// See `fill_ok`.
+    pub a: c_double,
 }

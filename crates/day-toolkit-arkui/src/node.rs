@@ -81,8 +81,10 @@ day_reactive::tls_slots! {
     /// The `NODE_ACCESSIBILITY_VALUE` object each node was last given (see `set_a11y`).
     static A11Y_VALUES: RefCell<HashMap<usize, *mut ArkUI_AccessibilityValue>> =
         RefCell::new(HashMap::new());
-    /// Current source kind and requested tint. Bitmap replacements hide the SVG tint layer;
-    /// swapping back restores it without requiring another tint patch.
+    /// Current source kind and requested tint. An image piece's tint (docs/images.md
+    /// "Tinting") recolors whatever the node shows and outlives a source swap; a glyph's ink
+    /// (a button's icon, a nav row's) recolors vectors only, so a bitmap in its place hides the
+    /// tint layer and swapping back restores it without another patch.
     static IMAGE_NODES: RefCell<HashMap<usize, ImageNodes>> =
         RefCell::new(HashMap::new());
     /// `measure_label`'s reusable text node (see there).
@@ -99,6 +101,10 @@ day_reactive::tls_slots! {
     static LABEL_SPANS: RefCell<HashMap<usize, Vec<Handle>>> = RefCell::new(HashMap::new());
     /// Native span handle -> owning Day label and original link target.
     static SPAN_LINKS: RefCell<HashMap<usize, (u64, String)>> = RefCell::new(HashMap::new());
+    /// Nodes realized without any input of their own (docs/gestures.md "Pass-through"): their
+    /// hit testing is off until something attaches input to them ([`accept_input`]).
+    static PASSIVE: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
 }
 
 #[derive(Clone, Copy)]
@@ -107,11 +113,15 @@ struct ImageNodes {
     overlay: Handle,
     svg: bool,
     tint: Option<u32>,
+    /// The tint also recolors a raster source ([`set_image_tint`]).
+    tint_raster: bool,
 }
 
-/// A native SVG Image with an optional `SourceIn` color layer. ArkUI's fillColor fills
+/// A native Image with an optional `SourceIn` color layer. ArkUI's fillColor fills
 /// unpainted interiors, while its image colorFilter only affects SVG strokes. Compositing
-/// the complete native image preserves all painted alpha without a fixed-resolution cache.
+/// the complete native image preserves all painted alpha without a fixed-resolution cache,
+/// and is the same operation whatever the node shows: a staged SVG, a staged PNG or a decoded
+/// pixel map.
 #[must_use]
 pub fn create_image() -> Handle {
     let root = create(STACK);
@@ -128,6 +138,7 @@ pub fn create_image() -> Handle {
                 overlay: ptr::null_mut(),
                 svg: false,
                 tint: None,
+                tint_raster: false,
             },
         )
     });
@@ -233,8 +244,11 @@ pub fn dispose(n: Handle) {
     }
     crate::transfer::forget(n);
     crate::gesture::forget(n);
+    crate::events::forget(n);
+    crate::anim::forget(n);
     crate::canvas::forget(n);
     crate::list::forget(n);
+    PASSIVE.with(|s| s.borrow_mut().remove(&(n as usize)));
     forget_a11y(n);
     label_runs_clear(n);
     let image = IMAGE_NODES.with(|m| m.borrow_mut().remove(&(n as usize)));
@@ -441,9 +455,53 @@ pub fn copy_attr(src: Handle, dst: Handle, attr: Attr) {
 
 // ---- events -----------------------------------------------------------------------------
 
-/// Register a node event; `id` returns as the event's user data.
+/// Register a node event; `id` returns as the event's user data. An event that needs the node
+/// to take input (anything but the area, scroll and visibility reports) turns a passive node's
+/// hit testing back on.
 pub fn register_event(n: Handle, event: ArkUI_NodeEventType, id: u64) {
+    if !matches!(
+        event,
+        ArkUI_NodeEventType::NODE_EVENT_ON_AREA_CHANGE
+            | ArkUI_NodeEventType::NODE_EVENT_ON_VISIBLE_AREA_CHANGE
+            | ArkUI_NodeEventType::NODE_EVENT_ON_APPEAR
+            | ArkUI_NodeEventType::NODE_EVENT_ON_DISAPPEAR
+    ) {
+        accept_input(n);
+    }
     api_call!(registerNodeEvent(n, event, 0, id as usize as *mut c_void));
+}
+
+/// Realize `n` passive (docs/gestures.md "Pass-through"): a press, hover or wheel over it
+/// reaches whatever is behind it, while its children still take their own input
+/// (`ARKUI_HIT_TEST_MODE_NONE` keeps the node itself out of hit testing only).
+pub fn make_passive(n: Handle) {
+    if n.is_null() {
+        return;
+    }
+    PASSIVE.with(|s| s.borrow_mut().insert(n as usize));
+    set_i32(
+        n,
+        Attr::NODE_HIT_TEST_BEHAVIOR,
+        ArkUI_HitTestMode::ARKUI_HIT_TEST_MODE_NONE.0 as i32,
+    );
+}
+
+/// `n` takes input from now on (a recognizer, a touch or key stream, focus, a drop target):
+/// a passive node returns to ArkUI's default hit testing. Nothing un-attaches input today.
+pub fn accept_input(n: Handle) {
+    if PASSIVE.with(|s| s.borrow_mut().remove(&(n as usize))) {
+        set_i32(
+            n,
+            Attr::NODE_HIT_TEST_BEHAVIOR,
+            ArkUI_HitTestMode::ARKUI_HIT_TEST_MODE_DEFAULT.0 as i32,
+        );
+        crate::canvas::accept_input(n);
+    }
+}
+
+/// Stop reporting `event` for `n`.
+pub fn unregister_event(n: Handle, event: ArkUI_NodeEventType) {
+    api_call!(unregisterNodeEvent(n, event));
 }
 
 /// The global event receiver every registered node event reaches.
@@ -511,7 +569,7 @@ pub fn measure(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
 }
 
 /// The text attributes a label's measuring copy carries.
-const TEXT_MEASURE_ATTRS: [Attr; 10] = [
+const TEXT_MEASURE_ATTRS: [Attr; 14] = [
     Attr::NODE_TEXT_CONTENT,
     Attr::NODE_FONT_SIZE,
     Attr::NODE_FONT_WEIGHT,
@@ -522,6 +580,10 @@ const TEXT_MEASURE_ATTRS: [Attr; 10] = [
     Attr::NODE_TEXT_LETTER_SPACING,
     Attr::NODE_TEXT_LINE_HEIGHT,
     Attr::NODE_TEXT_BASELINE_OFFSET,
+    Attr::NODE_TEXT_OVERFLOW,
+    Attr::NODE_TEXT_ELLIPSIS_MODE,
+    Attr::NODE_TEXT_HALF_LEADING,
+    Attr::NODE_DIRECTION,
 ];
 
 /// Measure a label (a TEXT node) on a detached copy. After a Text's content changes,
@@ -681,6 +743,8 @@ pub fn set_text(n: Handle, s: &str) {
 pub fn label_align(n: Handle, align: day_spec::props::TextAlign) {
     let a = match align {
         day_spec::props::TextAlign::Leading => ArkUI_TextAlignment::ARKUI_TEXT_ALIGNMENT_START,
+        // Every line but the last stretched; ArkUI leaves the last at the start edge.
+        day_spec::props::TextAlign::Justified => ArkUI_TextAlignment::ARKUI_TEXT_ALIGNMENT_JUSTIFY,
         day_spec::props::TextAlign::Center => ArkUI_TextAlignment::ARKUI_TEXT_ALIGNMENT_CENTER,
         day_spec::props::TextAlign::Trailing => ArkUI_TextAlignment::ARKUI_TEXT_ALIGNMENT_END,
     };
@@ -694,6 +758,64 @@ pub fn label_single_line(n: Handle) {
         Attr::NODE_TEXT_OVERFLOW,
         ArkUI_TextOverflow::ARKUI_TEXT_OVERFLOW_ELLIPSIS.0 as i32,
     );
+}
+
+/// A label's paragraph attributes (docs/text.md): at most `lines` lines (0 = no limit) ending
+/// in an ellipsis placed by `truncation` (`NODE_TEXT_ELLIPSIS_MODE`; ArkUI applies the head and
+/// middle modes to one line), and letter spacing and line height in fp, `None` for the font's
+/// own. A set line height splits its extra space above and below each line
+/// (`NODE_TEXT_HALF_LEADING`), the CSS model Day's line height follows.
+pub fn label_paragraph(
+    n: Handle,
+    lines: u32,
+    truncation: day_spec::props::Truncation,
+    letter_spacing_fp: Option<f32>,
+    line_height_fp: Option<f32>,
+) {
+    if lines > 0 {
+        set_i32(
+            n,
+            Attr::NODE_TEXT_MAX_LINES,
+            i32::try_from(lines).unwrap_or(i32::MAX),
+        );
+        set_i32(
+            n,
+            Attr::NODE_TEXT_OVERFLOW,
+            ArkUI_TextOverflow::ARKUI_TEXT_OVERFLOW_ELLIPSIS.0 as i32,
+        );
+    } else {
+        reset(n, Attr::NODE_TEXT_MAX_LINES);
+        reset(n, Attr::NODE_TEXT_OVERFLOW);
+    }
+    let mode = match truncation {
+        day_spec::props::Truncation::Head => ArkUI_EllipsisMode::ARKUI_ELLIPSIS_MODE_START,
+        day_spec::props::Truncation::Middle => ArkUI_EllipsisMode::ARKUI_ELLIPSIS_MODE_CENTER,
+        day_spec::props::Truncation::Tail => ArkUI_EllipsisMode::ARKUI_ELLIPSIS_MODE_END,
+    };
+    set_i32(n, Attr::NODE_TEXT_ELLIPSIS_MODE, mode.0 as i32);
+    if let Some(fp) = letter_spacing_fp {
+        set_f32(n, Attr::NODE_TEXT_LETTER_SPACING, fp);
+    } else {
+        reset(n, Attr::NODE_TEXT_LETTER_SPACING);
+    }
+    if let Some(fp) = line_height_fp {
+        set_f32(n, Attr::NODE_TEXT_LINE_HEIGHT, fp);
+        set_i32(n, Attr::NODE_TEXT_HALF_LEADING, 1);
+    } else {
+        reset(n, Attr::NODE_TEXT_LINE_HEIGHT);
+        reset(n, Attr::NODE_TEXT_HALF_LEADING);
+    }
+}
+
+/// A leaf's own reading direction (`Toolkit::set_layout_direction`): its text's base direction
+/// and which edge START means, a slider's fill side.
+pub fn set_direction(n: Handle, rtl: bool) {
+    let d = if rtl {
+        ArkUI_Direction::ARKUI_DIRECTION_RTL
+    } else {
+        ArkUI_Direction::ARKUI_DIRECTION_LTR
+    };
+    set_i32(n, Attr::NODE_DIRECTION, d.0 as i32);
 }
 
 /// Make a Text node's text user-selectable (the `.selectable()` modifier, docs/text.md). A
@@ -744,13 +866,16 @@ pub fn label_spans(n: Handle) -> Vec<Handle> {
 }
 
 /// One run's styling flags for [`label_runs_add`].
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct RunStyle {
     pub bold: bool,
     pub italic: bool,
     pub monospace: bool,
-    pub strikethrough: bool,
-    pub underline: bool,
+    /// The run's lines: ArkUI's decoration style and an explicit line color, if any.
+    pub strikethrough: Option<(ArkUI_TextDecorationStyle, Option<u32>)>,
+    pub underline: Option<(ArkUI_TextDecorationStyle, Option<u32>)>,
+    /// OpenType features (`FontSpec::feature_tags`), in ArkUI's feature string.
+    pub features: Option<String>,
     pub color: Option<u32>,
     pub background: Option<u32>,
     /// The run's own size in fp, where its scale differs from the label's.
@@ -758,7 +883,7 @@ pub struct RunStyle {
 }
 
 /// Append one run as a SPAN child.
-pub fn label_runs_add(n: Handle, text: &str, style: RunStyle, link: Option<(u64, &str)>) {
+pub fn label_runs_add(n: Handle, text: &str, style: &RunStyle, link: Option<(u64, &str)>) {
     let span = create(SPAN);
     if span.is_null() {
         return;
@@ -788,20 +913,40 @@ pub fn label_runs_add(n: Handle, text: &str, style: RunStyle, link: Option<(u64,
     // ArkUI has one decoration attribute per span, so a run that is both underlined and struck
     // through can only have one line. Strikethrough wins: it is the one that changes what the
     // text MEANS, and an underline that goes missing is cosmetic (docs/text-runs.md).
-    if style.strikethrough || style.underline {
-        let kind = if style.strikethrough {
-            ArkUI_TextDecorationType::ARKUI_TEXT_DECORATION_TYPE_LINE_THROUGH
-        } else {
-            ArkUI_TextDecorationType::ARKUI_TEXT_DECORATION_TYPE_UNDERLINE
-        };
-        // Decoration takes {type, color, style}; the color slot repeats the text color so the
-        // line matches the glyphs.
-        let color = style.color.unwrap_or(0xFF00_0000);
+    let line = style
+        .strikethrough
+        .map(|l| {
+            (
+                ArkUI_TextDecorationType::ARKUI_TEXT_DECORATION_TYPE_LINE_THROUGH,
+                l,
+            )
+        })
+        .or(style.underline.map(|l| {
+            (
+                ArkUI_TextDecorationType::ARKUI_TEXT_DECORATION_TYPE_UNDERLINE,
+                l,
+            )
+        }));
+    if let Some((kind, (line_style, line_color))) = line {
+        // Decoration takes {type, color, style}. With no color of its own the line takes the
+        // run's text color, else the label's, so it matches the glyphs.
+        let color = line_color
+            .or(style.color)
+            .or_else(|| {
+                // SAFETY: the font color attribute's one slot is a u32.
+                get_values(n, Attr::NODE_FONT_COLOR)
+                    .first()
+                    .map(|v| unsafe { v.u32_ })
+            })
+            .unwrap_or(0xFF00_0000);
         set_values(
             span,
             Attr::NODE_TEXT_DECORATION,
-            &[i32v(kind.0 as i32), u32v(color)],
+            &[i32v(kind.0 as i32), u32v(color), i32v(line_style.0 as i32)],
         );
+    }
+    if let Some(features) = &style.features {
+        set_str(span, Attr::NODE_FONT_FEATURE, features);
     }
     if let Some(bg) = style.background {
         // A span's own background (docs/text-runs.md): {color, then optional corner radii}.
@@ -1095,6 +1240,37 @@ pub fn set_image_fill(n: Handle, argb: u32) {
     apply_image_tint(n);
 }
 
+/// Recolor whatever the image shows, raster or vector, to `argb` by its own alpha
+/// (docs/images.md "Tinting"). The tint stays with the node, so a later source of either kind
+/// is drawn in it too.
+pub fn set_image_tint(n: Handle, argb: u32) {
+    IMAGE_NODES.with(|m| {
+        if let Some(state) = m.borrow_mut().get_mut(&(n as usize)) {
+            state.tint = Some(argb);
+            state.tint_raster = true;
+        }
+    });
+    apply_image_tint(n);
+}
+
+/// Draw a raster source in its own colors again. A vector keeps the tint it has: its untinted
+/// form depends on whether it is a template, which the caller repaints.
+pub fn clear_raster_tint(n: Handle) {
+    let cleared = IMAGE_NODES.with(|m| {
+        m.borrow_mut()
+            .get_mut(&(n as usize))
+            .filter(|state| !state.svg)
+            .map(|state| {
+                state.tint = None;
+                state.tint_raster = false;
+            })
+            .is_some()
+    });
+    if cleared {
+        apply_image_tint(n);
+    }
+}
+
 pub(crate) fn image_source_kind(n: Handle, svg: bool) {
     IMAGE_NODES.with(|m| {
         if let Some(state) = m.borrow_mut().get_mut(&(n as usize)) {
@@ -1108,15 +1284,39 @@ fn apply_image_tint(n: Handle) {
     let Some(mut state) = IMAGE_NODES.with(|m| m.borrow().get(&(n as usize)).copied()) else {
         return;
     };
-    let Some(tint) = state.tint.filter(|_| state.svg) else {
+    let Some(tint) = state.tint.filter(|_| state.svg || state.tint_raster) else {
         if !state.overlay.is_null() {
             set_visibility(state.overlay, false);
         }
         reset(n, Attr::NODE_BLEND_MODE);
+        reset(state.image, Attr::NODE_IMAGE_COLOR_FILTER);
         return;
     };
-    // Isolate the SVG and overlay from the page behind them. Both are rendered at the
-    // current device resolution; no PixelMap or build-time raster participates.
+    if !state.svg {
+        // A raster recolors through the image's own color filter: every pixel takes the tint's
+        // color and keeps its alpha (times the tint's), the source-in rule, drawn in the image's
+        // own pass. An offscreen source-in layer here came back in the wrong color space
+        // (sRGB green read as #75fb4c, its Display P3 coordinates).
+        if !state.overlay.is_null() {
+            set_visibility(state.overlay, false);
+        }
+        reset(n, Attr::NODE_BLEND_MODE);
+        let c = |shift: u32| ((tint >> shift) & 0xFF) as f32 / 255.0;
+        let (a, r, g, b) = (c(24), c(16), c(8), c(0));
+        #[rustfmt::skip]
+        let matrix = [
+            0.0, 0.0, 0.0, 0.0, r,
+            0.0, 0.0, 0.0, 0.0, g,
+            0.0, 0.0, 0.0, 0.0, b,
+            0.0, 0.0, 0.0, a, 0.0,
+        ];
+        let values: Vec<ArkUI_NumberValue> = matrix.iter().map(|v| f32v(*v)).collect();
+        set_values(state.image, Attr::NODE_IMAGE_COLOR_FILTER, &values);
+        return;
+    }
+    reset(state.image, Attr::NODE_IMAGE_COLOR_FILTER);
+    // Isolate the image and overlay from the page behind them. Both are rendered at the
+    // current device resolution; no intermediate PixelMap or build-time raster participates.
     set_values(
         n,
         Attr::NODE_BLEND_MODE,
@@ -1188,6 +1388,138 @@ pub fn set_font_feature(n: Handle, feature: &str) {
 
 pub fn set_corner_radius(n: Handle, vp: f64) {
     set_f32(n, Attr::NODE_BORDER_RADIUS, vp as f32);
+}
+
+/// A radius (vp) per corner, in `NODE_BORDER_RADIUS`'s own order: top-left, top-right,
+/// bottom-left, bottom-right. The node's background, gradient, border, shadow and clip all
+/// follow it.
+pub fn set_corner_radii(n: Handle, radii: [f32; 4]) {
+    set_values(n, Attr::NODE_BORDER_RADIUS, &radii.map(f32v));
+}
+
+/// A solid border `width` vp wide on all four sides, inside the node's frame and following its
+/// corner radii. ArkUI paints it after the node's children, so it is never covered.
+pub fn set_border(n: Handle, width: f64, color: u32) {
+    set_f32(n, Attr::NODE_BORDER_WIDTH, width as f32);
+    set_u32(n, Attr::NODE_BORDER_COLOR, color);
+    set_i32(
+        n,
+        Attr::NODE_BORDER_STYLE,
+        ArkUI_BorderStyle::ARKUI_BORDER_STYLE_SOLID.0 as i32,
+    );
+}
+
+/// A linear gradient behind the node's content, over its background color: `angle` in degrees
+/// (0 = upward, clockwise, the CSS rule) and `(offset 0..=1, 0xAARRGGBB)` stops along the line
+/// CSS draws at that angle. ArkUI copies the stops during the call.
+pub fn set_linear_gradient(n: Handle, angle: f32, stops: &[(f32, u32)]) -> i32 {
+    let values = [
+        f32v(angle),
+        i32v(ArkUI_LinearGradientDirection::ARKUI_LINEAR_GRADIENT_DIRECTION_CUSTOM.0 as i32),
+        // Not repeating.
+        i32v(0),
+    ];
+    set_gradient_attr(n, Attr::NODE_LINEAR_GRADIENT, &values, stops)
+}
+
+/// Set a gradient attribute whose numbers come first and whose `(offset, 0xAARRGGBB)` stops ride
+/// in the item's object, the shape `NODE_RADIAL_GRADIENT` and `NODE_SWEEP_GRADIENT` share. ArkUI
+/// copies the stops during the call.
+fn set_gradient_attr(
+    n: Handle,
+    attr: Attr,
+    values: &[ArkUI_NumberValue],
+    stops: &[(f32, u32)],
+) -> i32 {
+    let colors: Vec<u32> = stops.iter().map(|s| s.1).collect();
+    let mut offsets: Vec<f32> = stops.iter().map(|s| s.0).collect();
+    let mut color_stop = ArkUI_ColorStop {
+        colors: colors.as_ptr(),
+        stops: offsets.as_mut_ptr(),
+        size: colors.len() as i32,
+    };
+    let item = ArkUI_AttributeItem {
+        value: values.as_ptr(),
+        size: values.len() as i32,
+        string: ptr::null(),
+        object: (&raw mut color_stop).cast(),
+    };
+    api_call!(setAttribute(n, attr, &raw const item)).unwrap_or(-1)
+}
+
+/// A radial gradient behind the node's content, over its background color: a circle centered at
+/// (`cx`, `cy`) vp from the node's top-left corner, its last stop at `radius` vp, not repeating.
+pub fn set_radial_gradient(n: Handle, cx: f32, cy: f32, radius: f32, stops: &[(f32, u32)]) -> i32 {
+    set_gradient_attr(
+        n,
+        Attr::NODE_RADIAL_GRADIENT,
+        &[f32v(cx), f32v(cy), f32v(radius), i32v(0)],
+        stops,
+    )
+}
+
+/// A sweep (conic) gradient behind the node's content around (`cx`, `cy`) vp: one full turn
+/// from the +x axis, clockwise on screen, not repeating. A start angle is folded into the stops
+/// (`paint::sweep_stops`), so the attribute's own rotation stays zero.
+pub fn set_sweep_gradient(n: Handle, cx: f32, cy: f32, stops: &[(f32, u32)]) -> i32 {
+    set_gradient_attr(
+        n,
+        Attr::NODE_SWEEP_GRADIENT,
+        &[
+            f32v(cx),
+            f32v(cy),
+            f32v(0.0),
+            f32v(360.0),
+            f32v(0.0),
+            i32v(0),
+        ],
+        stops,
+    )
+}
+
+/// Take every gradient off the node: what a fill that changes kind, or goes away, starts from.
+pub fn clear_gradients(n: Handle) {
+    reset(n, Attr::NODE_LINEAR_GRADIENT);
+    reset(n, Attr::NODE_RADIAL_GRADIENT);
+    reset(n, Attr::NODE_SWEEP_GRADIENT);
+}
+
+/// Recolor a border [`set_border`] drew, leaving its width and style.
+pub fn set_border_color(n: Handle, color: u32) {
+    set_u32(n, Attr::NODE_BORDER_COLOR, color);
+}
+
+/// Take the node's border off.
+pub fn clear_border(n: Handle) {
+    set_f32(n, Attr::NODE_BORDER_WIDTH, 0.0);
+}
+
+/// Take the node's [`set_shadow`] off.
+pub fn clear_shadow(n: Handle) {
+    reset(n, Attr::NODE_CUSTOM_SHADOW);
+}
+
+/// A shadow of the node's rounded rectangle, drawn outside it (`NODE_CUSTOM_SHADOW`, not
+/// filled, so nothing shows through a translucent node). `radius_vp` is ArkUI's blur radius in
+/// vp and the offsets are in px, the units the attribute documents; `paint::shadow_radius_px`
+/// makes the radius from a Day blur (in px, divided by the density for this call). It takes no
+/// room in layout and no touches.
+pub fn set_shadow(n: Handle, radius_vp: f32, dx_px: f32, dy_px: f32, color: u32) {
+    set_values(
+        n,
+        Attr::NODE_CUSTOM_SHADOW,
+        &[
+            f32v(radius_vp),
+            // No coloring strategy: the color below is the shadow's.
+            i32v(0),
+            f32v(dx_px),
+            f32v(dy_px),
+            i32v(ArkUI_ShadowType::ARKUI_SHADOW_TYPE_COLOR.0 as i32),
+            u32v(color),
+            // Not filled: only the part outside the node is drawn.
+            u32v(0),
+        ],
+    );
 }
 
 /// Weight (CSS 100..900, snapped to ArkUI's W100..W900 rungs) and italic for a text node. Both
@@ -1317,6 +1649,11 @@ pub fn set_a11y_text(n: Handle, label: &str) {
 /// - identifier → `NODE_ID`, the component id the ArkTS inspector addresses nodes by.
 pub fn set_a11y(n: Handle, a11y: &day_spec::A11yProps) {
     use day_spec::Role;
+    // A node a screen reader announces must stay reachable by touch exploration, which hit
+    // tests: a passive node with a label or a role takes input again.
+    if a11y.label.is_some() || a11y.role != Role::None {
+        accept_input(n);
+    }
     if let Some(label) = &a11y.label {
         set_a11y_text(n, label);
     }
@@ -1439,6 +1776,72 @@ pub fn scroll_direction(n: Handle, horizontal: bool) {
     set_i32(n, Attr::NODE_SCROLL_SCROLL_DIRECTION, d.0 as i32);
 }
 
+/// A scroll view's realize-time preferences (docs/scroll.md): hidden scroll bars, the edge
+/// effect (`Some(false)` none, `Some(true)` the spring even when the content fits), paging for
+/// `ScrollSnap::Page`, and snap points every `Interval` vp.
+pub fn scroll_preferences(n: Handle, p: &day_spec::props::ScrollProps) {
+    use day_spec::props::{ScrollIndicators, ScrollSnap};
+    if p.indicators == ScrollIndicators::Hidden {
+        set_i32(
+            n,
+            Attr::NODE_SCROLL_BAR_DISPLAY_MODE,
+            ArkUI_ScrollBarDisplayMode::ARKUI_SCROLL_BAR_DISPLAY_MODE_OFF.0 as i32,
+        );
+    }
+    match p.bounce {
+        Some(false) => {
+            set_values(
+                n,
+                Attr::NODE_SCROLL_EDGE_EFFECT,
+                &[
+                    i32v(ArkUI_EdgeEffect::ARKUI_EDGE_EFFECT_NONE.0 as i32),
+                    i32v(0),
+                ],
+            );
+        }
+        Some(true) => {
+            set_values(
+                n,
+                Attr::NODE_SCROLL_EDGE_EFFECT,
+                &[
+                    i32v(ArkUI_EdgeEffect::ARKUI_EDGE_EFFECT_SPRING.0 as i32),
+                    i32v(1),
+                ],
+            );
+        }
+        None => {}
+    }
+    match p.snap {
+        ScrollSnap::Page => {
+            set_i32(n, Attr::NODE_SCROLL_ENABLE_PAGING, 1);
+        }
+        ScrollSnap::Interval(points) if points > 0.0 => {
+            // One snap value is the interval between snap points.
+            set_values(
+                n,
+                Attr::NODE_SCROLL_SNAP,
+                &[
+                    i32v(ArkUI_ScrollSnapAlign::ARKUI_SCROLL_SNAP_ALIGN_START.0 as i32),
+                    i32v(1),
+                    i32v(1),
+                    f32v(points as f32),
+                ],
+            );
+        }
+        _ => {}
+    }
+}
+
+/// A scroll node's content offset, vp.
+pub fn scroll_offset(n: Handle) -> (f64, f64) {
+    let offset = get_values(n, Attr::NODE_SCROLL_OFFSET);
+    if offset.len() < 2 {
+        return (0.0, 0.0);
+    }
+    // SAFETY: the offset attribute's two slots are floats.
+    unsafe { (f64::from(offset[0].f32_), f64::from(offset[1].f32_)) }
+}
+
 /// The minimal scroll that reveals [x, y, w, h] (content vp): ArkUI positions by absolute
 /// offset, so read the current offset and the node's own size, compute the reveal, and write
 /// the offset back (clamped by the node to its scrollable range).
@@ -1483,6 +1886,25 @@ pub fn enable_focus(n: Handle, id: u64, is_text_input: bool) {
     if is_text_input {
         register_event(n, ArkUI_NodeEventType::NODE_TEXT_INPUT_ON_SUBMIT, id);
     }
+}
+
+/// Make a container focusable (`Toolkit::set_focusable`, docs/focus.md): it joins the focus
+/// order, a touch focuses it before its recognizers see the press (`NODE_FOCUS_ON_TOUCH`), both
+/// focus directions are reported, and its key events reach the receiver while it is focused.
+pub fn make_focusable(n: Handle, id: u64) {
+    if n.is_null() {
+        return;
+    }
+    set_i32(n, Attr::NODE_FOCUSABLE, 1);
+    set_i32(n, Attr::NODE_FOCUS_ON_TOUCH, 1);
+    enable_focus(n, id, false);
+    register_event(n, ArkUI_NodeEventType::NODE_ON_KEY_EVENT, id);
+}
+
+/// Resign focus held by `n` or anything under it: ArkUI reports an ancestor of the focused
+/// component as focused too, so the container's own focus status covers its subtree.
+pub fn resign_focus_within(n: Handle) {
+    focus(n, false);
 }
 
 /// Drive focus: request it (typed errors for non-focusable targets are deliberately ignored:

@@ -4,7 +4,9 @@
 //! Rounded corners (docs/canvas.md "Rounded corners"): fitting radii to a rectangle, choosing the
 //! simplest shape, and the contour a mixed set of corners draws.
 
-use day_spec::{CornerRadii, PathSeg, Point, Rect, Shape, Size, arc_cubics, rounded_rect_segs};
+use day_spec::{
+    Angle, CornerRadii, PathSeg, Point, Rect, Shape, Size, arc_cubics, rounded_rect_segs,
+};
 use std::assert_matches;
 
 fn near(a: f64, b: f64) -> bool {
@@ -158,24 +160,43 @@ fn a_right_rounded_bar_is_square_on_the_left() {
 
 #[test]
 fn a_quarter_arc_is_one_cubic_through_its_ends_and_nothing_degenerate_draws() {
-    let segs = arc_cubics(Point::new(0.0, 0.0), 10.0, 0.0, 90.0);
+    let segs = arc_cubics(
+        Point::new(0.0, 0.0),
+        10.0,
+        Angle::deg(0.0),
+        Angle::deg(90.0),
+    );
     assert_eq!(segs.len(), 1);
     let PathSeg::Cubic(_, _, end) = segs[0] else {
         panic!("a cubic")
     };
     // Clockwise in device space: from +x down to +y.
     assert!(near_pt(end, Point::new(0.0, 10.0)));
-    assert_eq!(arc_cubics(Point::new(0.0, 0.0), 10.0, 0.0, 270.0).len(), 3);
     assert_eq!(
-        arc_cubics(Point::new(0.0, 0.0), 0.0, 0.0, 90.0),
+        arc_cubics(
+            Point::new(0.0, 0.0),
+            10.0,
+            Angle::deg(0.0),
+            Angle::deg(270.0)
+        )
+        .len(),
+        3
+    );
+    assert_eq!(
+        arc_cubics(Point::new(0.0, 0.0), 0.0, Angle::deg(0.0), Angle::deg(90.0)),
         [] as [day_spec::PathSeg; 0]
     );
     assert_eq!(
-        arc_cubics(Point::new(0.0, 0.0), 10.0, 0.0, 0.0),
+        arc_cubics(Point::new(0.0, 0.0), 10.0, Angle::deg(0.0), Angle::deg(0.0)),
         [] as [day_spec::PathSeg; 0]
     );
     assert_eq!(
-        arc_cubics(Point::new(0.0, 0.0), f64::NAN, 0.0, 90.0),
+        arc_cubics(
+            Point::new(0.0, 0.0),
+            f64::NAN,
+            Angle::deg(0.0),
+            Angle::deg(90.0)
+        ),
         [] as [day_spec::PathSeg; 0]
     );
 }

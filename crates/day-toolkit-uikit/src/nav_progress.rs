@@ -2,8 +2,14 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Small compositor-driven nav icon overlays. No timer, canvas loop, or table reload.
-use objc2::Message;
+//!
+//! The ring's stroke and disc are layer colors, which hold one appearance, so the overlay is a
+//! view class of its own that sets them again when its trait collection's color appearance
+//! changes.
+use day_spec::{Ink, SystemColor, ffi_guard};
 use objc2::rc::Retained;
+use objc2::runtime::NSObjectProtocol;
+use objc2::{Message, define_class, msg_send};
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{CGColor, CGPath};
 use objc2_foundation::{NSNumber, NSString};
@@ -12,6 +18,60 @@ use objc2_quartz_core::{
 };
 
 const NAME: &str = "day.nav.icon-progress";
+/// The ring's stroke.
+const INK: Ink = Ink::system(SystemColor::Text);
+/// The disc under the ring, which keeps it readable over any icon.
+const BACKGROUND: Ink = Ink::system(SystemColor::Background).with_alpha(0.82);
+
+define_class!(
+    /// The view that hosts a ring over a nav icon.
+    #[unsafe(super(UIView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayNavProgressOverlay"]
+    struct Overlay;
+
+    unsafe impl NSObjectProtocol for Overlay {}
+
+    impl Overlay {
+        /// A light/dark switch (the app's, the window's or the system's) while the ring shows.
+        #[unsafe(method(traitCollectionDidChange:))]
+        fn trait_collection_did_change(
+            &self,
+            previous: Option<&objc2_ui_kit::UITraitCollection>,
+        ) {
+            let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+            ffi_guard::contain((), || {
+                use objc2_ui_kit::UITraitEnvironment as _;
+                let changed = previous.is_none_or(|old| {
+                    self.traitCollection()
+                        .hasDifferentColorAppearanceComparedToTraitCollection(Some(old))
+                });
+                if changed {
+                    recolor(self);
+                }
+            });
+        }
+    }
+);
+
+/// Set the ring's colors for the traits `overlay` is shown with.
+fn recolor(overlay: &UIView) {
+    let layer = overlay.layer();
+    let ring = unsafe { layer.sublayers() }.and_then(|layers| {
+        layers
+            .iter()
+            .find(|l| l.name().as_ref().is_some_and(|n| n.to_string() == NAME))
+            .and_then(|l| l.retain().downcast::<CAShapeLayer>().ok())
+    });
+    let Some(ring) = ring else {
+        return;
+    };
+    CATransaction::begin();
+    CATransaction::setDisableActions(true);
+    ring.setStrokeColor(Some(&crate::imp::ink_cg(overlay, INK)));
+    ring.setFillColor(Some(&crate::imp::ink_cg(overlay, BACKGROUND)));
+    CATransaction::commit();
+}
 
 #[expect(
     clippy::option_option,
@@ -53,14 +113,14 @@ fn paint(
             };
             ring.setPath(Some(&path));
             ring.setLineWidth(2.0);
-            ring.setFillColor(Some(background));
-            ring.setStrokeColor(Some(ink));
             ring.setTransform(unsafe {
                 CATransform3D::new_rotation(-std::f64::consts::FRAC_PI_2, 0.0, 0.0, 1.0)
             });
             parent.addSublayer(&ring);
             ring
         });
+    ring.setFillColor(Some(background));
+    ring.setStrokeColor(Some(ink));
     let key = NSString::from_str("spin");
     if let Some(value) = fraction {
         ring.removeAnimationForKey(&key);
@@ -90,7 +150,7 @@ fn paint(
 use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_foundation::NSArray;
 use objc2_ui_kit::NSObjectUIAccessibility;
-use objc2_ui_kit::{UICollectionViewListCell, UIColor, UIImageView, UIView};
+use objc2_ui_kit::{UICollectionViewListCell, UIImageView, UIView};
 const TAG: isize = 0x44504;
 fn find_icon(view: &UIView) -> Option<Retained<UIImageView>> {
     for child in unsafe { view.subviews() } {
@@ -126,10 +186,11 @@ pub(crate) fn update(
             return;
         }
         let overlay = existing.unwrap_or_else(|| {
-            let view = UIView::initWithFrame(
-                UIView::alloc(mtm),
-                CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(20.0, 20.0)),
-            );
+            let view: Retained<Overlay> = msg_send![
+                Overlay::alloc(mtm),
+                initWithFrame: CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(20.0, 20.0))
+            ];
+            let view = view.into_super();
             view.setTag(TAG);
             view.setUserInteractionEnabled(false);
             view.setIsAccessibilityElement(false, mtm);
@@ -148,10 +209,8 @@ pub(crate) fn update(
             );
             view
         });
-        let ink = UIColor::labelColor().CGColor();
-        let background = UIColor::systemBackgroundColor()
-            .colorWithAlphaComponent(0.82)
-            .CGColor();
+        let ink = crate::imp::ink_cg(&overlay, INK);
+        let background = crate::imp::ink_cg(&overlay, BACKGROUND);
         paint(&overlay.layer(), state, 20.0, &ink, &background);
     }
 }

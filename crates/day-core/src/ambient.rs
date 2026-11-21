@@ -244,13 +244,18 @@ pub fn restore_reported_size_class() {
     with_tree(|t| t.layout_if_needed());
 }
 
-/// The window's safe-area insets, in points. Zero on every backend that clamps Day's root to
-/// the safe area natively (the default everywhere); nonzero only where a backend runs the root
-/// edge-to-edge, today day-toolkit-material's opt-in immersive mode (docs/layout.md, the android
-/// platform page). Compose it yourself where a background should run under the system bars:
-/// paint the background unpadded, pad the content by these insets. The read is tracked, but
-/// layout attributes like `.padding` capture the value at build time, so a mid-run inset change
-/// (rotation) does not re-pad already-built pages.
+/// How far system or window chrome covers the window's content, in points on each edge: the
+/// part of Day's root that content should stay out of (docs/window-chrome.md "Safe area").
+///
+/// Day's root sits inside the platform's safe area wherever the platform puts it there, so
+/// what remains is the chrome drawn over the root: an `Overlay` window's title bar on AppKit,
+/// GTK, WinUI and an installed web app (the top inset), and the system bars when Android runs
+/// edge-to-edge (all four). UIKit and ArkUI lay the root out inside the safe area, so nothing
+/// covers it and the answer is zero there.
+///
+/// The read is tracked. Pad with a closure and the content follows the inset as it changes, a
+/// rotation or a toolbar appearing under the title bar included, while the background still
+/// runs under the chrome: `.padding(move || day::safe_area())`.
 #[must_use]
 pub fn safe_area() -> day_geometry::Insets {
     window_safe_area(target_window())

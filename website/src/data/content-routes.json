@@ -289,6 +289,12 @@
     "type": "reference",
     "audience": "app developer"
   },
+  "internal/gestures": {
+    "route": "/docs/reference/gestures",
+    "source": "docs/gestures.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
   "internal/grid": {
     "route": "/docs/reference/grid",
     "source": "docs/grid.md",
@@ -370,6 +376,12 @@
   "internal/logging": {
     "route": "/docs/reference/logging",
     "source": "docs/logging.md",
+    "type": "reference",
+    "audience": "app developer"
+  },
+  "internal/markdown-view": {
+    "route": "/docs/reference/markdown-view",
+    "source": "docs/markdown-view.md",
     "type": "reference",
     "audience": "app developer"
   },
@@ -565,6 +577,12 @@
     "route": "/docs/how-to/store",
     "source": "docs/store.md",
     "type": "how-to",
+    "audience": "app developer"
+  },
+  "internal/surfaces": {
+    "route": "/docs/reference/surfaces",
+    "source": "docs/surfaces.md",
+    "type": "reference",
     "audience": "app developer"
   },
   "internal/swiftui": {

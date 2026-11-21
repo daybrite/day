@@ -23,10 +23,14 @@
 compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::frame;
+/// Frame-driven motion (docs/tween.md): `Animated` values, composed `Animation`s with an
+/// awaitable `Playing` handle, `Interpolation`, and the easing curves, spring and decay under
+/// them.
+pub use day_core::motion;
 pub use day_core::{
     AnyPiece, Blocking, BlockingError, BuildCx, Piece, PieceSeq, TaskHandle, blocking_limit,
-    blocking_threads, dark_mode, reduce_motion, safe_area, set_app_badge, set_appearance,
-    size_class, sleep, spawn_blocking, system_color, task,
+    blocking_threads, dark_mode, palette, reduce_motion, resolve, safe_area, set_app_badge,
+    set_appearance, size_class, sleep, spawn_blocking, task, text_scale, text_scale_of,
 };
 pub use day_core::{AssetDir, AssetName, FontFamily, ImageName, Resource, VectorName, resource};
 /// Raster images from bytes (docs/images.md): decode an encoded PNG or JPEG the app already
@@ -49,7 +53,7 @@ pub use day_core::{application_handlers, default_browser, open_url_with_applicat
 /// route the app to `route`, buffered before the root is ready and applied after, exactly like
 /// a cold launcher shortcut. The route grammar is what `day::routes!` keys and dayscript speak.
 pub use day_core::{focus_search, request_route};
-/// Tweening for canvas animations (docs/tween.md): `Lerp`, `Timing`, `animate`, `Tweened`.
+/// Interpolation for canvas animations (docs/tween.md): `Lerp`, `stagger`, `Pairs`.
 pub use day_core::{testing, tween};
 /// Optional app-local storage, including asynchronous browser storage.
 #[cfg(feature = "fs")]
@@ -92,11 +96,20 @@ pub use day_spec::applications::{
 /// this is how an app asks for it. For derived files an app can rebuild: rendered documents,
 /// thumbnails, export staging.
 pub use day_spec::present::app_temp_dir;
+/// How a picture fills its frame (docs/images.md): what `AsyncImageBuilder::content_mode` and
+/// `Image::content_mode` take.
+pub use day_spec::props::ContentMode;
 pub use day_spec::{
     BitmapId, BitmapInfo, EncodeSpec, ImageError, ImageFormat, ImageProperties, ImageSource,
 };
 pub use day_spec::{EXPORT_MAX_PIXELS, EXPORT_MAX_SIDE, ExportError, PdfInfo, PdfPage};
-pub use day_spec::{KeyEvent, Modifiers};
+// Keys (docs/menus.md "Keys"): what `.on_key` and `.on_key_up` receive. `Key` is exported here
+// and not in the prelude, where the name is the model's row key: `use day::Key;` beside the
+// prelude import selects this one.
+pub use day_spec::{Key, KeyEvent, KeyPhase, Modifiers};
+// Input (docs/shapes.md): the kind of pointer in use, and how this toolkit delivers a gesture.
+pub use day_core::gesture::VelocityTracker;
+pub use day_core::{gesture_support, primary_pointer};
 /// The wall clock on every target: milliseconds or seconds since the Unix epoch, for timestamps
 /// ("fetched at", "last synced"). `std::time::SystemTime::now()` aborts a web build, so app code
 /// reads the time here. For elapsed time use the monotonic `day::frame::now_secs()`.
@@ -117,7 +130,7 @@ pub use day_spec::{AppProgress, StatusImage};
 // Displays (docs/windows.md "Monitors") and launcher shortcuts set while the app runs
 // (docs/deep-links.md).
 pub use day_core::{monitors, set_launcher_shortcuts};
-pub use day_spec::{LauncherShortcut, Monitor, SystemColor};
+pub use day_spec::{Ink, LauncherShortcut, Monitor, Palette, SystemColor};
 // Window properties (docs/windows.md) and chrome (docs/window-chrome.md): what a window's
 // `state()` signal holds, how it stacks, how it joins macOS window tabs, and the frame and
 // background it opens with.
@@ -698,6 +711,9 @@ pub mod prelude {
     // coordinates.
     pub use day_core::{is_rtl, layout_direction};
     pub use day_spec::LayoutDirection;
+    // The system text scale (docs/text.md "Text scale"): tracked, for the layout decisions
+    // semantic fonts cannot make on their own.
+    pub use day_core::text_scale;
 }
 
 /// App-lifecycle support for the backend compiled into this binary (docs/lifecycle.md).

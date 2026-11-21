@@ -53,6 +53,9 @@ fn main() {
         &host,
         ListSource {
             first_visible: None,
+            viewport: None,
+            reader_scroll: None,
+            is_supplement: None,
             is_header: None,
             bind_pinned: Rc::new(|_, _| {}),
             len: Rc::new(|| 2),

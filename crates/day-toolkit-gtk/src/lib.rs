@@ -33,9 +33,9 @@ use linkme::distributed_slice;
 use day_spec::props::*;
 use day_spec::sidetable::SideTable;
 use day_spec::{
-    A11yProps, AnimSpec, Animatable, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font,
-    InputPurpose, InputTraits, ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect,
-    Registry, Renderer, Size, Support, Toolkit, Transform, TreeSource, ffi_guard, kinds, props_of,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, DrawOp, Event, EventSink, Font, InputPurpose,
+    InputTraits, ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry,
+    Renderer, Size, Support, Toolkit, Transform, TreeSource, ffi_guard, kinds, props_of,
 };
 
 pub type Handle = gtk4::Widget;
@@ -84,7 +84,10 @@ fn gtk_input_purpose(
 }
 
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
+mod input;
+mod motion;
 mod picker;
+mod scroll;
 mod shell;
 mod textarea;
 mod toolbar;
@@ -102,6 +105,9 @@ type Sink = Rc<dyn Fn(NodeId, Event)>;
 day_core::tls_group! {
     static BUTTON_CONTENT: day_spec::sidetable::SideTable<day_spec::props::ButtonContent> = day_spec::sidetable::SideTable::new();
     static BUTTON_INK: day_spec::sidetable::SideTable<day_spec::Color> = day_spec::sidetable::SideTable::new();
+    /// Each button's style and the button, for the re-application an appearance change asks
+    /// of a tint or a glyph color (`restyle_dynamic_buttons`).
+    static BUTTON_STYLE: day_spec::sidetable::SideTable<(gtk4::glib::WeakRef<gtk4::Button>, day_spec::props::ButtonStyleSpec)> = day_spec::sidetable::SideTable::new();
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Canvas ptr → its display list, ALREADY ENCODED (`replay` writes, the draw func reads). A
     /// [`SideTable`]: the release sweep drops a dead canvas's list, so a recycled address can't
@@ -113,10 +119,6 @@ day_core::tls_group! {
     /// drawing that had not moved, in-process, with no boundary to cross.
     static CONTAINER_KEYS: day_spec::sidetable::SideTable<bool> = day_spec::sidetable::SideTable::new();
     static OPS: SideTable<(Vec<f64>, Vec<String>)> = SideTable::new();
-    /// (widget_ptr, kind) pairs already wired, so enable_gesture is idempotent.
-    static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
-        RefCell::new(std::collections::HashSet::new());
-
     static TINT_PROVIDERS: RefCell<std::collections::HashSet<String>> =
         RefCell::new(std::collections::HashSet::new());
 
@@ -139,10 +141,10 @@ day_core::tls_group! {
     /// NAV_MENU widget → its list box + suppression flag.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
 
-    static GTK_ANIMS: RefCell<HashMap<usize, GtkAnim>> = RefCell::new(HashMap::new());
     // Day's laid-out top-left origin per GtkFixed child. GTK positions a Fixed child *via* its
     // child transform, which is the same slot the animation transform uses — so the two must be
-    // composed (see apply_gtk_transform) rather than overwrite each other.
+    // composed (see apply_gtk_transform) rather than overwrite each other. While a frame
+    // animation runs (motion.rs) it is the origin shown, not Day's target.
     static NODE_ORIGIN: RefCell<HashMap<usize, (f32, f32)>> = RefCell::new(HashMap::new());
 
     /// Each realized image's bundled source NAME and how it is painted, so a tint patch or a
@@ -165,14 +167,20 @@ day_core::tls_group! {
     static NAV_MENU_SECTIONS: RefCell<HashMap<usize, Vec<Option<String>>>> =
         RefCell::new(HashMap::new());
 
-    /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
-    /// a reactive background repaints by reloading the same provider (no provider accumulation).
+    /// Per-widget CSS provider and style for surfaces (docs/surfaces.md), keyed by widget ptr, so
+    /// a reactive background repaints by reloading the same provider (no provider accumulation)
+    /// and keeps the rounding, border and shadow the surface was realized with.
     /// Each provider is registered on the DISPLAY (`apply_surface`), so the teardown — run by
     /// `release`'s sweep — must take it back off, or display-global providers pile up for the
     /// life of the process, one per decorated widget that ever existed.
-    static SURFACE: SideTable<gtk4::CssProvider> = SideTable::with_teardown(|p| {
+    /// The surfaces with a shadow (`true` from the start) and the plain Day containers (no
+    /// clip, rounding or role asked for), which turn `true` once they hold such a surface and
+    /// let their content draw past their bounds (`let_shadow_spill`). A `GtkFixed` clips its children unless told otherwise, which would
+    /// cut a shadow off at the edge of the stack the surface sits in.
+    static SPILLS: SideTable<bool> = SideTable::new();
+    static SURFACE: SideTable<SurfaceEntry> = SideTable::with_teardown(|e: SurfaceEntry| {
         if let Some(display) = gtk4::gdk::Display::default() {
-            gtk4::style_context_remove_provider_for_display(&display, &p);
+            gtk4::style_context_remove_provider_for_display(&display, &e.provider);
         }
     });
 
@@ -188,8 +196,8 @@ day_core::tls_group! {
     /// Split pane key → `(its NodeId, is-second)`, recorded at realize.
     static SPLIT_PANES: SideTable<(NodeId, bool)> = SideTable::new();
 
-    /// LIST scrolled-window key → its model + source holder.
-    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// LIST host key → its model, source holder and scroll state.
+    static LIST_STATE: RefCell<HashMap<usize, Rc<ListEntry>>> = RefCell::new(HashMap::new());
     /// TREE host scrolled-window key → its live state (docs/tree.md).
     static TREE_STATE: RefCell<HashMap<usize, Rc<TreeEntry>>> = RefCell::new(HashMap::new());
     /// Widget key → its summon-time context-menu provider (docs/menus.md).
@@ -247,6 +255,10 @@ day_core::tls_group! {
     /// Covers built as modal sheets (`CoverProps::sheet` or `large`, not `half`): Escape closes
     /// the topmost one (docs/cover.md "Modal sheet").
     static COVER_SHEET: SideTable<()> = SideTable::new();
+    /// Labels that report their selection (`LabelProps::reports_selection`): the node and the
+    /// range reported last (`None` after a clear), by label widget key.
+    static LABEL_SELECTION: SideTable<(NodeId, Rc<std::cell::Cell<Option<(usize, usize)>>>)> =
+        SideTable::new();
 
     /// Whether ANY Day window was active at the last activation check — the app-level
     /// lifecycle debounce (docs/windows.md): focus moving BETWEEN Day windows must not
@@ -270,17 +282,20 @@ fn set_label_runs(label: &gtk4::Label, text: &str, runs: &[day_spec::TextRun]) {
         entry.rich = (!runs.is_empty()).then(|| (text.to_string(), runs.to_vec()));
         entry.clone()
     });
-    let Some((text, runs)) = &style.rich else {
+    let Some((_, runs)) = &style.rich else {
         // Plain text through the plain setter: no markup parse, no escaping to get wrong. The
         // attribute list comes back, since it no longer has runs to override.
         if label.text() != text {
             label.set_text(text);
         }
-        apply_text_attrs(label, style.font, style.color);
+        restyle_label(label, &style);
         return;
     };
-    label.set_attributes(None);
-    label.set_markup(&rich_markup(text, runs, &style));
+    restyle_label(label, &style);
+    // A link run is hit-tested by the label itself, so a label with one takes the pointer.
+    if runs.iter().any(|r| r.link.is_some()) {
+        label.set_can_target(true);
+    }
 }
 
 // Tint colors whose CSS provider is already installed on the display, keyed by `rrggbb`.
@@ -379,14 +394,7 @@ fn native_frame(h: &Handle) -> Option<Rect> {
     if !h.is_mapped() {
         return None;
     }
-    let mut cur = h.parent();
-    let content = loop {
-        let w = cur?;
-        if let Some(view) = w.downcast_ref::<adw::ToolbarView>() {
-            break view.content()?;
-        }
-        cur = w.parent();
-    };
+    let content = content_root(h)?;
     let b = h.compute_bounds(&content)?;
     Some(Rect::new(
         f64::from(b.x()),
@@ -394,6 +402,49 @@ fn native_frame(h: &Handle) -> Option<Rect> {
         f64::from(b.width()),
         f64::from(b.height()),
     ))
+}
+
+/// The content area of the Day window `h` is in (the `AdwToolbarView`'s content): the space
+/// `NativeSnapshot::frame` and `Displayed::frame` are measured in.
+fn content_root(h: &Handle) -> Option<gtk4::Widget> {
+    let mut cur = h.parent();
+    loop {
+        let w = cur?;
+        if let Some(view) = w.downcast_ref::<adw::ToolbarView>() {
+            return view.content();
+        }
+        cur = w.parent();
+    }
+}
+
+thread_local! {
+    /// The user's `gtk-enable-animations` while a scripted or fast run holds the setting off
+    /// for GTK's own widget transitions (`mute_widget_transitions`); `None` while the setting
+    /// is the user's. `reduce_motion` answers this one.
+    static USER_ANIMATIONS: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    /// Set while Day itself writes `gtk-enable-animations`, so the notify it raises is not read
+    /// as the user's change.
+    static MUTING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Set while Day moves a slider (`SliderPatch::Value`), so the `value-changed` GTK raises
+    /// from inside `set_value` is not reported as the reader's.
+    static SLIDER_WRITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Turn GTK's and libadwaita's own transitions off (a switch's slide, a toggle's fade) through
+/// `gtk-enable-animations`, remembering the user's value first. Day's animated changes are
+/// stepped by motion.rs, which does not read the setting, so a script still sees them play.
+fn mute_widget_transitions(settings: &gtk4::Settings) {
+    let user = settings.is_gtk_enable_animations();
+    USER_ANIMATIONS.with(|u| {
+        if u.get().is_none() {
+            u.set(Some(user));
+        }
+    });
+    if user {
+        MUTING.with(|m| m.set(true));
+        settings.set_gtk_enable_animations(false);
+        MUTING.with(|m| m.set(false));
+    }
 }
 
 /// Put a [`day_spec::props::ButtonStyleSpec`] on a `GtkButton`, keeping it a `GtkButton`.
@@ -445,7 +496,7 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
     match style {
         S::Prominent => btn.add_css_class("suggested-action"),
         S::Tinted(c) => {
-            let key = hex(c);
+            let key = hex(c.resolved());
             let class = format!("day-tint-{key}");
             TINT_PROVIDERS.with(|set| {
                 if set.borrow().contains(&key) {
@@ -457,7 +508,7 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
                 let provider = gtk4::CssProvider::new();
                 provider.load_from_data(&format!(
                     "button.{class} {{ background-image: image(#{key}); color: #{}; }}",
-                    hex(S::on_tint(c))
+                    hex(S::on_tint(c.resolved()))
                 ));
                 gtk4::style_context_add_provider_for_display(
                     &display,
@@ -474,7 +525,7 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
     }
     let key = btn.as_ptr() as usize;
     let ink = match style {
-        S::Tinted(c) => S::on_tint(c),
+        S::Tinted(c) => S::on_tint(c.resolved()),
         S::Prominent => day_spec::Color::WHITE,
         _ => {
             if adw::StyleManager::default().is_dark() {
@@ -487,8 +538,35 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
     BUTTON_INK.with(|m| {
         m.insert(key, ink);
     });
+    BUTTON_STYLE.with(|m| {
+        m.insert(key, (btn.downgrade(), style));
+    });
     if let Some(c) = BUTTON_CONTENT.with(|m| m.get(key)) {
         apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only);
+    }
+}
+
+/// Re-apply the style of every button whose look depends on the appearance: a tint given as a
+/// pair or a role (its fill and readable title color are resolved into a CSS class), and a
+/// button with an icon (its glyph color follows the theme foreground).
+fn restyle_dynamic_buttons() {
+    use day_spec::props::ButtonStyleSpec as S;
+    let mut live = Vec::new();
+    BUTTON_STYLE.with(|t| {
+        t.for_each(|key, (button, style)| {
+            let follows = match style {
+                S::Tinted(ink) => ink.is_dynamic(),
+                _ => BUTTON_CONTENT
+                    .with(|c| c.get(key))
+                    .is_some_and(|c| c.icon.is_some()),
+            };
+            if follows && let Some(b) = button.upgrade() {
+                live.push((b, *style));
+            }
+        });
+    });
+    for (button, style) in live {
+        apply_button_style(&button, style);
     }
 }
 
@@ -502,10 +580,21 @@ fn cairo_set_color(cr: &gtk4::cairo::Context, bits: f64) {
     );
 }
 
-/// A decoded kind-14 record (set-gradient), waiting for its fill-shape record. Unit geometry
+/// A wire color (`0xAARRGGBB`) as cairo's four unit channels, red first.
+fn cairo_rgba(bits: u32) -> (f64, f64, f64, f64) {
+    (
+        f64::from((bits >> 16) & 0xff) / 255.0,
+        f64::from((bits >> 8) & 0xff) / 255.0,
+        f64::from(bits & 0xff) / 255.0,
+        f64::from((bits >> 24) & 0xff) / 255.0,
+    )
+}
+
+/// A decoded kind-14 record (set-gradient), waiting for its shape record. Unit geometry
 /// resolves against the shape's bounding box; stops are (offset, 0xAARRGGBB).
 struct PendingGradient {
-    /// Encoded gradient type: 0 = linear (a,b→c,d unit points), 1 = radial (a,b center, c radius).
+    /// Encoded gradient type: 0 = linear (a,b→c,d unit points), 1 = radial (a,b center, c
+    /// radius), 2 = conic (a,b center, c start angle in canvas degrees).
     kind: u8,
     a: f64,
     b: f64,
@@ -515,39 +604,163 @@ struct PendingGradient {
 }
 
 impl PendingGradient {
-    /// Install the gradient as the cairo source, resolved against the shape's bbox.
-    fn set_source(&self, cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64) {
+    /// Install the gradient as the cairo source, resolved against the shape's bbox. `reach` is
+    /// how far past the bbox the drawing can extend (a stroke's half width times its miter
+    /// limit; `0` for a fill): a conic gradient is a finite fan and has to cover that too.
+    fn set_source(&self, cr: &gtk4::cairo::Context, bbox: (f64, f64, f64, f64), reach: f64) {
+        let (x, y, w, h) = bbox;
         let stops = |g: &gtk4::cairo::Gradient| {
             for (o, bits) in &self.stops {
-                g.add_color_stop_rgba(
-                    *o,
-                    f64::from((bits >> 16) & 0xff) / 255.0,
-                    f64::from((bits >> 8) & 0xff) / 255.0,
-                    f64::from(bits & 0xff) / 255.0,
-                    f64::from((bits >> 24) & 0xff) / 255.0,
-                );
+                let (r, gr, b, a) = cairo_rgba(*bits);
+                g.add_color_stop_rgba(*o, r, gr, b, a);
             }
         };
-        if self.kind == 1 {
-            // Radial, elliptical-to-bounds: a circular gradient in the unit space of the
-            // bounds, mapped by the PATTERN matrix (user → pattern space, so the inverse of
-            // the unit→bounds map).
-            let rg = gtk4::cairo::RadialGradient::new(self.a, self.b, 0.0, self.a, self.b, self.c);
-            stops(rg.as_ref());
-            let m = gtk4::cairo::Matrix::new(1.0 / w, 0.0, 0.0, 1.0 / h, -x / w, -y / h);
-            rg.set_matrix(m);
-            let _ = cr.set_source(&rg);
-        } else {
-            let lg = gtk4::cairo::LinearGradient::new(
-                x + self.a * w,
-                y + self.b * h,
-                x + self.c * w,
-                y + self.d * h,
-            );
-            stops(lg.as_ref());
-            let _ = cr.set_source(&lg);
+        match self.kind {
+            1 => {
+                // Radial, elliptical-to-bounds: a circular gradient in the unit space of the
+                // bounds, mapped by the PATTERN matrix (user → pattern space, so the inverse
+                // of the unit→bounds map).
+                let rg =
+                    gtk4::cairo::RadialGradient::new(self.a, self.b, 0.0, self.a, self.b, self.c);
+                stops(rg.as_ref());
+                let m = gtk4::cairo::Matrix::new(1.0 / w, 0.0, 0.0, 1.0 / h, -x / w, -y / h);
+                rg.set_matrix(m);
+                let _ = cr.set_source(&rg);
+            }
+            2 => {
+                let (cx, cy) = (x + self.a * w, y + self.b * h);
+                // Far enough to reach the farthest corner of the bounds from the center.
+                let far = [(x, y), (x + w, y), (x, y + h), (x + w, y + h)]
+                    .iter()
+                    .map(|(px, py)| (px - cx).hypot(py - cy))
+                    .fold(0.0, f64::max);
+                let mesh = conic_mesh(cx, cy, far + reach.max(0.0) + 2.0, self.c, &self.stops);
+                let _ = cr.set_source(&mesh);
+            }
+            _ => {
+                let lg = gtk4::cairo::LinearGradient::new(
+                    x + self.a * w,
+                    y + self.b * h,
+                    x + self.c * w,
+                    y + self.d * h,
+                );
+                stops(lg.as_ref());
+                let _ = cr.set_source(&lg);
+            }
         }
     }
+}
+
+/// One wedge of a conic gradient: from `from` to `to` (canvas degrees, clockwise), running from
+/// one `0xAARRGGBB` color to the other.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ConicWedge {
+    from: f64,
+    to: f64,
+    start: u32,
+    end: u32,
+}
+
+/// The widest wedge a changing color is drawn with, in degrees. Each wedge is one Coons patch
+/// whose colors run linearly along its arc; at this width the patch's own interpolation and
+/// [`day_spec::ConicGradient::color_at`]'s cannot be told apart.
+const CONIC_STEP: f64 = 2.0;
+/// The widest wedge of one flat color: only the arc's shape limits it (a cubic Bézier is a
+/// faithful arc well past this).
+const CONIC_FLAT_STEP: f64 = 30.0;
+
+/// A conic gradient as wedges covering exactly one turn from `start_deg`, in order
+/// ([`day_spec::ConicGradient`]): flat before the first stop and after the last, linear per
+/// channel between two stops, and a hard edge where two stops share an offset.
+fn conic_wedges(start_deg: f64, stops: &[(f64, u32)]) -> Vec<ConicWedge> {
+    let lerp = |a: u32, b: u32, k: f64| -> u32 {
+        let ch = |shift: u32| {
+            let (ca, cb) = (
+                f64::from((a >> shift) & 0xff),
+                f64::from((b >> shift) & 0xff),
+            );
+            ((ca + (cb - ca) * k).round().clamp(0.0, 255.0) as u32) << shift
+        };
+        ch(24) | ch(16) | ch(8) | ch(0)
+    };
+    // (offset from, offset to, color from, color to), offsets clamped and kept ascending.
+    let mut spans: Vec<(f64, f64, u32, u32)> = Vec::new();
+    let mut at = 0.0f64;
+    let mut prev: Option<u32> = None;
+    for (offset, color) in stops {
+        let offset = offset.clamp(at, 1.0);
+        if offset > at {
+            spans.push((at, offset, prev.unwrap_or(*color), *color));
+        }
+        at = offset;
+        prev = Some(*color);
+    }
+    if let Some(last) = prev
+        && at < 1.0
+    {
+        spans.push((at, 1.0, last, last));
+    }
+    let mut out = Vec::new();
+    for (from, to, a, b) in spans {
+        let sweep = (to - from) * 360.0;
+        let step = if a == b { CONIC_FLAT_STEP } else { CONIC_STEP };
+        let n = (sweep / step).ceil().max(1.0) as u32;
+        for i in 0..n {
+            let (k0, k1) = (f64::from(i) / f64::from(n), f64::from(i + 1) / f64::from(n));
+            out.push(ConicWedge {
+                from: start_deg + from * 360.0 + sweep * k0,
+                to: start_deg + from * 360.0 + sweep * k1,
+                start: lerp(a, b, k0),
+                end: lerp(a, b, k1),
+            });
+        }
+    }
+    out
+}
+
+/// A conic gradient as a cairo mesh pattern: cairo has no sweep gradient, so each
+/// [`ConicWedge`] is one Coons patch from the center out to `radius`, colored along its arc.
+/// Patches share their edges exactly, so the fan has no seams, and the mesh is a pattern like
+/// any other: it fills, strokes and prints (PDF keeps it as a shading, not as pixels).
+fn conic_mesh(
+    cx: f64,
+    cy: f64,
+    radius: f64,
+    start_deg: f64,
+    stops: &[(f64, u32)],
+) -> gtk4::cairo::Mesh {
+    use gtk4::cairo::MeshCorner;
+    let mesh = gtk4::cairo::Mesh::new();
+    for wedge in conic_wedges(start_deg, stops) {
+        let (a0, a1) = (wedge.from.to_radians(), wedge.to.to_radians());
+        // The cubic that follows a circular arc: handles of length k·r along the tangents.
+        let k = 4.0 / 3.0 * ((a1 - a0) / 4.0).tan() * radius;
+        let (p0x, p0y) = (cx + radius * a0.cos(), cy + radius * a0.sin());
+        let (p1x, p1y) = (cx + radius * a1.cos(), cy + radius * a1.sin());
+        mesh.begin_patch();
+        mesh.move_to(cx, cy);
+        mesh.line_to(p0x, p0y);
+        mesh.curve_to(
+            p0x - k * a0.sin(),
+            p0y + k * a0.cos(),
+            p1x + k * a1.sin(),
+            p1y - k * a1.cos(),
+            p1x,
+            p1y,
+        );
+        mesh.line_to(cx, cy);
+        // The fourth side is the center itself: both of its corners sit there, each carrying
+        // the color of the radius it ends, so the color depends on the angle alone.
+        mesh.line_to(cx, cy);
+        let (r, g, b, a) = cairo_rgba(wedge.start);
+        mesh.set_corner_color_rgba(MeshCorner::MeshCorner0, r, g, b, a);
+        mesh.set_corner_color_rgba(MeshCorner::MeshCorner1, r, g, b, a);
+        let (r, g, b, a) = cairo_rgba(wedge.end);
+        mesh.set_corner_color_rgba(MeshCorner::MeshCorner2, r, g, b, a);
+        mesh.set_corner_color_rgba(MeshCorner::MeshCorner3, r, g, b, a);
+        mesh.end_patch();
+    }
+    mesh
 }
 
 /// Trace an encoded path ("M x y L x y Q .. C .. Z", see `day_spec::encode_path`) into the
@@ -705,406 +918,688 @@ fn reset_stroke(cr: &gtk4::cairo::Context) {
     cr.set_dash(&[], 0.0);
 }
 
-fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
+/// The shadow a kind-24 record sets (docs/canvas.md "Shadows"): graphics state, cast by every
+/// drawing record until it is replaced or the save it was set under is restored. cairo has no
+/// shadow state of its own, so `cairo_draw` keeps this beside cairo's save stack.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CanvasShadow {
+    /// The offset, in points of the canvas as a whole: the current transform does not move it.
+    dx: f64,
+    dy: f64,
+    /// The CSS blur radius in points, twice the Gaussian's standard deviation.
+    blur: f64,
+    /// `0xAARRGGBB`.
+    color: u32,
+}
+
+/// The prefix records waiting for the drawing record they apply to: the gradient (kind 14),
+/// the stroke style (18), the font (19) and the image source region (23).
+#[derive(Default)]
+struct CanvasPrefix {
+    gradient: Option<PendingGradient>,
+    stroke: Option<PendingStroke>,
+    font: Option<PendingFont>,
+    source: Option<day_spec::Rect>,
+}
+
+/// The cairo operator for a kind-25 record's mode number ([`day_spec::BlendMode::wire`]). The
+/// separable modes are cairo's own; `Add` is its Porter-Duff "plus" and `Erase` its
+/// destination-out. A number this decoder does not know draws normally.
+fn blend_operator(mode: i32) -> gtk4::cairo::Operator {
+    use gtk4::cairo::Operator;
+    match mode {
+        1 => Operator::Multiply,
+        2 => Operator::Screen,
+        3 => Operator::Overlay,
+        4 => Operator::Darken,
+        5 => Operator::Lighten,
+        6 => Operator::Add,
+        7 => Operator::DestOut,
+        _ => Operator::Over,
+    }
+}
+
+/// The three box blurs that stand in for a Gaussian of standard deviation `sigma` pixels, as
+/// each pass's reach to the left and to the right of the pixel it averages into (the
+/// construction CSS filters specify: three boxes of width `d`, the first two shifted half a
+/// pixel either way when `d` is even). All zero when the blur is too small for a box.
+fn box_blur_passes(sigma: f64) -> [(usize, usize); 3] {
+    let d = (sigma * 3.0 * std::f64::consts::TAU.sqrt() / 4.0 + 0.5).floor();
+    if d.is_nan() || d < 2.0 {
+        return [(0, 0); 3];
+    }
+    let d = d as usize;
+    let half = d / 2;
+    if d % 2 == 1 {
+        [(half, half); 3]
+    } else {
+        [(half, half - 1), (half - 1, half), (half, half)]
+    }
+}
+
+/// A normalized Gaussian kernel of standard deviation `sigma` pixels, three deviations to
+/// each side: what a blur too small for the box construction is convolved with.
+fn gaussian_kernel(sigma: f64) -> Vec<f32> {
+    let reach = (sigma * 3.0).ceil().max(1.0) as i32;
+    let weights: Vec<f64> = (-reach..=reach)
+        .map(|i| (-f64::from(i * i) / (2.0 * sigma * sigma)).exp())
+        .collect();
+    let total: f64 = weights.iter().sum();
+    weights.iter().map(|w| (w / total) as f32).collect()
+}
+
+/// Below this many pixels of standard deviation the blur is a true Gaussian convolution; from
+/// here up three box blurs are indistinguishable from one and cost the same at any size.
+const BOX_BLUR_FROM: f64 = 2.0;
+
+/// How many pixels [`blur_alpha`] spreads coverage past a silhouette's edge on each side.
+fn blur_reach(sigma: f64) -> usize {
+    if sigma <= 0.0 {
+        0
+    } else if sigma < BOX_BLUR_FROM {
+        (sigma * 3.0).ceil().max(1.0) as usize
+    } else {
+        box_blur_passes(sigma).iter().map(|(l, r)| *l.max(r)).sum()
+    }
+}
+
+/// Blur an 8-bit coverage mask in place by a Gaussian of standard deviation `sigma` pixels.
+/// `data` is `height` rows of `stride` bytes, the first `width` of each being pixels; what
+/// lies outside the mask counts as empty.
+fn blur_alpha(data: &mut [u8], width: usize, height: usize, stride: usize, sigma: f64) {
+    if sigma <= 0.0 || width == 0 || height == 0 || data.len() < (height - 1) * stride + width {
+        return;
+    }
+    let mut scratch = vec![0u8; width.max(height)];
+    if sigma < BOX_BLUR_FROM {
+        let kernel = gaussian_kernel(sigma);
+        for y in 0..height {
+            convolve_line(data, y * stride, 1, width, &kernel, &mut scratch);
+        }
+        for x in 0..width {
+            convolve_line(data, x, stride, height, &kernel, &mut scratch);
+        }
+        return;
+    }
+    for (left, right) in box_blur_passes(sigma) {
+        if left + right == 0 {
+            continue;
+        }
+        for y in 0..height {
+            box_blur_line(data, y * stride, 1, width, (left, right), &mut scratch);
+        }
+        for x in 0..width {
+            box_blur_line(data, x, stride, height, (left, right), &mut scratch);
+        }
+    }
+}
+
+/// One box-blur pass over the `n` bytes at `start`, `start + step`, …: each becomes the mean
+/// of the window reaching `reach.0` before it and `reach.1` after it. A running sum, so the
+/// cost does not grow with the window.
+fn box_blur_line(
+    data: &mut [u8],
+    start: usize,
+    step: usize,
+    n: usize,
+    reach: (usize, usize),
+    scratch: &mut [u8],
+) {
+    let (left, right) = reach;
+    for (i, s) in scratch.iter_mut().enumerate().take(n) {
+        *s = data[start + i * step];
+    }
+    let window = (left + right + 1) as u32;
+    let mut sum: u32 = scratch[..n.min(right + 1)]
+        .iter()
+        .map(|v| u32::from(*v))
+        .sum();
+    for i in 0..n {
+        data[start + i * step] = ((sum + window / 2) / window).min(255) as u8;
+        if i + right + 1 < n {
+            sum += u32::from(scratch[i + right + 1]);
+        }
+        if i >= left {
+            sum -= u32::from(scratch[i - left]);
+        }
+    }
+}
+
+/// Convolve the `n` bytes at `start`, `start + step`, … with an odd-length `kernel`.
+fn convolve_line(
+    data: &mut [u8],
+    start: usize,
+    step: usize,
+    n: usize,
+    kernel: &[f32],
+    scratch: &mut [u8],
+) {
+    for (i, s) in scratch.iter_mut().enumerate().take(n) {
+        *s = data[start + i * step];
+    }
+    let reach = kernel.len() / 2;
+    for i in 0..n {
+        let mut acc = 0.0f32;
+        for (j, weight) in kernel.iter().enumerate() {
+            if let Some(at) = (i + j).checked_sub(reach)
+                && at < n
+            {
+                acc += weight * f32::from(scratch[at]);
+            }
+        }
+        data[start + i * step] = acc.round().clamp(0.0, 255.0) as u8;
+    }
+}
+
+/// The most pixels one shadow's mask may hold: a full 16,384-pixel export side squared would
+/// be a quarter of a gigabyte per shadow, so past this the shadow is skipped, not the drawing.
+const SHADOW_MASK_LIMIT: i64 = 64 << 20;
+
+/// Draw the shadow of what `draw` paints (docs/canvas.md "Shadows"). cairo has neither a
+/// shadow nor a blur, so this is the emulation: `draw` runs once into a recording surface at
+/// device resolution, the recording's coverage is copied into an 8-bit mask around its ink
+/// extents, the mask is blurred, and the shadow color is painted through it at the offset.
+///
+/// `base` is the transform the canvas started with and `density` the device pixels per unit
+/// of cairo's device space: the offset and the blur are in points of the canvas as a whole,
+/// so they take `base` (an export's scale) and never the current transform. The mask is
+/// painted with the context's operator and under its clip, as the shape itself is.
+fn cast_shadow(
+    cr: &gtk4::cairo::Context,
+    shadow: &CanvasShadow,
+    base: &gtk4::cairo::Matrix,
+    density: f64,
+    draw: &dyn Fn(&gtk4::cairo::Context),
+) -> Option<()> {
+    use gtk4::cairo::{Content, Context, Format, ImageSurface, Matrix, RecordingSurface};
+    // User space → the mask's pixels: the current transform, then the device's density.
+    let to_pixels = Matrix::multiply(
+        &cr.matrix(),
+        &Matrix::new(density, 0.0, 0.0, density, 0.0, 0.0),
+    );
+    let recording = RecordingSurface::create(Content::ColorAlpha, None).ok()?;
+    {
+        let rc = Context::new(&recording).ok()?;
+        rc.set_matrix(to_pixels);
+        draw(&rc);
+    }
+    let (ink_x, ink_y, ink_w, ink_h) = recording.ink_extents();
+    if ink_w <= 0.0 || ink_h <= 0.0 {
+        return None;
+    }
+    let points_to_pixels = (base.xx() * base.yy() - base.xy() * base.yx()).abs().sqrt() * density;
+    let sigma = shadow.blur / 2.0 * points_to_pixels;
+    let reach = blur_reach(sigma) as f64 + 1.0;
+    let (off_x, off_y) = base.transform_distance(shadow.dx, shadow.dy);
+    let (off_x, off_y) = (off_x * density, off_y * density);
+    // Only the silhouette that can land inside the clip matters: the clip's box in pixels,
+    // moved back by the offset and widened by the blur, bounds the mask on a large drawing.
+    let (mut x0, mut y0, mut x1, mut y1) = (ink_x, ink_y, ink_x + ink_w, ink_y + ink_h);
+    if let Ok((cx0, cy0, cx1, cy1)) = cr.clip_extents() {
+        let corners = [(cx0, cy0), (cx1, cy0), (cx0, cy1), (cx1, cy1)]
+            .map(|(x, y)| to_pixels.transform_point(x, y));
+        let min = |f: fn(&(f64, f64)) -> f64| corners.iter().map(f).fold(f64::MAX, f64::min);
+        let max = |f: fn(&(f64, f64)) -> f64| corners.iter().map(f).fold(f64::MIN, f64::max);
+        x0 = x0.max(min(|p| p.0) - off_x - reach);
+        y0 = y0.max(min(|p| p.1) - off_y - reach);
+        x1 = x1.min(max(|p| p.0) - off_x + reach);
+        y1 = y1.min(max(|p| p.1) - off_y + reach);
+    }
+    let (x0, y0) = ((x0 - reach).floor(), (y0 - reach).floor());
+    let (width, height) = ((x1 + reach).ceil() - x0, (y1 + reach).ceil() - y0);
+    if !(width >= 1.0 && height >= 1.0) || width * height > SHADOW_MASK_LIMIT as f64 {
+        return None;
+    }
+    let (width, height) = (width as i32, height as i32);
+    let mut mask = ImageSurface::create(Format::A8, width, height).ok()?;
+    {
+        let mc = Context::new(&mask).ok()?;
+        mc.set_source_surface(&recording, -x0, -y0).ok()?;
+        mc.paint().ok()?;
+    }
+    mask.flush();
+    let stride = usize::try_from(mask.stride()).ok()?;
+    {
+        let mut data = mask.data().ok()?;
+        blur_alpha(&mut data, width as usize, height as usize, stride, sigma);
+    }
+    cr.save().ok()?;
+    // Pixel space for the composite: one mask pixel per device pixel, whatever the transform.
+    cr.set_matrix(Matrix::new(
+        1.0 / density,
+        0.0,
+        0.0,
+        1.0 / density,
+        0.0,
+        0.0,
+    ));
+    let (r, g, b, a) = cairo_rgba(shadow.color);
+    cr.set_source_rgba(r, g, b, a);
+    let painted = cr.mask_surface(&mask, x0 + off_x, y0 + off_y);
+    cr.restore().ok()?;
+    painted.ok()
+}
+
+/// Trace a rounded rectangle (radius clamped to half the short side): cairo has no primitive,
+/// so the four corner arcs are joined into one closed sub-path.
+fn cairo_rounded_rect(cr: &gtk4::cairo::Context, x: f64, y: f64, w: f64, h: f64, radius: f64) {
+    use std::f64::consts::{FRAC_PI_2, PI};
+    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    cr.new_sub_path();
+    cr.arc(x + w - r, y + r, r, -FRAC_PI_2, 0.0);
+    cr.arc(x + w - r, y + h - r, r, 0.0, FRAC_PI_2);
+    cr.arc(x + r, y + h - r, r, FRAC_PI_2, PI);
+    cr.arc(x + r, y + r, r, PI, 3.0 * FRAC_PI_2);
+    cr.close_path();
+}
+
+/// Trace a polygon's "x,y x,y …" payload as one closed sub-path, answering its bounding box,
+/// or `None` when no point parsed.
+fn cairo_trace_polygon(cr: &gtk4::cairo::Context, pts: &str) -> Option<(f64, f64, f64, f64)> {
+    let mut first = true;
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for pair in pts.split(' ') {
+        if let Some((x, y)) = pair.split_once(',')
+            && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
+        {
+            (x0, y0) = (x0.min(x), y0.min(y));
+            (x1, y1) = (x1.max(x), y1.max(y));
+            if first {
+                cr.move_to(x, y);
+                first = false;
+            } else {
+                cr.line_to(x, y);
+            }
+        }
+    }
+    if first {
+        return None;
+    }
+    cr.close_path();
+    Some((x0, y0, x1 - x0, y1 - y0))
+}
+
+/// Whether a record kind draws (a fill, a stroke, text or an image) rather than setting state.
+fn is_drawing_kind(k: i32) -> bool {
+    matches!(k, 0..=7 | 11..=13 | 15 | 16 | 22)
+}
+
+/// Paint one drawing record (`[kind, a..g, color]`) on `cr`, with the texts-channel `payload`
+/// it carries, if any, and the prefix records that apply to it.
+///
+/// Everything the record needs is set here and nothing is read from the context but its
+/// transform, clip and operator, so the same call paints the shape on the canvas and, into a
+/// recording surface, the silhouette its shadow is made from ([`cast_shadow`]).
+fn cairo_draw_record(
+    cr: &gtk4::cairo::Context,
+    rec: &[f64; 9],
+    payload: &str,
+    prefix: &CanvasPrefix,
+) {
+    let &[k, a, b, c, d, e, f, g, col] = rec;
+    let k = k as i32;
+    cairo_set_color(cr, col);
+    // Stroke kinds, in encode_ops order: rect, ellipse, arc, line, polygon, rrect, path.
+    let is_stroke = matches!(k, 1 | 4 | 5 | 6 | 12 | 13 | 16);
+    if is_stroke {
+        match &prefix.stroke {
+            Some(style) => style.apply(cr),
+            None => reset_stroke(cr),
+        }
+        cr.set_line_width(g);
+    }
+    // Fill or stroke the traced path, in the gradient when one is pending. A gradient
+    // resolves against the bounding box of the shape, stroked or filled.
+    let paint = |bbox: (f64, f64, f64, f64)| {
+        if let Some(gradient) = &prefix.gradient {
+            let reach = if is_stroke {
+                g / 2.0 * cr.miter_limit().max(1.0)
+            } else {
+                0.0
+            };
+            gradient.set_source(cr, bbox, reach);
+        }
+        let _ = if is_stroke { cr.stroke() } else { cr.fill() };
+    };
+    match k {
+        0 | 1 => {
+            cr.rectangle(a, b, c, d);
+            paint((a, b, c, d));
+        }
+        // Rounded rect (2 fill / 13 stroke).
+        2 | 13 => {
+            cairo_rounded_rect(cr, a, b, c, d, e);
+            paint((a, b, c, d));
+        }
+        3 | 4 => {
+            cr.save().ok();
+            cr.translate(a + c / 2.0, b + d / 2.0);
+            cr.scale(c / 2.0, d / 2.0);
+            cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+            cr.restore().ok();
+            paint((a, b, c, d));
+        }
+        5 => {
+            cr.set_line_cap(gtk4::cairo::LineCap::Round);
+            cr.arc(
+                a + c / 2.0,
+                b + d / 2.0,
+                c.min(d) / 2.0,
+                e.to_radians(),
+                (e + f).to_radians(),
+            );
+            paint((a, b, c, d));
+        }
+        6 => {
+            cr.move_to(a, b);
+            cr.line_to(c, d);
+            paint((a.min(c), b.min(d), (c - a).abs(), (d - b).abs()));
+        }
+        // Text (7): a Pango layout, drawn from its top-left — which IS the `LEADING`
+        // anchor — offset by whatever the packed anchor asks for, using the layout's own
+        // logical extents and baseline. The layout picks up the cairo CTM, so it rotates and
+        // scales with the drawing.
+        7 => {
+            let default_font = PendingFont::default();
+            let font = prefix.font.as_ref().unwrap_or(&default_font);
+            let layout = pangocairo::functions::create_layout(cr);
+            layout.set_font_description(Some(&canvas_font_desc(e, font)));
+            layout.set_single_paragraph_mode(true);
+            layout.set_text(payload);
+            let anchor = day_spec::TextAnchor::unpack(f);
+            let (mut x, mut y) = (a, b);
+            if anchor != day_spec::TextAnchor::LEADING {
+                let (_, logical) = layout.extents();
+                let scale = f64::from(gtk4::pango::SCALE);
+                let (dx, dy) = anchor.offset(
+                    f64::from(logical.width()) / scale,
+                    f64::from(logical.height()) / scale,
+                    f64::from(layout.baseline()) / scale,
+                );
+                x += dx;
+                y += dy;
+            }
+            cr.move_to(x, y);
+            pangocairo::functions::show_layout(cr, &layout);
+            // The layout leaves cairo's current point where the text ended; the next
+            // arc/ellipse would draw a line from there to its start. Clear it.
+            cr.new_path();
+        }
+        // Polygon (11 fill / 12 stroke): points ride the texts channel as "x,y x,y …".
+        11 | 12 => {
+            if let Some(bbox) = cairo_trace_polygon(cr, payload) {
+                paint(bbox);
+            }
+        }
+        // Path (15 fill / 16 stroke): segments ride the texts channel; slot f is the fill
+        // rule (0 non-zero, 1 even-odd) and slot g the stroke width.
+        15 | 16 => {
+            let bbox = cairo_trace_path(cr, payload);
+            if k == 15 && f > 0.5 {
+                cr.set_fill_rule(gtk4::cairo::FillRule::EvenOdd);
+            }
+            paint(bbox);
+            cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
+        }
+        // Image (22): a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md).
+        // A released bitmap draws nothing rather than a placeholder: a canvas re-records
+        // on every tracked read, so a handle can be dropped between record and replay.
+        22 => {
+            let pixbuf =
+                BITMAPS.with(|m| m.borrow().get(&(e as u64)).and_then(|b| b.pixbuf.clone()));
+            let Some(pixbuf) = pixbuf else {
+                return;
+            };
+            let (pw, ph) = (f64::from(pixbuf.width()), f64::from(pixbuf.height()));
+            // A pending region (kind 23, in the pixbuf's pixels) is drawn by clipping to the
+            // rect and scaling the whole pixbuf so the region lands in it: cairo has no
+            // sub-rect paint, and the clip is exact. The shared clamp decides only whether
+            // anything is inside the bitmap at all.
+            let region = match prefix.source {
+                None => Some((day_spec::Rect::new(0.0, 0.0, pw, ph), false)),
+                Some(src) => day_spec::clamp_image_source(
+                    src,
+                    day_spec::Rect::new(a, b, c, d),
+                    Size::new(pw, ph),
+                )
+                .map(|_| (src, true)),
+            };
+            if let Some((src, clip)) = region
+                && pw > 0.0
+                && ph > 0.0
+                && c > 0.0
+                && d > 0.0
+            {
+                use gtk4::gdk::prelude::GdkCairoContextExt as _;
+                cr.save().ok();
+                if clip {
+                    cr.rectangle(a, b, c, d);
+                    cr.clip();
+                }
+                cr.translate(a, b);
+                cr.scale(c / src.size.width, d / src.size.height);
+                cr.set_source_pixbuf(&pixbuf, -src.origin.x, -src.origin.y);
+                let _ = cr.paint_with_alpha(f.clamp(0.0, 1.0));
+                cr.restore().ok();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The device pixels per point an on-screen canvas is rasterized at, for [`cairo_draw`]: GTK
+/// records the drawing and rasterizes it later, at the surface's scale factor, or at a
+/// capture's stated scale when that is finer (`snapshot_widget`).
+fn canvas_density(scale_factor: i32) -> f64 {
+    static CAPTURE: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    let capture = *CAPTURE.get_or_init(|| day_spec::capture_scale().unwrap_or(1.0));
+    f64::from(scale_factor.max(1)).max(capture)
+}
+
+/// Replay an encoded display list (`day_spec::encode_ops`) on `cr`: the canvas's painter, on
+/// screen and for the bitmap and PDF exports alike.
+///
+/// `density` is how many device pixels one unit of the context's device space covers (the
+/// widget's scale factor on screen, where GTK hands over a recording surface that it
+/// rasterizes later; `1` for an image surface). Only the shadow emulation reads it, to size
+/// its mask ([`cast_shadow`]).
+fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String], density: f64) {
+    let base = cr.matrix();
+    // Blend modes combine with what THIS canvas has drawn, and `Erase` must leave it clear
+    // (docs/canvas.md "Blend modes"). A list that blends is therefore painted into a group
+    // of its own and composited once, whatever surface the context turns out to draw on.
+    let (records, _) = nums.as_chunks::<9>();
+    let isolate = records
+        .iter()
+        .any(|rec| rec[0] as i32 == 25 && rec[1] as i32 != 0);
+    if isolate {
+        cr.push_group();
+    }
     let mut ti = 0;
-    let mut pending: Option<PendingGradient> = None;
-    let mut pending_stroke: Option<PendingStroke> = None;
-    let mut pending_font: Option<PendingFont> = None;
-    // A decoded kind-23 record (image source): the region, in the bitmap's pixels, the next
-    // image record draws instead of the whole bitmap.
-    let mut pending_source: Option<day_spec::Rect> = None;
+    let mut prefix = CanvasPrefix::default();
     // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
     // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
     let mut stamp_at: Vec<(f64, f64)> = Vec::new();
     let mut stamp_n = 0usize;
-    for chunk in nums.chunks(9) {
-        let (k, a, b, c, d, e, f, g, col) = (
-            chunk[0] as i32,
-            chunk[1],
-            chunk[2],
-            chunk[3],
-            chunk[4],
-            chunk[5],
-            chunk[6],
-            chunk[7],
-            chunk[8],
-        );
-        cairo_set_color(cr, col);
-        // Stroke kinds, in encode_ops order: rect, ellipse, arc, line, polygon, rrect, path.
-        let is_stroke = matches!(k, 1 | 4 | 5 | 6 | 12 | 13 | 16);
-        if is_stroke && let Some(st) = pending_stroke.take() {
-            st.apply(cr);
-        }
+    // The shadow in force, and the one to return to at each restore: cairo's own save stack
+    // carries the transform, the clip and the operator, but knows no shadow.
+    let mut shadow: Option<CanvasShadow> = None;
+    let mut saved_shadows: Vec<Option<CanvasShadow>> = Vec::new();
+    // The texts channel is positional: each payload-bearing record takes the next entry.
+    let mut next_text = || -> &str {
+        ti += 1;
+        texts.get(ti - 1).map_or("", String::as_str)
+    };
+    for rec in records {
+        let &[k, a, b, c, d, e, f, g, col] = rec;
+        let k = k as i32;
         if k != 19 && k != 7 {
-            pending_font = None;
+            prefix.font = None;
         }
         if k != 23 && k != 22 {
-            pending_source = None;
+            prefix.source = None;
         }
-        // Stamp prefix and its coordinate records: collected, never drawn on their own.
-        if k == 20 {
-            stamp_at.clear();
-            stamp_n = a as usize;
-            stamp_at.reserve(stamp_n);
-            continue;
-        }
-        if k == 21 {
-            // Four points per record; the last record of a run is padded with zeros, so the
-            // header's count is what says where the real ones stop.
-            for pair in [(a, b), (c, d), (e, f), (g, col)] {
-                if stamp_at.len() < stamp_n {
-                    stamp_at.push(pair);
+        match k {
+            // Stamp prefix and its coordinate records: collected, never drawn on their own.
+            20 => {
+                stamp_at.clear();
+                stamp_n = a as usize;
+                stamp_at.reserve(stamp_n);
+                continue;
+            }
+            21 => {
+                // Four points per record; the last record of a run is padded with zeros, so
+                // the header's count is what says where the real ones stop.
+                for pair in [(a, b), (c, d), (e, f), (g, col)] {
+                    if stamp_at.len() < stamp_n {
+                        stamp_at.push(pair);
+                    }
+                }
+                continue;
+            }
+            _ if is_drawing_kind(k) => {
+                let payload = if matches!(k, 7 | 11 | 12 | 15 | 16) {
+                    next_text()
+                } else {
+                    ""
+                };
+                let draw = |cx: &gtk4::cairo::Context| cairo_draw_record(cx, rec, payload, &prefix);
+                let paint = || {
+                    if let Some(shadow) = &shadow {
+                        let _ = cast_shadow(cr, shadow, &base, density, &draw);
+                    }
+                    draw(cr);
+                };
+                if stamp_at.is_empty() {
+                    paint();
+                } else {
+                    // The template is painted once per position under a translated CTM.
+                    for (dx, dy) in &stamp_at {
+                        cr.save().ok();
+                        cr.translate(*dx, *dy);
+                        paint();
+                        cr.restore().ok();
+                    }
+                }
+                prefix.gradient = None;
+                if matches!(k, 1 | 4 | 5 | 6 | 12 | 13 | 16) {
+                    prefix.stroke = None;
                 }
             }
-            continue;
-        }
-        // The template is replayed once per position under a translated CTM. `ti` is rewound
-        // each time so a template with a texts payload (a polygon, a path) reads the same entry
-        // every repetition and consumes it exactly once overall.
-        let reps = stamp_at.len().max(1);
-        let ti_start = ti;
-        for rep in 0..reps {
-            ti = ti_start;
-            if let Some((dx, dy)) = stamp_at.get(rep) {
+            8 => {
                 cr.save().ok();
-                cr.translate(*dx, *dy);
+                saved_shadows.push(shadow);
             }
-            match k {
-                0 | 1 => {
-                    cr.rectangle(a, b, c, d);
-                    if k == 0 {
-                        if let Some(gr) = pending.take() {
-                            gr.set_source(cr, a, b, c, d);
-                        }
-                        let _ = cr.fill();
-                    } else {
-                        cr.set_line_width(g);
-                        let _ = cr.stroke();
-                    }
-                }
-                // Rounded rect (2 fill / 13 stroke): cairo has no primitive, so trace the four corner
-                // arcs (radius clamped to half the short side).
-                2 | 13 => {
-                    use std::f64::consts::FRAC_PI_2;
-                    let r = e.min(c / 2.0).min(d / 2.0).max(0.0);
-                    cr.new_sub_path();
-                    cr.arc(a + c - r, b + r, r, -FRAC_PI_2, 0.0);
-                    cr.arc(a + c - r, b + d - r, r, 0.0, FRAC_PI_2);
-                    cr.arc(a + r, b + d - r, r, FRAC_PI_2, 2.0 * FRAC_PI_2);
-                    cr.arc(a + r, b + r, r, 2.0 * FRAC_PI_2, 3.0 * FRAC_PI_2);
-                    cr.close_path();
-                    if k == 2 {
-                        if let Some(gr) = pending.take() {
-                            gr.set_source(cr, a, b, c, d);
-                        }
-                        let _ = cr.fill();
-                    } else {
-                        cr.set_line_width(g);
-                        let _ = cr.stroke();
-                    }
-                }
-                3 | 4 => {
-                    cr.save().ok();
-                    cr.translate(a + c / 2.0, b + d / 2.0);
-                    cr.scale(c / 2.0, d / 2.0);
-                    cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+            // A restore with no save to match is dropped: it would otherwise unwind the
+            // caller's own state (and the blend group above).
+            9 => {
+                if let Some(saved) = saved_shadows.pop() {
                     cr.restore().ok();
-                    if k == 3 {
-                        if let Some(gr) = pending.take() {
-                            gr.set_source(cr, a, b, c, d);
-                        }
-                        let _ = cr.fill();
-                    } else {
-                        cr.set_line_width(g);
-                        let _ = cr.stroke();
+                    shadow = saved;
+                }
+            }
+            10 => {
+                // Packed affine (a,b,c,d,tx,ty); cairo Matrix is (xx,yx,xy,yy,x0,y0) with the
+                // same row-vector meaning as day_geometry::Affine.
+                cr.transform(gtk4::cairo::Matrix::new(a, b, c, d, e, f));
+            }
+            // Set-gradient (f = type: 0 linear a,b→c,d; 1 radial a,b center + c radius; 2
+            // conic a,b center + c start degrees); "offset,aarrggbb …" stops ride the texts
+            // channel. Applies to the next shape record (encode_ops contract).
+            14 => {
+                let stops = next_text()
+                    .split(' ')
+                    .filter_map(|s| {
+                        let (o, c) = s.split_once(',')?;
+                        Some((o.parse::<f64>().ok()?, u32::from_str_radix(c, 16).ok()?))
+                    })
+                    .collect();
+                prefix.gradient = Some(PendingGradient {
+                    kind: f as u8,
+                    a,
+                    b,
+                    c,
+                    d,
+                    stops,
+                });
+            }
+            // Clip (17): slot f names the shape (0 rect, 1 rounded rect, 2 ellipse, 3 path,
+            // 4 polygon); geometry in a..d, corner radius or fill rule in e.
+            17 => {
+                match f as i32 {
+                    1 => cairo_rounded_rect(cr, a, b, c, d, e),
+                    2 => {
+                        cr.save().ok();
+                        cr.translate(a + c / 2.0, b + d / 2.0);
+                        cr.scale(c / 2.0, d / 2.0);
+                        cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+                        cr.restore().ok();
                     }
-                }
-                5 => {
-                    let (cx_, cy) = (a + c / 2.0, b + d / 2.0);
-                    let radius = c.min(d) / 2.0;
-                    let start = e.to_radians();
-                    let end = (e + f).to_radians();
-                    cr.set_line_width(g);
-                    cr.set_line_cap(gtk4::cairo::LineCap::Round);
-                    cr.arc(cx_, cy, radius, start, end);
-                    let _ = cr.stroke();
-                }
-                6 => {
-                    cr.set_line_width(g);
-                    cr.move_to(a, b);
-                    cr.line_to(c, d);
-                    let _ = cr.stroke();
-                }
-                // Text (7): a Pango layout, drawn from its top-left — which IS the `LEADING`
-                // anchor — offset by whatever the packed anchor asks for, using the layout's own
-                // logical extents and baseline. The layout picks up the cairo CTM, so it rotates and
-                // scales with the drawing.
-                7 => {
-                    let text = texts.get(ti).cloned().unwrap_or_default();
-                    ti += 1;
-                    let font = pending_font.take().unwrap_or_default();
-                    let layout = pangocairo::functions::create_layout(cr);
-                    layout.set_font_description(Some(&canvas_font_desc(e, &font)));
-                    layout.set_single_paragraph_mode(true);
-                    layout.set_text(&text);
-                    let anchor = day_spec::TextAnchor::unpack(f);
-                    let (mut x, mut y) = (a, b);
-                    if anchor != day_spec::TextAnchor::LEADING {
-                        let (_, logical) = layout.extents();
-                        let scale = f64::from(gtk4::pango::SCALE);
-                        let (dx, dy) = anchor.offset(
-                            f64::from(logical.width()) / scale,
-                            f64::from(logical.height()) / scale,
-                            f64::from(layout.baseline()) / scale,
-                        );
-                        x += dx;
-                        y += dy;
-                    }
-                    cr.move_to(x, y);
-                    pangocairo::functions::show_layout(cr, &layout);
-                    // The layout leaves cairo's current point where the text ended; the next
-                    // arc/ellipse would draw a line from there to its start. Clear it.
-                    cr.new_path();
-                }
-                // Font (19): applies to the next text record only.
-                19 => {
-                    let family = texts.get(ti).cloned().unwrap_or_default();
-                    ti += 1;
-                    pending_font = Some(PendingFont {
-                        weight: a,
-                        italic: b > 0.5,
-                        family,
-                    });
-                }
-                8 => {
-                    cr.save().ok();
-                }
-                9 => {
-                    cr.restore().ok();
-                }
-                // Polygon (11 fill / 12 stroke): points ride the texts channel as "x,y x,y …".
-                11 | 12 => {
-                    let pts = texts.get(ti).cloned().unwrap_or_default();
-                    ti += 1;
-                    let mut first = true;
-                    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-                    for pair in pts.split(' ') {
-                        if let Some((x, y)) = pair.split_once(',')
-                            && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
-                        {
-                            (x0, y0) = (x0.min(x), y0.min(y));
-                            (x1, y1) = (x1.max(x), y1.max(y));
-                            if first {
-                                cr.move_to(x, y);
-                                first = false;
-                            } else {
-                                cr.line_to(x, y);
-                            }
-                        }
-                    }
-                    if !first {
-                        cr.close_path();
-                        if k == 11 {
-                            if let Some(gr) = pending.take() {
-                                gr.set_source(cr, x0, y0, x1 - x0, y1 - y0);
-                            }
-                            let _ = cr.fill();
-                        } else {
-                            cr.set_line_width(g);
-                            let _ = cr.stroke();
-                        }
-                    }
-                }
-                // Path (15 fill / 16 stroke): segments ride the texts channel; slot f is the fill
-                // rule (0 non-zero, 1 even-odd) and slot g the stroke width.
-                15 | 16 => {
-                    let spec = texts.get(ti).cloned().unwrap_or_default();
-                    ti += 1;
-                    let (bx, by, bw, bh) = cairo_trace_path(cr, &spec);
-                    if k == 15 {
-                        cr.set_fill_rule(if f > 0.5 {
+                    3 => {
+                        cairo_trace_path(cr, next_text());
+                        cr.set_fill_rule(if e > 0.5 {
                             gtk4::cairo::FillRule::EvenOdd
                         } else {
                             gtk4::cairo::FillRule::Winding
                         });
-                        if let Some(gr) = pending.take() {
-                            gr.set_source(cr, bx, by, bw, bh);
-                        }
-                        let _ = cr.fill();
-                        cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
-                    } else {
-                        cr.set_line_width(g);
-                        if let Some(gr) = pending.take() {
-                            gr.set_source(cr, bx, by, bw, bh);
-                        }
-                        let _ = cr.stroke();
                     }
-                }
-                // Clip (17): slot f names the shape (0 rect, 1 rounded rect, 2 ellipse, 3 path,
-                // 4 polygon); geometry in a..d, corner radius or fill rule in e.
-                17 => {
-                    match f as i32 {
-                        1 => {
-                            // Same corner trace as the rounded-rect fill above.
-                            let r = e.min(c / 2.0).min(d / 2.0);
-                            let (x, y, w, h) = (a, b, c, d);
-                            cr.new_sub_path();
-                            cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
-                            cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
-                            cr.arc(
-                                x + r,
-                                y + h - r,
-                                r,
-                                std::f64::consts::FRAC_PI_2,
-                                std::f64::consts::PI,
-                            );
-                            cr.arc(
-                                x + r,
-                                y + r,
-                                r,
-                                std::f64::consts::PI,
-                                3.0 * std::f64::consts::FRAC_PI_2,
-                            );
-                            cr.close_path();
-                        }
-                        2 => {
-                            cr.save().ok();
-                            cr.translate(a + c / 2.0, b + d / 2.0);
-                            cr.scale(c / 2.0, d / 2.0);
-                            cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
-                            cr.restore().ok();
-                        }
-                        3 => {
-                            let spec = texts.get(ti).cloned().unwrap_or_default();
-                            ti += 1;
-                            cairo_trace_path(cr, &spec);
-                            cr.set_fill_rule(if e > 0.5 {
-                                gtk4::cairo::FillRule::EvenOdd
-                            } else {
-                                gtk4::cairo::FillRule::Winding
-                            });
-                        }
-                        4 => {
-                            let pts = texts.get(ti).cloned().unwrap_or_default();
-                            ti += 1;
-                            let mut first = true;
-                            for pair in pts.split(' ') {
-                                if let Some((x, y)) = pair.split_once(',')
-                                    && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
-                                {
-                                    if first {
-                                        cr.move_to(x, y);
-                                        first = false;
-                                    } else {
-                                        cr.line_to(x, y);
-                                    }
-                                }
-                            }
-                            if !first {
-                                cr.close_path();
-                            }
-                        }
-                        _ => cr.rectangle(a, b, c, d),
+                    4 => {
+                        let _ = cairo_trace_polygon(cr, next_text());
                     }
-                    cr.clip();
-                    cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
+                    _ => cr.rectangle(a, b, c, d),
                 }
-                // Stroke style (18): applies to the next stroke record only.
-                18 => {
-                    let raw = texts.get(ti).cloned().unwrap_or_default();
-                    ti += 1;
-                    pending_stroke = Some(PendingStroke {
-                        cap: a,
-                        join: b,
-                        miter: c,
-                        phase: d,
-                        dashes: raw
-                            .split(' ')
-                            .filter_map(|s| s.parse::<f64>().ok())
-                            .collect(),
-                    });
-                }
-                10 => {
-                    // Packed affine (a,b,c,d,tx,ty); cairo Matrix is (xx,yx,xy,yy,x0,y0) with the
-                    // same row-vector meaning as day_geometry::Affine.
-                    let m = gtk4::cairo::Matrix::new(a, b, c, d, e, f);
-                    cr.transform(m);
-                }
-                // Set-gradient (f = type: 0 linear a,b→c,d; 1 radial a,b center + c radius);
-                // "offset,aarrggbb …" stops ride the texts channel. Applies to the next
-                // fill-shape record (encode_ops contract).
-                14 => {
-                    let raw = texts.get(ti).cloned().unwrap_or_default();
-                    ti += 1;
-                    let stops = raw
+                cr.clip();
+                cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
+            }
+            // Stroke style (18): applies to the next stroke record only.
+            18 => {
+                prefix.stroke = Some(PendingStroke {
+                    cap: a,
+                    join: b,
+                    miter: c,
+                    phase: d,
+                    dashes: next_text()
                         .split(' ')
-                        .filter_map(|s| {
-                            let (o, c) = s.split_once(',')?;
-                            Some((o.parse::<f64>().ok()?, u32::from_str_radix(c, 16).ok()?))
-                        })
-                        .collect();
-                    pending = Some(PendingGradient {
-                        kind: f as u8,
-                        a,
-                        b,
-                        c,
-                        d,
-                        stops,
-                    });
-                }
-                // Image (22): a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md).
-                // A released bitmap draws nothing rather than a placeholder: a canvas re-records
-                // on every tracked read, so a handle can be dropped between record and replay.
-                22 => {
-                    let pixbuf = BITMAPS
-                        .with(|m| m.borrow().get(&(e as u64)).and_then(|b| b.pixbuf.clone()));
-                    if let Some(pixbuf) = pixbuf {
-                        let (pw, ph) = (f64::from(pixbuf.width()), f64::from(pixbuf.height()));
-                        // A pending region (kind 23, in the pixbuf's pixels) is drawn by
-                        // clipping to the rect and scaling the whole pixbuf so the region lands
-                        // in it: cairo has no sub-rect paint, and the clip is exact. The shared
-                        // clamp decides only whether anything is inside the bitmap at all.
-                        let region = match pending_source.take() {
-                            None => Some((day_spec::Rect::new(0.0, 0.0, pw, ph), false)),
-                            Some(src) => day_spec::clamp_image_source(
-                                src,
-                                day_spec::Rect::new(a, b, c, d),
-                                Size::new(pw, ph),
-                            )
-                            .map(|_| (src, true)),
-                        };
-                        if let Some((src, clip)) = region
-                            && pw > 0.0
-                            && ph > 0.0
-                            && c > 0.0
-                            && d > 0.0
-                        {
-                            use gtk4::gdk::prelude::GdkCairoContextExt as _;
-                            cr.save().ok();
-                            if clip {
-                                cr.rectangle(a, b, c, d);
-                                cr.clip();
-                            }
-                            cr.translate(a, b);
-                            cr.scale(c / src.size.width, d / src.size.height);
-                            cr.set_source_pixbuf(&pixbuf, -src.origin.x, -src.origin.y);
-                            let _ = cr.paint_with_alpha(f.clamp(0.0, 1.0));
-                            cr.restore().ok();
-                        }
-                    }
-                }
-                // Image source (23): the region (a,b origin · c,d size, in the bitmap's pixels)
-                // the next image record draws.
-                23 => pending_source = Some(day_spec::Rect::new(a, b, c, d)),
-                _ => {}
+                        .filter_map(|s| s.parse::<f64>().ok())
+                        .collect(),
+                });
             }
-            if stamp_at.get(rep).is_some() {
-                cr.restore().ok();
+            // Font (19): applies to the next text record only.
+            19 => {
+                prefix.font = Some(PendingFont {
+                    weight: a,
+                    italic: b > 0.5,
+                    family: next_text().to_owned(),
+                });
             }
+            // Image source (23): the region (a,b origin · c,d size, in the bitmap's pixels)
+            // the next image record draws.
+            23 => prefix.source = Some(day_spec::Rect::new(a, b, c, d)),
+            // Shadow (24): a,b offset · c blur · the color slot its color; a clear color is
+            // no shadow. State until the next one or the matching restore.
+            24 => {
+                let color = col as u32;
+                shadow = (color >> 24 != 0).then_some(CanvasShadow {
+                    dx: a,
+                    dy: b,
+                    blur: c.max(0.0),
+                    color,
+                });
+            }
+            // Blend (25): a = the mode number. cairo keeps the operator in the state its own
+            // save and restore carry.
+            25 => cr.set_operator(blend_operator(a as i32)),
+            _ => {}
         }
         stamp_at.clear();
-        if is_stroke {
-            reset_stroke(cr);
+    }
+    if isolate {
+        // Unwind what the list left saved, so the group pops from the level it was pushed at.
+        for _ in saved_shadows.drain(..) {
+            cr.restore().ok();
+        }
+        if cr.pop_group_to_source().is_ok() {
+            let _ = cr.paint();
         }
     }
 }
@@ -1241,23 +1736,23 @@ fn full_route_key(
 fn key_modifiers(state: gtk4::gdk::ModifierType) -> u8 {
     let mut m = 0u8;
     if state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
-        m |= day_spec::KeyEvent::SHIFT;
+        m |= day_spec::Modifiers::SHIFT.bits();
     }
     // Ctrl is both the primary key and the Control key, except on a Mac, where GTK's ⌘ is
     // Meta and the primary key (`accel_string` spells `<Primary>` as `<Meta>` there) and ⌃
     // is the Control key alone.
     if state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
         m |= if cfg!(target_os = "macos") {
-            day_spec::KeyEvent::CONTROL
+            day_spec::Modifiers::CONTROL.bits()
         } else {
-            day_spec::KeyEvent::PRIMARY | day_spec::KeyEvent::CONTROL
+            day_spec::Modifiers::PRIMARY.bits() | day_spec::Modifiers::CONTROL.bits()
         };
     }
     if cfg!(target_os = "macos") && state.contains(gtk4::gdk::ModifierType::META_MASK) {
-        m |= day_spec::KeyEvent::PRIMARY;
+        m |= day_spec::Modifiers::PRIMARY.bits();
     }
     if state.contains(gtk4::gdk::ModifierType::ALT_MASK) {
-        m |= day_spec::KeyEvent::ALT;
+        m |= day_spec::Modifiers::ALT.bits();
     }
     m
 }
@@ -1856,6 +2351,9 @@ struct NavState {
 struct NavMenuState {
     listbox: gtk4::ListBox,
     rows: usize,
+    /// The rows' words and decorations as last given, for re-tinting rows whose tint depends
+    /// on the appearance (`retint_nav_menus`).
+    decor: NavDecor,
     /// Programmatic selection in flight: don't re-emit `SelectionChanged`.
     suppress: Rc<std::cell::Cell<bool>>,
     /// The row index last selected, by Day or by the user: a `row-selected` naming it again is
@@ -1863,135 +2361,155 @@ struct NavMenuState {
     current: Rc<std::cell::Cell<Option<i32>>>,
 }
 
-thread_local! {
-    /// The newest pending scroll per list host (`scroll_list_when_laid`): a request that has to
-    /// wait for layout is superseded by the next one for the same host, so a burst of jumps
-    /// ends where the last of them pointed.
-    static LIST_SCROLL_SERIAL: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+/// A nav menu's per-row words and decorations (`NavMenuProps`, index-aligned).
+#[derive(Default)]
+struct NavDecor {
+    items: Vec<String>,
+    icons: Vec<Option<String>>,
+    badges: Vec<Option<String>>,
+    badge_icons: Vec<Option<String>>,
+    tints: Vec<Option<day_spec::Ink>>,
+    badge_tints: Vec<Option<day_spec::Ink>>,
 }
 
-/// Scroll a list host to `row`, or to its end for `None` (`ListPatch::ScrollToRow` /
-/// `ScrollToEnd`). `GtkListView::scroll_to` needs `v4_12` and Day targets `v4_10` (and on GTK 4.20
-/// it realized the row without moving the view), so this drives the scrolled window's vertical
-/// adjustment instead, at the row's offset by the uniform pitch (the extent over the count;
-/// docs/list.md notes the Automatic-height approximation).
-///
-/// At once when the list is laid out, which is the common case. Otherwise on the frame clock:
-/// the request can arrive before the deferred reload (`schedule_list_resize`) has filled the
-/// model, or before the list has laid out the rows it filled, and either way the extent would
-/// say there is nothing to scroll; it then waits until the model has rows and the extent covers
-/// them, a few frames at most. Deferring every request was wrong: GTK runs a frame's tick
-/// callbacks newest first, and a burst of jumps that all waited for one frame landed on the
-/// oldest, so a `scroll_to_row` could end at the previous target.
-///
-/// A sectioned list (`pinned`) scrolls a row it has laid out to its real position rather than
-/// the uniform-pitch estimate (its headers are not one pitch tall), and stops it just below the
-/// pinned header copy instead of under it.
-fn scroll_list_when_laid(
-    sw: &gtk4::ScrolledWindow,
-    row: Option<usize>,
-    pinned: Option<Rc<PinnedHeader>>,
-) {
-    /// The row count of the host's list, or 0 before a model is set.
-    fn count(sw: &gtk4::ScrolledWindow) -> usize {
-        sw.child()
-            .and_then(|c| c.downcast::<gtk4::ListView>().ok())
-            .and_then(|lv| lv.model())
-            .map_or(0, |m| m.n_items() as usize)
-    }
-    /// The vertical offset of `row` (its end for `None`) by the uniform pitch, or for a sectioned
-    /// list by where the row really is.
-    fn offset(
-        adj: &gtk4::Adjustment,
-        n: usize,
-        row: Option<usize>,
-        pinned: Option<&PinnedHeader>,
-    ) -> f64 {
-        let end = adj.upper() - adj.page_size();
-        let Some(row) = row else {
-            return end;
+impl NavDecor {
+    /// The rows whose leading or trailing glyph is tinted with a pair or a role.
+    fn dynamic_rows(&self) -> Vec<usize> {
+        let follows = |t: &[Option<day_spec::Ink>], i: usize| {
+            t.get(i)
+                .copied()
+                .flatten()
+                .is_some_and(day_spec::Ink::is_dynamic)
         };
-        let estimate = (adj.upper() / n as f64) * row as f64;
-        let Some(pinned) = pinned else {
-            return estimate.min(end);
-        };
-        let top = pinned.laid_top(row).map_or(estimate, |y| adj.value() + y);
-        (top - pinned.inset_for(row)).clamp(0.0, end.max(0.0))
+        (0..self.items.len())
+            .filter(|&i| follows(&self.tints, i) || follows(&self.badge_tints, i))
+            .collect()
     }
-    let key = widget_key(sw.upcast_ref());
-    let adj = sw.vadjustment();
-    if count(sw) > 0 && adj.upper() > adj.page_size() {
-        // Laid out: on the next main-loop turn, in request order. Not here: the patch arrives
-        // inside day-core's tree borrow, and the view's reaction to the new offset reaches
-        // `recycle` for the rows that left, which needs that borrow to park their ids. A request
-        // still waiting for this host's layout is superseded.
-        LIST_SCROLL_SERIAL.with(|m| m.borrow_mut().remove(&key));
-        let sw = sw.clone();
-        gtk4::glib::idle_add_local_full(gtk4::glib::Priority::DEFAULT, move || {
-            let n = count(&sw);
-            if n > 0 {
-                let adj = sw.vadjustment();
-                adj.set_value(offset(&adj, n, row, pinned.as_deref()));
-                if let (Some(pinned), Some(row)) = (&pinned, row) {
-                    pinned.settle_scroll(&sw, row);
-                }
+}
+
+/// Re-tint every nav row whose glyph tint depends on the appearance (the tint is baked into
+/// the glyph's texture), in place.
+fn retint_nav_menus() {
+    NAV_MENUS.with(|m| {
+        for state in m.borrow().values() {
+            let d = &state.decor;
+            for i in d.dynamic_rows() {
+                refresh_nav_row(
+                    &state.listbox,
+                    i,
+                    &d.items[i],
+                    d.icons.get(i).and_then(|o| o.as_deref()),
+                    d.tints.get(i).copied().flatten(),
+                    d.badges.get(i).and_then(|o| o.as_deref()),
+                    d.badge_icons.get(i).and_then(|o| o.as_deref()),
+                    d.badge_tints.get(i).copied().flatten(),
+                );
             }
-            gtk4::glib::ControlFlow::Break
-        });
-        return;
-    }
-    let serial = LIST_SCROLL_SERIAL.with(|m| {
-        let mut m = m.borrow_mut();
-        let serial = m.get(&key).map_or(1, |s| s + 1);
-        m.insert(key, serial);
-        serial
+        }
     });
-    // The callback is an `Fn`, so the frame count lives in a cell.
-    let frames = std::cell::Cell::new(0u32);
-    sw.add_tick_callback(move |sw, _| {
-        frames.set(frames.get() + 1);
-        let frames = frames.get();
-        let Some(sw) = sw.downcast_ref::<gtk4::ScrolledWindow>() else {
-            return gtk4::glib::ControlFlow::Break;
+}
+
+/// GTK 4.12's `gtk_list_view_scroll_to(view, position, flags, scroll_info)`.
+type ListScrollToFn =
+    unsafe extern "C" fn(*mut gtk4::ffi::GtkListView, u32, u32, *mut std::ffi::c_void);
+/// GTK 4.12's `gtk_scroll_info_new()`.
+type ScrollInfoNewFn = unsafe extern "C" fn() -> *mut std::ffi::c_void;
+/// GTK 4.12's `gtk_scroll_info_set_enable_vertical` / `_horizontal(info, enable)`.
+type ScrollInfoEnableFn = unsafe extern "C" fn(*mut std::ffi::c_void, std::ffi::c_int);
+
+/// Bring row `row` of `view` into view with GTK's own `gtk_list_view_scroll_to` (4.12; the
+/// binding is pinned at `v4_10`, so the symbols are looked up rather than linked). GTK lays the
+/// row out, measured, at the edge it scrolls to, which is what a glide to a row of unknown
+/// height needs before it can align it exactly. `false` where the running GTK lacks the call.
+fn list_view_scroll_to(view: &gtk4::ListView, row: usize) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(row) = u32::try_from(row) else {
+            return false;
         };
-        // A newer request for this host took over.
-        if LIST_SCROLL_SERIAL.with(|m| m.borrow().get(&key) != Some(&serial)) {
-            return gtk4::glib::ControlFlow::Break;
+        // SAFETY: `RTLD_DEFAULT` searches the images already loaded, the names are
+        // NUL-terminated literals, and each pointer is used only after the null check below.
+        let symbols = unsafe {
+            [
+                libc::dlsym(libc::RTLD_DEFAULT, c"gtk_list_view_scroll_to".as_ptr()),
+                libc::dlsym(libc::RTLD_DEFAULT, c"gtk_scroll_info_new".as_ptr()),
+                libc::dlsym(
+                    libc::RTLD_DEFAULT,
+                    c"gtk_scroll_info_set_enable_vertical".as_ptr(),
+                ),
+                libc::dlsym(
+                    libc::RTLD_DEFAULT,
+                    c"gtk_scroll_info_set_enable_horizontal".as_ptr(),
+                ),
+            ]
+        };
+        if symbols.iter().any(|p| p.is_null()) {
+            return false;
         }
-        let n = count(sw);
-        let adj = sw.vadjustment();
-        // Laid out: the rows overflow the viewport, or have had a few frames to (a list that
-        // fits has nothing to scroll, and waiting longer would not change that).
-        let laid = n > 0 && (adj.upper() > adj.page_size() || frames >= 4);
-        if !laid {
-            return if frames < 60 {
-                gtk4::glib::ControlFlow::Continue
-            } else {
-                LIST_SCROLL_SERIAL.with(|m| m.borrow_mut().remove(&key));
-                gtk4::glib::ControlFlow::Break
-            };
+        let [scroll_to, info_new, vertical, horizontal] = symbols;
+        // SAFETY: each non-null `dlsym` result for these names is the function GTK exports
+        // under it, with the signature its header declares. The scroll info is fresh, and
+        // `gtk_list_view_scroll_to` takes it over (transfer full), so it is not freed here.
+        unsafe {
+            let scroll_to = std::mem::transmute::<*mut std::ffi::c_void, ListScrollToFn>(scroll_to);
+            let info_new = std::mem::transmute::<*mut std::ffi::c_void, ScrollInfoNewFn>(info_new);
+            let vertical =
+                std::mem::transmute::<*mut std::ffi::c_void, ScrollInfoEnableFn>(vertical);
+            let horizontal =
+                std::mem::transmute::<*mut std::ffi::c_void, ScrollInfoEnableFn>(horizontal);
+            let info = info_new();
+            if info.is_null() {
+                return false;
+            }
+            vertical(info, 1);
+            horizontal(info, 0);
+            // GTK_LIST_SCROLL_NONE: scroll only, with no focus or selection change.
+            scroll_to(view.as_ptr(), row, 0, info);
         }
-        LIST_SCROLL_SERIAL.with(|m| m.borrow_mut().remove(&key));
-        adj.set_value(offset(&adj, n, row, pinned.as_deref()));
-        if let (Some(pinned), Some(row)) = (&pinned, row) {
-            pinned.settle_scroll(sw, row);
-        }
-        gtk4::glib::ControlFlow::Break
-    });
+        true
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (view, row);
+        false
+    }
 }
 
 fn widget_key(w: &Handle) -> usize {
     w.as_ptr() as usize
 }
 
-/// Per-widget live animations (§8.4). Held so libadwaita's frame-clock-driven animations aren't
-/// dropped mid-flight; a new animation for the same channel replaces (cancels) the previous one.
-/// `cur_transform` is the last transform target, so the next transform tween lerps from it.
-#[derive(Default)]
-struct GtkAnim {
-    opacity: Option<adw::Animation>,
-    transform: Option<adw::Animation>,
-    cur_transform: Transform,
+/// Day's laid-out origin for a `GtkFixed` child (`NODE_ORIGIN`), `(0, 0)` before it has one.
+fn node_origin(widget: &gtk4::Widget) -> (f32, f32) {
+    NODE_ORIGIN
+        .with(|m| m.borrow().get(&widget_key(widget)).copied())
+        .unwrap_or((0.0, 0.0))
+}
+
+/// Put a `GtkFixed` child at `frame` (in the fixed's coordinates): its origin, re-composed
+/// with any transform it shows, and its size. `Toolkit::set_frame` and each frame of a frame
+/// animation (motion.rs) go through here.
+fn place_in_fixed(fixed: &gtk4::Fixed, h: &gtk4::Widget, frame: Rect) {
+    let key = widget_key(h);
+    NODE_ORIGIN.with(|m| {
+        m.borrow_mut()
+            .insert(key, (frame.origin.x as f32, frame.origin.y as f32))
+    });
+    fixed.move_(h, frame.origin.x, frame.origin.y);
+    // `move_` rewrote the child transform to a plain translation, dropping any transform the
+    // widget shows. Re-apply it over the new origin so a relayout (window resize, deep-link
+    // mount) doesn't reset a transformed widget's scale/rotation/offset — or strand it at the
+    // corner.
+    if let Some(t) = motion::shown_transform(h)
+        && !t.is_identity()
+    {
+        apply_gtk_transform(fixed, h, t, frame.size);
+    }
+    h.set_size_request(
+        frame.size.width.max(0.0).round() as i32,
+        frame.size.height.max(0.0).round() as i32,
+    );
+    surface_resized(key, (frame.size.width, frame.size.height));
 }
 
 /// Apply Day's layout origin AND the animation transform `t` to `widget` as its `GtkFixed` child
@@ -1999,9 +2517,7 @@ struct GtkAnim {
 /// so the laid-out origin and the animation transform share one slot and must be composed here —
 /// otherwise setting the transform would strand the widget at the fixed's (0,0) corner.
 fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform, size: Size) {
-    let (ox, oy) = NODE_ORIGIN
-        .with(|m| m.borrow().get(&widget_key(widget)).copied())
-        .unwrap_or((0.0, 0.0));
+    let (ox, oy) = node_origin(widget);
     if t.is_identity() {
         // Just the laid-out position — but as an explicit translation (not `None`), so it can't be
         // left at (0,0) by racing a later set_child_transform.
@@ -2031,42 +2547,10 @@ fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform,
             ox + cx + t.tx as f32,
             oy + cy + t.ty as f32,
         ))
-        .rotate(t.rotate_deg as f32)
+        .rotate(t.rotation.degrees() as f32)
         .scale(t.sx as f32, t.sy as f32)
         .translate(&gtk4::graphene::Point::new(-cx, -cy));
     fixed.set_child_transform(widget, Some(&transform));
-}
-
-/// Build a libadwaita animation from `from`→`to` matching the `AnimSpec` curve — a spring
-/// (`SpringParams` from response/damping) or a timed easing.
-fn gtk_animation(
-    widget: &gtk4::Widget,
-    from: f64,
-    to: f64,
-    a: &AnimSpec,
-    target: adw::CallbackAnimationTarget,
-) -> adw::Animation {
-    use adw::prelude::*;
-    match a.curve {
-        Curve::Spring { .. } => {
-            // A fixed-duration overshoot (EaseOutBack) over exactly `duration_ms`, so the timing
-            // matches the other toolkits (a physics AdwSpringAnimation would settle on its own
-            // schedule, not the requested duration).
-            let anim = adw::TimedAnimation::new(widget, from, to, a.duration_ms, target);
-            anim.set_easing(adw::Easing::EaseOutBack);
-            anim.upcast()
-        }
-        curve => {
-            let anim = adw::TimedAnimation::new(widget, from, to, a.duration_ms, target);
-            anim.set_easing(match curve {
-                Curve::Linear => adw::Easing::Linear,
-                Curve::EaseIn => adw::Easing::EaseInCubic,
-                Curve::EaseOut => adw::Easing::EaseOutCubic,
-                _ => adw::Easing::EaseInOutCubic,
-            });
-            anim.upcast()
-        }
-    }
 }
 
 /// A nav row's title: fills the row, ellipsized. Ellipsize, or a long feed title makes the row
@@ -2091,11 +2575,17 @@ fn fill_nav_row(
     row: &gtk4::Box,
     item: &str,
     icon: Option<&str>,
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
     badge: Option<&str>,
     badge_icon: Option<&str>,
-    badge_tint: Option<day_spec::Color>,
+    badge_tint: Option<day_spec::Ink>,
 ) {
+    // A tint is baked into the glyph's texture: resolved now, re-applied on an appearance
+    // change (`retint_nav_menus`).
+    let (tint, badge_tint) = (
+        tint.map(day_spec::Ink::resolved),
+        badge_tint.map(day_spec::Ink::resolved),
+    );
     if let Some(image) = icon.and_then(|name| tinted_template_icon(name, tint)) {
         image.set_margin_start(2);
         row.append(&image);
@@ -2127,10 +2617,10 @@ fn refresh_nav_row(
     i: usize,
     item: &str,
     icon: Option<&str>,
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
     badge: Option<&str>,
     badge_icon: Option<&str>,
-    badge_tint: Option<day_spec::Color>,
+    badge_tint: Option<day_spec::Ink>,
 ) -> bool {
     let Some(child) = listbox.row_at_index(i as i32).and_then(|r| r.child()) else {
         return false;
@@ -2167,9 +2657,9 @@ fn fill_nav_menu(
     icons: &[Option<String>],
     badges: &[Option<String>],
     badge_icons: &[Option<String>],
-    badge_tints: &[Option<day_spec::Color>],
+    badge_tints: &[Option<day_spec::Ink>],
     sections: &[Option<String>],
-    tints: &[Option<day_spec::Color>],
+    tints: &[Option<day_spec::Ink>],
     menus: &[Vec<day_spec::MenuItem>],
 ) {
     // Idempotent: a caller that clears the ListBox itself must call this before doing so (the
@@ -2338,7 +2828,9 @@ fn render_bitmap_to(
         let cr = cairo::Context::new(&surface).map_err(|e| e.to_string())?;
         cr.scale(scale, scale);
         let (nums, texts) = day_spec::encode_ops(ops);
-        cairo_draw(&cr, &nums, &texts);
+        // An image surface: one device unit is one pixel, and the export's scale is in the
+        // transform, where the painter reads it.
+        cairo_draw(&cr, &nums, &texts, 1.0);
         cr.status().map_err(|e| e.to_string())?;
     }
     surface.flush();
@@ -2376,6 +2868,10 @@ fn render_bitmap_to(
     Ok(info)
 }
 
+/// Pixels per point a shadow's blurred mask is rendered at in a PDF (288 per inch). A PDF has no
+/// blur, so a canvas shadow is the one part of a page that is an image, not vector art.
+const PDF_SHADOW_DENSITY: f64 = 4.0;
+
 /// The body of `render_pdf`: every page through `cairo_draw` onto one `PdfSurface` writing into
 /// memory, with the title and author in the document's info dictionary.
 fn render_pdf_bytes(
@@ -2402,7 +2898,7 @@ fn render_pdf_bytes(
             .map_err(|e| e.to_string())?;
         let cr = cairo::Context::new(&surface).map_err(|e| e.to_string())?;
         let (nums, texts) = day_spec::encode_ops(&page.ops);
-        cairo_draw(&cr, &nums, &texts);
+        cairo_draw(&cr, &nums, &texts, PDF_SHADOW_DENSITY);
         cr.show_page().map_err(|e| e.to_string())?;
     }
     // Finishing flushes the trailer and hands the Vec back; it can only panic on a second call
@@ -2498,14 +2994,81 @@ fn tinted_image_texture(source: &str, t: day_spec::Color) -> Option<gtk4::gdk::T
     Some(gtk4::gdk::Texture::for_pixbuf(&pixbuf))
 }
 
-/// A realized image's source and paint (`IMAGE_SOURCE`): the bundled NAME (empty for bytes or
-/// a decode, which cannot be recolored), the tint on it now, whether it is a template glyph
+/// Recolor premultiplied ARGB32 pixels (native-endian words, cairo's and
+/// `gdk_texture_download`'s layout) to `tint`, keeping each pixel's alpha: the image becomes
+/// a mask the color shows through (docs/images.md "Tinting").
+fn tint_argb32(data: &mut [u8], tint: day_spec::Color) {
+    let channel = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
+    let (r, g, b) = (channel(tint.r), channel(tint.g), channel(tint.b));
+    for px in data.as_chunks_mut::<4>().0 {
+        let alpha = u32::from_ne_bytes(*px) >> 24;
+        let pre = |c: u32| (c * alpha + 127) / 255;
+        let word = (alpha << 24) | (pre(r) << 16) | (pre(g) << 8) | pre(b);
+        *px = word.to_ne_bytes();
+    }
+}
+
+/// A copy of `texture` recolored to `tint` with its alpha kept: how a raster with no file
+/// behind it (encoded bytes, a shared decode, a `GResource` entry) is tinted.
+fn tint_texture(texture: &gtk4::gdk::Texture, tint: day_spec::Color) -> Option<gtk4::gdk::Texture> {
+    let (w, h) = (texture.width(), texture.height());
+    let stride = usize::try_from(w).ok()?.checked_mul(4)?;
+    let mut data = vec![0u8; stride.checked_mul(usize::try_from(h).ok()?)?];
+    if data.is_empty() {
+        return None;
+    }
+    texture.download(&mut data, stride);
+    tint_argb32(&mut data, tint);
+    // Premultiplied ARGB in native-endian words, spelled out per byte order.
+    let format = if cfg!(target_endian = "little") {
+        gtk4::gdk::MemoryFormat::B8g8r8a8Premultiplied
+    } else {
+        gtk4::gdk::MemoryFormat::A8r8g8b8Premultiplied
+    };
+    Some(
+        gtk4::gdk::MemoryTexture::new(w, h, format, &gtk4::glib::Bytes::from_owned(data), stride)
+            .upcast(),
+    )
+}
+
+/// The texture a tinted raster `source` draws: every pixel `tint`, the image's alpha kept.
+/// `None` when the source has no pixels to recolor (an empty name, undecodable bytes, a
+/// released decode), and the caller then draws the source as it is.
+fn tinted_source_texture(
+    source: &day_spec::ImageSource,
+    tint: day_spec::Color,
+) -> Option<gtk4::gdk::Texture> {
+    let texture = match source {
+        day_spec::ImageSource::Named(name) if name.is_empty() => return None,
+        day_spec::ImageSource::Named(name) => {
+            if let Some(texture) = tinted_image_texture(name, tint) {
+                return Some(texture);
+            }
+            // Staged as a GResource entry only (§18.3), with no loose file to re-read.
+            let res_path = format!("/day/images/{name}");
+            gtk4::gio::resources_lookup_data(&res_path, gtk4::gio::ResourceLookupFlags::NONE)
+                .ok()?;
+            gtk4::gdk::Texture::from_resource(&res_path)
+        }
+        day_spec::ImageSource::Bytes(bytes) => {
+            let data = gtk4::glib::Bytes::from_owned(bytes.as_ref().clone());
+            gtk4::gdk::Texture::from_bytes(&data).ok()?
+        }
+        day_spec::ImageSource::Decoded(id) => {
+            BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.texture.clone()))?
+        }
+    };
+    tint_texture(&texture, tint)
+}
+
+/// A realized image's source and paint (`IMAGE_SOURCE`): what it draws (a staged name,
+/// encoded bytes or a shared decode), the tint on it now, whether it is a template glyph
 /// (docs/vectors.md "Template"), and the picture itself — weakly, so a theme switch can
 /// recolor every untinted template to the new foreground without keeping any alive.
 #[derive(Clone)]
 struct ImageEntry {
-    name: String,
-    tint: Option<day_spec::Color>,
+    source: day_spec::ImageSource,
+    tint: Option<day_spec::Ink>,
     template: bool,
     picture: gtk4::glib::WeakRef<gtk4::Picture>,
 }
@@ -2521,10 +3084,21 @@ fn template_foreground() -> day_spec::Color {
 }
 
 /// Paint a picture from its recorded source with `tint`, or — for a template — with the theme
-/// foreground; a plain image with no tint reloads the file as authored.
-fn repaint_image(pic: &gtk4::Picture, source: &str, tint: Option<day_spec::Color>, template: bool) {
-    let tint = tint.or_else(|| template.then(template_foreground));
-    if let Some(path) = day_spec::resource::resolve_vector_svg(source) {
+/// foreground; a plain image with no tint loads the source as authored. A raster is recolored
+/// pixel by pixel into a new texture (GTK has no template rendering for a `GtkPicture`), so
+/// the same call serves realize, a tint patch and a source swap.
+fn repaint_image(
+    pic: &gtk4::Picture,
+    source: &day_spec::ImageSource,
+    tint: Option<day_spec::Ink>,
+    template: bool,
+) {
+    let tint = tint
+        .map(day_spec::Ink::resolved)
+        .or_else(|| template.then(template_foreground));
+    if let day_spec::ImageSource::Named(name) = source
+        && let Some(path) = day_spec::resource::resolve_vector_svg(name)
+    {
         if let Some(svg) = pic.paintable().and_downcast::<vector::SvgPaintable>()
             && svg.source_is(&path)
         {
@@ -2536,29 +3110,62 @@ fn repaint_image(pic: &gtk4::Picture, source: &str, tint: Option<day_spec::Color
             return;
         }
     }
-    match tint.and_then(|t| tinted_image_texture(source, t)) {
+    match tint.and_then(|t| tinted_source_texture(source, t)) {
         Some(texture) => pic.set_paintable(Some(&texture)),
-        None => set_picture_source(pic, &day_spec::ImageSource::Named(source.to_owned())),
+        None => set_picture_source(pic, source),
     }
 }
 
-/// A theme switch: every untinted template glyph takes the new foreground. The recolor is
-/// baked into the texture, so nothing else would repaint it.
-fn retint_template_images() {
+/// A theme switch: every untinted template glyph takes the new foreground, and every image
+/// tinted with an appearance-dependent ink takes its new color. The recolor is baked into
+/// the texture, so nothing else would repaint it.
+fn retint_images() {
     let mut live = Vec::new();
     IMAGE_SOURCE.with(|t| {
         t.for_each(|_, entry| {
-            if entry.template
-                && entry.tint.is_none()
-                && let Some(pic) = entry.picture.upgrade()
-            {
-                live.push((pic, entry.name.clone()));
+            let follows = match entry.tint {
+                Some(ink) => ink.is_dynamic(),
+                None => entry.template,
+            };
+            if follows && let Some(pic) = entry.picture.upgrade() {
+                live.push((pic, entry.source.clone(), entry.tint, entry.template));
             }
         });
     });
-    for (pic, name) in live {
-        repaint_image(&pic, &name, None, true);
+    for (pic, source, tint, template) in live {
+        repaint_image(&pic, &source, tint, template);
     }
+}
+
+thread_local! {
+    /// An appearance refresh is queued for the next idle (`queue_appearance_refresh`).
+    static REFRESH_DUE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run [`refresh_appearance`] once on the next idle, however many notifies ask for it.
+fn queue_appearance_refresh() {
+    if REFRESH_DUE.with(|d| d.replace(true)) {
+        return;
+    }
+    gtk4::glib::idle_add_local_once(|| {
+        REFRESH_DUE.with(|d| d.set(false));
+        ffi_guard::contain((), refresh_appearance);
+    });
+}
+
+/// The appearance changed (light/dark, high contrast, the accent): Day reads the new palette,
+/// then every ink GTK cannot re-resolve by itself is applied again, resolved against it
+/// (docs/color.md "How a toolkit follows the appearance"). A role written into CSS as a named
+/// color has already followed; a light/dark pair, an alpha-overridden role, a Pango color,
+/// a recoloured texture and a border drawn over content have not.
+fn refresh_appearance() {
+    day_core::note_appearance_changed();
+    restyle_dynamic_surfaces();
+    restyle_dynamic_labels();
+    retint_images();
+    restyle_dynamic_buttons();
+    redress_dynamic_list_items();
+    retint_nav_menus();
 }
 
 /// Release this listbox's row popovers, and do it before the rows themselves go.
@@ -2688,6 +3295,29 @@ thread_local! {
     /// item is re-dressed from the whole (docs/list.md "List items").
     static LIST_ITEMS: std::cell::RefCell<std::collections::HashMap<usize, day_spec::props::ListItemProps>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
+    /// The row box of each entry in `LIST_ITEMS`, for the re-dress an appearance change asks
+    /// of an icon tinted with a pair or a role (`redress_dynamic_list_items`).
+    static LIST_ITEM_VIEWS: std::cell::RefCell<std::collections::HashMap<usize, gtk4::glib::WeakRef<gtk4::Widget>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Re-dress every list item whose icon tint depends on the appearance: the tint is baked into
+/// the icon's texture.
+fn redress_dynamic_list_items() {
+    let items: Vec<(usize, day_spec::props::ListItemProps)> = LIST_ITEMS.with(|m| {
+        m.borrow()
+            .iter()
+            .filter(|(_, p)| p.icon_tint.is_some_and(day_spec::Ink::is_dynamic))
+            .map(|(k, p)| (*k, p.clone()))
+            .collect()
+    });
+    for (key, props) in items {
+        if let Some(w) =
+            LIST_ITEM_VIEWS.with(|m| m.borrow().get(&key).and_then(gtk4::glib::WeakRef::upgrade))
+        {
+            dress_list_item(&w, &props);
+        }
+    }
 }
 
 /// A list row's standard content (docs/list.md "List items"), as a GNOME list row lays it out:
@@ -2724,6 +3354,7 @@ fn make_list_item(p: &day_spec::props::ListItemProps) -> gtk4::Widget {
     row.append(&check);
     let w: gtk4::Widget = row.upcast();
     LIST_ITEMS.with(|m| m.borrow_mut().insert(widget_key(&w), p.clone()));
+    LIST_ITEM_VIEWS.with(|m| m.borrow_mut().insert(widget_key(&w), w.downgrade()));
     dress_list_item(&w, p);
     w
 }
@@ -2737,7 +3368,9 @@ fn dress_list_item(w: &gtk4::Widget, p: &day_spec::props::ListItemProps) {
         slot.remove(&c);
     }
     let image = match &p.icon {
-        Some(day_spec::Icon::Image(name)) => tinted_template_icon(name, p.icon_tint),
+        Some(day_spec::Icon::Image(name)) => {
+            tinted_template_icon(name, p.icon_tint.map(day_spec::Ink::resolved))
+        }
         Some(day_spec::Icon::Symbol(sym)) => symbol_icon_name(*sym)
             .map(|n| gtk4::Image::from_icon_name(&n))
             .or_else(|| symbol_outline_icon(*sym)),
@@ -2833,6 +3466,38 @@ fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk
 
 /// Install (once) the CSS that makes Day scroll viewports transparent, so a backdrop layered
 /// behind a scroll (zstack) shows through — matching AppKit's `setDrawsBackground(false)`.
+/// Whether `w` shows a context menu (`set_context_menu` or `set_context_menu_fn`), whose own
+/// long press keeps priority over a `LongPress` recognizer (docs/gestures.md "Long press").
+fn has_context_menu(w: &gtk4::Widget) -> bool {
+    let key = widget_key(w);
+    CTX_MENU_FNS.with(|m| m.borrow().contains_key(&key))
+        || MENU_POPOVERS.with(|m| m.borrow().contains_key(&key))
+}
+
+/// The keyboard focus ring on a Day view that takes focus (docs/focus.md): Adwaita rings its
+/// own controls, not a canvas or a container. `:focus-visible` holds only when focus came from
+/// the keyboard. One display-wide provider.
+fn focus_ring_css() {
+    thread_local! {
+        static INSTALLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    if INSTALLED.with(|c| c.replace(true)) {
+        return;
+    }
+    let p = gtk4::CssProvider::new();
+    p.load_from_data(
+        ".day-focusable:focus-visible { outline: 2px solid alpha(@accent_color, 0.5); \
+         outline-offset: -2px; }",
+    );
+    if let Some(display) = gtk4::gdk::Display::default() {
+        gtk4::style_context_add_provider_for_display(
+            &display,
+            &p,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
+}
+
 fn scroll_transparent_css() {
     if DONE.with(|c| c.replace(true)) {
         return;
@@ -2850,15 +3515,378 @@ fn scroll_transparent_css() {
     }
 }
 
-/// Apply a `background`/`corner_radius` surface to a container widget via a scoped CSS provider
-/// (a unique `.day-surface-N` class added to just this widget). `overflow: hidden` rounds the
-/// child clip. Idempotent — reuses the provider on a reactive background patch.
-fn apply_surface(w: &Handle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
+/// What a surface draws (docs/surfaces.md): the `ContainerProps` fields that become CSS, and
+/// the border a Day container draws over its content.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SurfaceStyle {
+    fill: Option<day_spec::Paint>,
+    corner_radius: f64,
+    corners: day_spec::Corners,
+    border: Option<day_spec::Border>,
+    shadow: Option<day_spec::Shadow>,
+    clips: bool,
+}
+
+impl SurfaceStyle {
+    /// A plain fill with the same radius on every corner: what `background` and
+    /// `corner_radius` have always drawn.
+    fn plain(background: Option<day_spec::Ink>, corner_radius: f64, clips: bool) -> Self {
+        SurfaceStyle {
+            fill: background.map(day_spec::Paint::Solid),
+            corner_radius,
+            clips,
+            ..Default::default()
+        }
+    }
+
+    fn of(p: &ContainerProps) -> Self {
+        SurfaceStyle {
+            fill: p.fill.clone(),
+            corner_radius: p.corner_radius,
+            corners: p.corners,
+            border: p.border,
+            shadow: p.shadow,
+            clips: p.clips,
+        }
+    }
+
+    /// Whether there is anything for a CSS provider to say.
+    fn is_styled(&self) -> bool {
+        self.fill.is_some()
+            || self.corner_radius > 0.0
+            || self.border.is_some()
+            || self.shadow.is_some()
+            || self.clips
+    }
+
+    /// Whether any ink depends on the appearance: such a surface is written again when the
+    /// appearance changes (docs/color.md "How a toolkit follows the appearance").
+    fn is_dynamic(&self) -> bool {
+        let stops = |stops: &[(f64, day_spec::Ink)]| stops.iter().any(|(_, i)| i.is_dynamic());
+        let fill = match &self.fill {
+            Some(day_spec::Paint::Solid(ink)) => ink.is_dynamic(),
+            Some(day_spec::Paint::Linear(g)) => stops(&g.stops),
+            Some(day_spec::Paint::Radial(g)) => stops(&g.stops),
+            Some(day_spec::Paint::Conic(g)) => stops(&g.stops),
+            None => false,
+        };
+        fill || self.border.is_some_and(|b| b.color.is_dynamic())
+            || self.shadow.is_some_and(|s| s.color.is_dynamic())
+    }
+
+    /// The corner radii, per corner.
+    fn radii(&self) -> day_spec::CornerRadii {
+        if self.corner_radius > 0.0 {
+            self.corners.radii(self.corner_radius)
+        } else {
+            day_spec::CornerRadii::default()
+        }
+    }
+
+    /// The declarations for a widget of `size` points. Only a slanted linear gradient depends
+    /// on the size ([`css_linear_gradient`]); everything else is the same at any frame.
+    /// `inset_border` writes the border as an inset box shadow, under the content: the
+    /// fallback for a widget that cannot draw it over its children (anything but a Day
+    /// container, [`input::set_border_over`]).
+    fn css(&self, size: (f64, f64), inset_border: bool) -> String {
+        use std::fmt::Write as _;
+        let mut body = String::new();
+        match &self.fill {
+            Some(day_spec::Paint::Solid(ink)) => {
+                let _ = write!(body, "background-color: {};", css_ink(*ink));
+            }
+            Some(day_spec::Paint::Linear(g)) => {
+                let _ = write!(body, "background-image: {};", css_linear_gradient(g, size));
+            }
+            Some(day_spec::Paint::Radial(g)) => {
+                let _ = write!(body, "background-image: {};", css_radial_gradient(g));
+            }
+            Some(day_spec::Paint::Conic(g)) => {
+                let _ = write!(body, "background-image: {};", css_conic_gradient(g));
+            }
+            None => {}
+        }
+        if self.corner_radius > 0.0 {
+            // Top-left, top-right, bottom-right, bottom-left: CSS's order and `CornerRadii`'s.
+            let r = self.radii();
+            let _ = write!(
+                body,
+                "border-radius: {}px {}px {}px {}px;",
+                r.top_left, r.top_right, r.bottom_right, r.bottom_left
+            );
+        }
+        // The shadow is GTK's own blurred box shadow of the rounded box, outside it. The
+        // border of a Day container is drawn by its snapshot after its children (over them,
+        // docs/surfaces.md); elsewhere it is an INSET shadow with no blur and a spread of its
+        // width: a band inside the frame that follows the rounded corners, under the content.
+        // A CSS `border` would instead take room from the widget's content box and move every
+        // child Day has placed.
+        let mut shadows = Vec::new();
+        if let Some(s) = self.shadow {
+            shadows.push(format!(
+                "{}px {}px {}px {}",
+                s.dx,
+                s.dy,
+                s.blur.max(0.0),
+                css_ink(s.color)
+            ));
+        }
+        if inset_border
+            && let Some(b) = self.border
+            && b.width > 0.0
+        {
+            shadows.push(format!("inset 0 0 0 {}px {}", b.width, css_ink(b.color)));
+        }
+        if !shadows.is_empty() {
+            let _ = write!(body, "box-shadow: {};", shadows.join(", "));
+        }
+        body
+    }
+}
+
+/// A Day color as a CSS `rgba()`.
+fn css_color(c: day_spec::Color) -> String {
+    let ch = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
+    format!(
+        "rgba({},{},{},{})",
+        ch(c.r),
+        ch(c.g),
+        ch(c.b),
+        c.a.clamp(0.0, 1.0)
+    )
+}
+
+/// The libadwaita color each [`day_spec::SystemColor`] is, as a CSS color expression
+/// (color brief §1.4). GTK resolves it against the stylesheet in force, so CSS that names one
+/// follows a light/dark, high-contrast or accent change by itself; the same expression answers
+/// `Toolkit::system_color` ([`role_color`]), so what Day resolves a role to is what GTK draws.
+/// libadwaita 1.6 and later define the colors as CSS variables (the old `@named` colors stay
+/// as aliases, but the accent alias does not follow the dark variant); 1.5 has the named
+/// colors only. GTK's `alpha()` multiplies: the roles defined as a fraction of a foreground
+/// are written that way.
+fn role_css(role: day_spec::SystemColor) -> &'static str {
+    use day_spec::SystemColor as R;
+    // SAFETY: both return constants compiled into the linked libadwaita, readable before
+    // GTK is initialized (the safe wrappers assert initialization first, which the unit tests
+    // and an early style query do not have).
+    let linked = unsafe {
+        (
+            adw::ffi::adw_get_major_version(),
+            adw::ffi::adw_get_minor_version(),
+        )
+    };
+    let variables = linked >= (1, 6);
+    let pick = |var: &'static str, named: &'static str| if variables { var } else { named };
+    match role {
+        R::Accent => pick("var(--accent-bg-color)", "@accent_bg_color"),
+        R::Text => pick("var(--window-fg-color)", "@window_fg_color"),
+        R::SecondaryText => pick(
+            "alpha(var(--window-fg-color), 0.55)",
+            "alpha(@window_fg_color, 0.55)",
+        ),
+        R::TertiaryText => pick(
+            "alpha(var(--window-fg-color), 0.35)",
+            "alpha(@window_fg_color, 0.35)",
+        ),
+        R::Placeholder => pick(
+            "alpha(var(--view-fg-color), 0.5)",
+            "alpha(@view_fg_color, 0.5)",
+        ),
+        R::Link => pick("var(--accent-color)", "@accent_color"),
+        R::Separator => pick(
+            "alpha(var(--window-fg-color), 0.15)",
+            "alpha(@window_fg_color, 0.15)",
+        ),
+        R::ControlFill => pick(
+            "alpha(var(--window-fg-color), 0.1)",
+            "alpha(@window_fg_color, 0.1)",
+        ),
+        R::Background | R::GroupedBackground => pick("var(--window-bg-color)", "@window_bg_color"),
+        R::Surface => pick("var(--view-bg-color)", "@view_bg_color"),
+        R::ElevatedSurface => pick("var(--popover-bg-color)", "@popover_bg_color"),
+        R::Selection => pick(
+            "alpha(var(--accent-bg-color), 0.3)",
+            "alpha(@accent_bg_color, 0.3)",
+        ),
+        R::Destructive => pick("var(--destructive-color)", "@destructive_color"),
+        R::Success => pick("var(--success-color)", "@success_color"),
+        R::Warning => pick("var(--warning-color)", "@warning_color"),
+    }
+}
+
+/// An ink as a CSS color: a role with no alpha of its own as its named color (GTK follows
+/// the appearance itself), anything else resolved for the current appearance (re-written by
+/// [`refresh_appearance`] when it changes). A role with an alpha override is resolved because
+/// the override replaces the role's alpha, which GTK's `alpha()` cannot say.
+fn css_ink(ink: day_spec::Ink) -> String {
+    match ink {
+        day_spec::Ink::System { role, alpha: None } => role_css(role).to_string(),
+        _ => css_color(ink.resolved()),
+    }
+}
+
+thread_local! {
+    /// The display provider holding one `label.day-role-N { color: … }` rule per role, which
+    /// [`role_color`]'s probes read; installed on first use.
+    static ROLE_PROBES: std::cell::OnceCell<gtk4::CssProvider> = const { std::cell::OnceCell::new() };
+}
+
+/// `role`'s color as GTK draws it now: the computed `color` of a fresh, unparented label
+/// styled with [`role_css`]. A fresh probe each time, since an unparented widget is not
+/// restyled when the stylesheet changes. `None` before GTK has a display.
+fn role_color(role: day_spec::SystemColor) -> Option<day_spec::Color> {
     use std::fmt::Write as _;
+    let display = gtk4::gdk::Display::default()?;
+    ROLE_PROBES.with(|probes| {
+        probes.get_or_init(|| {
+            let provider = gtk4::CssProvider::new();
+            let mut rules = String::new();
+            for r in day_spec::SystemColor::ALL {
+                let _ = writeln!(
+                    rules,
+                    "label.day-role-{} {{ color: {}; }}",
+                    r.wire(),
+                    role_css(r)
+                );
+            }
+            provider.load_from_data(&rules);
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+            provider
+        });
+    });
+    let probe = gtk4::Label::new(None);
+    probe.add_css_class(&format!("day-role-{}", role.wire()));
+    let c = probe.color();
+    // libadwaita mixes its colors in Oklab, so a channel can land just outside sRGB.
+    let ch = |v: f32| f64::from(v).clamp(0.0, 1.0);
+    Some(day_spec::Color::rgba(
+        ch(c.red()),
+        ch(c.green()),
+        ch(c.blue()),
+        ch(c.alpha()),
+    ))
+}
+
+/// Gradient stops as CSS `<color> <offset>%` items, the offset along the gradient's own line.
+fn css_stops(stops: &[(f64, day_spec::Ink)]) -> String {
+    stops
+        .iter()
+        .map(|(offset, ink)| format!("{} {:.4}%", css_ink(*ink), offset * 100.0))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A Day linear gradient as a CSS `linear-gradient()` for a box of `size` points.
+///
+/// Day's gradient runs between two unit points of the frame; CSS's runs along a line through
+/// the box's center at an angle, as long as the box's projection onto it. So the angle is
+/// the direction between the resolved points, and each stop's position is its point on Day's
+/// segment projected onto the CSS line, which may fall outside 0–100% (CSS pads with the end
+/// colors, as the canvas's gradients do). A vertical or horizontal gradient comes out the
+/// same for any size; a slanted one depends on the aspect ratio and is rewritten when the
+/// frame changes (`surface_resized`). A size not yet known counts as square.
+fn css_linear_gradient(g: &day_spec::LinearGradient, size: (f64, f64)) -> String {
+    let (w, h) = if size.0 > 0.0 && size.1 > 0.0 {
+        size
+    } else {
+        (1.0, 1.0)
+    };
+    let (sx, sy) = (g.start.x * w, g.start.y * h);
+    let (dx, dy) = (g.end.x * w - sx, g.end.y * h - sy);
+    let len = dx.hypot(dy);
+    if len <= f64::EPSILON || g.stops.is_empty() {
+        // No direction to run in: the last stop everywhere, as a zero-length gradient pads.
+        let c = g
+            .stops
+            .last()
+            .map_or_else(|| css_color(day_spec::Color::CLEAR), |s| css_ink(s.1));
+        return format!("linear-gradient({c}, {c})");
+    }
+    let (ux, uy) = (dx / len, dy / len);
+    // CSS: 0deg points up and angles turn clockwise, so the direction is (sin, -cos).
+    let angle = ux.atan2(-uy).to_degrees();
+    let line = (w * ux).abs() + (h * uy).abs();
+    let from = (sx - w / 2.0) * ux + (sy - h / 2.0) * uy;
+    let stops: Vec<String> = g
+        .stops
+        .iter()
+        .map(|(offset, ink)| {
+            let at = ((from + offset * len) / line + 0.5) * 100.0;
+            format!("{} {at:.4}%", css_ink(*ink))
+        })
+        .collect();
+    format!("linear-gradient({angle:.4}deg, {})", stops.join(", "))
+}
+
+/// A Day radial gradient as a CSS `radial-gradient()`: an ellipse whose radii are `radius` of
+/// the frame's width and height (Day's unit space, elliptical in a non-square frame), so the
+/// same declaration serves every size.
+fn css_radial_gradient(g: &day_spec::RadialGradient) -> String {
+    if g.stops.is_empty() {
+        return "none".to_string();
+    }
+    let r = g.radius.max(0.0) * 100.0;
+    format!(
+        "radial-gradient(ellipse {r:.4}% {r:.4}% at {:.4}% {:.4}%, {})",
+        g.center.x * 100.0,
+        g.center.y * 100.0,
+        css_stops(&g.stops)
+    )
+}
+
+/// A Day conic gradient as a CSS `conic-gradient()`. Day's angles run clockwise from +x on
+/// screen and CSS's clockwise from up, so CSS starts a quarter turn later.
+fn css_conic_gradient(g: &day_spec::ConicGradient) -> String {
+    if g.stops.is_empty() {
+        return "none".to_string();
+    }
+    format!(
+        "conic-gradient(from {:.4}deg at {:.4}% {:.4}%, {})",
+        g.start.degrees() + 90.0,
+        g.center.x * 100.0,
+        g.center.y * 100.0,
+        css_stops(&g.stops)
+    )
+}
+
+/// A surface's provider, what it was last told to draw, the frame it was written for, and the
+/// widget (for the re-write an appearance change asks for).
+struct SurfaceEntry {
+    provider: gtk4::CssProvider,
+    style: SurfaceStyle,
+    size: (f64, f64),
+    /// Whether the widget draws the border over its children ([`input::set_border_over`]);
+    /// otherwise the CSS carries it as an inset shadow.
+    over: bool,
+    widget: gtk4::glib::WeakRef<gtk4::Widget>,
+}
+
+/// Apply a surface to a container widget via a scoped CSS provider (a unique
+/// `.day-surface-N` class added to just this widget): fill or gradient, rounding per corner
+/// and shadow; the border over the content (docs/surfaces.md). `overflow: hidden` rounds the
+/// child clip, except under a shadow, where the surface is built not to clip. Idempotent:
+/// a later call reloads the same provider with the new style.
+fn apply_surface_style(w: &Handle, style: &SurfaceStyle) {
     let key = widget_key(w);
     let class = format!("day-surface-{key}");
-    let provider = if let Some(p) = SURFACE.with(|t| t.get(key)) {
-        p
+    let border = style
+        .border
+        .filter(|b| b.width > 0.0)
+        .map(|b| (b, style.radii()));
+    let over = input::set_border_over(w, border);
+    let known = SURFACE.with(|t| {
+        t.with(key, |e| {
+            e.style = style.clone();
+            e.over = over;
+            (e.provider.clone(), e.size)
+        })
+    });
+    let (provider, size) = if let Some(known) = known {
+        known
     } else {
         let p = gtk4::CssProvider::new();
         if let Some(display) = gtk4::gdk::Display::default() {
@@ -2869,26 +3897,152 @@ fn apply_surface(w: &Handle, bg: Option<day_spec::Color>, corner_radius: f64, cl
             );
         }
         w.add_css_class(&class);
-        SURFACE.with(|t| t.insert(key, p.clone()));
-        p
+        let size = (f64::from(w.width()), f64::from(w.height()));
+        SURFACE.with(|t| {
+            t.insert(
+                key,
+                SurfaceEntry {
+                    provider: p.clone(),
+                    style: style.clone(),
+                    size,
+                    over,
+                    widget: w.downgrade(),
+                },
+            );
+        });
+        (p, size)
     };
-    let mut body = String::new();
-    if let Some(c) = bg {
-        let _ = write!(
-            body,
-            "background-color: rgba({},{},{},{});",
-            (c.r * 255.0).round() as u32,
-            (c.g * 255.0).round() as u32,
-            (c.b * 255.0).round() as u32,
-            c.a
-        );
-    }
-    if corner_radius > 0.0 {
-        let _ = write!(body, "border-radius: {corner_radius}px;");
-    }
-    provider.load_from_data(&format!(".{class} {{ {body} }}"));
-    if clips || corner_radius > 0.0 {
+    provider.load_from_data(&format!(".{class} {{ {} }}", style.css(size, !over)));
+    if style.clips || (style.corner_radius > 0.0 && style.shadow.is_none()) {
         w.set_overflow(gtk4::Overflow::Hidden);
+    } else if style.shadow.is_some() {
+        // A shadowed surface does not clip its content (docs/surfaces.md); a `GtkFixed`
+        // does unless told otherwise. The shadow itself is outside any clip of this widget.
+        w.set_overflow(gtk4::Overflow::Visible);
+    }
+}
+
+/// `child` has just been put in its parent. If it is a surface with a shadow, or holds one,
+/// the plain Day containers above it stop clipping their content, so the shadow can fall
+/// outside the stack the surface sits in (docs/surfaces.md). The walk ends at the first
+/// ancestor that is anything else: a container asked to clip or round, a scroll view, a list
+/// cell, a page. Each container it passes is marked, so a subtree mounted later carries on
+/// from where it is attached.
+fn let_shadow_spill(child: &Handle) {
+    if SPILLS.with(|t| t.get(widget_key(child))) != Some(true) {
+        return;
+    }
+    let mut above = child.parent();
+    while let Some(w) = above {
+        let key = widget_key(&w);
+        // Stop at anything that is not a plain container, and at one already open: the
+        // containers above that one were opened when it was.
+        if SPILLS.with(|t| t.with(key, |spills| std::mem::replace(spills, true))) != Some(false) {
+            break;
+        }
+        w.set_overflow(gtk4::Overflow::Visible);
+        above = w.parent();
+    }
+}
+
+/// [`apply_surface_style`] for a plain fill: the cover's backdrop, and what `background` and
+/// `corner_radius` ask for.
+fn apply_surface(w: &Handle, bg: Option<day_spec::Ink>, corner_radius: f64, clips: bool) {
+    apply_surface_style(w, &SurfaceStyle::plain(bg, corner_radius, clips));
+}
+
+/// A container's whole surface changed (`ContainerPatch::Surface`: a reactive `.surface`,
+/// `.corner_radius`, `.border` or `.shadow`, or a frame-relative radius Day re-resolved).
+/// Everything but the fill applies at once (GTK animates none of it); the fill goes through
+/// [`motion::set_background`], so a solid fill animates as `ContainerPatch::Fill` does.
+fn restyle_surface(h: &Handle, p: &ContainerProps, anim: Option<&day_spec::AnimSpec>) {
+    let key = widget_key(h);
+    let shown = SURFACE
+        .with(|t| t.with(key, |e| e.style.fill.clone()))
+        .flatten();
+    let style = SurfaceStyle::of(p);
+    if style.shadow.is_some() && SPILLS.with(|t| t.get(key)) != Some(true) {
+        SPILLS.with(|t| t.insert(key, true));
+        let_shadow_spill(h);
+    }
+    apply_surface_style(
+        h,
+        &SurfaceStyle {
+            fill: shown,
+            ..style.clone()
+        },
+    );
+    motion::set_background(h, style.fill, anim);
+}
+
+/// The solid fill a surface shows now, in flight included (motion.rs writes each frame's
+/// color here), resolved for the current appearance; `None` for a widget with no solid fill.
+fn surface_background(w: &Handle) -> Option<day_spec::Color> {
+    SURFACE
+        .with(|t| {
+            t.with(widget_key(w), |e| match &e.style.fill {
+                Some(day_spec::Paint::Solid(ink)) => Some(ink.resolved()),
+                _ => None,
+            })
+        })
+        .flatten()
+}
+
+/// The fill a surface was last given (`None` without one or without a surface).
+fn surface_fill(w: &Handle) -> Option<day_spec::Paint> {
+    SURFACE
+        .with(|t| t.with(widget_key(w), |e| e.style.fill.clone()))
+        .flatten()
+}
+
+/// Change only a surface's fill (`ContainerPatch::Fill`, and each frame of a fill
+/// animation): the rounding, border and shadow stay as realized. Writing the fill it already
+/// has reloads nothing.
+fn paint_fill(w: &Handle, fill: Option<day_spec::Paint>) {
+    let style = SURFACE
+        .with(|t| t.with(widget_key(w), |e| e.style.clone()))
+        .unwrap_or_default();
+    if SURFACE.with(|t| t.contains(widget_key(w))) && style.fill == fill {
+        return;
+    }
+    apply_surface_style(w, &SurfaceStyle { fill, ..style });
+}
+
+/// A surface's frame changed: a gradient's unit points resolve against the frame, so a
+/// slanted one is rewritten for the new aspect ratio. Nothing happens for any other surface,
+/// or when the CSS comes out the same.
+fn surface_resized(key: usize, size: (f64, f64)) {
+    let reload = SURFACE.with(|t| {
+        t.with(key, |e| {
+            if !matches!(e.style.fill, Some(day_spec::Paint::Linear(_))) || e.size == size {
+                return None;
+            }
+            let (old, new) = (e.style.css(e.size, !e.over), e.style.css(size, !e.over));
+            e.size = size;
+            (old != new).then(|| (e.provider.clone(), new))
+        })
+        .flatten()
+    });
+    if let Some((provider, css)) = reload {
+        provider.load_from_data(&format!(".day-surface-{key} {{ {css} }}"));
+    }
+}
+
+/// Write every surface with an appearance-dependent ink again: a pair or an alpha-overridden
+/// role in the CSS takes the new color, and a border drawn over the content redraws.
+fn restyle_dynamic_surfaces() {
+    let mut live = Vec::new();
+    SURFACE.with(|t| {
+        t.for_each(|_, e| {
+            if e.style.is_dynamic()
+                && let Some(w) = e.widget.upgrade()
+            {
+                live.push((w, e.style.clone()));
+            }
+        });
+    });
+    for (w, style) in live {
+        apply_surface_style(&w, &style);
     }
 }
 
@@ -3186,6 +4340,345 @@ struct ListEntry {
     bound: BoundCells,
     /// A sectioned list's pinned header copy (docs/list.md "Sections"); `None` on a plain list.
     pinned: Option<Rc<PinnedHeader>>,
+    /// The list's scrolled window (the host, or under a sectioned list's overlay) and the view
+    /// in it.
+    sw: gtk4::ScrolledWindow,
+    listview: gtk4::ListView,
+    /// `RowHeight::Uniform` without sections: every item row is one pitch tall, so a row's
+    /// place is known before GTK lays it out (unless supplementary rows are in the list).
+    uniform: bool,
+    /// Row changes waiting for the next main-loop turn (`ListPatch::Reload` / `Splice`).
+    pending: RefCell<PendingRows>,
+    /// Bumped each time the model changes; `laid` catches up at the frame that lays the change
+    /// out (`after_paint`). A row scroll waits for the two to agree.
+    generation: std::cell::Cell<u64>,
+    laid: std::cell::Cell<u64>,
+    /// The viewport may have changed: report it after the next frame (docs/list.md "Visible
+    /// rows").
+    viewport_due: std::cell::Cell<bool>,
+    /// The frame clock's `after-paint` handler, while the view is realized.
+    frame_hook: RefCell<Option<(gtk4::gdk::FrameClock, gtk4::glib::SignalHandlerId)>>,
+}
+
+/// A list's row changes that have arrived since its model was last brought up to date.
+#[derive(Default)]
+struct PendingRows {
+    /// Sequential deltas (`ListPatch::Splice`), in arrival order.
+    deltas: Vec<RowDelta>,
+    /// A reload arrived: the model is resized to the source and every shown row rebound, and
+    /// any deltas are moot.
+    reload: bool,
+    /// The flush is posted.
+    posted: bool,
+}
+
+impl ListEntry {
+    /// Queue a row change (`None` = a reload) for the next main-loop turn. Not at once: a model
+    /// change makes `GtkListView` bind rows synchronously, and the patch arrives inside a
+    /// day-core borrow that `bind_row` would re-enter (see `schedule_list_resize`). Changes in
+    /// one turn are applied together, in order.
+    fn queue_rows(self: &Rc<Self>, deltas: Option<Vec<RowDelta>>) {
+        {
+            let mut pending = self.pending.borrow_mut();
+            match deltas {
+                None => {
+                    pending.reload = true;
+                    pending.deltas.clear();
+                }
+                Some(deltas) if !pending.reload => pending.deltas.extend(deltas),
+                Some(_) => {}
+            }
+            if std::mem::replace(&mut pending.posted, true) {
+                return;
+            }
+        }
+        let weak = Rc::downgrade(self);
+        gtk4::glib::idle_add_local_once(move || {
+            if let Some(entry) = weak.upgrade() {
+                // Contained: `len` is app code and the bind re-enters day-core.
+                ffi_guard::contain((), || entry.flush_rows());
+            }
+        });
+    }
+
+    /// Bring the model up to date with the queued changes: the deltas as
+    /// `g_list_model_items_changed` runs on the model when they fit it, and otherwise (a reload,
+    /// or deltas against a row count the model does not have) a resize to the source's row
+    /// count that rebinds the shown rows in place and keeps the scroll position.
+    fn flush_rows(&self) {
+        let PendingRows { deltas, reload, .. } = std::mem::take(&mut *self.pending.borrow_mut());
+        let n = self.source.borrow().as_ref().map_or(0, |s| (s.len)());
+        if let Some(selection) = &self.selection {
+            selection.suppress.set(true);
+        }
+        let plan = (!reload)
+            .then(|| scroll::plan_splice(self.model.n_items() as usize, &deltas, n))
+            .flatten();
+        let spliced = plan.is_some();
+        if let Some(runs) = plan {
+            let several = runs.len() > 1;
+            for run in runs {
+                let blanks = vec![""; run.added as usize];
+                self.model.splice(run.at, run.removed, &blanks);
+            }
+            let mut items: Vec<gtk4::ListItem> = self
+                .bound
+                .borrow()
+                .values()
+                .filter_map(gtk4::glib::WeakRef::upgrade)
+                .collect();
+            // GtkListView binds the rows a run inserts as the run lands, at the index the row
+            // has then; the source already answers in the final state, so a row inserted by
+            // any run but the last was bound to whatever row ends at that index (in a sectioned
+            // list, a header's content in an item's place). Bind the shown rows again where they
+            // ended.
+            if several {
+                items.sort_by_key(gtk4::prelude::ListItemExt::position);
+                rebind_list_items(items, n, &self.source);
+            } else {
+                // The rows that stayed moved with the run; a cell's drag reads its row from
+                // here.
+                for li in items {
+                    if let Some(cell) = li.child()
+                        && li.position() != gtk4::INVALID_LIST_POSITION
+                    {
+                        LIST_CELL_ROWS
+                            .with(|t| t.insert(cell.as_ptr() as usize, li.position() as usize));
+                    }
+                }
+            }
+        } else {
+            if !reload {
+                log::warn!(
+                    "list splice of {} deltas does not fit the {} rows shown (source has {n}): \
+                     reloading",
+                    deltas.len(),
+                    self.model.n_items()
+                );
+            }
+            let at = self.sw.vadjustment().value();
+            list_resize(&self.model, n, &self.source, &self.bound);
+            // GTK keeps its top row through a resize at the end of the model; a scroll on its
+            // way (`follow_end`) stays in charge.
+            if !scroll::gliding(&self.sw) {
+                self.sw.vadjustment().set_value(at);
+            }
+        }
+        if let Some(selection) = &self.selection {
+            if spliced {
+                // The selection followed its row through the runs.
+                selection.requested.set(selection.model.selected());
+            } else {
+                selection.apply();
+            }
+            selection.suppress.set(false);
+        }
+        self.generation.set(self.generation.get() + 1);
+        self.viewport_due.set(true);
+    }
+
+    /// Whether the model is waiting for queued changes or for the layout of the last ones.
+    fn busy(&self) -> bool {
+        self.pending.borrow().posted || self.laid.get() != self.generation.get()
+    }
+
+    /// Whether the list has supplementary rows (a header, footer, empty state or padding row),
+    /// which are not one pitch tall.
+    fn has_supplements(&self) -> bool {
+        self.source
+            .borrow()
+            .as_ref()
+            .is_some_and(|s| s.is_supplement.is_some())
+    }
+
+    /// Every row GTK has laid out in view or in its overscan: `(row, top, height)` in the
+    /// viewport's coordinates. A bound row GTK keeps out of view is not child-visible.
+    fn laid_rows(&self) -> Vec<(usize, f64, f64)> {
+        self.bound
+            .borrow()
+            .values()
+            .filter_map(|li| {
+                let li = li.upgrade()?;
+                let pos = li.position();
+                if pos == gtk4::INVALID_LIST_POSITION {
+                    return None;
+                }
+                let row = li.child()?.parent()?;
+                if !row.is_visible() || !row.is_child_visible() {
+                    return None;
+                }
+                let b = row.compute_bounds(&self.listview)?;
+                Some((pos as usize, f64::from(b.y()), f64::from(b.height())))
+            })
+            .collect()
+    }
+
+    /// The frame clock painted: the model's last change is laid out, and a due viewport report
+    /// goes out now, from this frame's row positions.
+    fn after_paint(&self) {
+        if self.pending.borrow().posted {
+            return;
+        }
+        self.laid.set(self.generation.get());
+        if self.viewport_due.get() && self.report_viewport() {
+            self.viewport_due.set(false);
+        }
+    }
+
+    /// Report the viewport through `ListSource::viewport` (docs/list.md "Visible rows"): the
+    /// first and last rows with any part in view, from the laid rows (the uniform pitch before
+    /// GTK laid any), and the distance from the viewport's bottom to the content's. `false`
+    /// when there is nothing to read yet.
+    fn report_viewport(&self) -> bool {
+        let Some(report) = self
+            .source
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.viewport.clone())
+        else {
+            return true;
+        };
+        let n = self.model.n_items() as usize;
+        if n == 0 {
+            return true;
+        }
+        let adj = self.sw.vadjustment();
+        let (value, page, upper) = (adj.value(), adj.page_size(), adj.upper());
+        if page <= 0.0 {
+            return false;
+        }
+        let range = scroll::visible_range(&self.laid_rows(), page).or_else(|| {
+            (self.uniform && !self.has_supplements())
+                .then(|| scroll::pitch_range(value, page, upper / n as f64, n))
+                .flatten()
+        });
+        let Some((first, last)) = range else {
+            return false;
+        };
+        report(day_spec::ListViewport {
+            first,
+            last,
+            end_distance: (upper - value - page).max(0.0),
+        });
+        true
+    }
+
+    /// Scroll to row `row` (the end of the content for `None`) as `align` says, animated or
+    /// not (`Toolkit::list_scroll`, docs/list.md "Programmatic scrolling"). The target is
+    /// worked out on each frame of the glide, after the rows' layout: a row GTK laid out by its
+    /// real place; otherwise by the uniform pitch, or for rows of mixed heights by an estimate
+    /// that the glide refines once GTK has laid the row out (on GTK 4.12 and later an instant
+    /// scroll asks `gtk_list_view_scroll_to` to lay it out first). A sectioned list stops a row
+    /// below its pinned header copy.
+    fn scroll_rows(self: &Rc<Self>, row: Option<usize>, align: day_spec::RowAlign, animated: bool) {
+        let weak = Rc::downgrade(self);
+        let asked = std::cell::Cell::new(false);
+        // The model generation the glide aims in, and its last target.
+        let aimed: std::cell::Cell<Option<(u64, f64)>> = std::cell::Cell::new(None);
+        scroll::glide(
+            &self.sw,
+            animated,
+            move |sw| {
+                let Some(entry) = weak.upgrade() else {
+                    return scroll::Aim::Stop;
+                };
+                if entry.busy() {
+                    return scroll::Aim::Wait;
+                }
+                let generation = entry.generation.get();
+                if let Some((at, v)) = aimed.get()
+                    && at != generation
+                {
+                    // The rows changed under the scroll: it ends where it was going rather than
+                    // chasing the new end (an `on_end_reached` that appends would never stop). A
+                    // list that follows its end asks again (`follow_end`).
+                    return scroll::Aim::At {
+                        v: Some(v),
+                        h: None,
+                        exact: true,
+                    };
+                }
+                let n = entry.model.n_items() as usize;
+                if n == 0 {
+                    return scroll::Aim::Stop;
+                }
+                let adj = sw.vadjustment();
+                let (value, page, upper) = (adj.value(), adj.page_size(), adj.upper());
+                let end = (upper - page).max(0.0);
+                let Some(row) = row.map(|r| r.min(n - 1)) else {
+                    aimed.set(Some((generation, end)));
+                    return scroll::Aim::At {
+                        v: Some(end),
+                        h: None,
+                        exact: true,
+                    };
+                };
+                let pitch = upper / n as f64;
+                let laid = entry
+                    .laid_rows()
+                    .into_iter()
+                    .find(|(r, ..)| *r == row)
+                    .map(|(_, top, height)| (value + top, height));
+                let (top, height, exact) = match laid {
+                    Some((top, height)) => (top, height, true),
+                    None if entry.uniform && !entry.has_supplements() => {
+                        (pitch * row as f64, pitch, true)
+                    }
+                    None => {
+                        if !animated
+                            && !asked.replace(true)
+                            && list_view_scroll_to(&entry.listview, row)
+                        {
+                            return scroll::Aim::Wait;
+                        }
+                        (pitch * row as f64, pitch, false)
+                    }
+                };
+                let inset = entry.pinned.as_ref().map_or(0.0, |p| p.inset_for(row));
+                let v = scroll::aligned_offset(value, page, end, top, height, align, inset);
+                aimed.set(Some((generation, v)));
+                scroll::Aim::At {
+                    v: Some(v),
+                    h: None,
+                    exact,
+                }
+            },
+            {
+                let weak = Rc::downgrade(self);
+                move |_| {
+                    if let Some(entry) = weak.upgrade() {
+                        entry.anchor_top();
+                    }
+                }
+            },
+        );
+    }
+
+    /// Anchor `GtkListView` at the topmost fully visible row, at the viewport's top edge, once
+    /// a programmatic scroll rests. GTK re-anchors on every adjustment change, but keeps the
+    /// anchor's previous alignment to pick the new one: after a glide that alignment can end up
+    /// a fifth of the viewport down, and GTK then keeps up to 200 x that fraction rows ABOVE
+    /// the anchor bound (its widget window is `GTK_LIST_VIEW_MAX_LIST_ITEMS` = 200 rows placed
+    /// by the alignment), so rows a few dozen above the view stayed bound and answering element
+    /// lookups. `gtk_list_view_scroll_to` on a fully visible row moves nothing and sets the
+    /// anchor there with alignment 0 (`GtkListBase`'s `compute_scroll_align`), so the window
+    /// is the view and the rows below it, as after a plain jump. GTK before 4.12: nothing to do.
+    fn anchor_top(&self) {
+        let top = self
+            .laid_rows()
+            .into_iter()
+            .filter(|&(_, y, h)| h > 0.0 && y >= -0.5)
+            .min_by_key(|&(row, ..)| row)
+            .map(|(row, ..)| row);
+        if let Some(row) = top {
+            list_view_scroll_to(&self.listview, row);
+        }
+    }
+}
+
+/// The live state of list host `h`.
+fn list_entry(h: &Handle) -> Option<Rc<ListEntry>> {
+    LIST_STATE.with(|m| m.borrow().get(&widget_key(h)).cloned())
 }
 
 /// The pinned copy of a sectioned list's current header (docs/list.md "Sections";
@@ -3244,7 +4737,7 @@ impl PinnedHeader {
             overlay.add_overlay(w);
             // The copy sits beside the scrolled window, not in it, so the wheel and touchpad
             // over it would scroll nothing: hand their deltas to the list.
-            forward_scroll(w, sw);
+            forward_scroll(w, sw, list_reader(&source));
         }
         let pinned = Rc::new(Self {
             overlay: overlay.clone(),
@@ -3337,7 +4830,11 @@ impl PinnedHeader {
         else {
             return parked(self.cell.height());
         };
-        if let Some(report) = &src.first_visible {
+        // A list that reports its whole viewport (`ListEntry::report_viewport`) does not report
+        // its first row alone as well: the one-row range would overwrite the full one.
+        if src.viewport.is_none()
+            && let Some(report) = &src.first_visible
+        {
             report(top_row);
         }
         // Its section's header: the nearest header at or above it, scanning only what the last
@@ -3380,44 +4877,6 @@ impl PinnedHeader {
             gtk4::gdk::Rectangle::new(list_x, y, list_w.max(1), height.max(1)),
             gtk4::gdk::Rectangle::new(top_cell.x().round() as i32, y, cell_w.max(1), height.max(1)),
         )
-    }
-
-    /// The top of display row `row` in the viewport, when GTK has laid it out. A bound row GTK
-    /// keeps out of view is not child-visible and has no allocation to read.
-    fn laid_top(&self, row: usize) -> Option<f64> {
-        let li = self.bound.borrow().values().find_map(|li| {
-            let li = li.upgrade()?;
-            (li.position() as usize == row).then_some(li)
-        })?;
-        let widget = li.child()?.parent()?;
-        if !widget.is_child_visible() {
-            return None;
-        }
-        Some(f64::from(widget.compute_bounds(&self.listview)?.y()))
-    }
-
-    /// After a jump to `row` by the estimate: once GTK has laid the row out (a frame or two
-    /// later), move it to its real place below the pinned copy. Gives up after a few frames.
-    fn settle_scroll(self: &Rc<Self>, sw: &gtk4::ScrolledWindow, row: usize) {
-        let pinned = Rc::clone(self);
-        let frames = std::cell::Cell::new(0u32);
-        sw.add_tick_callback(move |sw, _| {
-            frames.set(frames.get() + 1);
-            let Some(sw) = sw.downcast_ref::<gtk4::ScrolledWindow>() else {
-                return gtk4::glib::ControlFlow::Break;
-            };
-            let Some(y) = pinned.laid_top(row) else {
-                return if frames.get() < 8 {
-                    gtk4::glib::ControlFlow::Continue
-                } else {
-                    gtk4::glib::ControlFlow::Break
-                };
-            };
-            let adj = sw.vadjustment();
-            let end = (adj.upper() - adj.page_size()).max(0.0);
-            adj.set_value((adj.value() + y - pinned.inset_for(row)).clamp(0.0, end));
-            gtk4::glib::ControlFlow::Break
-        });
     }
 
     /// How far below the viewport's top a scroll should stop row `row`: clear of the pinned
@@ -3505,8 +4964,9 @@ impl PinnedHeader {
 }
 
 /// Scroll `sw` by the wheel or touchpad deltas that land on `w`, a widget floating over it.
-/// GTK's own wheel step is the page size to the 2/3 power; a touchpad reports pixels.
-fn forward_scroll(w: &gtk4::Widget, sw: &gtk4::ScrolledWindow) {
+/// GTK's own wheel step is the page size to the 2/3 power; a touchpad reports pixels. A step
+/// that moved the list is the reader's own scroll (`reader`).
+fn forward_scroll(w: &gtk4::Widget, sw: &gtk4::ScrolledWindow, reader: Rc<dyn Fn()>) {
     let scroll = gtk4::EventControllerScroll::new(gtk4::EventControllerScrollFlags::VERTICAL);
     let adj = sw.vadjustment();
     scroll.connect_scroll(move |ctrl, _dx, dy| {
@@ -3515,10 +4975,30 @@ fn forward_scroll(w: &gtk4::Widget, sw: &gtk4::ScrolledWindow) {
         } else {
             1.0
         };
-        adj.set_value(adj.value() + dy * step);
+        let before = adj.value();
+        adj.set_value(before + dy * step);
+        if (adj.value() - before).abs() > f64::EPSILON {
+            reader();
+        }
         gtk4::glib::Propagation::Stop
     });
     w.add_controller(scroll);
+}
+
+/// The list's report of a scroll the reader started (`ListSource::reader_scroll`, docs/list.md
+/// "Following the end"), read from `source` when the scroll happens: `attach_list` brings the
+/// source after the host is made, and a list that does not follow its end has none.
+fn list_reader(source: &Rc<RefCell<Option<ListSource>>>) -> Rc<dyn Fn()> {
+    let source = source.clone();
+    Rc::new(move || {
+        let report = source
+            .try_borrow()
+            .ok()
+            .and_then(|s| s.as_ref()?.reader_scroll.clone());
+        if let Some(report) = report {
+            report();
+        }
+    })
 }
 
 /// A list host's scrolled window: the host itself, or a sectioned list's, under the overlay that
@@ -3545,6 +5025,24 @@ fn mark_list_header(li: &gtk4::ListItem, header: bool) {
     li.set_activatable(!header);
     if li.find_property("focusable").is_some() {
         li.set_property("focusable", !header);
+    }
+}
+
+/// Whether display row `pos` is a plain row: a section header, or a supplementary row (the
+/// list's header, footer, empty state or a content padding row, docs/list.md "Header, footer
+/// and empty state"). Neither is ever selected, activated or focused.
+fn plain_row(src: &ListSource, pos: usize) -> bool {
+    src.is_header.as_ref().is_some_and(|f| f(pos))
+        || src.is_supplement.as_ref().is_some_and(|f| f(pos))
+}
+
+/// Mark row `pos`'s list item for what it holds (`mark_list_header`). A supplementary row is
+/// marked like a header: GTK takes the `.activatable` class off an unactivatable row, so it
+/// draws no hover, press or selection, and the separators (`row.activatable` only) skip it.
+/// Its height comes from `cell_height` like every row's (`DayCell`).
+fn mark_list_row(li: &gtk4::ListItem, src: &ListSource, pos: usize) {
+    if src.is_header.is_some() || src.is_supplement.is_some() {
+        mark_list_header(li, plain_row(src, pos));
     }
 }
 
@@ -4119,10 +5617,22 @@ fn list_resize(
     } else if n < cur {
         model.splice(n32, cur32 - n32, &[]);
     }
+    rebind_list_items(kept, n, source);
+}
+
+/// Re-bind `items` to the rows at their positions now, top to bottom: their content, their
+/// header or supplementary marking and their height. An item past row `n` is skipped (the
+/// model's last change unbound it).
+fn rebind_list_items(
+    items: Vec<gtk4::ListItem>,
+    n: usize,
+    source: &Rc<RefCell<Option<ListSource>>>,
+) {
     let Some(src) = source.borrow().clone() else {
         return;
     };
-    for li in kept {
+    let n32 = u32::try_from(n).unwrap_or(u32::MAX);
+    for li in items {
         let pos = li.position();
         // A row past the new end was unbound by the splice above.
         if pos == gtk4::INVALID_LIST_POSITION || pos >= n32 {
@@ -4130,9 +5640,7 @@ fn list_resize(
         }
         let Some(cell) = li.child() else { continue };
         LIST_CELL_ROWS.with(|t| t.insert(cell.as_ptr() as usize, pos as usize));
-        if let Some(is_header) = &src.is_header {
-            mark_list_header(&li, is_header(pos as usize));
-        }
+        mark_list_row(&li, &src, pos as usize);
         (src.bind_row)(pos as usize, cell.as_ptr() as RawHandle);
         if let Ok(cell) = cell.downcast::<DayCell>() {
             cell.bind_layout(src.layout_cell.clone(), src.cell_height.clone());
@@ -4981,18 +6489,265 @@ pub fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
     }
 }
 
-/// A label's remembered style: the base font, its color, and — for a label with styled runs —
-/// the text and runs the markup is built from.
+/// A label's remembered style: the base font, its color, the paragraph attributes and — for a
+/// label with styled runs — the text and runs the markup is built from.
 #[derive(Default, Clone)]
 struct LabelStyle {
     font: day_spec::FontSpec,
-    color: Option<day_spec::Color>,
+    color: Option<day_spec::Ink>,
     /// `Some` once `.runs()` has put styled runs on this label; the pair rebuilds the markup
     /// whenever the base font or color is patched.
     rich: Option<(String, Vec<day_spec::TextRun>)>,
+    /// `LabelProps::wraps`: `false` holds the label to one line whatever the limit says.
+    wraps: bool,
+    /// The line limit, truncation, letter spacing and line height (`LabelPatch::Paragraph`).
+    /// Spacing and height are Pango attributes in device units, so they are rebuilt with the
+    /// font and again when the font resolution (`gtk-xft-dpi`) changes.
+    paragraph: day_spec::props::LabelParagraph,
+    /// The label itself, for that re-application from the settings notify.
+    label: gtk4::glib::WeakRef<gtk4::Label>,
 }
 
-/// The base font and color as a Pango markup span that WRAPS a label's run markup.
+/// The resolution Pango renders point sizes at: `gtk-xft-dpi` (in 1024ths of a dot per inch,
+/// which GNOME's text-scaling-factor feeds), or Pango's own 96 when the setting is unset.
+fn font_dpi() -> f64 {
+    let dpi = gtk4::Settings::default().map_or(-1, |s| s.gtk_xft_dpi());
+    if dpi > 0 {
+        f64::from(dpi) / 1024.0
+    } else {
+        96.0
+    }
+}
+
+/// The `gtk-xft-dpi` a desktop sets at its default text size: GDK's macOS backend reports 72
+/// (one point is one pixel there); X11 and Wayland desktops start at 96 and grow it with the
+/// text-scaling factor.
+const DEFAULT_FONT_DPI: f64 = if cfg!(target_os = "macos") {
+    72.0
+} else {
+    96.0
+};
+
+/// The size a label's font is drawn at, in pixels (Day's units): the style's points with
+/// `FontSpec::scale` applied, through the font resolution.
+fn resolved_font_px(spec: day_spec::FontSpec) -> f64 {
+    spec.resolved_points(gtk_style(spec.style).0) * font_dpi() / 72.0
+}
+
+/// Letter spacing and an absolute line height in Pango units (1024ths of a pixel) for a font
+/// drawn at `font_px`, or `None` where the paragraph keeps the font's own.
+///
+/// Both are multiples of the font size (docs/text.md "Letter spacing and line height"). A line
+/// height has a floor of one pixel, since Pango markup reads a `line_height` below 1024 as a
+/// factor rather than an absolute height.
+fn paragraph_units(
+    font_px: f64,
+    p: &day_spec::props::LabelParagraph,
+) -> (Option<i32>, Option<i32>) {
+    let scale = f64::from(gtk4::pango::SCALE);
+    let spacing = (p.letter_spacing.is_finite() && p.letter_spacing != 0.0)
+        .then(|| (p.letter_spacing * font_px * scale).round() as i32)
+        .filter(|&u| u != 0);
+    let height = (p.line_height.is_finite() && p.line_height > 0.0)
+        .then(|| ((p.line_height * font_px * scale).round() as i32).max(gtk4::pango::SCALE));
+    (spacing, height)
+}
+
+/// A truncation mode as the Pango ellipsis that draws it.
+fn ellipsize_mode(t: day_spec::props::Truncation) -> gtk4::pango::EllipsizeMode {
+    use day_spec::props::Truncation;
+    use gtk4::pango::EllipsizeMode;
+    match t {
+        Truncation::Tail => EllipsizeMode::End,
+        Truncation::Head => EllipsizeMode::Start,
+        Truncation::Middle => EllipsizeMode::Middle,
+    }
+}
+
+/// How a label's lines end: one line ellipsized as `truncation` says when it does not wrap;
+/// at most `max_lines` lines, the last one ellipsized, when it wraps with a limit; as many lines
+/// as the text needs otherwise. `GtkLabel`'s `lines` applies only to an ellipsizing label, and
+/// Pango counts it per paragraph, so a label with a limit also clips to its frame: Day measures
+/// it at the first `max_lines` lines of the whole text, `\n` breaks included.
+fn apply_line_limit(label: &gtk4::Label, wraps: bool, p: &day_spec::props::LabelParagraph) {
+    use gtk4::prelude::*;
+    let limited = wraps && p.max_lines > 0;
+    label.set_wrap(wraps);
+    label.set_lines(if limited {
+        i32::try_from(p.max_lines).unwrap_or(i32::MAX)
+    } else {
+        -1
+    });
+    label.set_ellipsize(if wraps && !limited {
+        gtk4::pango::EllipsizeMode::None
+    } else {
+        ellipsize_mode(p.truncation)
+    });
+    label.set_overflow(if limited {
+        gtk4::Overflow::Hidden
+    } else {
+        gtk4::Overflow::Visible
+    });
+}
+
+/// A label's size from a Pango layout holding its text and attributes, laid out the way the
+/// `GtkLabel` draws it ([`apply_line_limit`]): at its natural width or the proposed one if
+/// narrower, wrapped unless it is held to one line, and no taller than its first `max_lines`
+/// lines.
+///
+/// `spacing_px` is the label's letter spacing. Pango trims it after a line's last character
+/// but reserves it while breaking, so a wrapping layout exactly as wide as its natural width
+/// breaks before the last character: the natural width carries one positive spacing as slack,
+/// which is also the space other platforms leave after the last character.
+fn measure_label_layout(
+    layout: &gtk4::pango::Layout,
+    wraps: bool,
+    p: &day_spec::props::LabelParagraph,
+    spacing_px: f64,
+    width: Option<f64>,
+) -> Size {
+    let scale = f64::from(gtk4::pango::SCALE);
+    layout.set_wrap(gtk4::pango::WrapMode::WordChar);
+    let (nat_w, _) = layout.pixel_size();
+    let nat_w = f64::from(nat_w) + spacing_px.max(0.0).ceil();
+    let w = width.map_or(nat_w, |pw| nat_w.min(pw));
+    let max_lines = if wraps {
+        i32::try_from(p.max_lines).unwrap_or(i32::MAX)
+    } else {
+        1
+    };
+    if max_lines > 0 {
+        // With an ellipsis Pango no longer wraps unless a negative height lets it.
+        layout.set_ellipsize(ellipsize_mode(p.truncation));
+        if wraps {
+            layout.set_height(-max_lines);
+        }
+    }
+    layout.set_width((w * scale).round() as i32);
+    let (_, mut height) = layout.pixel_size();
+    // Pango's limit is per paragraph; GtkLabel clips to its frame, so explicit breaks count.
+    if wraps && max_lines > 0 && layout.line_count() > max_lines {
+        let mut iter = layout.iter();
+        for _ in 1..max_lines {
+            if !iter.next_line() {
+                break;
+            }
+        }
+        let (_, logical) = iter.line_extents();
+        height = (f64::from(logical.y() + logical.height()) / scale).ceil() as i32;
+    }
+    Size::new(w.ceil(), f64::from(height))
+}
+
+/// Give a widget and the internal widgets it is built from a reading direction
+/// (`Toolkit::set_layout_direction`). GTK 4 widgets do not inherit a parent's direction, so a
+/// composite control (an entry's text, a text area's view and placeholder, a slider's trough)
+/// needs it on each part. The walk never enters a `GtkFixed`: that is a Day container whose
+/// children are Day's own nodes, told their direction one by one.
+fn set_subtree_direction(w: &gtk4::Widget, dir: gtk4::TextDirection) {
+    w.set_direction(dir);
+    if w.is::<gtk4::Fixed>() {
+        return;
+    }
+    let mut child = w.first_child();
+    while let Some(c) = child {
+        set_subtree_direction(&c, dir);
+        child = c.next_sibling();
+    }
+}
+
+/// Byte offset of the `chars`-th character of `text` (its end past the last one): `GtkLabel`
+/// counts its selection in characters, `Event::TextSelected` in bytes.
+fn char_to_byte(text: &str, chars: usize) -> usize {
+    text.char_indices()
+        .nth(chars)
+        .map_or(text.len(), |(b, _)| b)
+}
+
+/// Report a reporting label's selection (`LabelProps::reports_selection`) once per change:
+/// `TextSelected` with byte offsets into the text it displays, and one empty range when the
+/// selection goes away (`0..0`). `last` is the range reported last, `None` after a clear.
+fn report_label_selection(
+    label: &gtk4::Label,
+    id: NodeId,
+    last: &std::cell::Cell<Option<(usize, usize)>>,
+) {
+    let text = label.text();
+    let now = label.selection_bounds().and_then(|(a, b)| {
+        let (a, b) = (a.min(b), a.max(b));
+        let start = char_to_byte(&text, usize::try_from(a).ok()?);
+        let end = char_to_byte(&text, usize::try_from(b).ok()?);
+        (start < end).then_some((start, end))
+    });
+    if now == last.get() {
+        return;
+    }
+    last.set(now);
+    // GTK 4's label keeps no readable caret, so a clear is the empty range at the start.
+    let (start, end) = now.unwrap_or_default();
+    emit(id, Event::TextSelected { start, end });
+}
+
+/// Read a reporting label's selection back once the current event has been handled.
+///
+/// GTK 4's `GtkLabel` does not notify `selection-bound` or `cursor-position` (its selection
+/// lives outside its properties' notify path), so the label is asked after everything that can
+/// move the selection: pointer and key events on it, focus changes (`gtk-label-select-on-focus`
+/// selects the whole text on focus in), its own cursor keybindings and new text. One idle per
+/// main-loop turn coalesces a drag's motions; the compare in [`report_label_selection`] keeps
+/// it to one report per change.
+fn queue_selection_report(label: &gtk4::Label) {
+    let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
+    if !LABEL_SELECTION.with(|t| t.contains(key)) {
+        return;
+    }
+    let weak = label.downgrade();
+    gtk4::glib::idle_add_local_once(move || {
+        ffi_guard::contain((), || {
+            let Some(label) = weak.upgrade() else {
+                return;
+            };
+            if let Some((id, last)) = LABEL_SELECTION.with(|t| t.get(key)) {
+                report_label_selection(&label, id, &last);
+            }
+        });
+    });
+}
+
+/// Watch a reporting label for what can change its selection ([`queue_selection_report`]).
+/// The legacy controller observes in the capture phase and never claims, so the label's own
+/// selection gestures, links and Day's recognizers see every event as before.
+fn watch_label_selection(label: &gtk4::Label, id: NodeId) {
+    let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
+    LABEL_SELECTION.with(|t| t.insert(key, (id, Rc::new(std::cell::Cell::new(None)))));
+    let events = gtk4::EventControllerLegacy::new();
+    events.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    events.connect_event(|c, event| {
+        use gtk4::gdk::EventType as T;
+        if matches!(
+            event.event_type(),
+            T::ButtonPress
+                | T::ButtonRelease
+                | T::MotionNotify
+                | T::KeyPress
+                | T::KeyRelease
+                | T::TouchBegin
+                | T::TouchUpdate
+                | T::TouchEnd
+        ) && let Some(label) = c.widget().and_downcast::<gtk4::Label>()
+        {
+            queue_selection_report(&label);
+        }
+        gtk4::glib::Propagation::Proceed
+    });
+    label.add_controller(events);
+    label.connect_has_focus_notify(queue_selection_report);
+    label.connect_move_cursor(|l, _, _, _| queue_selection_report(l));
+    label.connect_label_notify(queue_selection_report);
+}
+
+/// The base font, color and paragraph spacing as a Pango markup span that WRAPS a label's run
+/// markup.
 ///
 /// A `GtkLabel`'s attribute list OVERRIDES the attributes its markup parsed, so a base weight
 /// attribute spanning the whole label silently defeats a `<b>` run — bold text rendered at the
@@ -5000,10 +6755,11 @@ struct LabelStyle {
 /// through. A rich label therefore carries NO attribute list, and its base font arrives as this
 /// wrapping span. Inside one markup parse a nested tag wins over an enclosing span, which is the
 /// ordering the run tags need.
-fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String {
+fn base_span(style: &LabelStyle) -> String {
     use gtk4::pango;
     use std::fmt::Write as _;
-    let (size_pt, inherent) = gtk_style(spec.style);
+    let spec = style.font;
+    let (_, inherent) = gtk_style(spec.style);
     let weight = spec.weight.unwrap_or(inherent);
     let mut s = String::from("<span");
     // Monospace wins over a bundled family, as it does on Qt: the label asked for code type.
@@ -5016,7 +6772,7 @@ fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String
     let _ = write!(
         s,
         " size=\"{}\"",
-        (size_pt * f64::from(pango::SCALE)) as i32
+        (spec.resolved_points(gtk_style(spec.style).0) * f64::from(pango::SCALE)) as i32
     );
     let _ = write!(
         s,
@@ -5026,10 +6782,20 @@ fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String
     if spec.italic {
         s.push_str(" style=\"italic\"");
     }
-    if spec.tabular {
-        s.push_str(" font_features=\"tnum 1\"");
+    let features = font_feature_string(spec);
+    if !features.is_empty() {
+        let _ = write!(s, " font_features=\"{features}\"");
     }
-    if let Some(c) = color {
+    // Pango units of the device, the same values the plain label's attribute list carries; a
+    // `line_height` of 1024 or more is absolute (Pango 1.50, which GTK 4.6 requires).
+    let (spacing, height) = paragraph_units(resolved_font_px(spec), &style.paragraph);
+    if let Some(units) = spacing {
+        let _ = write!(s, " letter_spacing=\"{units}\"");
+    }
+    if let Some(units) = height {
+        let _ = write!(s, " line_height=\"{units}\"");
+    }
+    if let Some(c) = style.color.map(day_spec::Ink::resolved) {
         let ch = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
         let _ = write!(
             s,
@@ -5046,23 +6812,36 @@ fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String
     s
 }
 
+/// The OpenType features a font descriptor asks for, in Pango's `font_features` syntax:
+/// `tnum 1, smcp 1, onum 1` (`FontSpec::feature_tags`). Empty when it asks for none. Features
+/// change glyphs, never the face, and a font without one draws its ordinary glyphs.
+fn font_feature_string(spec: day_spec::FontSpec) -> String {
+    spec.feature_tags()
+        .iter()
+        .map(|tag| format!("{tag} 1"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// The full markup for a rich label: its base font as a wrapping span, run tags inside.
 fn rich_markup(text: &str, runs: &[day_spec::TextRun], style: &LabelStyle) -> String {
-    let mut m = base_span(style.font, style.color);
+    let mut m = base_span(style);
     m.push_str(&day_spec::runs_to_markup(
         text,
         runs,
         day_spec::MarkupDialect::Pango,
-        gtk_style(style.font.style).0,
+        style.font.resolved_points(gtk_style(style.font.style).0),
     ));
     m.push_str("</span>");
     m
 }
 
-/// Rebuild a label's full Pango attribute list: font family/size/weight/style + foreground color.
-fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option<day_spec::Color>) {
+/// Rebuild a plain label's full Pango attribute list: font family/size/weight/style, font
+/// features, letter spacing, line height and the foreground color.
+fn apply_text_attrs(label: &gtk4::Label, style: &LabelStyle) {
     use gtk4::pango;
-    let (size_pt, inherent) = gtk_style(spec.style);
+    let spec = style.font;
+    let (style_pt, inherent) = gtk_style(spec.style);
     let weight = spec.weight.unwrap_or(inherent);
     // Pango attribute list (markup-free): size, weight, italic style, and foreground.
     let attrs = pango::AttrList::new();
@@ -5081,7 +6860,10 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
         fam.set_start_index(0);
         attrs.insert(fam);
     }
-    let mut size = pango::AttrSize::new((size_pt * f64::from(pango::SCALE)) as i32);
+    // `FontSpec::scale` (`.font_scale`, and the `max_text_scale` cap) multiplies the style's
+    // size, which Pango then draws through the text-scaling resolution.
+    let mut size =
+        pango::AttrSize::new((spec.resolved_points(style_pt) * f64::from(pango::SCALE)) as i32);
     size.set_start_index(0);
     attrs.insert(size);
     let mut w = pango::AttrInt::new_weight(pango_weight(weight));
@@ -5092,14 +6874,29 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
         it.set_start_index(0);
         attrs.insert(it);
     }
-    // Tabular figures come from the OpenType feature rather than a different family, so the face
-    // is untouched and only the digits change metrics. A font without `tnum` simply ignores it.
-    if spec.tabular {
-        let mut f = pango::AttrFontFeatures::new("tnum 1");
+    // Tabular figures, small capitals and oldstyle figures come from OpenType features rather
+    // than a different family, so the face is untouched and only those glyphs change. A font
+    // without a feature simply ignores it; nothing is synthesized.
+    let features = font_feature_string(spec);
+    if !features.is_empty() {
+        let mut f = pango::AttrFontFeatures::new(&features);
         f.set_start_index(0);
         attrs.insert(f);
     }
-    if let Some(c) = color {
+    let (spacing, height) = paragraph_units(resolved_font_px(spec), &style.paragraph);
+    if let Some(units) = spacing {
+        let mut a = pango::AttrInt::new_letter_spacing(units);
+        a.set_start_index(0);
+        attrs.insert(a);
+    }
+    // Absolute, not the markup factor: the line box is the multiple of the font size, and
+    // Pango splits the difference from the natural height above and below each line.
+    if let Some(units) = height {
+        let mut a = pango::AttrInt::new_line_height_absolute(units);
+        a.set_start_index(0);
+        attrs.insert(a);
+    }
+    if let Some(c) = style.color.map(day_spec::Ink::resolved) {
         let ch = |x: f64| (x.clamp(0.0, 1.0) * 65535.0).round() as u16;
         let mut fg = pango::AttrColor::new_foreground(ch(c.r), ch(c.g), ch(c.b));
         fg.set_start_index(0);
@@ -5113,38 +6910,74 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
     label.set_attributes(Some(&attrs));
 }
 
-/// Update one part of a label's remembered style and re-apply the whole of it.
-///
-/// A label with styled runs re-renders its markup instead of taking an attribute list, since the
-/// list would override the runs (see [`base_span`]).
-#[expect(
-    clippy::option_option,
-    reason = "outer `None` leaves the color as it is; the inner value is the label's optional color"
-)]
-fn update_text_attrs(
-    label: &gtk4::Label,
-    font: Option<day_spec::FontSpec>,
-    color: Option<Option<day_spec::Color>>,
-) {
+/// Render a label from its remembered style: markup for a label with runs (an attribute list
+/// would override them, see [`base_span`]), the attribute list otherwise, then the line limit.
+fn restyle_label(label: &gtk4::Label, style: &LabelStyle) {
+    match &style.rich {
+        Some((text, runs)) => {
+            label.set_attributes(None);
+            label.set_markup(&rich_markup(text, runs, style));
+        }
+        None => apply_text_attrs(label, style),
+    }
+    apply_line_limit(label, style.wraps, &style.paragraph);
+}
+
+/// Update part of a label's remembered style and re-apply the whole of it.
+fn update_label_style(label: &gtk4::Label, change: impl FnOnce(&mut LabelStyle)) {
     use gtk4::prelude::*;
     let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
     let style = LABEL_STYLE.with(|m| {
         let mut m = m.borrow_mut();
         let entry = m.entry(key).or_default();
-        if let Some(f) = font {
-            entry.font = f;
-        }
-        if let Some(c) = color {
-            entry.color = c;
-        }
+        change(entry);
         entry.clone()
     });
-    match &style.rich {
-        Some((text, runs)) => {
-            label.set_attributes(None);
-            label.set_markup(&rich_markup(text, runs, &style));
-        }
-        None => apply_text_attrs(label, style.font, style.color),
+    restyle_label(label, &style);
+}
+
+/// Re-apply every live label's style after the font resolution changed: letter spacing and
+/// line height are device units computed from it.
+/// Re-apply every label whose color, or one of whose runs' colors, depends on the
+/// appearance: Pango attributes and markup carry concrete colors.
+fn restyle_dynamic_labels() {
+    fn run_follows(r: &day_spec::TextRun) -> bool {
+        let deco = |d: &Option<day_spec::Decoration>| {
+            d.as_ref()
+                .and_then(|d| d.color)
+                .is_some_and(day_spec::Ink::is_dynamic)
+        };
+        r.color.is_some_and(day_spec::Ink::is_dynamic)
+            || r.background.is_some_and(day_spec::Ink::is_dynamic)
+            || deco(&r.underline)
+            || deco(&r.strikethrough)
+    }
+    let labels: Vec<(gtk4::Label, LabelStyle)> = LABEL_STYLE.with(|m| {
+        m.borrow()
+            .values()
+            .filter(|s| {
+                s.color.is_some_and(day_spec::Ink::is_dynamic)
+                    || s.rich
+                        .as_ref()
+                        .is_some_and(|(_, runs)| runs.iter().any(run_follows))
+            })
+            .filter_map(|s| s.label.upgrade().map(|l| (l, s.clone())))
+            .collect()
+    });
+    for (label, style) in &labels {
+        restyle_label(label, style);
+    }
+}
+
+fn restyle_all_labels() {
+    let labels: Vec<(gtk4::Label, LabelStyle)> = LABEL_STYLE.with(|m| {
+        m.borrow()
+            .values()
+            .filter_map(|s| s.label.upgrade().map(|l| (l, s.clone())))
+            .collect()
+    });
+    for (label, style) in &labels {
+        restyle_label(label, style);
     }
 }
 
@@ -5294,6 +7127,13 @@ impl Toolkit for Gtk {
         adw::StyleManager::default().is_dark()
     }
 
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        // The libadwaita named color GTK draws the role in (`role_css`), read from the
+        // stylesheet in force: the same expression a surface's CSS names, so what Day resolves
+        // is what GTK shows.
+        role_color(role).unwrap_or_else(|| role.fallback(self.dark_mode()))
+    }
+
     fn set_appearance(&mut self, dark: Option<bool>) {
         adw::StyleManager::default().set_color_scheme(match dark {
             Some(true) => adw::ColorScheme::ForceDark,
@@ -5306,8 +7146,52 @@ impl Toolkit for Gtk {
         // `gtk-enable-animations` is the one switch GNOME's "Animations" toggle and its
         // reduce-motion accessibility setting both drive (docs/accessibility.md); libadwaita's
         // own transitions read it too. No GtkSettings before `startup` means no display yet,
-        // which is not a request for less motion.
+        // which is not a request for less motion. A scripted run turns the setting off for
+        // GTK's own widget transitions (`mute_widget_transitions`); that is not the user's
+        // choice, so the user's value is answered instead.
+        if let Some(enabled) = USER_ANIMATIONS.with(std::cell::Cell::get) {
+            return !enabled;
+        }
         gtk4::Settings::default().is_some_and(|s| !s.is_gtk_enable_animations())
+    }
+
+    fn text_scale(&mut self, _style: Font) -> f64 {
+        // One factor for every style: Pango draws every point size through `gtk-xft-dpi`,
+        // which GNOME's text-scaling-factor sets (docs/text.md "Text scale").
+        font_dpi() / DEFAULT_FONT_DPI
+    }
+
+    fn set_layout_direction(
+        &mut self,
+        h: &Self::Handle,
+        kind: PieceKind,
+        direction: day_spec::LayoutDirection,
+    ) {
+        // Hosts whose GTK widget places its children by direction (a GtkPaned swaps its
+        // panes, a GtkScrolledWindow moves its scrollbar) would move what Day placed: they
+        // keep the app's direction. A Day container is a GtkFixed, which places children at
+        // Day's coordinates in either direction, so it takes the direction for its hit slop.
+        if matches!(
+            kind,
+            kinds::SCROLL
+                | kinds::NAV
+                | kinds::NAV_PAGE
+                | kinds::LIST
+                | kinds::LIST_CELL
+                | kinds::TREE
+                | kinds::COVER
+                | kinds::INSPECTOR
+                | kinds::INSPECTOR_PANE
+                | kinds::SPLIT
+                | kinds::SPLIT_PANE
+        ) {
+            return;
+        }
+        let dir = match direction {
+            day_spec::LayoutDirection::Rtl => gtk4::TextDirection::Rtl,
+            day_spec::LayoutDirection::Ltr => gtk4::TextDirection::Ltr,
+        };
+        set_subtree_direction(h, dir);
     }
 
     fn attach_refresh(&mut self, handle: &Self::Handle, host: NodeId) {
@@ -5337,8 +7221,9 @@ impl Toolkit for Gtk {
             Cap::PullRefreshGesture => Support::Emulated,
             // `gdk::Cursor::from_name` takes the CSS vocabulary as it is (docs/cursor.md).
             Cap::Cursor => Support::Native,
-            // Opacity and transform tween on libadwaita's frame clock (`gtk_animation`); a
-            // frame applies instantly.
+            // Opacity, transform, a `GtkFixed` child's frame and a surface's fill, stepped
+            // from a tick callback on the window's frame clock through `AnimSpec::sample`
+            // (motion.rs): the whole contract of docs/tween.md, read back mid-flight.
             Cap::Animation => Support::Native,
             // `gtk-enable-animations`, watched through its notify (docs/accessibility.md).
             Cap::ReduceMotion => Support::Native,
@@ -5360,8 +7245,42 @@ impl Toolkit for Gtk {
             // libcairo itself; Homebrew and Debian/Ubuntu both build that backend, so every GTK
             // target links and answers it.
             Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
-            // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
-            // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
+            // Focus (docs/focus.md): Tab order, `grab_focus`, the press that focuses before the
+            // recognizers, `has-focus` reports both ways, the short and full key routes, and the
+            // `:focus-visible` ring (input.rs).
+            Cap::Focusable => Support::Native,
+            // GTK repeats a held key as more `key-pressed` emissions, told apart by the keys a
+            // controller holds down; `key-released` is the release (input.rs `HeldKeys`).
+            Cap::KeyPhases => Support::Native,
+            // `contains` on Day's containers, canvases and shapes (input.rs); a label, an image
+            // or a native control keeps its own bounds (docs/gestures.md "Toolkit support").
+            Cap::HitSlop => Support::Native,
+            // `gtk_label_get_selection_bounds`, read back after every pointer, key and focus
+            // event on a reporting label (GTK 4's label notifies no selection property).
+            Cap::LabelSelection => Support::Native,
+            // Lists and scroll views (docs/list.md, docs/scroll.md): the viewport from the laid
+            // rows after each frame, row and target scrolls as glides over the frame clock, the
+            // offset from the adjustments, and the phases from the user's own input on the
+            // scrolled window (`scroll.rs`).
+            Cap::ListViewport | Cap::ListScrollAlign | Cap::ScrollOffset | Cap::ScrollPhases => {
+                Support::Native
+            }
+            // The scrolls the reader starts, from the same input on the list's scrolled window:
+            // a wheel or touchpad step, the adjustment moving under a finger or a held scroll
+            // bar, or just after a key that scrolls (`scroll::track_reader`).
+            Cap::ListReaderScroll => Support::Native,
+            // No GTK scroll view snaps or zooms, a desktop has no software keyboard, and the
+            // pager is the composed one (`Cap::Pager` Emulated), whose progress steps with the
+            // selection.
+            Cap::ScrollSnap | Cap::ScrollZoom | Cap::ScrollKeyboardDismiss | Cap::PagerProgress => {
+                Support::Unsupported
+            }
+            // GtkTextView has no selection switch: with selection off, Day collapses every
+            // selection the buffer's `mark-set` reports, stops copy/cut/select-all and sets the
+            // context menu aside (textarea.rs, docs/textarea.md).
+            Cap::TextSelectable => Support::Emulated,
+            // GtkTextView is editable-toggleable and ships no spell-check, so TextSpellCheck
+            // stays Unsupported (the default arm).
             Cap::TextRuns
             | Cap::TextLinks
             | Cap::Snapshot
@@ -5471,7 +7390,9 @@ impl Toolkit for Gtk {
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> Handle {
         match Builtin::from_key(kind) {
             Some(Builtin::Container) => {
-                let w: Handle = gtk4::Fixed::new().upcast();
+                // Pass-through (docs/gestures.md): a container takes pointer input only once a
+                // recognizer, menu, drop target, cursor or focus asks for it (input.rs).
+                let w: Handle = input::DayFixed::new().upcast();
                 if let Some(p) = props.downcast_ref::<ContainerProps>() {
                     if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                         // libadwaita's own grouped-card treatment — rounded, elevated, and
@@ -5479,13 +7400,23 @@ impl Toolkit for Gtk {
                         w.add_css_class("card");
                     } else if p.role == Some(day_spec::SurfaceRole::Window) {
                         // Adwaita's `background` class, the theme window background an opaque
-                        // cover paints; the rounding and clip ride the surface provider.
+                        // cover paints; the rounding and clip ride the surface provider. An
+                        // opaque window surface also stops the pointer, as a window does.
                         w.add_css_class("background");
+                        input::take_input(&w);
                         if p.corner_radius > 0.0 || p.clips {
                             apply_surface(&w, None, p.corner_radius, p.clips);
                         }
-                    } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
-                        apply_surface(&w, p.background, p.corner_radius, p.clips);
+                    } else {
+                        let style = SurfaceStyle::of(p);
+                        if style.shadow.is_some() {
+                            SPILLS.with(|t| t.insert(widget_key(&w), true));
+                        } else if !(style.clips || style.corner_radius > 0.0) {
+                            SPILLS.with(|t| t.insert(widget_key(&w), false));
+                        }
+                        if style.is_styled() {
+                            apply_surface_style(&w, &style);
+                        }
                     }
                 }
                 w
@@ -6092,6 +8023,14 @@ impl Toolkit for Gtk {
                         NavMenuState {
                             listbox,
                             rows: p.items.len(),
+                            decor: NavDecor {
+                                items: p.items.clone(),
+                                icons: p.icons.clone(),
+                                badges: p.badges.clone(),
+                                badge_icons: p.badge_icons.clone(),
+                                tints: p.tints.clone(),
+                                badge_tints: p.badge_tints.clone(),
+                            },
                             suppress,
                             current,
                         },
@@ -6100,14 +8039,31 @@ impl Toolkit for Gtk {
                 handle
             }
             Some(Builtin::Scroll) => {
-                let horizontal = props
+                let p = props
                     .downcast_ref::<day_spec::props::ScrollProps>()
-                    .is_some_and(|p| p.horizontal);
+                    .cloned()
+                    .unwrap_or_default();
                 let sw = gtk4::ScrolledWindow::new();
-                if horizontal {
-                    sw.set_policy(gtk4::PolicyType::Automatic, gtk4::PolicyType::Never);
+                // `.hide_indicators()` (docs/scroll.md): GTK_POLICY_EXTERNAL scrolls the axis
+                // with no scroll bar. `bounce` has no switch of its own here (GTK's overshoot
+                // comes with kinetic scrolling, which touch scrolling needs), `snap` and `zoom`
+                // have no GTK counterpart, and a desktop has no software keyboard to dismiss:
+                // those props are ignored and their caps say so.
+                let bar = if p.indicators == ScrollIndicators::Hidden {
+                    gtk4::PolicyType::External
                 } else {
-                    sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+                    gtk4::PolicyType::Automatic
+                };
+                if p.horizontal {
+                    sw.set_policy(bar, gtk4::PolicyType::Never);
+                } else {
+                    sw.set_policy(gtk4::PolicyType::Never, bar);
+                }
+                if p.track_offset {
+                    scroll::track_offset(&sw, id);
+                }
+                if p.track_phase {
+                    scroll::track_phase(&sw, id);
                 }
                 sw.set_child(Some(&gtk4::Fixed::new()));
                 // Transparent like AppKit's `setDrawsBackground(false)` scroll: content layered
@@ -6121,24 +8077,33 @@ impl Toolkit for Gtk {
                     return placeholder_label(kind);
                 };
                 let label = gtk4::Label::new(Some(&p.text));
+                // Pass-through (docs/gestures.md): a plain label lets presses reach what is
+                // behind it. A link run, selection or a recognizer turns hit-testing back on.
+                label.set_can_target(false);
                 // Both halves of alignment. `xalign` places the text block inside the label's
                 // allocation; `justify` aligns the WRAPPED LINES against each other. A centered
                 // paragraph needs the second — with xalign alone the block sits centered while
                 // its lines stay ragged-right, which is not what `TextAlign::Center` means.
+                // GtkLabel reads `xalign` and the Left/Right justifications against the widget's
+                // direction, so `Leading` follows `set_layout_direction`. Justified is Pango's
+                // justify (every line but the last stretched), its last line at the leading edge.
                 let (xalign, justify) = match p.align {
                     day_spec::props::TextAlign::Center => (0.5, gtk4::Justification::Center),
                     day_spec::props::TextAlign::Trailing => (1.0, gtk4::Justification::Right),
                     day_spec::props::TextAlign::Leading => (0.0, gtk4::Justification::Left),
+                    day_spec::props::TextAlign::Justified => (0.0, gtk4::Justification::Fill),
                 };
                 label.set_xalign(xalign);
                 label.set_justify(justify);
                 label.set_yalign(0.0);
-                label.set_wrap(p.wraps);
-                if !p.wraps {
-                    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-                }
                 label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
-                update_text_attrs(&label, Some(p.font), Some(p.color));
+                update_label_style(&label, |s| {
+                    s.font = p.font;
+                    s.color = p.color;
+                    s.wraps = p.wraps;
+                    s.paragraph = p.paragraph();
+                    s.label.set(Some(&label));
+                });
                 // GTK ships the de-emphasized look as a style class, so the theme decides the
                 // actual color and it follows light/dark the way the rest of the window does —
                 // which is the whole reason for asking by role rather than naming a grey.
@@ -6154,6 +8119,11 @@ impl Toolkit for Gtk {
                     emit(id, Event::LinkActivated(uri.to_string()));
                     gtk4::glib::Propagation::Stop
                 });
+                // Selection reports (`Label::on_selection`, Cap::LabelSelection), read back from
+                // `gtk_label_get_selection_bounds` after each event that can move them.
+                if p.reports_selection {
+                    watch_label_selection(&label, id);
+                }
                 label.upcast()
             }
             Some(Builtin::Button) => {
@@ -6203,6 +8173,11 @@ impl Toolkit for Gtk {
                 scale.set_value(p.value);
                 scale.set_draw_value(false);
                 scale.connect_value_changed(move |s| {
+                    // A value the app set (`SliderPatch::Value`) is not the reader's: GTK
+                    // raises `value-changed` from inside `set_value` too (DESIGN.md §4.4).
+                    if SLIDER_WRITING.get() {
+                        return;
+                    }
                     ffi_guard::contain((), || emit(id, Event::ValueChanged(s.value())));
                 });
                 // GtkScale has no "drag ended" signal — `value-changed` fires on every motion
@@ -6252,25 +8227,42 @@ impl Toolkit for Gtk {
                 // The keys a field with a key handler claims (docs/textfield.md "Keys"), heard
                 // in the capture phase so the inner GtkText never acts on them: Up and Down
                 // would otherwise move focus to the neighboring widget.
+                // With their phases (docs/menus.md "Keys"): a held arrow repeats, and the
+                // release of a claimed key reaches the same handler.
+                let held = input::HeldKeys::default();
                 let keys = gtk4::EventControllerKey::new();
                 keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
-                keys.connect_key_pressed(move |_, key, _, state| {
-                    ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
-                        use gtk4::gdk::Key;
-                        let name = match key {
-                            Key::Up | Key::KP_Up => "ArrowUp",
-                            Key::Down | Key::KP_Down => "ArrowDown",
-                            Key::Escape => "Escape",
-                            _ => return gtk4::glib::Propagation::Proceed,
-                        };
-                        if !day_spec::keys::field_claims(id, name, key_modifiers(state)) {
-                            return gtk4::glib::Propagation::Proceed;
-                        }
-                        emit(id, Event::Key(day_spec::KeyEvent::named(name, 0)));
-                        gtk4::glib::Propagation::Stop
-                    })
+                keys.connect_key_pressed({
+                    let held = held.clone();
+                    move |_, key, code, state| {
+                        ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+                            use gtk4::gdk::Key;
+                            let name = match key {
+                                Key::Up | Key::KP_Up => "ArrowUp",
+                                Key::Down | Key::KP_Down => "ArrowDown",
+                                Key::Escape => "Escape",
+                                _ => return gtk4::glib::Propagation::Proceed,
+                            };
+                            // A repeat of a key whose down was claimed stays claimed.
+                            let repeat = held.is_held(code);
+                            if !repeat
+                                && !day_spec::keys::field_claims(id, name, key_modifiers(state))
+                            {
+                                return gtk4::glib::Propagation::Proceed;
+                            }
+                            held.deliver(id, code, day_spec::KeyEvent::named(name, 0), repeat);
+                            gtk4::glib::Propagation::Stop
+                        })
+                    }
                 });
+                {
+                    let held = held.clone();
+                    keys.connect_key_released(move |_, _, code, state| {
+                        ffi_guard::contain((), || held.deliver_release(id, code, state));
+                    });
+                }
                 entry.add_controller(keys);
+                input::clear_on_blur(&entry, &held);
                 wire_focus(&entry, id);
                 entry.upcast()
             }
@@ -6282,7 +8274,10 @@ impl Toolkit for Gtk {
                 } else {
                     gtk4::Orientation::Horizontal
                 };
-                gtk4::Separator::new(orientation).upcast()
+                let line = gtk4::Separator::new(orientation);
+                // Pass-through (docs/gestures.md): a rule never stops a press.
+                line.set_can_target(false);
+                line.upcast()
             }
             Some(Builtin::Progress) => {
                 let Some(p) = props_of::<ProgressProps>(kind, "gtk", props) else {
@@ -6302,14 +8297,16 @@ impl Toolkit for Gtk {
                 }
             }
             Some(Builtin::Canvas) => {
-                let area = gtk4::DrawingArea::new();
+                // A Day canvas: pointer input only once something asks for it (input.rs).
+                let area = input::DayCanvas::new(id);
                 area.set_draw_func(|area, cr, _w, _h| {
                     // Contained: the ops decode runs app-supplied data inside GTK's C draw
                     // dispatch, where an unwound panic is an abort.
                     ffi_guard::contain((), || {
                         let ptr = area.as_ptr() as usize;
                         let (nums, texts) = OPS.with(|t| t.get(ptr)).unwrap_or_default();
-                        cairo_draw(cr, &nums, &texts);
+                        let density = canvas_density(area.scale_factor());
+                        cairo_draw(cr, &nums, &texts, density);
                     });
                 });
                 // Focus, and with it the keyboard (docs/menus.md). A DrawingArea is not
@@ -6318,75 +8315,17 @@ impl Toolkit for Gtk {
                 area.set_focusable(true);
                 area.set_can_focus(true);
                 wire_focus(&area, id);
-                let click = gtk4::GestureClick::new();
-                click.connect_pressed(|g, _, _, _| {
-                    ffi_guard::contain((), || {
-                        if let Some(w) = g.widget() {
-                            w.grab_focus();
-                        }
-                    });
-                });
-                area.add_controller(click);
-                // The input method context for the full route (docs/menus.md "The full
-                // route"): the keyboard layout's dead keys and the user's input method
-                // (ibus, fcitx) compose through it and commit once, as text. Only a canvas
-                // that took the whole keyboard feeds it a key, or tells it about focus, so a
-                // canvas that hears the arrows alone never starts a composition.
-                let im = gtk4::IMMulticontext::new();
-                im.set_client_widget(Some(&area));
-                im.connect_commit(move |_, text| {
-                    ffi_guard::contain((), || {
-                        if !text.is_empty() && day_spec::keys::text(id) {
-                            emit(id, Event::Key(day_spec::KeyEvent::typed_text(text, 0)));
-                        }
-                    });
-                });
-                let im_focus = gtk4::EventControllerFocus::new();
-                let im_in = im.clone();
-                im_focus.connect_enter(move |_| {
-                    if ffi_guard::contain(false, || day_spec::keys::text(id)) {
-                        im_in.focus_in();
-                    }
-                });
-                let im_out = im.clone();
-                im_focus.connect_leave(move |_| {
-                    // A composition in progress goes with the focus.
-                    im_out.reset();
-                    im_out.focus_out();
-                });
-                area.add_controller(im_focus);
-                let keys = gtk4::EventControllerKey::new();
-                keys.connect_key_pressed(move |controller, key, _, state| {
-                    ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
-                        // An arrow nobody asked for keeps traveling, so a scrolled window
-                        // around the canvas still scrolls with the keyboard.
-                        if !day_spec::keys::handled(id) {
-                            return gtk4::glib::Propagation::Proceed;
-                        }
-                        if day_spec::keys::text(id) {
-                            if let Some(event) = controller.current_event()
-                                && im.filter_keypress(&event)
-                            {
-                                return gtk4::glib::Propagation::Stop;
-                            }
-                            let Some(event) = full_route_key(key, state) else {
-                                return gtk4::glib::Propagation::Proceed;
-                            };
-                            emit(id, Event::Key(event));
-                            return gtk4::glib::Propagation::Stop;
-                        }
-                        let Some(name) = key_name(key, state) else {
-                            return gtk4::glib::Propagation::Proceed;
-                        };
-                        emit(
-                            id,
-                            Event::Key(day_spec::KeyEvent::named(name, key_modifiers(state))),
-                        );
-                        gtk4::glib::Propagation::Stop
-                    })
-                });
-                area.add_controller(keys);
-                area.upcast()
+                let handle: Handle = area.upcast();
+                // A press focuses the canvas before its recognizers hear it. The input method
+                // context for the full route (docs/menus.md "The full route") lets the keyboard
+                // layout's dead keys and the user's input method (ibus, fcitx) compose and
+                // commit once, as text; only a canvas that took the whole keyboard feeds it a
+                // key. Keys carry their phases (input.rs).
+                input::focus_on_press(&handle);
+                input::wire_keys(&handle, id);
+                focus_ring_css();
+                handle.add_css_class("day-focusable");
+                handle
             }
             Some(Builtin::Tree) => {
                 let Some(p) = props_of::<TreeProps>(kind, "gtk", props) else {
@@ -6659,14 +8598,15 @@ impl Toolkit for Gtk {
                                     move |ds, x, y| {
                                         let row = LIST_CELL_ROWS
                                             .with(|t| t.get(cell.as_ptr() as usize))?;
-                                        // A section header never lifts (docs/list.md
-                                        // "Sections"); its cell may hold an item row later.
-                                        let header = LIST_STATE.with(|m| {
+                                        // A section header or a supplementary row never
+                                        // lifts (docs/list.md "Sections"); its cell may hold
+                                        // an item row later.
+                                        let plain = LIST_STATE.with(|m| {
                                             let m = m.borrow();
                                             let source = m.get(&host_key.get())?.source.borrow();
-                                            source.as_ref()?.is_header.clone()
+                                            Some(plain_row(source.as_ref()?, row))
                                         });
-                                        if header.is_some_and(|is_header| is_header(row)) {
+                                        if plain == Some(true) {
                                             return None;
                                         }
                                         DRAG_FROM.with(|d| d.set(Some((host_key.get(), row))));
@@ -6708,12 +8648,11 @@ impl Toolkit for Gtk {
                                 bound
                                     .borrow_mut()
                                     .insert(cell.as_ptr() as usize, li.downgrade());
-                                // A sectioned list's header rows (docs/list.md "Sections").
-                                // GtkListView pools one item type, so a recycled item can turn
-                                // from a header into a row and back: mark it on every bind.
-                                if let Some(is_header) = &src.is_header {
-                                    mark_list_header(li, is_header(pos));
-                                }
+                                // A sectioned list's header rows (docs/list.md "Sections") and
+                                // the supplementary rows. GtkListView pools one item type, so
+                                // a recycled item can turn from a header into a row and back:
+                                // mark it on every bind.
+                                mark_list_row(li, src, pos);
                                 (src.bind_row)(pos, cell.as_ptr() as RawHandle);
                                 // `bind_row` laid the row at the LIST's width; the cell knows the
                                 // width its row actually granted and re-lays the content to that.
@@ -6802,14 +8741,15 @@ impl Toolkit for Gtk {
                         }
                         ffi_guard::contain((), || {
                             let i = s.selected();
-                            // A header is never selected (docs/list.md "Sections"). Its item
-                            // is unselectable, but keyboard navigation on GTK before 4.12
-                            // (no item `focusable`) can still land on it: put the row the
-                            // selection held back, past this notify.
+                            // A header or a supplementary row is never selected (docs/list.md
+                            // "Sections"). Its item is unselectable, but keyboard navigation
+                            // on GTK before 4.12 (no item `focusable`) can still land on it:
+                            // put the row the selection held back, past this notify.
                             let header = i != gtk4::INVALID_LIST_POSITION
-                                && source.borrow().as_ref().is_some_and(|src| {
-                                    src.is_header.as_ref().is_some_and(|f| f(i as usize))
-                                });
+                                && source
+                                    .borrow()
+                                    .as_ref()
+                                    .is_some_and(|src| plain_row(src, i as usize));
                             if header {
                                 let selection = header_guard.clone();
                                 gtk4::glib::idle_add_local_once(move || {
@@ -6857,7 +8797,10 @@ impl Toolkit for Gtk {
                         {
                             let provider = gtk4::CssProvider::new();
                             provider.load_from_data(
-                                "listview.day-separators > row { \
+                                // `.activatable` only: a supplementary row (and a section
+                                // header) is unactivatable and gets no separator
+                                // (docs/list.md "Header, footer and empty state").
+                                "listview.day-separators > row.activatable { \
                                      border-bottom: 1px solid alpha(currentColor, 0.18); \
                                  }",
                             );
@@ -6884,11 +8827,14 @@ impl Toolkit for Gtk {
                     }
                     .max(1.0);
                     // A sectioned list's headers are not one pitch tall: its `PinnedHeader`
-                    // reports the first visible row from the laid rows instead.
+                    // reports the first visible row from the laid rows instead. A list that
+                    // reports its whole viewport (`ListEntry::report_viewport`) does not
+                    // report its first row alone.
                     if !p.sections {
                         vadj.connect_value_changed(move |adjustment| {
                             let source = source.borrow().clone();
                             if let Some(source) = source
+                                && source.viewport.is_none()
                                 && let Some(report) = &source.first_visible
                             {
                                 report(
@@ -6899,6 +8845,9 @@ impl Toolkit for Gtk {
                         });
                     }
                 }
+                // The scrolls the reader starts (docs/list.md "Following the end"), told from
+                // the list's own (`scroll.rs`).
+                scroll::track_reader(&sw, list_reader(&source));
                 // A sectioned list pins its current header over the rows (docs/list.md
                 // "Sections"): the host is the overlay that holds the copy above the scroller.
                 let pinned = p
@@ -6906,7 +8855,7 @@ impl Toolkit for Gtk {
                     .then(|| PinnedHeader::new(&sw, &listview, source.clone(), bound.clone()));
                 let host: Handle = match &pinned {
                     Some(pinned) => pinned.overlay.clone().upcast(),
-                    None => sw.upcast(),
+                    None => sw.clone().upcast(),
                 };
                 host_key.set(widget_key(&host));
                 if p.reorderable {
@@ -7011,18 +8960,65 @@ impl Toolkit for Gtk {
                     });
                     listview.add_controller(dt);
                 }
-                LIST_STATE.with(|m| {
-                    m.borrow_mut().insert(
-                        widget_key(&host),
-                        ListEntry {
-                            model,
-                            source,
-                            selection,
-                            bound,
-                            pinned,
-                        },
-                    )
+                let entry = Rc::new(ListEntry {
+                    model,
+                    source,
+                    selection,
+                    bound,
+                    pinned,
+                    sw: sw.clone(),
+                    listview: listview.clone(),
+                    uniform: matches!(p.row_height, RowHeight::Uniform(_)) && !p.sections,
+                    pending: RefCell::default(),
+                    generation: std::cell::Cell::new(0),
+                    laid: std::cell::Cell::new(0),
+                    viewport_due: std::cell::Cell::new(false),
+                    frame_hook: RefCell::new(None),
                 });
+                // The viewport report (docs/list.md "Visible rows") is due whenever the offset,
+                // the content's height or the viewport's moved; it goes out after the frame
+                // that lays the move out, from the rows' positions in that frame.
+                let vadj = sw.vadjustment();
+                for signal in ["value-changed", "changed"] {
+                    let weak = Rc::downgrade(&entry);
+                    vadj.connect_local(signal, false, move |_| {
+                        if let Some(entry) = weak.upgrade() {
+                            entry.viewport_due.set(true);
+                        }
+                        None
+                    });
+                }
+                listview.connect_realize({
+                    let weak = Rc::downgrade(&entry);
+                    move |view| {
+                        let (Some(entry), Some(clock)) = (weak.upgrade(), view.frame_clock())
+                        else {
+                            return;
+                        };
+                        let hook = {
+                            let weak = weak.clone();
+                            clock.connect_after_paint(move |_| {
+                                if let Some(entry) = weak.upgrade() {
+                                    ffi_guard::contain((), || entry.after_paint());
+                                }
+                            })
+                        };
+                        if let Some((old, id)) = entry.frame_hook.replace(Some((clock, hook))) {
+                            old.disconnect(id);
+                        }
+                    }
+                });
+                listview.connect_unrealize({
+                    let weak = Rc::downgrade(&entry);
+                    move |_| {
+                        if let Some((clock, id)) =
+                            weak.upgrade().and_then(|entry| entry.frame_hook.take())
+                        {
+                            clock.disconnect(id);
+                        }
+                    }
+                });
+                LIST_STATE.with(|m| m.borrow_mut().insert(widget_key(&host), entry));
                 host
             }
             Some(Builtin::Image) => {
@@ -7030,28 +9026,23 @@ impl Toolkit for Gtk {
                     return placeholder_label(kind);
                 };
                 let pic = gtk4::Picture::new();
+                // Pass-through (docs/gestures.md): hit-testable once a recognizer asks.
+                pic.set_can_target(false);
                 // Scaling (§18.3): GtkPicture content-fit — Contain (fit) / Cover (fill) / Fill.
                 pic.set_content_fit(match p.content_mode {
                     ContentMode::Fit => gtk4::ContentFit::Contain,
                     ContentMode::Fill => gtk4::ContentFit::Cover,
                     ContentMode::Stretch => gtk4::ContentFit::Fill,
                 });
-                // Vector-glyph tint (docs/vectors.md): recolor every pixel to the tint,
-                // keeping alpha as the mask — same recolor the sidebar template icons use.
-                // Bytes and shared decodes arrive through `decode_image` (docs/images.md); this
-                // arm is the staged-asset path, unchanged.
-                // Only a NAMED source can be tinted: a recolor re-reads the file, and bytes have
-                // no file to re-read. The name is recorded either way so a later tint patch
-                // knows whether it has one.
-                let named = match &p.source {
-                    day_spec::ImageSource::Named(name) => name.clone(),
-                    _ => String::new(),
-                };
+                // Tint (docs/vectors.md, docs/images.md "Tinting"): recolor every pixel to the
+                // tint, keeping alpha as the mask — the same recolor the sidebar template
+                // icons use. The source is recorded so a later tint patch can paint it again,
+                // and a source swap keeps the tint.
                 IMAGE_SOURCE.with(|t| {
                     t.insert(
                         widget_key(pic.upcast_ref()),
                         ImageEntry {
-                            name: named.clone(),
+                            source: p.source.clone(),
                             tint: p.tint,
                             template: p.template,
                             picture: pic.downgrade(),
@@ -7060,11 +9051,7 @@ impl Toolkit for Gtk {
                 });
                 // A template with no tint (docs/vectors.md "Template") recolors to the theme
                 // foreground, as the sidebar's own icons do, and is re-painted on a switch.
-                if named.is_empty() {
-                    set_picture_source(&pic, &p.source);
-                } else {
-                    repaint_image(&pic, &named, p.tint, p.template);
-                }
+                repaint_image(&pic, &p.source, p.tint, p.template);
                 pic.upcast()
             }
             Some(Builtin::ListItem) => match props.downcast_ref::<day_spec::props::ListItemProps>()
@@ -7089,7 +9076,7 @@ impl Toolkit for Gtk {
         h: &Handle,
         kind: PieceKind,
         patch: &dyn std::any::Any,
-        _anim: Option<&AnimSpec>,
+        anim: Option<&AnimSpec>,
     ) {
         match kind {
             kinds::LIST_ITEM => {
@@ -7241,40 +9228,39 @@ impl Toolkit for Gtk {
                                 })
                             });
                             if let Some(entry) = entry {
-                                repaint_image(pic, &entry.name, *c, entry.template);
+                                repaint_image(pic, &entry.source, *c, entry.template);
                             }
                         }
                         // A source swap repaints the same widget (docs/images.md), so an `image()`
                         // bound to a signal shows new pixels without rebuilding its subtree. A
-                        // tinted or template glyph is re-rendered from the new name in the same
-                        // paint, so a recycled sidebar row shows the icon it was rebound to.
+                        // tinted or template image is re-rendered from the new source in the same
+                        // paint, so the tint survives the swap and a recycled sidebar row shows
+                        // the icon it was rebound to.
                         day_spec::props::ImagePatch::Source(source) => {
-                            let named = match source {
-                                day_spec::ImageSource::Named(name) => name.clone(),
-                                _ => String::new(),
-                            };
                             let entry = IMAGE_SOURCE.with(|t| {
                                 t.with(widget_key(h), |e| {
-                                    e.name.clone_from(&named);
+                                    e.source = source.clone();
                                     e.clone()
                                 })
                             });
                             match entry {
-                                Some(e)
-                                    if !named.is_empty() && (e.tint.is_some() || e.template) =>
-                                {
-                                    repaint_image(pic, &named, e.tint, e.template);
-                                }
-                                _ => set_picture_source(pic, source),
+                                Some(e) => repaint_image(pic, source, e.tint, e.template),
+                                None => set_picture_source(pic, source),
                             }
                         }
                     }
                 }
             }
             kinds::CONTAINER => {
-                if let Some(ContainerPatch::Background(c)) = patch.downcast_ref::<ContainerPatch>()
-                {
-                    apply_surface(h, *c, 0.0, false);
+                match patch.downcast_ref::<ContainerPatch>() {
+                    // Only the fill changes, blended from the color shown when animated
+                    // (docs/tween.md rule 8); the rounding, border and shadow stay as realized.
+                    Some(ContainerPatch::Fill(fill)) => {
+                        motion::set_background(h, fill.clone(), anim);
+                    }
+                    // The realize-time surface again on the same widget (color brief §3).
+                    Some(ContainerPatch::Surface(p)) => restyle_surface(h, p, anim),
+                    None => {}
                 }
             }
             kinds::NAV_MENU => {
@@ -7303,6 +9289,14 @@ impl Toolkit for Gtk {
                             return;
                         };
                         state.suppress.set(true);
+                        state.decor = NavDecor {
+                            items: items.clone(),
+                            icons: icons.clone(),
+                            badges: badges.clone(),
+                            badge_icons: badge_icons.clone(),
+                            tints: tints.clone(),
+                            badge_tints: badge_tints.clone(),
+                        };
                         // The same rows with new words or counts: refresh those rows where they
                         // stand, keeping the selection and every other row.
                         if let Some(rows) = rows_changed
@@ -7493,13 +9487,16 @@ impl Toolkit for Gtk {
                     h.downcast_ref::<gtk4::Label>(),
                 ) {
                     match p {
+                        // Idempotent: the same paragraph re-applies the same properties, which
+                        // GtkLabel's setters compare before they notify.
+                        LabelPatch::Paragraph(p) => update_label_style(label, |s| s.paragraph = *p),
                         LabelPatch::Text(t) => {
                             if label.text() != t.as_str() {
                                 label.set_text(t);
                             }
                         }
-                        LabelPatch::Font(f) => update_text_attrs(label, Some(*f), None),
-                        LabelPatch::Color(c) => update_text_attrs(label, None, Some(*c)),
+                        LabelPatch::Font(f) => update_label_style(label, |s| s.font = *f),
+                        LabelPatch::Color(c) => update_label_style(label, |s| s.color = *c),
                         LabelPatch::Runs(text, runs) => set_label_runs(label, text, runs),
                     }
                 }
@@ -7543,7 +9540,9 @@ impl Toolkit for Gtk {
                     match p {
                         SliderPatch::Value(v) => {
                             if (scale.value() - v).abs() > 0.001 {
+                                SLIDER_WRITING.set(true);
                                 scale.set_value(*v);
+                                SLIDER_WRITING.set(false);
                             }
                         }
                         SliderPatch::Enabled(e) => scale.set_sensitive(*e),
@@ -7594,35 +9593,28 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                Some(ListPatch::Reload | ListPatch::Splice(_)) => {
-                    LIST_STATE.with(|m| {
-                        if let Some(e) = m.borrow().get(&widget_key(h)) {
-                            // Deferred: this runs inside a with_tree borrow (see schedule_list_resize).
-                            schedule_list_resize(
-                                e.model.clone(),
-                                e.source.clone(),
-                                e.selection.clone(),
-                                e.bound.clone(),
-                            );
-                            if let Some(pinned) = &e.pinned {
-                                pinned.reset_later();
-                            }
+                Some(patch @ (ListPatch::Reload | ListPatch::Splice(_))) => {
+                    if let Some(e) = list_entry(h) {
+                        // Deferred: this runs inside a with_tree borrow (`ListEntry::queue_rows`).
+                        e.queue_rows(match patch {
+                            ListPatch::Splice(deltas) => Some(deltas.clone()),
+                            _ => None,
+                        });
+                        if let Some(pinned) = &e.pinned {
+                            pinned.reset_later();
                         }
-                    });
+                    }
                 }
+                // Superseded by `list_scroll`, which this backend handles: day-core sends these
+                // two only to a backend that does not.
                 Some(ListPatch::ScrollToEnd) => {
-                    if let Some(sw) = list_scroller(h) {
-                        scroll_list_when_laid(&sw, None, None);
+                    if let Some(e) = list_entry(h) {
+                        e.scroll_rows(None, day_spec::RowAlign::Nearest, false);
                     }
                 }
                 Some(ListPatch::ScrollToRow(row)) => {
-                    if let Some(sw) = list_scroller(h) {
-                        let pinned = LIST_STATE.with(|m| {
-                            m.borrow()
-                                .get(&widget_key(h))
-                                .and_then(|e| e.pinned.clone())
-                        });
-                        scroll_list_when_laid(&sw, Some(*row), pinned);
+                    if let Some(e) = list_entry(h) {
+                        e.scroll_rows(Some(*row), day_spec::RowAlign::Nearest, false);
                     }
                 }
                 Some(ListPatch::Selected(rows)) => {
@@ -7759,6 +9751,7 @@ impl Toolkit for Gtk {
     }
     fn release(&mut self, h: Handle) {
         LIST_ITEMS.with(|m| m.borrow_mut().remove(&widget_key(&h)));
+        LIST_ITEM_VIEWS.with(|m| m.borrow_mut().remove(&widget_key(&h)));
         // A released window content = that window is gone (docs/windows.md teardown):
         // drop the record, destroying a straggler window (a programmatic-close's window is
         // already closed; destroy on it is a no-op).
@@ -7785,9 +9778,6 @@ impl Toolkit for Gtk {
         // hand below predate the mechanism; NEW per-view state should be a SideTable, not
         // another line here.
         day_spec::sidetable::sweep(key);
-        GTK_ANIMS.with(|m| {
-            m.borrow_mut().remove(&key);
-        });
         NODE_ORIGIN.with(|m| {
             m.borrow_mut().remove(&key);
         });
@@ -7801,6 +9791,14 @@ impl Toolkit for Gtk {
             && let Some(src) = pinned.source.borrow().as_ref()
         {
             (src.release)(pinned.cell.as_ptr() as RawHandle);
+        }
+        if let Some(list) = &list {
+            // The frame clock outlives the list: its viewport hook goes now.
+            if let Some((clock, id)) = list.frame_hook.take() {
+                clock.disconnect(id);
+            }
+            // A sectioned list's scrolled window is not the host, so no sweep reaches it.
+            day_spec::sidetable::sweep(list.sw.as_ptr() as usize);
         }
         TREE_STATE.with(|m| {
             m.borrow_mut().remove(&key);
@@ -7836,9 +9834,6 @@ impl Toolkit for Gtk {
         });
         NAV_PAGE_TITLES.with(|m| {
             m.borrow_mut().remove(&key);
-        });
-        GESTURES.with(|g| {
-            g.borrow_mut().retain(|(ptr, _)| *ptr != key);
         });
         // A tab page detaches from its AdwViewStack; a nav page is owned by its AdwNavigationPage
         // (already detached in `remove`); a list row's content by its DayCell; everything else
@@ -8067,6 +10062,7 @@ impl Toolkit for Gtk {
             });
         } else if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.put(child, 0.0, 0.0);
+            let_shadow_spill(child);
         } else if let Some(cell) = content_of(parent).downcast_ref::<DayCell>() {
             // A list row's content: the cell places it from the frames `set_frame` records.
             cell.add_child(child);
@@ -8210,6 +10206,15 @@ impl Toolkit for Gtk {
                 // markup stripped of tags and its attribute list is empty (see `base_span`), so
                 // measuring those two would size bold and monospace runs at the base font.
                 let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
+                let (wraps, paragraph, spacing_px) = LABEL_STYLE.with(|m| {
+                    m.borrow()
+                        .get(&key)
+                        .map_or((true, LabelParagraph::default(), 0.0), |s| {
+                            let units = paragraph_units(resolved_font_px(s.font), &s.paragraph).0;
+                            let px = f64::from(units.unwrap_or(0)) / f64::from(gtk4::pango::SCALE);
+                            (s.wraps, s.paragraph, px)
+                        })
+                });
                 let rich = LABEL_STYLE.with(|m| {
                     m.borrow().get(&key).and_then(|s| {
                         s.rich.as_ref().map(|(t, r)| {
@@ -8235,15 +10240,7 @@ impl Toolkit for Gtk {
                     layout.set_text(&label.text());
                     layout.set_attributes(label.attributes().as_ref());
                 }
-                layout.set_wrap(gtk4::pango::WrapMode::WordChar);
-                let (nat_w, _) = layout.pixel_size();
-                let w = match p.width {
-                    Some(pw) => f64::from(nat_w).min(pw),
-                    None => f64::from(nat_w),
-                };
-                layout.set_width((w * f64::from(gtk4::pango::SCALE)).round() as i32);
-                let (_, nat_h) = layout.pixel_size();
-                Size::new(w.ceil(), f64::from(nat_h))
+                measure_label_layout(&layout, wraps, &paragraph, spacing_px, p.width)
             }
             kinds::PICKER => picker::measure_any(self, h, p),
             kinds::TEXT_AREA => textarea::measure_any(self, h, p),
@@ -8308,77 +10305,36 @@ impl Toolkit for Gtk {
     }
 
     fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
-        let key = widget_key(h);
-        match anim {
-            None => {
-                GTK_ANIMS.with(|m| m.borrow_mut().entry(key).or_default().opacity = None);
-                h.set_opacity(opacity);
-            }
-            Some(a) => {
-                // Apply the final value first (so it lands even if the frame clock never ticks —
-                // e.g. an unmapped/headless window), then tween over it from the current value via
-                // libadwaita's frame-clock animation. The callback's v=0 frame re-establishes the
-                // start, so there's no visible jump when it does run.
-                let from = h.opacity();
-                h.set_opacity(opacity);
-                let widget = h.clone();
-                let target = adw::CallbackAnimationTarget::new(move |v| widget.set_opacity(v));
-                let animation = gtk_animation(h, from, opacity, a, target);
-                animation.play();
-                GTK_ANIMS
-                    .with(|m| m.borrow_mut().entry(key).or_default().opacity = Some(animation));
-            }
-        }
+        // Stepped on the frame clock from the opacity shown (motion.rs, docs/tween.md).
+        motion::set_opacity(h, opacity, anim);
     }
 
     fn set_transform(&mut self, h: &Handle, t: Transform, size: Size, anim: Option<&AnimSpec>) {
         // A child's transform lives on its GtkFixed parent (GskTransform), applied about the
-        // widget's center so scale/rotation match the other backends.
+        // widget's center so scale/rotation match the other backends; animated, it is stepped
+        // on the frame clock from the transform shown (motion.rs).
         let Some(parent) = h.parent() else {
             return;
         };
         let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() else {
             return;
         };
-        let key = widget_key(h);
-        let from = GTK_ANIMS
-            .with(|m| m.borrow().get(&key).map(|s| s.cur_transform))
-            .unwrap_or_default();
-        match anim {
-            None => {
-                apply_gtk_transform(fixed, h, t, size);
-                GTK_ANIMS.with(|m| {
-                    let mut b = m.borrow_mut();
-                    let s = b.entry(key).or_default();
-                    s.transform = None;
-                    s.cur_transform = t;
-                });
-            }
-            Some(a) => {
-                // Apply the final transform first (robust if the frame clock never ticks), then
-                // interpolate the whole transform (progress 0→1) over it on the Adw frame clock.
-                apply_gtk_transform(fixed, h, t, size);
-                let fixed = fixed.clone();
-                let widget = h.clone();
-                let target = adw::CallbackAnimationTarget::new(move |v| {
-                    apply_gtk_transform(&fixed, &widget, from.lerp(t, v), size);
-                });
-                let animation = gtk_animation(h, 0.0, 1.0, a, target);
-                animation.play();
-                GTK_ANIMS.with(|m| {
-                    let mut b = m.borrow_mut();
-                    let s = b.entry(key).or_default();
-                    s.transform = Some(animation);
-                    s.cur_transform = t;
-                });
-            }
-        }
+        motion::set_transform(fixed, h, t, size, anim);
+    }
+
+    fn read_displayed(&self, h: &Handle) -> day_spec::Displayed {
+        // The values motion.rs last wrote (opacity, transform, the frame of a `GtkFixed` child,
+        // a surface's fill): what GTK draws, mid-animation included.
+        motion::displayed(h)
     }
 
     fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {
         // A plain label is a GtkLabel (docs/text.md); the downcast guards a non-label backing.
         if let Some(l) = h.downcast_ref::<gtk4::Label>() {
             l.set_selectable(selectable);
+            if selectable {
+                l.set_can_target(true);
+            }
         }
         None
     }
@@ -8412,6 +10368,9 @@ impl Toolkit for Gtk {
             h.set_cursor(None);
             return;
         }
+        // GTK shows the cursor of the widget its hit test finds, so a shaped cursor needs a
+        // hit-testable view (a limitation: on GTK such a view also stops presses).
+        input::take_input(h);
         let fallback = gtk4::gdk::Cursor::from_name("default", None);
         let shape = gtk4::gdk::Cursor::from_name(cursor.css_name(), fallback.as_ref());
         h.set_cursor(shape.as_ref());
@@ -8436,7 +10395,7 @@ impl Toolkit for Gtk {
         (nat_baseline >= 0).then_some(f64::from(nat_baseline))
     }
 
-    fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
+    fn set_frame(&mut self, h: &Handle, frame: Rect, anim: Option<&AnimSpec>) {
         let key = widget_key(h);
         // Nav pages are laid out by their native container, not by Day; skip them.
         if NAV_PAGE_IDS.with(|m| m.borrow().contains_key(&key)) {
@@ -8453,29 +10412,6 @@ impl Toolkit for Gtk {
             cell.set_child_frame(h, frame);
             return;
         }
-        if let Some(parent) = h.parent()
-            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
-        {
-            NODE_ORIGIN.with(|m| {
-                m.borrow_mut()
-                    .insert(key, (frame.origin.x as f32, frame.origin.y as f32))
-            });
-            fixed.move_(h, frame.origin.x, frame.origin.y);
-            // `move_` rewrote the child transform to a plain translation, dropping any active
-            // animation transform. Re-apply it over the new origin so a relayout (window resize,
-            // deep-link mount) doesn't reset a transformed widget's scale/rotation/offset — or
-            // strand it at the corner.
-            let cur = GTK_ANIMS.with(|m| m.borrow().get(&key).map(|s| s.cur_transform));
-            if let Some(t) = cur
-                && !t.is_identity()
-            {
-                apply_gtk_transform(fixed, h, t, frame.size);
-            }
-        }
-        h.set_size_request(
-            frame.size.width.round() as i32,
-            frame.size.height.round() as i32,
-        );
         // A stack or suite host resized (window resize): re-report page sizes for relayout.
         // GTK allocates asynchronously — defer one idle so size/position settle. A split
         // host's panes report themselves as GTK allocates them (`nav_pane_report`), and so do
@@ -8485,6 +10421,20 @@ impl Toolkit for Gtk {
                 .get(&key)
                 .is_some_and(|s| !matches!(s.present, NavPresent::Split(_)))
         });
+        if let Some(parent) = h.parent()
+            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
+        {
+            // Placed through the fixed (origin, transform, size), stepped on the frame clock
+            // when animated (motion.rs). A stacked nav host reports its pages' size once it
+            // has it, so it takes its frame at once.
+            motion::set_frame(fixed, h, frame, anim.filter(|_| !stacked_nav));
+        } else {
+            h.set_size_request(
+                frame.size.width.round() as i32,
+                frame.size.height.round() as i32,
+            );
+            surface_resized(key, (frame.size.width, frame.size.height));
+        }
         if stacked_nav {
             gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || nav_report(key)));
         }
@@ -8510,33 +10460,74 @@ impl Toolkit for Gtk {
         }
     }
 
-    fn scroll_to(&mut self, h: &Handle, target: Rect, _animated: bool) {
-        // Minimal scroll so `target` (content space) is visible; the adjustments clamp to
-        // their own range. GTK adjustments animate only via kinetic scroll, so jumps are
-        // immediate — dayscript wants that anyway.
+    /// Minimal scroll so `target` (content space) is visible, clamped to the range (docs/scroll.md
+    /// "How a target becomes a scroll"). Animated: an ease-out over the frame clock
+    /// (`scroll::glide`); a new scroll or the user's own scrolling stops it. Instant: at once,
+    /// and again on the next frame once GTK has laid out a content size Day just set.
+    fn scroll_to(&mut self, h: &Handle, target: Rect, animated: bool) {
         let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() else {
             return;
         };
-        let reveal = |adj: gtk4::Adjustment, lo: f64, hi: f64| {
-            let mut v = adj.value();
-            if hi > v + adj.page_size() {
-                v = hi - adj.page_size();
-            }
-            if lo < v {
-                v = lo;
-            }
-            adj.set_value(v);
+        let (lo, hi) = (
+            (target.origin.x, target.origin.y),
+            (target.max_x(), target.max_y()),
+        );
+        let goal = move |sw: &gtk4::ScrolledWindow| {
+            let (vadj, hadj) = (sw.vadjustment(), sw.hadjustment());
+            (
+                scroll::reveal(vadj.value(), vadj.page_size(), lo.1, hi.1),
+                scroll::reveal(hadj.value(), hadj.page_size(), lo.0, hi.0),
+            )
         };
-        reveal(
-            sw.vadjustment(),
-            target.origin.y,
-            target.origin.y + target.size.height,
+        if !animated {
+            let (v, x) = goal(sw);
+            sw.vadjustment().set_value(v);
+            sw.hadjustment().set_value(x);
+        }
+        // The content size Day last set (`set_scroll_content`): until GTK's range covers it,
+        // an edge target would land on the old extent. A few frames at most.
+        let content = content_of(h);
+        let fixed: std::cell::Cell<Option<(f64, f64)>> = std::cell::Cell::new(None);
+        let waited = std::cell::Cell::new(0_u32);
+        scroll::glide(
+            sw,
+            animated,
+            move |sw| {
+                let covers = |adj: &gtk4::Adjustment, want: i32| {
+                    want <= 0 || adj.upper() + 0.5 >= f64::from(want)
+                };
+                if !(covers(&sw.vadjustment(), content.height_request())
+                    && covers(&sw.hadjustment(), content.width_request()))
+                    && waited.replace(waited.get() + 1) < 10
+                {
+                    return scroll::Aim::Wait;
+                }
+                // The minimal scroll from where the view was when the glide began.
+                let (v, x) = fixed.get().unwrap_or_else(|| {
+                    let at = goal(sw);
+                    fixed.set(Some(at));
+                    at
+                });
+                scroll::Aim::At {
+                    v: Some(v),
+                    h: Some(x),
+                    exact: true,
+                }
+            },
+            |_| {},
         );
-        reveal(
-            sw.hadjustment(),
-            target.origin.x,
-            target.origin.x + target.size.width,
-        );
+    }
+
+    fn scroll_offset(&mut self, h: &Handle) -> day_spec::Point {
+        list_scroller(h).map_or(day_spec::Point::ZERO, |sw| scroll::offset_of(&sw))
+    }
+
+    fn list_scroll(&mut self, h: &Handle, to: day_spec::ListScroll) -> bool {
+        let Some(e) = list_entry(h) else {
+            return false;
+        };
+        e.scroll_rows(to.row, to.align, to.animated);
+        true
     }
 
     fn set_focusable(&mut self, h: &Handle, node: NodeId, focusable: bool) {
@@ -8545,6 +10536,9 @@ impl Toolkit for Gtk {
         if !focusable {
             return;
         }
+        // The focus contract (docs/focus.md): a focusable view takes pointer input, and a
+        // canvas already carries the rest from its realize.
+        input::take_input(h);
         if h.is::<gtk4::DrawingArea>()
             || CONTAINER_KEYS
                 .with(|t| t.get(h.as_ptr() as usize))
@@ -8556,33 +10550,12 @@ impl Toolkit for Gtk {
         h.connect_has_focus_notify(move |w| {
             ffi_guard::contain((), || emit(node, Event::FocusChanged(w.has_focus())));
         });
-        let keys = gtk4::EventControllerKey::new();
-        keys.connect_key_pressed(move |controller, key, _, state| {
-            ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
-                if !controller.widget().is_some_and(|w| w.has_focus()) {
-                    return gtk4::glib::Propagation::Proceed;
-                }
-                let Some(name) = key_name(key, state) else {
-                    return gtk4::glib::Propagation::Proceed;
-                };
-                if !day_spec::keys::handled(node) {
-                    return gtk4::glib::Propagation::Proceed;
-                }
-                emit(
-                    node,
-                    Event::Key(day_spec::KeyEvent::named(name, key_modifiers(state))),
-                );
-                gtk4::glib::Propagation::Stop
-            })
-        });
-        h.add_controller(keys);
-        let click = gtk4::GestureClick::new();
-        click.connect_pressed(|g, _, _, _| {
-            if let Some(w) = g.widget() {
-                w.grab_focus();
-            }
-        });
-        h.add_controller(click);
+        // Keys with their phases, the full route for `.keyboard()`, and the press that
+        // focuses it before its recognizers hear that press.
+        input::wire_keys(h, node);
+        input::focus_on_press(h);
+        focus_ring_css();
+        h.add_css_class("day-focusable");
     }
 
     fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
@@ -8618,64 +10591,20 @@ impl Toolkit for Gtk {
 
     fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
         use day_spec::{DragPhase, GestureKind, Point};
-        let key = (h.as_ptr() as usize, kind);
-        if !GESTURES.with(|g| g.borrow_mut().insert(key)) {
-            return; // already wired
+        // Idempotent per (widget, kind); every recognizer makes the widget hit-testable.
+        if !input::note(h, node, kind) {
+            return;
         }
+        input::take_input(h);
         match kind {
-            GestureKind::Drag => {
-                let drag = gtk4::GestureDrag::new();
-                let start = Rc::new(std::cell::Cell::new((0.0f64, 0.0f64)));
-                drag.connect_drag_begin({
-                    let start = start.clone();
-                    move |_, x, y| {
-                        ffi_guard::contain((), || {
-                            start.set((x, y));
-                            emit(
-                                node,
-                                Event::Drag {
-                                    phase: DragPhase::Began,
-                                    location: Point::new(x, y),
-                                    translation: Point::ZERO,
-                                },
-                            );
-                        });
-                    }
-                });
-                drag.connect_drag_update({
-                    let start = start.clone();
-                    move |_, ox, oy| {
-                        ffi_guard::contain((), || {
-                            let (sx, sy) = start.get();
-                            emit(
-                                node,
-                                Event::Drag {
-                                    phase: DragPhase::Changed,
-                                    location: Point::new(sx + ox, sy + oy),
-                                    translation: Point::new(ox, oy),
-                                },
-                            );
-                        });
-                    }
-                });
-                drag.connect_drag_end({
-                    let start = start.clone();
-                    move |_, ox, oy| {
-                        ffi_guard::contain((), || {
-                            let (sx, sy) = start.get();
-                            emit(
-                                node,
-                                Event::Drag {
-                                    phase: DragPhase::Ended,
-                                    location: Point::new(sx + ox, sy + oy),
-                                    translation: Point::new(ox, oy),
-                                },
-                            );
-                        });
-                    }
-                });
-                h.add_controller(drag);
-            }
+            // Day's own recognizers on GTK's gestures, in the widget's one gesture group
+            // (input.rs): tap and double tap, long press, press, touches and drag.
+            GestureKind::Tap
+            | GestureKind::DoubleTap
+            | GestureKind::LongPress
+            | GestureKind::Press
+            | GestureKind::Touches
+            | GestureKind::Drag => input::attach(h, kind),
             GestureKind::Pinch => {
                 // GtkGestureZoom's scale-changed is CUMULATIVE since the gesture began —
                 // exactly Event::Pinch's contract.
@@ -8720,7 +10649,7 @@ impl Toolkit for Gtk {
                         );
                     });
                 });
-                h.add_controller(zoom);
+                input::add_gesture(h, &zoom);
             }
             GestureKind::Rotate => {
                 // GtkGestureRotate (two touches, or a touchpad's pinch-rotate) measures in
@@ -8785,7 +10714,7 @@ impl Toolkit for Gtk {
                         );
                     });
                 });
-                h.add_controller(rotate);
+                input::add_gesture(h, &rotate);
             }
             GestureKind::Pan => {
                 // Trackpad two-finger scroll / wheel. Deltas arrive per event; wheel notches
@@ -8891,20 +10820,58 @@ impl Toolkit for Gtk {
                 });
                 h.add_controller(motion);
             }
-            _ => {
-                let click = gtk4::GestureClick::new();
-                click.connect_released(move |_, _n, x, y| {
-                    ffi_guard::contain((), || emit(node, Event::Tap(Point::new(x, y))));
-                });
-                h.add_controller(click);
-            }
         }
     }
 
+    fn gesture_support(&self, kind: day_spec::GestureKind) -> Support {
+        use day_spec::GestureKind as K;
+        match kind {
+            // GDK reports touch sequences where the windowing system has a touch screen
+            // (Wayland, X11); macOS has none, and its trackpad is a pointer, so the single
+            // contact day-core derives from the drag is the honest answer there.
+            K::Touches => {
+                if cfg!(target_os = "macos") {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            }
+            // GtkGestureClick n_press, GtkGestureLongPress, a never-claiming GtkGestureDrag
+            // observer (input.rs), and GTK's own recognizers for the rest.
+            K::Tap
+            | K::DoubleTap
+            | K::LongPress
+            | K::Press
+            | K::Drag
+            | K::Pan
+            | K::Pinch
+            | K::Rotate
+            | K::Hover => Support::Native,
+        }
+    }
+
+    fn set_hit_slop(&mut self, h: &Handle, _node: NodeId, slop: day_spec::Insets) {
+        input::set_slop(h, slop);
+    }
+
+    fn set_drag_axis(&mut self, h: &Handle, _node: NodeId, axis: Option<day_spec::DragAxis>) {
+        input::set_axis(h, axis);
+    }
+
+    fn set_subtree_enabled(&mut self, h: &Handle, _node: NodeId, enabled: bool) {
+        // Sensitivity cascades: every control under the view dims, takes no pointer input,
+        // leaves the focus order (GTK moves focus out of an insensitive subtree) and reads as
+        // unavailable to assistive technology. A view under two disabled groups stays
+        // insensitive until both are enabled, since an insensitive ancestor wins.
+        h.set_sensitive(enabled);
+    }
+
     fn set_drag_source(&mut self, h: &Handle, source: day_spec::transfer::Source) {
+        input::take_input(h);
         transfer::source(h, source);
     }
     fn set_drop_target(&mut self, h: &Handle, target: day_spec::transfer::Target) {
+        input::take_input(h);
         transfer::target(h, target);
     }
     fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
@@ -8914,7 +10881,7 @@ impl Toolkit for Gtk {
         if already {
             return;
         }
-        h.set_can_target(true);
+        input::take_input(h);
         let attach = |w: &Handle, button: Option<u32>| {
             let show = {
                 let w = w.clone();
@@ -8969,7 +10936,7 @@ impl Toolkit for Gtk {
         let model = build_gio_menu(items, &group);
         h.insert_action_group("daymenu", Some(&group));
         // The label/target must be able to receive pointer events for the gesture to fire.
-        h.set_can_target(true);
+        input::take_input(h);
         let popover = gtk4::PopoverMenu::from_model(Some(&model));
         popover.set_parent(h);
         popover.set_has_arrow(false);
@@ -9079,22 +11046,20 @@ impl Toolkit for Gtk {
     }
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {
-        if let Some(report) = &source.first_visible {
+        // A list that reports its whole viewport does so once its first rows are laid out
+        // (`ListEntry::after_paint`).
+        if source.viewport.is_none()
+            && let Some(report) = &source.first_visible
+        {
             report(0);
         }
-        LIST_STATE.with(|m| {
-            if let Some(e) = m.borrow().get(&widget_key(host)) {
-                *e.source.borrow_mut() = Some(source);
-                // Deferred off this with_tree borrow: splice binds cells synchronously (see
-                // schedule_list_resize), which would otherwise re-enter with_tree via bind_row.
-                schedule_list_resize(
-                    e.model.clone(),
-                    e.source.clone(),
-                    e.selection.clone(),
-                    e.bound.clone(),
-                );
-            }
-        });
+        if let Some(e) = list_entry(host) {
+            *e.source.borrow_mut() = Some(source);
+            e.viewport_due.set(true);
+            // Deferred off this with_tree borrow: a model change binds cells synchronously
+            // (`ListEntry::queue_rows`), which would otherwise re-enter with_tree via bind_row.
+            e.queue_rows(None);
+        }
     }
 
     fn adopt(&mut self, raw: RawHandle) -> Handle {
@@ -10215,6 +12180,8 @@ fn build_day_window(
 ) -> (adw::ApplicationWindow, gtk4::Fixed, adw::HeaderBar) {
     let window = adw::ApplicationWindow::new(app);
     window.set_title(Some(&options.title));
+    // The input kind behind the pointer (docs/gestures.md "Input kind").
+    input::watch_pointer_kind(&window);
     window.set_default_size(options.size.width as i32, options.size.height as i32);
     let fixed = gtk4::Fixed::new();
     // A GtkFixed reports its children's bounding box as its MINIMUM size, which would pin the
@@ -10510,28 +12477,58 @@ impl Platform for Gtk {
             // A dayscript driving the app (`DAY_SCRIPT`, set by `day launch --script`) gets
             // GTK's widget transitions off too: Adwaita fades a toggle's or a switch's state
             // over ~200 ms, and a capture taken right after a step shows the state before it.
+            // Day's own animated changes (motion.rs) do not read the setting, and
+            // `reduce_motion` keeps answering the user's.
             let scripted = std::env::var_os("DAY_SCRIPT").is_some_and(|s| !s.is_empty());
             if (day_core::testing::fast_animations() || scripted)
                 && let Some(settings) = gtk4::Settings::default()
             {
-                settings.set_gtk_enable_animations(false);
+                mute_widget_transitions(&settings);
             }
 
             // Follow the SYSTEM appearance while running: libadwaita's StyleManager flips
             // `dark` on desktop theme switches — refresh day-core's reactive dark-mode
             // signal so palette closures recolor live.
-            adw::StyleManager::default().connect_dark_notify(|_| {
-                ffi_guard::contain((), || {
-                    day_core::note_appearance_changed();
-                    retint_template_images();
-                });
-            });
+            // libadwaita's stylesheet for the new appearance is loaded after this notify, so
+            // the refresh reads the palette and re-applies inks on the next idle
+            // (`refresh_appearance`). The high-contrast stylesheet and the system accent
+            // (libadwaita 1.6+; the notify never fires on older ones) change the named
+            // colors too.
+            let manager = adw::StyleManager::default();
+            manager.connect_dark_notify(|_| queue_appearance_refresh());
+            for property in ["high-contrast", "accent-color"] {
+                manager.connect_notify_local(Some(property), |_, _| queue_appearance_refresh());
+            }
             // Likewise the reduce-motion setting: the desktop's "Animations" switch lands on
             // GtkSettings as `gtk-enable-animations`, and its notify arrives on the main
             // thread, which is Day's — so the re-read happens in place (docs/accessibility.md).
             if let Some(settings) = gtk4::Settings::default() {
-                settings.connect_gtk_enable_animations_notify(|_| {
-                    ffi_guard::contain((), day_core::note_motion_changed);
+                settings.connect_gtk_enable_animations_notify(|s| {
+                    ffi_guard::contain((), || {
+                        if MUTING.with(std::cell::Cell::get) {
+                            return;
+                        }
+                        // The desktop changed the setting under a muted run: that value is
+                        // the user's, and GTK's transitions stay off.
+                        if USER_ANIMATIONS.with(std::cell::Cell::get).is_some() {
+                            USER_ANIMATIONS.with(|u| u.set(Some(s.is_gtk_enable_animations())));
+                            mute_widget_transitions(s);
+                        }
+                        day_core::note_motion_changed();
+                    });
+                });
+                // And the text size (docs/text.md "Text scale"): GNOME's text-scaling-factor
+                // arrives as `gtk-xft-dpi`. GTK gives its widgets the new resolution as their
+                // styles revalidate, so Day's labels re-derive their spacing and line height
+                // and everything re-measures once that has happened (an idle runs after the
+                // frame clock's style and layout phases).
+                settings.connect_gtk_xft_dpi_notify(|_| {
+                    gtk4::glib::idle_add_local_once(|| {
+                        ffi_guard::contain((), || {
+                            restyle_all_labels();
+                            day_core::note_text_size_changed();
+                        });
+                    });
                 });
             }
             if let Ok(theme) = std::env::var("DAY_THEME") {
@@ -10790,6 +12787,67 @@ mod tests {
             "a result arriving after the dismissal belongs to nothing"
         );
     }
+
+    #[test]
+    fn spacing_and_line_height_are_multiples_of_the_drawn_font_size() {
+        use day_spec::props::LabelParagraph;
+        let p = |letter_spacing, line_height| LabelParagraph {
+            letter_spacing,
+            line_height,
+            ..LabelParagraph::default()
+        };
+        // 20 px font: half an em is 10 px, twice the size is 40 px, in 1024ths.
+        assert_eq!(
+            paragraph_units(20.0, &p(0.5, 2.0)),
+            (Some(10 * 1024), Some(40 * 1024))
+        );
+        // A 20-point font at 96 dpi is drawn 26.67 px tall: the units follow the drawn size.
+        assert_eq!(
+            paragraph_units(20.0 * 96.0 / 72.0, &p(-0.05, 1.5)),
+            (Some(-1365), Some(40 * 1024))
+        );
+        // Zero, nonpositive and nonfinite values keep the font's own spacing and height.
+        assert_eq!(paragraph_units(20.0, &p(0.0, 0.0)), (None, None));
+        assert_eq!(paragraph_units(20.0, &p(f64::NAN, -1.0)), (None, None));
+        assert_eq!(
+            paragraph_units(20.0, &p(f64::INFINITY, f64::INFINITY)),
+            (None, None)
+        );
+        // Markup reads a `line_height` below 1024 as a factor: the absolute height floors at
+        // one pixel.
+        assert_eq!(paragraph_units(1.0, &p(0.0, 0.1)).1, Some(1024));
+    }
+
+    #[test]
+    fn selection_offsets_convert_from_characters_to_bytes() {
+        let text = "Grüße, 東京 ok";
+        assert_eq!(char_to_byte(text, 0), 0);
+        assert_eq!(char_to_byte(text, 3), 4); // after "Grü": ü is two bytes
+        assert_eq!(&text[char_to_byte(text, 2)..char_to_byte(text, 5)], "üße");
+        assert_eq!(&text[char_to_byte(text, 7)..char_to_byte(text, 9)], "東京");
+        assert_eq!(char_to_byte(text, 12), text.len());
+        assert_eq!(char_to_byte(text, 99), text.len());
+    }
+
+    #[test]
+    fn font_features_spell_every_tag_the_descriptor_asks_for() {
+        let mut spec = day_spec::FontSpec::default();
+        assert_eq!(font_feature_string(spec), "");
+        spec.small_caps = true;
+        assert_eq!(font_feature_string(spec), "smcp 1");
+        spec.tabular = true;
+        spec.oldstyle_figures = true;
+        assert_eq!(font_feature_string(spec), "tnum 1, smcp 1, onum 1");
+    }
+
+    #[test]
+    fn truncation_modes_map_to_their_pango_ellipsis() {
+        use day_spec::props::Truncation;
+        use gtk4::pango::EllipsizeMode;
+        assert_eq!(ellipsize_mode(Truncation::Tail), EllipsizeMode::End);
+        assert_eq!(ellipsize_mode(Truncation::Head), EllipsizeMode::Start);
+        assert_eq!(ellipsize_mode(Truncation::Middle), EllipsizeMode::Middle);
+    }
 }
 
 // Bitmap handles in reactive state can outlive the toolkit's thread-local registry at Quit.
@@ -10846,5 +12904,422 @@ mod bitmap_teardown_tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+#[cfg(test)]
+mod surface_canvas_tests {
+    use super::*;
+    use day_spec::{BlendMode, Color, Paint, Rect, Shadow, Shape};
+
+    /// Paint `ops` through the canvas painter onto a clear image surface of `w` x `h` points
+    /// at `scale`, answering its premultiplied `0xAARRGGBB` pixels and the pixel width.
+    fn painted(ops: &[DrawOp], w: i32, h: i32, scale: i32) -> (Vec<u32>, usize) {
+        use gtk4::cairo;
+        let mut surface =
+            cairo::ImageSurface::create(cairo::Format::ARgb32, w * scale, h * scale).unwrap();
+        {
+            let cr = cairo::Context::new(&surface).unwrap();
+            cr.scale(f64::from(scale), f64::from(scale));
+            let (nums, texts) = day_spec::encode_ops(ops);
+            cairo_draw(&cr, &nums, &texts, 1.0);
+            cr.status().unwrap();
+        }
+        surface.flush();
+        let stride = surface.stride() as usize;
+        let width = (w * scale) as usize;
+        let data = surface.data().unwrap();
+        let mut out = Vec::with_capacity(width * (h * scale) as usize);
+        for row in data.chunks_exact(stride) {
+            for px in row[..width * 4].as_chunks::<4>().0 {
+                out.push(u32::from_ne_bytes(*px));
+            }
+        }
+        (out, width)
+    }
+
+    fn fill(rect: Rect, color: u32) -> DrawOp {
+        DrawOp::Fill(Shape::Rect(rect), Paint::Solid(Color::hex(color).into()))
+    }
+
+    #[test]
+    fn conic_wedges_cover_one_turn_in_order() {
+        let stops = [(0.25, 0xffff_0000), (0.75, 0xff00_00ff)];
+        let wedges = conic_wedges(90.0, &stops);
+        assert!((wedges[0].from - 90.0).abs() < 1e-9);
+        assert!((wedges[wedges.len() - 1].to - 450.0).abs() < 1e-9);
+        for pair in wedges.windows(2) {
+            assert!((pair[0].to - pair[1].from).abs() < 1e-9);
+        }
+        // Flat before the first stop and after the last, in wide wedges.
+        assert_eq!((wedges[0].start, wedges[0].end), (0xffff_0000, 0xffff_0000));
+        assert!((wedges[0].to - wedges[0].from - 30.0).abs() < 1e-9);
+        let last = wedges[wedges.len() - 1];
+        assert_eq!((last.start, last.end), (0xff00_00ff, 0xff00_00ff));
+        // Between them the color changes in steps no wider than the limit, without a jump.
+        for w in wedges.iter().filter(|w| w.start != w.end) {
+            assert!(w.to - w.from <= CONIC_STEP + 1e-9);
+        }
+        for pair in wedges.windows(2) {
+            assert_eq!(pair[0].end, pair[1].start);
+        }
+    }
+
+    #[test]
+    fn conic_wedges_keep_a_hard_edge_and_the_shared_arithmetic() {
+        let stops = [
+            (0.0, 0xffff_0000),
+            (0.5, 0xffff_0000),
+            (0.5, 0xff00_ff00),
+            (1.0, 0xff00_00ff),
+        ];
+        let wedges = conic_wedges(0.0, &stops);
+        let edge = wedges
+            .windows(2)
+            .find(|p| p[0].end != p[1].start)
+            .expect("one hard edge");
+        assert!((edge[0].to - 180.0).abs() < 1e-9);
+        assert_eq!((edge[0].end, edge[1].start), (0xffff_0000, 0xff00_ff00));
+        // A wedge's ends are the colors `ConicGradient::color_at` gives for its angles.
+        let spec = day_spec::ConicGradient::centered(
+            day_spec::Angle::deg(0.0),
+            stops
+                .iter()
+                .map(|(o, c)| (*o, Color::hex(*c & 0x00ff_ffff)))
+                .collect::<Vec<_>>(),
+        );
+        let mid = wedges
+            .iter()
+            .find(|w| (w.from - 270.0).abs() < 1e-9)
+            .unwrap();
+        let want = spec.color_at(day_spec::Angle::deg(270.0));
+        let (r, g, b, _) = cairo_rgba(mid.start);
+        assert!(
+            (r - want.r).abs() < 0.01 && (g - want.g).abs() < 0.01 && (b - want.b).abs() < 0.01
+        );
+        assert_eq!(conic_wedges(0.0, &[]), []);
+    }
+
+    #[test]
+    fn conic_gradient_paints_its_quarters_clockwise_from_plus_x() {
+        let quarter = |at: f64, c: u32| [(at, Color::hex(c)), (at + 0.25, Color::hex(c))];
+        let stops = [
+            quarter(0.0, 0x00ff_0000),
+            quarter(0.25, 0x0000_ff00),
+            quarter(0.5, 0x0000_00ff),
+            quarter(0.75, 0x00ff_ff00),
+        ]
+        .concat();
+        let ops = [DrawOp::Fill(
+            Shape::Rect(Rect::new(0.0, 0.0, 100.0, 100.0)),
+            Paint::Conic(day_spec::ConicGradient::centered(
+                day_spec::Angle::deg(0.0),
+                stops,
+            )),
+        )];
+        let (px, w) = painted(&ops, 100, 100, 1);
+        assert_eq!(px[75 * w + 75], 0xffff_0000);
+        assert_eq!(px[75 * w + 25], 0xff00_ff00);
+        assert_eq!(px[25 * w + 25], 0xff00_00ff);
+        assert_eq!(px[25 * w + 75], 0xffff_ff00);
+        // The fan reaches the corners and leaves no clear seam along its spokes.
+        assert!(px.iter().all(|p| p >> 24 == 0xff));
+    }
+
+    #[test]
+    fn box_blur_passes_follow_the_css_construction() {
+        assert_eq!(box_blur_passes(0.2), [(0, 0); 3]);
+        // d = floor(sigma * 1.88 + 0.5): 3 at sigma 1.5 (odd), 4 at sigma 2 (even).
+        assert_eq!(box_blur_passes(1.5), [(1, 1); 3]);
+        assert_eq!(box_blur_passes(2.0), [(2, 1), (1, 2), (2, 2)]);
+        assert_eq!(blur_reach(2.0), 6);
+        assert_eq!(blur_reach(0.0), 0);
+        assert_eq!(blur_reach(1.0), 3);
+    }
+
+    #[test]
+    fn blur_spreads_coverage_evenly_and_keeps_its_weight() {
+        for sigma in [1.0, 4.0] {
+            let (w, h, stride) = (96usize, 96usize, 100usize);
+            let mut data = vec![0u8; stride * h];
+            for y in 32..64 {
+                for x in 32..64 {
+                    data[y * stride + x] = 255;
+                }
+            }
+            blur_alpha(&mut data, w, h, stride, sigma);
+            let at = |x: usize, y: usize| i32::from(data[y * stride + x]);
+            // The middle stays solid at these sizes, the edge is half covered, far is clear.
+            assert!(at(48, 48) > 250, "sigma {sigma}");
+            assert!((at(32, 48) + at(31, 48) - 255).abs() <= 12, "sigma {sigma}");
+            assert_eq!(at(2, 2), 0);
+            // Symmetric left to right and top to bottom.
+            assert!((at(30, 48) - at(65, 48)).abs() <= 2, "sigma {sigma}");
+            assert!((at(48, 30) - at(48, 65)).abs() <= 2, "sigma {sigma}");
+            let total: u32 = (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .map(|(x, y)| u32::from(data[y * stride + x]))
+                .sum();
+            let want = 255 * 32 * 32;
+            assert!(total.abs_diff(want) < want / 50, "sigma {sigma}: {total}");
+            // The padding bytes past each row's width are never touched.
+            assert!((0..h).all(|y| data[y * stride + w..(y + 1) * stride] == [0, 0, 0, 0]));
+        }
+    }
+
+    #[test]
+    fn shadow_keeps_its_offset_under_a_transform_and_ends_with_its_scope() {
+        let ops = [
+            fill(Rect::new(0.0, 0.0, 200.0, 100.0), 0x00ff_ffff),
+            DrawOp::Save,
+            DrawOp::Concat(day_spec::Affine::scale(2.0, 2.0)),
+            DrawOp::Shadow(Some(
+                Shadow::new(Color::hex(0x0000_0000), 2.0).offset(0.0, 20.0),
+            )),
+            fill(Rect::new(15.0, 10.0, 20.0, 15.0), 0x0000_00ff),
+            DrawOp::Restore,
+            fill(Rect::new(130.0, 20.0, 40.0, 30.0), 0x0000_00ff),
+        ];
+        for scale in [1, 2] {
+            let (px, w) = painted(&ops, 200, 100, scale);
+            let s = scale as usize;
+            let at = |x: usize, y: usize| px[y * s * w + x * s];
+            assert_eq!(at(50, 35), 0xff00_00ff, "the box, at {scale}x");
+            assert_eq!(at(50, 60), 0xff00_0000, "its shadow 20 points down");
+            assert_eq!(at(50, 85), 0xffff_ffff, "not 40 points down");
+            assert_eq!(at(150, 35), 0xff00_00ff, "the second box");
+            assert_eq!(at(150, 60), 0xffff_ffff, "casts nothing");
+            // The edge is soft: one point of sigma leaves a ramp around y = 70.
+            let edge = at(50, 70) & 0xff;
+            assert!(edge > 0x20 && edge < 0xe0, "edge {edge:#x} at {scale}x");
+        }
+    }
+
+    #[test]
+    fn a_clear_shadow_color_turns_the_shadow_off() {
+        let ops = [
+            fill(Rect::new(0.0, 0.0, 60.0, 60.0), 0x00ff_ffff),
+            DrawOp::Shadow(Some(
+                Shadow::new(Color::hex(0x0000_0000), 0.0).offset(0.0, 20.0),
+            )),
+            DrawOp::Shadow(None),
+            fill(Rect::new(20.0, 10.0, 20.0, 10.0), 0x0000_00ff),
+        ];
+        let (px, w) = painted(&ops, 60, 60, 1);
+        assert_eq!(px[35 * w + 30], 0xffff_ffff);
+    }
+
+    #[test]
+    fn blend_modes_combine_with_the_canvas_and_end_with_their_scope() {
+        let band = |i: f64| Rect::new(20.0 * i, 0.0, 20.0, 20.0);
+        let ops = [
+            fill(Rect::new(0.0, 0.0, 60.0, 20.0), 0x00ff_ffff),
+            fill(band(0.0), 0x00ff_ff00),
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Multiply),
+            fill(band(0.0), 0x0000_ffff),
+            DrawOp::Restore,
+            fill(band(1.0), 0x00ff_0000),
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Add),
+            fill(band(1.0), 0x0000_00ff),
+            DrawOp::Restore,
+            fill(band(2.0), 0x00ff_ff00),
+            fill(band(2.0), 0x0000_00ff),
+        ];
+        let (px, w) = painted(&ops, 60, 20, 1);
+        assert_eq!(px[10 * w + 10], 0xff00_ff00);
+        assert_eq!(px[10 * w + 30], 0xffff_00ff);
+        assert_eq!(px[10 * w + 50], 0xff00_00ff);
+    }
+
+    #[test]
+    fn erase_leaves_the_canvas_clear() {
+        let ops = [
+            fill(Rect::new(0.0, 0.0, 40.0, 40.0), 0x00ff_ffff),
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Erase),
+            fill(Rect::new(10.0, 10.0, 20.0, 20.0), 0x0000_ff00),
+            DrawOp::Restore,
+            // An unmatched restore must not unwind the painter's own group.
+            DrawOp::Restore,
+        ];
+        let (px, w) = painted(&ops, 40, 40, 1);
+        assert_eq!(px[20 * w + 20], 0x0000_0000);
+        assert_eq!(px[5 * w + 5], 0xffff_ffff);
+        assert_eq!(blend_operator(99), gtk4::cairo::Operator::Over);
+    }
+
+    #[test]
+    fn pdf_export_takes_shadows_blends_and_conic_gradients() {
+        let size = Size::new(120.0, 80.0);
+        let ops = vec![
+            DrawOp::Fill(
+                Shape::Ellipse(Rect::new(10.0, 10.0, 60.0, 60.0)),
+                Paint::Conic(day_spec::ConicGradient::centered(
+                    day_spec::Angle::deg(0.0),
+                    vec![
+                        (0.0, Color::hex(0x00ff_0000)),
+                        (1.0, Color::hex(0x0000_00ff)),
+                    ],
+                )),
+            ),
+            DrawOp::Save,
+            DrawOp::Shadow(Some(Shadow::new(Color::BLACK, 6.0).offset(2.0, 3.0))),
+            DrawOp::Blend(BlendMode::Multiply),
+            fill(Rect::new(50.0, 20.0, 40.0, 30.0), 0x0000_ff00),
+            DrawOp::Restore,
+        ];
+        let pdf = render_pdf_bytes(
+            &[day_spec::PdfPage { size, ops }],
+            &day_spec::PdfInfo::default(),
+        )
+        .unwrap();
+        assert!(pdf.starts_with(b"%PDF"));
+    }
+
+    #[test]
+    fn surface_css_names_each_corner_and_draws_border_and_shadow_as_box_shadows() {
+        let style = SurfaceStyle {
+            fill: Some(Color::rgb(0.0, 0.0, 1.0).into()),
+            corner_radius: 30.0,
+            corners: day_spec::Corners::TOP,
+            border: Some(day_spec::Border::new(Color::rgb(1.0, 0.0, 0.0), 8.0)),
+            shadow: Some(Shadow::new(Color::rgba(0.0, 0.0, 0.0, 0.5), 4.0).offset(0.0, 16.0)),
+            ..Default::default()
+        };
+        // Under the content (a widget that cannot draw over its children): an inset shadow.
+        assert_eq!(
+            style.css((80.0, 80.0), true),
+            "background-color: rgba(0,0,255,1);border-radius: 30px 30px 0px 0px;\
+             box-shadow: 0px 16px 4px rgba(0,0,0,0.5), inset 0 0 0 8px rgba(255,0,0,1);"
+        );
+        // Over the content (a Day container's snapshot draws it): not in the CSS.
+        assert_eq!(
+            style.css((80.0, 80.0), false),
+            "background-color: rgba(0,0,255,1);border-radius: 30px 30px 0px 0px;\
+             box-shadow: 0px 16px 4px rgba(0,0,0,0.5);"
+        );
+        assert!(!SurfaceStyle::default().is_styled());
+        assert!(!style.is_dynamic());
+        // The plain form is what `background` and `corner_radius` always wrote.
+        assert_eq!(
+            SurfaceStyle::plain(Some(Color::rgb(1.0, 0.0, 0.0).into()), 12.0, true)
+                .css((0.0, 0.0), false),
+            "background-color: rgba(255,0,0,1);border-radius: 12px 12px 12px 12px;"
+        );
+    }
+
+    #[test]
+    fn a_role_is_a_named_color_and_a_pair_is_resolved_and_dynamic() {
+        use day_spec::{Ink, SystemColor};
+        // A role without an alpha of its own is libadwaita's color, by name.
+        assert_eq!(
+            css_ink(Ink::system(SystemColor::Accent)),
+            role_css(SystemColor::Accent)
+        );
+        assert!(
+            ["var(--accent-bg-color)", "@accent_bg_color"].contains(&role_css(SystemColor::Accent))
+        );
+        assert!(css_ink(Ink::system(SystemColor::SecondaryText)).starts_with("alpha("));
+        // An alpha override replaces the role's alpha, which `alpha()` cannot say: resolved.
+        assert!(css_ink(SystemColor::Accent.with_alpha(0.2)).starts_with("rgba("));
+        let pair = Ink::adaptive(Color::rgb(1.0, 0.0, 0.0), Color::rgb(0.0, 0.0, 1.0));
+        let style = SurfaceStyle::plain(Some(pair), 0.0, false);
+        assert!(style.is_dynamic());
+        let bordered = SurfaceStyle {
+            border: Some(day_spec::Border::new(SystemColor::Separator, 1.0)),
+            ..Default::default()
+        };
+        assert!(bordered.is_dynamic());
+    }
+
+    #[test]
+    fn radial_and_conic_fills_are_css_gradients_in_unit_space() {
+        use day_spec::{Angle, ConicGradient, RadialGradient, UnitPoint};
+        let radial = RadialGradient::new(
+            UnitPoint::CENTER,
+            0.5,
+            [
+                (0.0, Color::rgb(1.0, 0.0, 0.0)),
+                (1.0, Color::rgb(0.0, 0.0, 1.0)),
+            ],
+        );
+        assert_eq!(
+            css_radial_gradient(&radial),
+            "radial-gradient(ellipse 50.0000% 50.0000% at 50.0000% 50.0000%, \
+             rgba(255,0,0,1) 0.0000%, rgba(0,0,255,1) 100.0000%)"
+        );
+        // Day's zero is +x and CSS's is up: a quarter turn later.
+        let conic = ConicGradient::centered(
+            Angle::deg(30.0),
+            vec![
+                (0.0, Color::rgb(1.0, 0.0, 0.0)),
+                (1.0, Color::rgb(0.0, 1.0, 0.0)),
+            ],
+        );
+        assert_eq!(
+            css_conic_gradient(&conic),
+            "conic-gradient(from 120.0000deg at 50.0000% 50.0000%, \
+             rgba(255,0,0,1) 0.0000%, rgba(0,255,0,1) 100.0000%)"
+        );
+    }
+
+    #[test]
+    fn css_gradient_lands_its_stops_on_the_unit_points() {
+        use day_spec::UnitPoint as U;
+        let red_blue = |start, end| {
+            day_spec::LinearGradient::new(
+                start,
+                end,
+                vec![
+                    (0.0, Color::rgb(1.0, 0.0, 0.0)),
+                    (1.0, Color::rgb(0.0, 0.0, 1.0)),
+                ],
+            )
+        };
+        // Axis-aligned: the same at any size.
+        for size in [(80.0, 80.0), (300.0, 20.0), (0.0, 0.0)] {
+            assert_eq!(
+                css_linear_gradient(&red_blue(U::TOP, U::BOTTOM), size),
+                "linear-gradient(180.0000deg, rgba(255,0,0,1) 0.0000%, rgba(0,0,255,1) 100.0000%)"
+            );
+            assert_eq!(
+                css_linear_gradient(&red_blue(U::LEADING, U::TRAILING), size),
+                "linear-gradient(90.0000deg, rgba(255,0,0,1) 0.0000%, rgba(0,0,255,1) 100.0000%)"
+            );
+        }
+        // Corner to corner of a 2:1 box: the line slants with the box, and since it runs
+        // exactly corner to corner the stops still sit at the ends of the CSS line.
+        assert_eq!(
+            css_linear_gradient(
+                &red_blue(U::TOP_LEADING, U::BOTTOM_TRAILING),
+                (200.0, 100.0)
+            ),
+            "linear-gradient(116.5651deg, rgba(255,0,0,1) 0.0000%, rgba(0,0,255,1) 100.0000%)"
+        );
+        // A gradient over the middle half of the height: stops at 25% and 75%.
+        assert_eq!(
+            css_linear_gradient(
+                &red_blue(U::new(0.5, 0.25), U::new(0.5, 0.75)),
+                (50.0, 200.0)
+            ),
+            "linear-gradient(180.0000deg, rgba(255,0,0,1) 25.0000%, rgba(0,0,255,1) 75.0000%)"
+        );
+    }
+
+    #[test]
+    fn tint_recolors_and_keeps_alpha() {
+        let words = [0xffff_0000u32, 0x8000_0040, 0x0000_0000];
+        let mut data: Vec<u8> = words.iter().flat_map(|w| w.to_ne_bytes()).collect();
+        tint_argb32(&mut data, Color::rgb(0.0, 1.0, 0.0));
+        let out: Vec<u32> = data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| u32::from_ne_bytes(*p))
+            .collect();
+        // Premultiplied: half-covered green is half green.
+        assert_eq!(out, [0xff00_ff00, 0x8000_8000, 0x0000_0000]);
     }
 }

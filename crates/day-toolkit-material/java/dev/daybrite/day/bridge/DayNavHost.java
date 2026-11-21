@@ -798,7 +798,18 @@ public class DayNavHost extends LinearLayout {
         if (scrollingChrome.getHeight() <= 0) return;
         int height = Math.max(0, scrollingChrome.getHeight() - appBar.getHeight() - chromeOffset);
         ViewGroup.LayoutParams lp = scrollingContent.getLayoutParams();
-        if (lp.height != height) { lp.height = height; scrollingContent.setLayoutParams(lp); }
+        if (lp.height != height) {
+            lp.height = height;
+            scrollingContent.setLayoutParams(lp);
+            // The app bar reports its offset from inside the coordinator's own layout pass (a
+            // pending `setExpanded(false)` is applied there), and a layout requested during a
+            // pass is dropped once the pass clears the flags. The content then keeps the height
+            // it had beside the expanded bar, short by the bar's height, until the next scroll.
+            // Ask again after the pass.
+            if (scrollingChrome.isInLayout()) {
+                scrollingChrome.post(scrollingContent::requestLayout);
+            }
+        }
     }
 
     void focusSearch() {

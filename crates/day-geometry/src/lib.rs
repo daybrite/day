@@ -178,10 +178,10 @@ impl Affine {
             ty: 0.0,
         }
     }
-    /// Rotation by `radians` (counter-clockwise in a y-up space; clockwise on y-down screens).
+    /// Rotation by `angle` (counter-clockwise in a y-up space; clockwise on y-down screens).
     #[inline]
-    pub fn rotate(radians: f64) -> Affine {
-        let (s, cos) = radians.sin_cos();
+    pub fn rotate(angle: Angle) -> Affine {
+        let (s, cos) = angle.radians().sin_cos();
         Affine {
             a: cos,
             b: s,
@@ -355,6 +355,14 @@ impl Insets {
     #[must_use]
     pub fn vertical_total(&self) -> f64 {
         self.top + self.bottom
+    }
+}
+
+/// The same inset on all four sides: what a bare number means wherever insets are taken
+/// (`.padding(8.0)`).
+impl From<f64> for Insets {
+    fn from(d: f64) -> Self {
+        Insets::all(d)
     }
 }
 
@@ -614,6 +622,109 @@ fn hue2rgb(p: f64, q: f64, t: f64) -> f64 {
     }
 }
 
+/// An angle: one type for every rotation, arc, sweep and gradient start in Day, so a call site
+/// says its unit (`Angle::deg(90.0)`, `Angle::rad(PI / 2.0)`) and no parameter can be read in
+/// the wrong one. Nothing converts into an `Angle` implicitly.
+///
+/// Day's angles are screen angles: `0` points along +x and positive turns clockwise, because
+/// y grows downward. The value is kept in degrees, so `Angle::deg(d).degrees()` returns `d`
+/// exactly; [`Angle::radians`] converts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
+pub struct Angle(f64);
+
+impl Angle {
+    /// No rotation.
+    pub const ZERO: Angle = Angle(0.0);
+    /// A quarter turn, 90 degrees.
+    pub const QUARTER: Angle = Angle(90.0);
+    /// A half turn, 180 degrees.
+    pub const HALF: Angle = Angle(180.0);
+    /// A full turn, 360 degrees.
+    pub const FULL: Angle = Angle(360.0);
+
+    /// An angle of `degrees` degrees.
+    #[inline]
+    #[must_use]
+    pub const fn deg(degrees: f64) -> Angle {
+        Angle(degrees)
+    }
+    /// An angle of `radians` radians.
+    #[inline]
+    #[must_use]
+    pub const fn rad(radians: f64) -> Angle {
+        Angle(radians * (180.0 / std::f64::consts::PI))
+    }
+    /// An angle of `turns` full turns: `0.25` is a quarter turn.
+    #[inline]
+    #[must_use]
+    pub const fn turns(turns: f64) -> Angle {
+        Angle(turns * 360.0)
+    }
+    /// The angle in degrees.
+    #[inline]
+    #[must_use]
+    pub const fn degrees(self) -> f64 {
+        self.0
+    }
+    /// The angle in radians.
+    #[inline]
+    #[must_use]
+    pub const fn radians(self) -> f64 {
+        self.0 * (std::f64::consts::PI / 180.0)
+    }
+    /// The same direction, normalized to `0..360` degrees.
+    #[must_use]
+    pub fn normalized(self) -> Angle {
+        Angle(self.0.rem_euclid(360.0))
+    }
+    /// Sine and cosine of the angle.
+    #[must_use]
+    pub fn sin_cos(self) -> (f64, f64) {
+        self.radians().sin_cos()
+    }
+}
+
+impl std::ops::Add for Angle {
+    type Output = Angle;
+    fn add(self, rhs: Angle) -> Angle {
+        Angle(self.0 + rhs.0)
+    }
+}
+impl std::ops::Sub for Angle {
+    type Output = Angle;
+    fn sub(self, rhs: Angle) -> Angle {
+        Angle(self.0 - rhs.0)
+    }
+}
+impl std::ops::Neg for Angle {
+    type Output = Angle;
+    fn neg(self) -> Angle {
+        Angle(-self.0)
+    }
+}
+impl std::ops::Mul<f64> for Angle {
+    type Output = Angle;
+    fn mul(self, rhs: f64) -> Angle {
+        Angle(self.0 * rhs)
+    }
+}
+impl std::ops::Div<f64> for Angle {
+    type Output = Angle;
+    fn div(self, rhs: f64) -> Angle {
+        Angle(self.0 / rhs)
+    }
+}
+impl std::ops::AddAssign for Angle {
+    fn add_assign(&mut self, rhs: Angle) {
+        self.0 += rhs.0;
+    }
+}
+impl std::ops::SubAssign for Angle {
+    fn sub_assign(&mut self, rhs: Angle) {
+        self.0 -= rhs.0;
+    }
+}
+
 /// The layout proposal: `None` = unconstrained on that axis (§7.2).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Proposal {
@@ -671,7 +782,8 @@ pub struct Transform {
     pub ty: f64,
     pub sx: f64,
     pub sy: f64,
-    pub rotate_deg: f64,
+    /// Rotation about the anchor, positive clockwise on screen.
+    pub rotation: Angle,
     /// Anchor for scale/rotation as a unit fraction of the node's bounds (`0.5,0.5` = center).
     pub anchor_x: f64,
     pub anchor_y: f64,
@@ -689,7 +801,7 @@ impl Transform {
         ty: 0.0,
         sx: 1.0,
         sy: 1.0,
-        rotate_deg: 0.0,
+        rotation: Angle::ZERO,
         anchor_x: 0.5,
         anchor_y: 0.5,
     };
@@ -714,9 +826,9 @@ impl Transform {
     }
     #[inline]
     #[must_use]
-    pub const fn rotate(deg: f64) -> Transform {
+    pub const fn rotate(angle: Angle) -> Transform {
         Transform {
-            rotate_deg: deg,
+            rotation: angle,
             ..Transform::IDENTITY
         }
     }
@@ -782,6 +894,12 @@ impl Animatable for Color {
         )
     }
 }
+impl Animatable for Angle {
+    #[inline]
+    fn lerp(self, to: Angle, t: f64) -> Angle {
+        Angle(flerp(self.0, to.0, t))
+    }
+}
 impl Animatable for Transform {
     #[inline]
     fn lerp(self, to: Transform, t: f64) -> Transform {
@@ -791,7 +909,7 @@ impl Animatable for Transform {
             ty: flerp(self.ty, to.ty, t),
             sx: flerp(self.sx, to.sx, t),
             sy: flerp(self.sy, to.sy, t),
-            rotate_deg: flerp(self.rotate_deg, to.rotate_deg, t),
+            rotation: self.rotation.lerp(to.rotation, t),
             anchor_x: to.anchor_x,
             anchor_y: to.anchor_y,
         }
@@ -881,6 +999,25 @@ mod tests {
         for bad in ["", "#12345", "not-a-color", "1 0", "1 0 0 0 0", "#gg0000"] {
             assert!(Color::parse(bad).is_none(), "{bad:?} rejected");
         }
+    }
+
+    #[test]
+    fn angle_units_round_trip() {
+        assert_eq!(Angle::deg(90.0).degrees(), 90.0);
+        assert!((Angle::deg(90.0).radians() - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+        assert!((Angle::rad(std::f64::consts::PI).degrees() - 180.0).abs() < 1e-12);
+        assert_eq!(Angle::turns(0.25), Angle::QUARTER);
+        assert_eq!(Angle::deg(30.0) + Angle::deg(60.0), Angle::QUARTER);
+        assert_eq!(Angle::deg(-90.0).normalized(), Angle::deg(270.0));
+        assert_eq!(
+            (Angle::deg(10.0) * 3.0 - Angle::deg(30.0)) / 2.0,
+            Angle::ZERO
+        );
+        let p = Affine::rotate(Angle::QUARTER).apply(Point::new(1.0, 0.0));
+        assert!(
+            p.x.abs() < 1e-12 && (p.y - 1.0).abs() < 1e-12,
+            "clockwise on screen"
+        );
     }
 
     #[test]

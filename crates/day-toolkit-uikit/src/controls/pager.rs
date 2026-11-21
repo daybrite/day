@@ -3,9 +3,9 @@ use day_spec::Event;
 use day_spec::NodeId;
 use day_spec::controls::pager::*;
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_foundation::NSArray;
+use objc2_foundation::{NSArray, NSString};
 use objc2_ui_kit::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -22,8 +22,161 @@ struct State {
     current: Cell<usize>,
     serial: Cell<u64>,
     finished: Cell<u64>,
+    /// `PagerProps::track_progress` (docs/pager.md "Progress").
+    track: bool,
+    /// The page view controller's own scroll view and the observer of its offset, once
+    /// found; registered for as long as this state lives.
+    progress: RefCell<Option<(Retained<UIScrollView>, Retained<Progress>)>>,
+    /// The last position reported, so an offset change that moves nothing sends nothing.
+    reported: Cell<Option<f64>>,
+}
+impl Drop for State {
+    fn drop(&mut self) {
+        self.detach_progress();
+    }
 }
 impl State {
+    /// Observes the offset of the scroll view `UIPageViewController` pages with (its
+    /// transition style is `.scroll`), the one continuous signal of where the pages are.
+    /// Idempotent; the scroll view exists once the controller's view has loaded.
+    fn attach_progress(state: &Rc<State>, mtm: MainThreadMarker) {
+        if !state.track || state.progress.borrow().is_some() {
+            return;
+        }
+        let Some(view) = state.controller.view() else {
+            return;
+        };
+        let Some(scroll) = view
+            .subviews()
+            .iter()
+            .find_map(|child| child.downcast::<UIScrollView>().ok())
+        else {
+            return;
+        };
+        let observer = Progress::alloc(mtm).set_ivars(ProgressIvars {
+            state: Rc::downgrade(state),
+        });
+        let observer: Retained<Progress> = unsafe { msg_send![super(observer), init] };
+        let key = NSString::from_str("contentOffset");
+        unsafe {
+            let _: () = msg_send![
+                &*scroll,
+                addObserver: &*observer,
+                forKeyPath: &*key,
+                options: 0usize,
+                context: std::ptr::null_mut::<std::ffi::c_void>()
+            ];
+        }
+        *state.progress.borrow_mut() = Some((scroll, observer));
+    }
+    fn detach_progress(&self) {
+        if let Some((scroll, observer)) = self.progress.borrow_mut().take() {
+            let key = NSString::from_str("contentOffset");
+            unsafe {
+                let _: () = msg_send![&*scroll, removeObserver: &*observer, forKeyPath: &*key];
+            }
+        }
+    }
+    /// The position in reading-order pages while the content moves: the current page's place
+    /// plus how far the content has traveled from that page's origin, in page widths. The
+    /// page's own frame in the scroll view is the reference, not the scroll view's resting
+    /// offset: UIKit re-centers the content on the new page at the end of a turn, and moves
+    /// the pages with it, so the position stays continuous through that jump.
+    fn report_progress(&self) {
+        let Some(scroll) = self.progress.borrow().as_ref().map(|(s, _)| s.clone()) else {
+            return;
+        };
+        let (epoch, position) = {
+            let config = self.config.borrow();
+            let pages = self.pages.borrow();
+            let current = self.current.get();
+            let Some(place) = config.order.iter().position(|s| *s == current) else {
+                return;
+            };
+            let origin_of = |slot: usize| -> Option<f64> {
+                let view = pages.get(slot)?.viewIfLoaded()?;
+                if !view.isDescendantOfView(&scroll) {
+                    return None;
+                }
+                Some(
+                    view.convertRect_toView(view.bounds(), Some(&scroll))
+                        .origin
+                        .x,
+                )
+            };
+            let Some(origin) = origin_of(current) else {
+                return;
+            };
+            // Which way the next page lies: where UIKit put a neighbor, when it has one in
+            // place, and the layout direction otherwise.
+            let forward = config
+                .order
+                .get(place + 1)
+                .and_then(|s| origin_of(*s))
+                .map(|x| if x < origin { -1.0 } else { 1.0 })
+                .or_else(|| {
+                    let before = config.order.get(place.checked_sub(1)?)?;
+                    origin_of(*before).map(|x| if x > origin { -1.0 } else { 1.0 })
+                })
+                .unwrap_or_else(|| {
+                    if scroll.effectiveUserInterfaceLayoutDirection()
+                        == UIUserInterfaceLayoutDirection::RightToLeft
+                    {
+                        -1.0
+                    } else {
+                        1.0
+                    }
+                });
+            let position = crate::scrolling::pager_position(
+                place,
+                scroll.contentOffset().x,
+                origin,
+                UICoordinateSpace::bounds(&*scroll).size.width,
+                forward,
+            );
+            (config.epoch, position)
+        };
+        // UIKit re-centers its content at the end of a turn in two steps (the pages, then the
+        // offset), and the offset change between them reads a whole page off (seen on iOS
+        // 18.6: 0.99, 1.00, 2.00, 1.00 for one swipe). No drag or animation moves the content
+        // three quarters of a page in one change, so such a reading is that seam; the rest
+        // report (`send_rest`) does not come through here.
+        if self
+            .reported
+            .get()
+            .is_some_and(|last| (position - last).abs() >= 0.75)
+        {
+            return;
+        }
+        self.send_progress(epoch, position);
+    }
+    /// `progress <epoch> <position>` on the pager's custom channel, once per distinct value.
+    fn send_progress(&self, epoch: u64, position: f64) {
+        if !self.track
+            || !position.is_finite()
+            || self.reported.replace(Some(position)) == Some(position)
+        {
+            return;
+        }
+        crate::emit(
+            self.node,
+            Event::custom("pager", format!("progress {epoch} {position}")),
+        );
+    }
+    /// The integral position of the page shown at rest.
+    fn send_rest(&self) {
+        let (epoch, place) = {
+            let config = self.config.borrow();
+            let current = self.current.get();
+            (
+                config.epoch,
+                config.order.iter().position(|s| *s == current),
+            )
+        };
+        if let Some(place) = place {
+            self.send_progress(epoch, place as f64);
+        }
+    }
     fn neighbor(
         &self,
         page: &UIViewController,
@@ -60,6 +213,7 @@ impl State {
                     None,
                 );
         }
+        self.send_rest();
     }
 }
 struct DelegateIvars {
@@ -111,9 +265,33 @@ define_class!(
                 if !state.busy.get() || state.finished.get() != state.serial.get() { return; }
                 state.busy.set(false);
                 crate::emit(state.node, Event::custom("pager",format!("settle {} {}",state.config.borrow().epoch,state.current.get())));
+                state.send_rest();
                 let pending = state.pending.borrow_mut().take();
                 if let Some(pending) = pending { state.apply(pending); }
             }
+        }
+    }
+);
+struct ProgressIvars {
+    state: Weak<State>,
+}
+define_class!(
+    // Key-value observer of the paging scroll view's `contentOffset` (docs/pager.md
+    // "Progress"). The page view controller is that scroll view's delegate and keeps it, so
+    // the offset is observed rather than delegated.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayPagerProgress"]
+    #[ivars = ProgressIvars]
+    struct Progress;
+    impl Progress {
+        #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
+        fn observe(&self, _key: Option<&NSString>, _object: Option<&AnyObject>, _change: Option<&AnyObject>, _context: *mut std::ffi::c_void) {
+            day_spec::ffi_guard::contain((), || {
+                if let Some(state) = self.ivars().state.upgrade() {
+                    state.report_progress();
+                }
+            });
         }
     }
 );
@@ -144,6 +322,7 @@ define_class!(
         }
         #[unsafe(method(didMoveToWindow))]
         fn moved(&self) {
+            State::attach_progress(&self.ivars().state, self.mtm());
             let controller = &self.ivars().state.controller;
             if self.window().is_none() || controller.parentViewController().is_some() { return; }
             let mut responder = self.nextResponder();
@@ -189,6 +368,9 @@ fn make(_: &mut Uikit, p: &PagerProps, id: NodeId) -> Retained<UIView> {
         current: Cell::new(0),
         serial: Cell::new(0),
         finished: Cell::new(0),
+        track: p.track_progress,
+        progress: RefCell::new(None),
+        reported: Cell::new(None),
     });
     let delegate = Delegate::alloc(mtm).set_ivars(DelegateIvars {
         state: Rc::downgrade(&state),
@@ -209,6 +391,7 @@ fn make(_: &mut Uikit, p: &PagerProps, id: NodeId) -> Retained<UIView> {
     if let Some(view) = state.controller.view() {
         host.addSubview(&view);
     }
+    State::attach_progress(&state, mtm);
     Retained::into_super(host)
 }
 fn update(_: &mut Uikit, h: &Retained<UIView>, p: &PagerPatch) {
@@ -218,6 +401,7 @@ fn update(_: &mut Uikit, h: &Retained<UIView>, p: &PagerPatch) {
 }
 fn release(_: &mut Uikit, h: &Retained<UIView>) {
     if let Some(host) = h.downcast_ref::<Host>() {
+        host.ivars().state.detach_progress();
         let controller = &host.ivars().state.controller;
         controller.setDelegate(None);
         controller.setDataSource(None);

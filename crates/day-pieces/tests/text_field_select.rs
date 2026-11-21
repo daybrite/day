@@ -252,7 +252,7 @@ fn a_field_with_a_key_handler_claims_the_arrows_and_escape() {
     let probe = boot(move || {
         column((
             text_field(Signal::new(String::new()))
-                .on_key(move |k| log.borrow_mut().push(k.key.clone()))
+                .on_key(move |k| log.borrow_mut().push(k.key.name()))
                 .id(day_core::id!(bar)),
             text_field(Signal::new(String::new())).id(day_core::id!(plain)),
         ))
@@ -273,7 +273,7 @@ fn a_field_with_a_key_handler_claims_the_arrows_and_escape() {
             "{key} stays with a plain field"
         );
         assert!(
-            !field_claims(bar, key, KeyEvent::SHIFT),
+            !field_claims(bar, key, day_spec::Modifiers::SHIFT),
             "shift+{key} stays the field's"
         );
     }

@@ -252,9 +252,20 @@ longer exists. Release builds skip the check entirely.
 
 `Wrap` breaks onto additional lines where the next child would overflow, like wrapped text, the
 shape a chip row, a button strip, or a tag cloud wants. Lines are `run_spacing` apart, and
-children align within their line via [`.align(VAlign::…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.AdaptiveBuilder.html#tymethod.align). Wrapping replaces main-axis
-negotiation, so [`.grow(Dimension::Both)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) and [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) are inert, and a single child wider than the window
-still overflows.
+children align within their line via [`.align(VAlign::…)`](https://docs.rs/day-pieces/latest/day_pieces/trait.AdaptiveBuilder.html#tymethod.align). A line breaks on the
+children's natural widths. A child that grows ([`.grow(Dimension::Width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow)) then takes a share
+of what its line has left, so every line ends flush with the trailing edge:
+
+```rust
+row((tiles,)).spacing(Space::S).fit(RowFit::Wrap { run_spacing: 8.0 })
+// each tile: …min_width(50.0).grow(Dimension::Width)
+```
+
+reads "at least 50 points, then share the line". A weight changes the shares:
+[`.grow(Dimension::Width.weight(2.0))`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) takes twice what a plain
+[`.grow(Dimension::Width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.grow) beside it takes, in a wrapping row and in a plain `row` or `column` alike. A [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html)
+contributes nothing to a wrapping row, and a single child wider than the window still
+overflows.
 
 `WrapColumns` wraps the same way but into aligned columns: every cell takes the widest child's
 width, and each line holds as many as the window fits. `Wrap` keeps each child at its natural
@@ -284,6 +295,37 @@ row((tiles,))
 
 An authored, fixed column count with per-cell spans is a different job; that is
 [`grid`](grid.md), whose children are rows rather than items.
+
+## Lanes
+
+A page of cards wants columns that each stack their own cards, as many as the window has room
+for. [`lanes`](https://docs.rs/day-pieces/latest/day_pieces/fn.lanes.html) is that container:
+
+```rust
+scroll(
+    lanes(cards)
+        .lane_width(320.0)
+        .max_lanes(3)
+        .spacing(Space::L)
+        .padding(20.0),
+)
+```
+
+The container has one lane for every `lane_width` (plus gap) that fits the width it is given,
+at least one and at most `max_lanes`, and the lanes share that width equally. Children are
+dealt in turn: the first to the first lane, the second to the second, and so on, each under
+the last child of its lane. [`.balanced()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LanesBuilder.html#tymethod.balanced)
+puts each child in the lane that is shortest so far instead, which evens the lanes out when
+the cards differ in height. [`.run_spacing`](https://docs.rs/day-pieces/latest/day_pieces/trait.LanesBuilder.html#tymethod.run_spacing)
+sets the gap between the cards of a lane apart from the gap between lanes.
+
+The lane count is decided during layout. Dragging a window across a breakpoint moves the same
+children to their new lanes: no card is rebuilt, so a card keeps its scroll position, its
+text, and every other piece of state. That is the difference from choosing a column count
+with `switch` on the size class, which builds a new set of columns and new cards with them.
+
+Lanes are a layout, not a recycling view: every child is built. A long feed in several
+columns is a job for a recycling grid, which Day does not have yet.
 
 A row that should become a leading-aligned column while the window's width class is compact
 (the shape a label-plus-control-plus-result line wants, where wrapping members independently

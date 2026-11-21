@@ -55,6 +55,7 @@
       "documents",
       "deep-links",
       "drag-and-drop",
+      "gestures",
       "tweaks"
     ]
   },
@@ -65,12 +66,14 @@
     "pages": [
       "text",
       "text-runs",
+      "markdown-view",
       "color",
       "fonts",
       "images",
       "vectors",
       "canvas",
       "shapes",
+      "surfaces",
       "tween",
       "frames",
       "resources",

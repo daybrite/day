@@ -487,6 +487,7 @@ async fn run_step(
             let checked = match op {
                 DriveOp::AssertNative(id, _)
                 | DriveOp::AssertFrame(id, _)
+                | DriveOp::AssertDisplayed(id, _)
                 | DriveOp::SamplePixel(id, ..) => Some(id),
                 _ => None,
             };
@@ -534,8 +535,14 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::Pan(id, ..) => format!("pan {id}"),
         DriveOp::Pinch(id, _) => format!("pinch {id}"),
         DriveOp::Rotate(id, _) => format!("rotate {id}"),
-        DriveOp::Drag(id, ..) => format!("drag {id}"),
-        DriveOp::Key(_, key) => format!("key {key}"),
+        DriveOp::Drag(id, ..) | DriveOp::Fling(id, ..) => format!("drag {id}"),
+        DriveOp::Key(_, key) | DriveOp::KeyPhase(_, key, _) => format!("key {key}"),
+        DriveOp::Press(id, _) => format!("press {id}"),
+        DriveOp::LongPress(id) => format!("long_press {id}"),
+        DriveOp::DoubleTap(id) => format!("double_tap {id}"),
+        DriveOp::Touches(id, ..) => format!("touches {id}"),
+        DriveOp::Pointer(kind) => format!("pointer {kind}"),
+        DriveOp::DropText(id, ..) | DriveOp::DropFiles(id, _) => format!("drop {id}"),
         DriveOp::AssertAnnounced(text) => format!("assert_announced {text}"),
         DriveOp::AssertValue(id, _) | DriveOp::AssertOn(id, _) => format!("assert_value {id}"),
         DriveOp::AssertFocused(id, _) => format!("assert_focused {id}"),
@@ -543,6 +550,7 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::A11yAudit(_) => "a11y_audit".into(),
         DriveOp::AssertNative(id, _) => format!("assert_native {id}"),
         DriveOp::AssertFrame(id, _) => format!("assert_frame {id}"),
+        DriveOp::AssertDisplayed(id, _) => format!("assert_displayed {id}"),
         DriveOp::SamplePixel(id, ..) => format!("sample_pixel {id}"),
         DriveOp::AssertOpenedUrl(url) => format!("assert_opened_url {url}"),
         DriveOp::Activate(id, _) => format!("activate {id}"),
@@ -594,6 +602,24 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         }
         DriveOp::TapAt(id, x, y) => json!({"op": "tap", "id": id, "at": [x, y]}),
         DriveOp::Key(id, key) => json!({"op": "key", "id": id, "key": key}),
+        DriveOp::KeyPhase(id, key, phase) => {
+            json!({"op": "key", "id": id, "key": key, "phase": phase})
+        }
+        DriveOp::Press(id, pressed) => json!({"op": "press", "id": id, "release": !pressed}),
+        DriveOp::LongPress(id) => json!({"op": "long_press", "id": id}),
+        DriveOp::DoubleTap(id) => json!({"op": "double_tap", "id": id}),
+        DriveOp::Touches(id, points, phase) => {
+            let points: Vec<[f64; 2]> = points.iter().map(|(x, y)| [*x, *y]).collect();
+            json!({"op": "touches", "id": id, "points": points, "phase": phase})
+        }
+        DriveOp::Fling(id, (fx, fy), (tx, ty), (vx, vy)) => {
+            json!({"op": "drag", "id": id, "from": [fx, fy], "to": [tx, ty], "velocity": [vx, vy]})
+        }
+        DriveOp::Pointer(kind) => json!({"op": "pointer", "kind": kind}),
+        DriveOp::DropText(id, text, phase) => {
+            json!({"op": "drop", "id": id, "text": text, "phase": phase})
+        }
+        DriveOp::DropFiles(id, files) => json!({"op": "drop", "id": id, "files": files}),
         DriveOp::AssertAnnounced(text) => json!({"op": "assert_announced", "text": text}),
         DriveOp::AssertValue(id, value) => json!({"op": "assert_value", "id": id, "value": value}),
         DriveOp::AssertOn(id, on) => json!({"op": "assert_value", "id": id, "value": on}),
@@ -605,6 +631,16 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         DriveOp::AssertNative(id, e) => json!({
             "op": "assert_native", "id": id, "text": e.text, "number": e.number,
             "checked": e.checked, "enabled": e.enabled, "visible": e.visible,
+        }),
+        DriveOp::AssertDisplayed(id, e) => json!({
+            "op": "assert_displayed", "id": id, "opacity": e.opacity,
+            "tx": e.translation.map(|t| t.x), "ty": e.translation.map(|t| t.y),
+            "width": e.width, "height": e.height,
+            "background": e.background.map(|c| {
+                let byte = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                format!("#{:02x}{:02x}{:02x}", byte(c.r), byte(c.g), byte(c.b))
+            }),
+            "tolerance": e.tolerance,
         }),
         DriveOp::AssertFrame(id, f) => json!({
             "op": "assert_frame", "id": id, "width": f.width, "height": f.height,
@@ -623,6 +659,8 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
             "op": "swipe_row", "id": id, "row": row, "action": action,
             "edge": if *leading { "leading" } else { "trailing" },
         }),
+        // An empty edge is a reveal (`Drive::reveal`).
+        DriveOp::ScrollTo(id, edge) if edge.is_empty() => json!({"op": "scroll_to", "id": id}),
         DriveOp::ScrollTo(id, edge) => json!({"op": "scroll_to", "id": id, "edge": edge}),
         DriveOp::Expand(id, row, expanded) => {
             json!({"op": "expand", "id": id, "row": row, "expanded": expanded})

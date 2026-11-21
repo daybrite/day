@@ -2530,7 +2530,10 @@ fn hugging_scroll<P: Piece>(child: P) -> impl Piece {
     day_core::piece_fn(move |cx: &mut day_core::BuildCx| {
         let node = cx.native(
             day_spec::kinds::SCROLL,
-            &day_spec::props::ScrollProps { horizontal: false },
+            &day_spec::props::ScrollProps {
+                horizontal: false,
+                ..Default::default()
+            },
             Rc::new(HuggingScrollLayout),
             day_core::Flex {
                 grow_w: true,

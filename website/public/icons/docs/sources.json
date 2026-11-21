@@ -811,6 +811,18 @@
     "map": {
       "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/map/materialsymbolsoutlined/map_24px.svg",
       "sha256": "a49ef8ee004dc4832a4bbe64fce0a054c0b90cb4246422c09cc234278788049b"
+    },
+    "gesture": {
+      "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/gesture/materialsymbolsoutlined/gesture_24px.svg",
+      "sha256": "7abfcf30ef6c0e3037812d77b75741d7457b99631f887fe1876a0ec8a280b0ce"
+    },
+    "markdown": {
+      "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/markdown/materialsymbolsoutlined/markdown_24px.svg",
+      "sha256": "8633b8f747f54cf085cbf5876dd521ca7c7df22c9cac361162d467003195da7a"
+    },
+    "rounded_corner": {
+      "url": "https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/symbols/web/rounded_corner/materialsymbolsoutlined/rounded_corner_24px.svg",
+      "sha256": "996eb20445b90c289292d22380cad27de470659f2b1fd80a658f8b8fe996e2ca"
     }
   }
 }

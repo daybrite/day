@@ -356,6 +356,16 @@ fn main_thread_budget(step_budget: Duration) -> Duration {
 }
 
 fn run_on_main(step: Step, budget: Duration, revision: u32) -> Reply {
+    // The engine can take a step before the backend has started and installed its main-thread
+    // poster (a runner connecting during a slow launch). Nothing can reach the UI thread yet,
+    // so the step goes back to the bounded wait as "not there yet", the same answer as a tree
+    // that is not built.
+    if !day_reactive::has_main_poster() {
+        return Reply::fail(
+            "the app is still starting (its UI thread is not running yet)",
+            true,
+        );
+    }
     let (tx, rx) = mpsc::sync_channel::<Reply>(1);
     // A dispatch that times out leaves its closure queued on the main thread, where it would run
     // later and apply a `navigate`/`tap` the runner has already given up on, moving the app to a
@@ -411,12 +421,13 @@ fn run_on_main(step: Step, budget: Duration, revision: u32) -> Reply {
 /// filters by ancestor submenu labels (suffix match). Returns `(id, enabled, trail)`.
 /// `[shift, primary, alt]` (with `cmd`/`ctrl` accepted for `primary`) → the day mask.
 fn parse_modifiers(names: &[String]) -> day_spec::Modifiers {
-    let mut m = day_spec::Modifiers::default();
+    use day_spec::Modifiers;
+    let mut m = Modifiers::NONE;
     for n in names {
         match n.to_ascii_lowercase().as_str() {
-            "shift" => m.shift = true,
-            "primary" | "cmd" | "ctrl" | "meta" => m.primary = true,
-            "alt" | "option" => m.alt = true,
+            "shift" => m |= Modifiers::SHIFT,
+            "primary" | "cmd" | "ctrl" | "meta" => m |= Modifiers::PRIMARY,
+            "alt" | "option" => m |= Modifiers::ALT,
             _ => {}
         }
     }
@@ -530,6 +541,16 @@ fn find(id: &str) -> Result<day_core::RNode, Reply> {
 fn probe(id: &str) -> Result<NodeProbe, Reply> {
     let node = find(id)?;
     with_tree(|t| t.node_probe(node)).ok_or_else(|| Reply::fail("element vanished", true))
+}
+
+/// `at` in the node's coordinates, or its center.
+fn point_in(node: day_core::RNode, at: Option<[f64; 2]>) -> day_spec::Point {
+    match at {
+        Some([x, y]) => day_spec::Point::new(x, y),
+        None => with_tree(|t| t.node_frame(node)).map_or(day_spec::Point::ZERO, |f| {
+            day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0)
+        }),
+    }
 }
 
 fn emit(id: &str, ev: day_spec::Event) -> Result<(), Reply> {
@@ -687,7 +708,13 @@ fn exec(step: Step, revision: u32) -> Reply {
                 day_core::set_modifier_override(None);
                 Ok(Reply::ok())
             }
-            Step::Key { key, id, modifiers } => {
+            Step::Key {
+                key,
+                id,
+                modifiers,
+                phase,
+            } => {
+                use day_spec::{KeyEvent, KeyPhase, Modifiers};
                 // Keys follow focus, so a synthetic one lands where the platform would put it:
                 // on the named piece, else on whatever holds focus. With nothing focused there
                 // is no target and the step says so, rather than dropping the key silently the
@@ -704,39 +731,168 @@ fn exec(step: Step, revision: u32) -> Reply {
                         }
                     },
                 };
-                let m = parse_modifiers(&modifiers);
-                let mut mask = 0u8;
-                if m.shift {
-                    mask |= day_spec::KeyEvent::SHIFT;
-                }
-                if m.primary {
-                    mask |= day_spec::KeyEvent::PRIMARY;
-                }
-                if m.alt {
-                    mask |= day_spec::KeyEvent::ALT;
-                }
+                let phase = match phase.as_deref() {
+                    None | Some("down") => KeyPhase::Down,
+                    Some("repeat") => KeyPhase::Repeat,
+                    Some("up") => KeyPhase::Up,
+                    Some(other) => {
+                        return Err(Reply::fail(
+                            format!("unknown key phase {other:?} (down, repeat or up)"),
+                            false,
+                        ));
+                    }
+                };
+                let mut mods = parse_modifiers(&modifiers);
                 // The physical Control key (docs/menus.md "The full route") is a key-event
-                // bit, not one of `day::modifiers()`'s three, so it is read off the names.
+                // modifier `day::modifiers()` does not answer, so it is read off the names.
                 if modifiers.iter().any(|n| n.eq_ignore_ascii_case("control")) {
-                    mask |= day_spec::KeyEvent::CONTROL;
+                    mods |= Modifiers::CONTROL;
                 }
+                // The step's `key:` is the web name; this is where it becomes a typed key.
                 // On the full route (docs/menus.md "The full route") a key that types does so
                 // here too: a name outside the vocabulary, pressed with nothing but Shift, is
                 // the text it types, so `key: a` reaches a terminal the way a real press does.
-                let chord = mask
-                    & (day_spec::KeyEvent::PRIMARY
-                        | day_spec::KeyEvent::ALT
-                        | day_spec::KeyEvent::CONTROL)
-                    != 0;
+                let chord = mods.primary() || mods.alt() || mods.control();
                 let event = if day_spec::keys::text(target)
                     && !chord
-                    && !day_spec::KeyEvent::NAMED.contains(&key.as_str())
+                    && !KeyEvent::NAMED.contains(&key.as_str())
                 {
-                    day_spec::KeyEvent::typed_text(key, mask)
+                    KeyEvent::typed_text(key, mods)
                 } else {
-                    day_spec::KeyEvent::named(key, mask)
+                    KeyEvent::named(key, mods)
                 };
-                day_core::enqueue_event(target, Event::Key(event));
+                day_core::enqueue_event(target, Event::Key(event.with_phase(phase)));
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::Press { id, at, release } => {
+                let node = find(&id)?;
+                let location = point_in(node, at);
+                day_core::enqueue_event(
+                    rnode_to_id(node),
+                    Event::Press {
+                        pressed: !release,
+                        location,
+                    },
+                );
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::LongPress { id, at } => {
+                let node = find(&id)?;
+                day_core::enqueue_event(rnode_to_id(node), Event::LongPress(point_in(node, at)));
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::DoubleTap { id, at } => {
+                let node = find(&id)?;
+                day_core::enqueue_event(rnode_to_id(node), Event::DoubleTap(point_in(node, at)));
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::Touches { id, points, phase } => {
+                use day_spec::{Touch, TouchPhase};
+                let node = find(&id)?;
+                let phase = match phase.as_deref() {
+                    None | Some("began") => TouchPhase::Began,
+                    Some("moved") => TouchPhase::Moved,
+                    Some("ended") => TouchPhase::Ended,
+                    Some("cancelled") => TouchPhase::Cancelled,
+                    Some(other) => {
+                        return Err(Reply::fail(
+                            format!(
+                                "unknown touch phase {other:?} (began, moved, ended or cancelled)"
+                            ),
+                            false,
+                        ));
+                    }
+                };
+                let touches = points
+                    .iter()
+                    .zip(0u64..)
+                    .map(|(p, i)| Touch::new(i, phase, day_spec::Point::new(p[0], p[1])))
+                    .collect();
+                day_core::enqueue_event(rnode_to_id(node), Event::Touches(touches));
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::Pointer { kind } => {
+                let Some(kind) = day_spec::PointerKind::from_name(&kind) else {
+                    return Err(Reply::fail(
+                        format!("unknown pointer kind {kind:?} (touch, mouse or stylus)"),
+                        false,
+                    ));
+                };
+                day_core::enqueue_event(day_spec::WINDOW_NODE, Event::PointerKindChanged(kind));
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::Drop {
+                id,
+                files,
+                text,
+                at,
+                phase,
+            } => {
+                use day_spec::transfer::{Item, Location, Offer, Operation, Representation};
+                let node = find(&id)?;
+                // The target sits on the layer `.drop_target` wrapped the piece in: the node
+                // itself, or the nearest one above it.
+                let mut cur = Some(node);
+                let mut target = None;
+                while let Some(n) = cur {
+                    target = with_tree(|t| t.drop_target(n));
+                    if target.is_some() {
+                        break;
+                    }
+                    cur = with_tree(|t| t.parent_of(n));
+                }
+                let Some(target) = target else {
+                    return Err(Reply::fail(format!("{id:?} has no drop target"), true));
+                };
+                let mut representations = Vec::new();
+                if !files.is_empty() {
+                    let mut list = String::new();
+                    for file in &files {
+                        list.push_str("file://");
+                        list.push_str(file);
+                        list.push_str("\r\n");
+                    }
+                    representations.push(Representation::new("text/uri-list", list));
+                }
+                if let Some(text) = text {
+                    representations.push(Representation::new("text/plain", text));
+                }
+                let offer = Offer {
+                    items: vec![Item::new(representations)],
+                };
+                let location = Location {
+                    position: point_in(node, at),
+                    types: offer.types(),
+                    allowed: vec![Operation::Copy, Operation::Move, Operation::Link],
+                    local: false,
+                };
+                match phase.as_deref() {
+                    Some("enter") => {
+                        if target.proposal(&location) == Operation::None {
+                            return Err(Reply::fail(format!("{id:?} refuses this drag"), false));
+                        }
+                    }
+                    Some("leave") => target.leave(),
+                    None | Some("drop") => {
+                        if target.proposal(&location) == Operation::None
+                            || !target.deliver(location, offer)
+                        {
+                            return Err(Reply::fail(format!("{id:?} refused the drop"), false));
+                        }
+                    }
+                    Some(other) => {
+                        return Err(Reply::fail(
+                            format!("unknown drop phase {other:?} (enter, leave or drop)"),
+                            false,
+                        ));
+                    }
+                }
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
@@ -746,6 +902,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 to,
                 steps,
                 modifiers,
+                velocity,
             } => {
                 let node = find(&id)?;
                 let (fx, fy) = (from[0], from[1]);
@@ -777,6 +934,15 @@ fn exec(step: Step, revision: u32) -> Reply {
                         fy + (ty - fy) * f,
                     );
                     day_reactive::flush_sync();
+                }
+                if let Some([vx, vy]) = velocity {
+                    day_core::enqueue_event(
+                        rnode_to_id(node),
+                        Event::GestureVelocity {
+                            kind: day_spec::GestureKind::Drag,
+                            velocity: day_spec::Point::new(vx, vy),
+                        },
+                    );
                 }
                 emit_drag(day_spec::DragPhase::Ended, tx, ty);
                 day_reactive::flush_sync();
@@ -1616,6 +1782,68 @@ fn exec(step: Step, revision: u32) -> Reply {
                     ..Reply::ok()
                 })
             }
+            Step::AssertDisplayed {
+                id,
+                opacity,
+                tx,
+                ty,
+                width,
+                height,
+                background,
+                tolerance,
+            } => {
+                let want_color = match &background {
+                    Some(c) => Some(parse_hex_color(c).ok_or_else(|| {
+                        Reply::fail(format!("assert_displayed: {c:?} is not #rrggbb"), false)
+                    })?),
+                    None => None,
+                };
+                let node = find(&id)?;
+                // A value in flight is only right at the moment it is asked for, so nothing
+                // here is retried: flush what is pending, read once, answer.
+                day_reactive::flush_sync();
+                let shown = with_tree(|t| t.read_displayed(node)).unwrap_or_default();
+                let unit = tolerance.unwrap_or(0.05);
+                let points = tolerance.unwrap_or(1.0);
+                let mut unread = Vec::new();
+                let mut fails = Vec::new();
+                let mut check = |field: &str, got: Option<f64>, want: Option<f64>, tol: f64| match (
+                    got, want,
+                ) {
+                    (None, Some(_)) => {
+                        if !unread.iter().any(|u| u == field) {
+                            unread.push(field.to_owned());
+                        }
+                    }
+                    (Some(g), Some(w)) if (g - w).abs() > tol => {
+                        fails.push(format!("displayed {field} {g:.3} ≠ expected {w:.3} ±{tol}"));
+                    }
+                    _ => {}
+                };
+                check("opacity", shown.opacity, opacity, unit);
+                check("translation", shown.translation.map(|t| t.x), tx, points);
+                check("translation", shown.translation.map(|t| t.y), ty, points);
+                check("frame", shown.frame.map(|f| f.size.width), width, points);
+                check("frame", shown.frame.map(|f| f.size.height), height, points);
+                if let Some(want) = want_color {
+                    let got = shown.background.map(|c| [c.r, c.g, c.b]);
+                    for (i, want) in want.into_iter().enumerate() {
+                        check(
+                            "background",
+                            got.map(|g| g[i]),
+                            Some(f64::from(want) / 255.0),
+                            unit,
+                        );
+                    }
+                }
+                if !fails.is_empty() {
+                    return Err(Reply::fail(format!("{id:?}: {}", fails.join("; ")), false));
+                }
+                Ok(Reply {
+                    data: (!unread.is_empty()).then(|| serde_json::json!({ "unread": unread })),
+                    ..Reply::ok()
+                })
+            }
             Step::SamplePixel {
                 id,
                 x,
@@ -1646,8 +1874,25 @@ fn exec(step: Step, revision: u32) -> Reply {
                     });
                 }
                 let node = find(&id)?;
-                let frame = with_tree(|t| t.node_frame(node))
-                    .ok_or_else(|| Reply::fail(format!("{id:?} has no frame"), true))?;
+                // A node's frame is relative to its nearest realized native ancestor (§7): add
+                // the origins of the native ancestors below the window's root, so a node inside
+                // a native container (a `.background`) is sampled where it is in the window.
+                let frame = with_tree(|t| {
+                    let mut f = t.node_frame(node)?;
+                    let root = t.root_node();
+                    let mut up = t.parent_of(node);
+                    while let Some(a) = up.filter(|a| *a != root) {
+                        if t.node_handle_any(a).is_some()
+                            && let Some(p) = t.node_frame(a)
+                        {
+                            f.origin.x += p.origin.x;
+                            f.origin.y += p.origin.y;
+                        }
+                        up = t.parent_of(a);
+                    }
+                    Some(f)
+                })
+                .ok_or_else(|| Reply::fail(format!("{id:?} has no frame"), true))?;
                 let window = with_tree(|t| t.node_frame(t.root_node()))
                     .ok_or_else(|| Reply::fail("the window has no frame", true))?;
                 let bytes = with_tree(|t| t.snapshot())
@@ -1655,12 +1900,15 @@ fn exec(step: Step, revision: u32) -> Reply {
                 let origin = with_tree(|t| t.snapshot_origin());
                 // A capture this reader cannot read (the mock's placeholder bytes) is a gap
                 // to record, like a toolkit with no capture, not a wrong color.
-                let Ok(img) = png::decode(&bytes) else {
-                    return Ok(Reply {
-                        data: Some(serde_json::json!({ "unread": ["pixel"] })),
-                        ..Reply::ok()
-                    });
+                let unread = || Reply {
+                    data: Some(serde_json::json!({ "unread": ["pixel"] })),
+                    ..Reply::ok()
                 };
+                // Read as far as the header: only the sampled pixel's rows are decoded below.
+                let Ok(img) = png::Png::read(&bytes) else {
+                    return Ok(unread());
+                };
+                drop(bytes);
                 // The capture is the window's content at the screen's scale. Where the toolkit
                 // says where Day's root sits in it (Android's edge-to-edge content, with bars
                 // above and below), that is the offset, and the scale comes from the screen
@@ -1685,7 +1933,10 @@ fn exec(step: Step, revision: u32) -> Reply {
                     * scale)
                     .floor()
                     .max(0.0) as usize;
-                let got = img.pixel(px, py).ok_or_else(|| {
+                let Ok(got) = img.pixel(px, py) else {
+                    return Ok(unread());
+                };
+                let got = got.ok_or_else(|| {
                     Reply::fail(
                         format!("{id:?}: ({px}, {py}) is outside the capture"),
                         false,
@@ -2343,6 +2594,20 @@ pub fn b64decode(s: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_step_before_the_backend_starts_waits_instead_of_panicking() {
+        // The poster is process-wide and never removed: once another test in this binary has
+        // launched a tree, there is no "before" left to test.
+        if day_reactive::has_main_poster() {
+            return;
+        }
+        let step: Step = serde_json::from_value(serde_json::json!({"op": "tap", "id": "anything"}))
+            .expect("a tap step parses");
+        let reply = run_on_main(step, Duration::from_millis(50), 1);
+        assert!(!reply.ok, "{reply:?}");
+        assert!(reply.retryable, "a starting app is retried: {reply:?}");
+    }
 
     #[test]
     fn a11y_audit_checks_metadata_when_visible_or_visibility_is_unknown() {

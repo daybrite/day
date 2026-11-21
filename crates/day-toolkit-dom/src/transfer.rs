@@ -41,6 +41,17 @@ pub extern "C" fn day_dom_drag_prepare(el: u32, x: f64, y: f64) {
         }
     });
 }
+/// The drag session left the target without dropping, or ended while over it (Escape, a drop
+/// elsewhere): the shim's enter/leave count fell to zero, or `dragend`/`drop` on the document
+/// ended the hover. Idempotent, as `Target::leave` is (docs/drag-and-drop.md).
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_drag_leave(el: u32) {
+    ffi_guard::contain((), || {
+        if let Some(t) = TARGETS.with(|t| t.get(el as usize)) {
+            t.leave();
+        }
+    });
+}
 // Each callback consumes the allocation created by the trusted JS shim.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn day_dom_drag_accept(

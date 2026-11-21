@@ -17,6 +17,11 @@ impl PagerState {
 #[derive(Clone, Debug)]
 pub struct PagerProps {
     pub slots: usize,
+    /// Report the pager's continuous position while a page is dragged (docs/pager.md
+    /// "Progress"): an `Event::Custom` whose text is `progress <epoch> <position>`, the
+    /// position in reading-order pages (`1.5` is halfway from the second page to the third),
+    /// at most once per display frame.
+    pub track_progress: bool,
 }
 #[derive(Clone, Debug)]
 pub struct PagerPatch(pub PagerState);

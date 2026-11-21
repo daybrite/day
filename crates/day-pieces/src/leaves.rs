@@ -110,9 +110,11 @@ impl TextBuilder {
             )
         })
     }
-    /// A colored phrase.
-    pub fn colored(self, s: &str, color: day_spec::Color) -> Self {
+    /// A colored phrase: any ink, so `SystemColor::Destructive` or a light/dark pair follows
+    /// the appearance.
+    pub fn colored(self, s: &str, color: impl Into<day_spec::Ink>) -> Self {
         let base = self.base;
+        let color = color.into();
         self.run(s, move |range| day_spec::TextRun {
             range,
             font: day_spec::FontSpec::from(base),
@@ -120,14 +122,36 @@ impl TextBuilder {
             ..day_spec::TextRun::default()
         })
     }
-    /// Underlined.
+    /// Underlined with one solid line in the text color.
     pub fn underline(self, s: &str) -> Self {
+        self.underline_styled(s, day_spec::Decoration::SINGLE)
+    }
+    /// Underlined with a line of your choosing: `Decoration::wavy()`, `double()` or
+    /// `dotted()`, with `.color(c)` for a line that is not the text color. A diagnostic mark is
+    /// `.underline_styled("unresolved", Decoration::wavy().color(red))`. A `DecorationStyle` converts.
+    pub fn underline_styled(self, s: &str, decoration: impl Into<day_spec::Decoration>) -> Self {
         let base = self.base;
+        let decoration = decoration.into();
         self.run(s, move |range| day_spec::TextRun {
             range,
             font: day_spec::FontSpec::from(base),
-            underline: day_spec::Underline::Single,
+            underline: Some(decoration),
             ..day_spec::TextRun::default()
+        })
+    }
+    /// Lowercase letters drawn as small capitals
+    /// ([`FontSpec::small_caps`](day_spec::FontSpec::small_caps)).
+    pub fn small_caps(self, s: &str) -> Self {
+        let base = self.base;
+        self.run(s, move |range| {
+            day_spec::TextRun::font(
+                range,
+                day_spec::FontSpec {
+                    style: base,
+                    small_caps: true,
+                    ..Default::default()
+                },
+            )
         })
     }
     /// Highlighted: a color painted behind the glyphs, for a search hit or a review mark.
@@ -137,13 +161,15 @@ impl TextBuilder {
     /// background rather than for the swatch now sitting under it. On a dark theme that pairing
     /// puts light text on pale amber, which is the one combination a highlight must not produce.
     /// Use [`TextBuilder::run`] where an app wants to state both itself.
-    pub fn highlight(self, s: &str, color: day_spec::Color) -> Self {
+    pub fn highlight(self, s: &str, color: impl Into<day_spec::Ink>) -> Self {
         let base = self.base;
+        let color = color.into();
+        let on = color.map(day_spec::props::ButtonStyleSpec::on_tint);
         self.run(s, move |range| day_spec::TextRun {
             range,
             font: day_spec::FontSpec::from(base),
             background: Some(color),
-            color: Some(day_spec::props::ButtonStyleSpec::on_tint(color)),
+            color: Some(on),
             ..day_spec::TextRun::default()
         })
     }
@@ -158,13 +184,22 @@ impl TextBuilder {
             ..day_spec::TextRun::default()
         })
     }
-    /// Struck through.
+    /// Struck through with one solid line in the text color.
     pub fn strikethrough(self, s: &str) -> Self {
+        self.strikethrough_styled(s, day_spec::Decoration::SINGLE)
+    }
+    /// Struck through with a line of your choosing, as [`TextBuilder::underline_styled`].
+    pub fn strikethrough_styled(
+        self,
+        s: &str,
+        decoration: impl Into<day_spec::Decoration>,
+    ) -> Self {
         let base = self.base;
+        let decoration = decoration.into();
         self.run(s, move |range| day_spec::TextRun {
             range,
             font: day_spec::FontSpec::from(base),
-            strikethrough: true,
+            strikethrough: Some(decoration),
             ..day_spec::TextRun::default()
         })
     }
@@ -190,63 +225,138 @@ impl TextBuilder {
 
 #[must_use]
 pub struct Label {
-    // pub(crate): `forms` builds Label literals directly (they were co-located before the split).
     pub(crate) text: TextSource,
     pub(crate) font: Font,
-    pub(crate) font_scale: f64,
+    pub(crate) font_scale: Reactive<f64>,
+    pub(crate) max_text_scale: Option<f64>,
     pub(crate) weight: Option<day_spec::FontWeight>,
     pub(crate) italic: bool,
     pub(crate) tabular: bool,
     pub(crate) monospace: bool,
+    pub(crate) small_caps: bool,
+    pub(crate) oldstyle_figures: bool,
     pub(crate) wraps: bool,
-    pub(crate) max_lines: u32,
-    pub(crate) color: Option<Reactive<day_spec::Color>>,
+    pub(crate) max_lines: Reactive<u32>,
+    pub(crate) truncation: Reactive<Truncation>,
+    pub(crate) letter_spacing: Reactive<f64>,
+    pub(crate) line_height: Reactive<f64>,
+    pub(crate) color: Option<Reactive<day_spec::Ink>>,
     /// What the text means, for the color the platform gives it (docs/text.md).
     pub(crate) role: day_spec::props::TextRole,
     /// Styled spans over `text` (docs/text-runs.md); empty is an ordinary uniform label.
     pub(crate) runs: Vec<day_spec::TextRun>,
-    /// Parse the text as inline markdown instead of taking it literally (docs/markdown.md).
+    /// Parse the text as inline markdown instead of taking it literally (docs/text-runs.md).
     pub(crate) markdown: bool,
     /// How wrapped lines sit within the label's own width (docs/text.md).
     pub(crate) align: day_spec::props::TextAlign,
+    /// A line under the whole text.
+    pub(crate) underline: Option<day_spec::Decoration>,
+    /// A line through the whole text.
+    pub(crate) strikethrough: Option<day_spec::Decoration>,
+    /// The target the whole label links to ([`link`]).
+    pub(crate) link: Option<String>,
     /// What a tapped link run does. `None` uses [`open_link`].
     pub(crate) on_link: Option<LinkHandler>,
+    /// Told when the reader's selection changes; setting it makes the label selectable.
+    pub(crate) on_selection: Option<SelectionHandler>,
 }
 
 /// An app's handler for a tapped link run, shared because `Label` is cloned into its build.
 pub(crate) type LinkHandler = Rc<dyn Fn(&str)>;
 
+/// An app's handler for a selection change in a selectable label.
+pub(crate) type SelectionHandler = Rc<dyn Fn(&SelectedText)>;
+
+/// What the reader has selected in a label ([`Label::on_selection`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SelectedText {
+    /// The selected text, as the label displays it (Markdown markers already stripped).
+    /// Empty when the selection was cleared.
+    pub text: String,
+    /// The selection as a byte range into the displayed text. Empty when nothing is selected.
+    pub range: std::ops::Range<usize>,
+}
+
+impl SelectedText {
+    /// Whether nothing is selected.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.range.is_empty()
+    }
+}
+
 pub fn label<M>(text: impl IntoText<M>) -> Label {
-    Label {
-        text: text.into_text(),
-        font: Font::Body,
-        font_scale: 1.0,
-        weight: None,
-        italic: false,
-        tabular: false,
-        monospace: false,
-        wraps: true,
-        max_lines: 0,
-        color: None,
-        role: TextRole::default(),
-        runs: Vec::new(),
-        markdown: false,
-        align: day_spec::props::TextAlign::Leading,
-        on_link: None,
+    Label::from_source(text.into_text())
+}
+
+impl Label {
+    /// A plain `Body` label over an already converted text source.
+    pub(crate) fn from_source(text: TextSource) -> Label {
+        Label {
+            text,
+            font: Font::Body,
+            font_scale: Reactive::Const(1.0),
+            max_text_scale: None,
+            weight: None,
+            italic: false,
+            tabular: false,
+            monospace: false,
+            small_caps: false,
+            oldstyle_figures: false,
+            wraps: true,
+            max_lines: Reactive::Const(0),
+            truncation: Reactive::Const(Truncation::Tail),
+            letter_spacing: Reactive::Const(0.0),
+            line_height: Reactive::Const(0.0),
+            color: None,
+            role: TextRole::default(),
+            runs: Vec::new(),
+            markdown: false,
+            align: day_spec::props::TextAlign::Leading,
+            underline: None,
+            strikethrough: None,
+            link: None,
+            on_link: None,
+            on_selection: None,
+        }
     }
 }
 
 #[day_macros::builder(LabelBuilder)]
 impl Label {
-    /// Keep plain text on one line. UIKit, Android, GTK, AppKit and DOM truncate with an ellipsis.
+    /// Keep the text on one line and end it with an ellipsis when it does not fit
+    /// ([`Label::truncation`] says where). Constrain the width through the enclosing layout.
     pub fn single_line(mut self) -> Self {
         self.wraps = false;
         self
     }
-    /// Limit a plain label to this many lines, truncating the last line on Apple and Android
-    /// backends. Zero means unlimited. Rebuild the label to change its line limit.
-    pub fn max_lines(mut self, lines: u32) -> Self {
-        self.max_lines = lines;
+    /// Show at most this many lines, ending the last one with an ellipsis when text is left
+    /// over. Zero means unlimited. The label measures no taller than the limit, on every
+    /// toolkit. A constant, a `Signal<u32>` or a closure: a "Show more" toggle is
+    /// `.max_lines(move || if expanded.get() { 0 } else { 3 })`.
+    pub fn max_lines<M>(mut self, lines: impl IntoReactive<u32, M>) -> Self {
+        self.max_lines = lines.into_reactive();
+        self
+    }
+    /// Where the ellipsis goes when the text does not fit: `Truncation::Tail` (the default),
+    /// `Head`, or `Middle` for a file path or an identifier whose two ends both matter.
+    /// Applies to a label held to one line or to [`Label::max_lines`]; `Head` and `Middle`
+    /// are guaranteed on one line (docs/text.md "Truncation").
+    pub fn truncation<M>(mut self, mode: impl IntoReactive<Truncation, M>) -> Self {
+        self.truncation = mode.into_reactive();
+        self
+    }
+    /// Extra space after each character, in ems: `0.05` adds 5% of the font size, a negative
+    /// value tightens. Relative, so the tracking follows the reader's text size.
+    pub fn letter_spacing<M>(mut self, ems: impl IntoReactive<f64, M>) -> Self {
+        self.letter_spacing = ems.into_reactive();
+        self
+    }
+    /// The distance between baselines as a multiple of the font size: `1.5` for airy body
+    /// text, `1.0` for tightly set display type. The font's own line height (about `1.2`)
+    /// applies until this is set, and again for a value of zero.
+    pub fn line_height<M>(mut self, multiple: impl IntoReactive<f64, M>) -> Self {
+        self.line_height = multiple.into_reactive();
         self
     }
     /// The semantic text style (`Font::Title`, `Font::Footnote`, …) or a custom `Font::System(pt)`.
@@ -256,13 +366,19 @@ impl Label {
         self
     }
     /// Scale the resolved native font, preserving its semantic style and accessibility size.
-    /// Applies to the label's base font; explicit styled runs retain their own descriptors.
-    pub fn font_scale(mut self, scale: f64) -> Self {
-        self.font_scale = if scale.is_finite() && scale > 0.0 {
-            scale
-        } else {
-            1.0
-        };
+    /// A constant, a signal or a closure. Applies to the label's base font; explicit styled
+    /// runs retain their own descriptors. A nonpositive or nonfinite factor reads as 1.0.
+    pub fn font_scale<M>(mut self, scale: impl IntoReactive<f64, M>) -> Self {
+        self.font_scale = scale.into_reactive();
+        self
+    }
+    /// Stop this label growing with the reader's text-size setting past `cap` times its
+    /// default size: `1.3` lets a tab label or a badge grow 30% and no further, `1.0` opts
+    /// it out of growth. Text smaller than the default is never affected. Use it only where
+    /// the layout cannot give the text more room; body text should scale without a cap
+    /// (docs/text.md "Text scale").
+    pub fn max_text_scale(mut self, cap: f64) -> Self {
+        self.max_text_scale = (cap.is_finite() && cap > 0.0).then_some(cap);
         self
     }
     /// Override the font weight (e.g. `FontWeight::Semibold`). See also [`Label::bold`].
@@ -305,13 +421,40 @@ impl Label {
         self.monospace = true;
         self
     }
+    /// Draw lowercase letters as small capitals, for an eyebrow heading or an acronym in
+    /// running text. A face without small capitals draws its ordinary lowercase. See
+    /// [`day_spec::FontSpec::small_caps`].
+    pub fn small_caps(mut self) -> Self {
+        self.small_caps = true;
+        self
+    }
+    /// Ask for oldstyle figures, digits that sit in running text like lowercase letters. A
+    /// face without them draws its ordinary figures. Combines with [`Label::tabular`].
+    pub fn oldstyle_figures(mut self) -> Self {
+        self.oldstyle_figures = true;
+        self
+    }
+    /// Underline the whole text. `Decoration::SINGLE` is the plain line; `Decoration::wavy()`,
+    /// `double()` and `dotted()` draw the other styles, and `.color(c)` gives the line a
+    /// color of its own: `.underline(Decoration::wavy().color(Color::hex(0xD0021B)))`. A
+    /// `DecorationStyle` converts, so `.underline(DecorationStyle::Double)` works too. For
+    /// part of the text, use [`TextBuilder::underline_styled`].
+    pub fn underline(mut self, decoration: impl Into<day_spec::Decoration>) -> Self {
+        self.underline = Some(decoration.into());
+        self
+    }
+    /// Strike the whole text through, with the same styles and color as [`Label::underline`].
+    pub fn strikethrough(mut self, decoration: impl Into<day_spec::Decoration>) -> Self {
+        self.strikethrough = Some(decoration.into());
+        self
+    }
     /// Style spans within this label's text (docs/text-runs.md): one wrapping paragraph with
     /// emphasis, color, code or a link inside it, rather than several labels in a row.
     ///
     /// Ranges are byte offsets into the label's text, ascending and non-overlapping; text not
-    /// covered by a run draws with the label's own font. Invalid runs are REJECTED at build time
-    /// with a warning and the label renders plain, because the alternative is eight different
-    /// wrong renderings (and a panic on the backends that slice `str`).
+    /// covered by a run draws with the label's own font. Invalid runs are rejected at build
+    /// time with a warning and the label renders plain, because the alternative is eight
+    /// different wrong renderings (and a panic on the backends that slice `str`).
     ///
     /// [`TextBuilder`] is the ergonomic way in; this is the direct one.
     pub fn runs(mut self, runs: Vec<day_spec::TextRun>) -> Self {
@@ -327,7 +470,14 @@ impl Label {
         self.runs = runs;
         self
     }
-    /// Read the label's text as inline Markdown (docs/markdown.md): `**bold**`, `*italic*`,
+    /// Center (or trail, or justify) this label's lines within its own width, for the short
+    /// wrapped block a welcome screen or an empty state uses. Only observable on a label that
+    /// wraps, since a single line already fills its box.
+    pub fn align(mut self, align: day_spec::props::TextAlign) -> Self {
+        self.align = align;
+        self
+    }
+    /// Read the label's text as inline Markdown (docs/text-runs.md): `**bold**`, `*italic*`,
     /// `` `code` ``, `~~strike~~` and `[text](url)` become styled runs, and the markers themselves
     /// are stripped.
     ///
@@ -337,20 +487,14 @@ impl Label {
     /// worth of text.
     ///
     /// ```ignore
-    /// label(tr("release-note")).markdown()
+    /// label(res::str::release_note()).markdown()
     /// label(move || draft.get()).markdown()   // live as the user types
     /// ```
     ///
     /// Unrecognized markup stays literal, so a half-typed `**` reads as two asterisks rather than
-    /// flickering. Block constructs (headings, lists, quotes) are not parsed: they are layout,
-    /// which is `column`/`form`/`list`.
-    /// Center (or trail) this label's lines within its own width, for the short wrapped block
-    /// a welcome screen or an empty state uses. Only observable on a label that wraps, since a
-    /// single line already fills its box.
-    pub fn align(mut self, align: day_spec::props::TextAlign) -> Self {
-        self.align = align;
-        self
-    }
+    /// flickering. Block constructs (headings, lists, quotes, code blocks) are not parsed
+    /// here: a label is one paragraph. [`markdown`](crate::markdown()) is the piece for a
+    /// document.
     pub fn markdown(mut self) -> Self {
         self.markdown = true;
         self
@@ -367,23 +511,36 @@ impl Label {
         self.on_link = Some(Rc::new(f));
         self
     }
-    /// The text color: a constant, a `Signal<Color>`, or a `Fn() -> Color`. A reactive
-    /// source recolors the native label when it changes (theme systems ride this).
-    pub fn color<M>(mut self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
+    /// Make the label selectable and hear about the reader's selection as it changes: the
+    /// selected text and its byte range in the displayed text, empty when the selection is
+    /// cleared. For a "Quote selection" button or a lookup panel beside the text.
+    ///
+    /// `capability(Cap::LabelSelection)` says whether this toolkit reports selections. Where
+    /// it does not, the label is still selectable and the callback never runs.
+    pub fn on_selection(mut self, f: impl Fn(&SelectedText) + 'static) -> Self {
+        self.on_selection = Some(Rc::new(f));
+        self
+    }
+    /// The text color: any ink (a [`Color`](day_spec::Color), a
+    /// [`SystemColor`](day_spec::SystemColor), `Ink::adaptive(light, dark)`), or a signal or
+    /// closure of one. An ink follows the appearance by itself; a reactive source recolors the
+    /// native label when it changes.
+    pub fn color<M>(mut self, c: impl IntoReactive<day_spec::Ink, M>) -> Self {
         self.color = Some(c.into_reactive());
         self
     }
-    /// Apply a named [`TextPreset`](crate::TextPreset): the font, weight, scale, emphasis and
-    /// color an app defined once (`label(t).preset(&CAPTION)`).
+    /// Apply a named [`TextPreset`](crate::TextPreset): the font, weight, scale, emphasis,
+    /// spacing and color an app defined once (`label(t).preset(&CAPTION)`).
     pub fn preset(mut self, preset: &crate::TextPreset) -> Self {
         self.font = preset.font;
-        self.font_scale = preset.font_scale;
+        self.font_scale = Reactive::Const(preset.font_scale);
         if preset.weight.is_some() {
             self.weight = preset.weight;
         }
         self.italic |= preset.italic;
         self.tabular |= preset.tabular;
         self.monospace |= preset.monospace;
+        self.small_caps |= preset.small_caps;
         if preset.secondary {
             self.role = day_spec::props::TextRole::Secondary;
         }
@@ -393,48 +550,197 @@ impl Label {
         if let Some(c) = preset.color {
             self.color = Some(Reactive::Const(c));
         }
+        if let Some(ems) = preset.letter_spacing {
+            self.letter_spacing = Reactive::Const(ems);
+        }
+        if let Some(multiple) = preset.line_height {
+            self.line_height = Reactive::Const(multiple);
+        }
+        if preset.max_text_scale.is_some() {
+            self.max_text_scale = preset.max_text_scale;
+        }
         self
     }
 }
 
-impl Piece for Label {
-    fn build(self, cx: &mut BuildCx) -> RNode {
-        // `.markdown()` replaces both the text and the runs: the markers are stripped from what
-        // the label shows, so the two have to be produced together.
-        let (initial, runs) = if self.markdown {
-            crate::markdown::parse(&self.text.initial(), self.font)
+/// What a label's build keeps for its bindings: the styles that cover the whole text, and the
+/// text it currently shows.
+struct LabelState {
+    markdown: bool,
+    font: Font,
+    /// The label's resolved base font, which whole-text runs are drawn in.
+    spec: std::cell::Cell<day_spec::FontSpec>,
+    color: Option<day_spec::Ink>,
+    underline: Option<day_spec::Decoration>,
+    strikethrough: Option<day_spec::Decoration>,
+    link: Option<String>,
+    /// The source text last given, before Markdown markers were stripped.
+    source: RefCell<String>,
+    /// The text the label displays, which a selection's byte range addresses.
+    displayed: RefCell<String>,
+}
+
+impl LabelState {
+    /// Does any style cover the whole text, so that text always travels with runs?
+    fn covers(&self) -> bool {
+        self.link.is_some() || self.underline.is_some() || self.strikethrough.is_some()
+    }
+
+    /// The text to display for `source` and the runs over it. `fixed` are the label's own
+    /// `.runs(…)`, which address the text it was built with.
+    fn shape(&self, source: &str, fixed: &[day_spec::TextRun]) -> (String, Vec<day_spec::TextRun>) {
+        let (text, runs) = if self.markdown {
+            day_spec::markdown::parse(source, self.font)
         } else {
-            (self.text.initial(), self.runs.clone())
+            (source.to_owned(), fixed.to_vec())
         };
         // Validate once here rather than in eight backends: an overlapping or mid-character
         // range renders differently wrong on each, and panics on the ones that slice `str`.
-        let runs = match day_spec::runs_are_valid(&initial, &runs) {
+        let runs = match day_spec::runs_are_valid(&text, &runs) {
             Ok(()) => runs,
             Err(why) => {
-                log::warn!("label runs ignored — {why}; the text renders unstyled");
+                log::warn!("label runs ignored: {why}; the text renders unstyled");
                 Vec::new()
             }
         };
+        let runs = if self.covers() {
+            self.cover(&text, runs)
+        } else {
+            runs
+        };
+        source.clone_into(&mut self.source.borrow_mut());
+        text.clone_into(&mut self.displayed.borrow_mut());
+        (text, runs)
+    }
+
+    /// Spread the whole-text styles over `text`: runs that exist take them where they say
+    /// nothing of their own, and the gaps between runs become runs in the label's font.
+    fn cover(&self, text: &str, runs: Vec<day_spec::TextRun>) -> Vec<day_spec::TextRun> {
+        let fill = |range: std::ops::Range<usize>| day_spec::TextRun {
+            range,
+            font: self.spec.get(),
+            color: self.color,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            link: self.link.clone(),
+            ..day_spec::TextRun::default()
+        };
+        let mut out = Vec::with_capacity(runs.len() * 2 + 1);
+        let mut at = 0usize;
+        for mut run in runs {
+            if run.range.start > at {
+                out.push(fill(at..run.range.start));
+            }
+            at = run.range.end;
+            run.underline = run.underline.or(self.underline);
+            run.strikethrough = run.strikethrough.or(self.strikethrough);
+            if run.link.is_none() {
+                run.link.clone_from(&self.link);
+            }
+            out.push(run);
+        }
+        if at < text.len() {
+            out.push(fill(at..text.len()));
+        }
+        out
+    }
+}
+
+/// The scale a label's font takes: its own factor, held under its text-scale cap. Both reads
+/// are tracked, so a binding around this follows a reactive factor and the system setting.
+fn label_font_scale(scale: &Reactive<f64>, font: Font, cap: Option<f64>) -> f64 {
+    let own = scale.get();
+    let own = if own.is_finite() && own > 0.0 {
+        own
+    } else {
+        1.0
+    };
+    match cap {
+        Some(cap) => {
+            let system = day_core::text_scale_of(font);
+            if system > cap {
+                own * cap / system
+            } else {
+                own
+            }
+        }
+        None => own,
+    }
+}
+
+impl Piece for Label {
+    fn build(mut self, cx: &mut BuildCx) -> RNode {
+        // A link on a toolkit without activatable link runs is accent text with a tap handler
+        // and a button role, which every toolkit can do.
+        if self.link.is_some()
+            && day_core::capability(day_spec::Cap::TextLinks) != day_spec::Support::Native
+            && let Some(url) = self.link.take()
+        {
+            if self.color.is_none() {
+                self.color = Some(Reactive::Const(LINK_INK));
+            }
+            let handler = self.on_link.clone();
+            return self
+                .on_tap(move || match &handler {
+                    Some(f) => f(&url),
+                    None => open_link(&url),
+                })
+                .a11y(|b| b.role(Role::Button))
+                .build(cx);
+        }
+        let scale = label_font_scale_untracked(&self.font_scale, self.font, self.max_text_scale);
+        let spec = |scale: f64| day_spec::FontSpec {
+            style: self.font,
+            scale,
+            weight: self.weight,
+            italic: self.italic,
+            tabular: self.tabular,
+            monospace: self.monospace,
+            small_caps: self.small_caps,
+            oldstyle_figures: self.oldstyle_figures,
+        };
+        let color = self
+            .color
+            .as_ref()
+            .map(super::canvas::Reactive::get_untracked);
+        let state = Rc::new(LabelState {
+            markdown: self.markdown,
+            font: self.font,
+            spec: std::cell::Cell::new(spec(scale)),
+            color,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            link: self.link.clone(),
+            source: RefCell::new(String::new()),
+            displayed: RefCell::new(String::new()),
+        });
+        let (initial, runs) = state.shape(&self.text.initial(), &self.runs);
+        let paragraph = {
+            let (max_lines, truncation) = (self.max_lines.clone(), self.truncation.clone());
+            let (letter_spacing, line_height) =
+                (self.letter_spacing.clone(), self.line_height.clone());
+            move || LabelParagraph {
+                max_lines: max_lines.get(),
+                truncation: truncation.get(),
+                letter_spacing: letter_spacing.get(),
+                line_height: line_height.get(),
+            }
+        };
+        let seed = day_reactive::untrack(&paragraph);
         let node = cx.leaf(
             kinds::LABEL,
             &LabelProps {
                 align: self.align,
                 text: initial,
-                font: day_spec::FontSpec {
-                    style: self.font,
-                    scale: self.font_scale,
-                    weight: self.weight,
-                    italic: self.italic,
-                    tabular: self.tabular,
-                    monospace: self.monospace,
-                },
-                color: self
-                    .color
-                    .as_ref()
-                    .map(super::canvas::Reactive::get_untracked),
+                font: state.spec.get(),
+                color,
                 role: self.role,
                 wraps: self.wraps,
-                max_lines: self.max_lines,
+                max_lines: seed.max_lines,
+                truncation: seed.truncation,
+                letter_spacing: seed.letter_spacing,
+                line_height: seed.line_height,
+                reports_selection: self.on_selection.is_some(),
                 runs,
             },
             Flex::default(),
@@ -442,40 +748,102 @@ impl Piece for Label {
         // A label that can carry link runs listens for their activation. Markdown labels qualify
         // whatever they currently hold, since a later parse may produce a link that this one did
         // not. Labels without any prospect of a link register nothing.
-        let could_link =
-            self.markdown || self.on_link.is_some() || self.runs.iter().any(|r| r.link.is_some());
+        let could_link = self.markdown
+            || self.link.is_some()
+            || self.on_link.is_some()
+            || self.runs.iter().any(|r| r.link.is_some());
         if could_link {
             let handler = self.on_link.clone();
-            cx.on(node, move |ev| {
-                if let Event::LinkActivated(url) = ev {
-                    match &handler {
-                        Some(f) => f(url),
-                        None => open_link(url),
+            let whole = self.link.clone();
+            cx.on(node, move |ev| match ev {
+                Event::LinkActivated(url) => match &handler {
+                    Some(f) => f(url),
+                    None => open_link(url),
+                },
+                // A synthesized tap on a whole-label link follows the same policy; the native
+                // activation arrives as `LinkActivated`.
+                Event::Tap(_) => {
+                    if let Some(url) = &whole {
+                        match &handler {
+                            Some(f) => f(url),
+                            None => open_link(url),
+                        }
                     }
+                }
+                _ => {}
+            });
+        }
+        // Reporting a selection needs a selection: the label becomes selectable, and the byte
+        // range the toolkit reports is read against the text on display.
+        if let Some(handler) = self.on_selection.clone() {
+            with_tree(|t| t.set_node_selectable(node, true));
+            let state = state.clone();
+            cx.on(node, move |ev| {
+                if let Event::TextSelected { start, end } = ev {
+                    let shown = state.displayed.borrow();
+                    let range = (*start).min(shown.len())..(*end).min(shown.len());
+                    let text = shown.get(range.clone()).unwrap_or_default().to_owned();
+                    drop(shown);
+                    let range = if text.is_empty() { 0..0 } else { range };
+                    handler(&SelectedText { text, range });
                 }
             });
         }
-        // A reactive markdown label re-parses on every change and patches text and runs together,
-        // since the ranges only mean anything against the string they were parsed from.
-        let font = self.font;
-        let md = self.markdown;
-        self.text.bind_to(
-            node,
-            move |t| {
-                if md {
-                    let (text, runs) = crate::markdown::parse(&t, font);
-                    Box::new(LabelPatch::Runs(text, runs))
-                } else {
-                    Box::new(LabelPatch::Text(t))
-                }
-            },
-            true,
-        );
+        // Text and runs travel together whenever the label has any: a range only means
+        // something against the string it was computed from.
+        let styled = self.markdown || state.covers();
+        {
+            let state = state.clone();
+            self.text.bind_to(
+                node,
+                move |t| {
+                    let (text, runs) = state.shape(&t, &[]);
+                    if styled {
+                        Box::new(LabelPatch::Runs(text, runs))
+                    } else {
+                        Box::new(LabelPatch::Text(text))
+                    }
+                },
+                true,
+            );
+        }
+        // The font follows a reactive scale and, under a cap, the system text size.
+        if matches!(self.font_scale, Reactive::Dyn(_)) || self.max_text_scale.is_some() {
+            let (font_scale, font, cap) = (self.font_scale.clone(), self.font, self.max_text_scale);
+            let state = state.clone();
+            // Seeded with the scale the label was realized at, so only a change patches.
+            bind_seeded(
+                scale,
+                move || label_font_scale(&font_scale, font, cap),
+                move |scale: &f64| {
+                    let mut next = state.spec.get();
+                    next.scale = *scale;
+                    state.spec.set(next);
+                    with_tree(|t| t.patch(node, Box::new(LabelPatch::Font(next)), true));
+                    // Whole-text runs are drawn in the label's font, so they follow it.
+                    if state.covers() {
+                        let source = state.source.borrow().clone();
+                        let (text, runs) = state.shape(&source, &[]);
+                        with_tree(|t| t.patch(node, Box::new(LabelPatch::Runs(text, runs)), true));
+                    }
+                },
+            );
+        }
+        // The paragraph attributes follow their sources as one patch.
+        let reactive_paragraph = matches!(self.max_lines, Reactive::Dyn(_))
+            || matches!(self.truncation, Reactive::Dyn(_))
+            || matches!(self.letter_spacing, Reactive::Dyn(_))
+            || matches!(self.line_height, Reactive::Dyn(_));
+        if reactive_paragraph {
+            bind_seeded(seed, paragraph, move |p: &LabelParagraph| {
+                with_tree(|t| t.patch(node, Box::new(LabelPatch::Paragraph(*p)), true));
+            });
+        }
         // A reactive color recolors in place; a constant was applied once at realize.
         if let Some(Reactive::Dyn(f)) = self.color {
             bind(
                 move || f(),
-                move |c: &day_spec::Color| {
+                move |c: &day_spec::Ink| {
                     with_tree(|t| t.patch(node, Box::new(LabelPatch::Color(Some(*c))), false));
                 },
             );
@@ -484,9 +852,14 @@ impl Piece for Label {
     }
 }
 
-/// The platform "tint" blue (iOS system blue, `#007AFF`) used as the default [`link`] color.
-/// Override per-link with [`Link::color`] to match an app's accent.
-const LINK_BLUE: day_spec::Color = day_spec::Color::rgb(0.0, 0.478, 1.0);
+/// [`label_font_scale`] without subscribing, for the value a label is realized with.
+fn label_font_scale_untracked(scale: &Reactive<f64>, font: Font, cap: Option<f64>) -> f64 {
+    day_reactive::untrack(|| label_font_scale(scale, font, cap))
+}
+
+/// The platform's link color a [`link`] takes on a toolkit with no native link runs. Override
+/// per link with [`Label::color`] to match an app's accent.
+const LINK_INK: day_spec::Ink = day_spec::Ink::system(day_spec::SystemColor::Link);
 
 /// Activate a link target, using the same policy as [`link`] and markdown labels.
 ///
@@ -506,110 +879,26 @@ pub fn open_link(target: &str) {
     }
 }
 
-/// A tappable run of text that navigates to a `#route` or opens a URL in the platform's default
-/// handler: the system browser for `http`/`https`, the mail client for `mailto:`, and so on.
+/// A label whose whole text is a link: it navigates to a `#route`, or opens a URL in the
+/// platform's default handler (the system browser for `http`/`https`, the mail client for
+/// `mailto:`, and so on).
 ///
-/// It renders as accent-colored [`label`] text and announces itself as actionable to assistive
-/// technology. The opening itself is delegated to the running backend
-/// ([`Toolkit::open_url`](day_spec::Toolkit::open_url)), so it works the same on
-/// every platform.
+/// The result is a [`Label`], so every label builder applies: `.font`, `.bold`, `.color`
+/// (reactive), `.max_lines`, `.truncation`, `.underline`, `.on_link` to handle the tap
+/// yourself. Where the toolkit has activatable link runs (`Cap::TextLinks`) the text is a
+/// native link run, with the platform's link color, hover and pressed states, keyboard focus
+/// and accessibility. Elsewhere it is accent-colored text with a tap handler and a button
+/// role.
 ///
 /// ```ignore
 /// link(res::str::project_site(), "https://daybrite.dev")
-/// link(res::str::settings(), "#settings")
+/// link(res::str::settings(), "#settings").bold()
 /// link(res::str::email_us(), "mailto:hi@example.com").font(Font::Footnote)
 /// ```
-#[must_use]
-pub struct Link {
-    label: Label,
-    url: String,
-}
-
-/// Build a [`Link`] that activates `url` through [`open_link`] when tapped.
-pub fn link<M>(text: impl IntoText<M>, url: impl Into<String>) -> Link {
-    Link {
-        label: label(text),
-        url: url.into(),
-    }
-}
-
-#[day_macros::builder(LinkBuilder)]
-impl Link {
-    /// The text style (default [`Font::Body`]).
-    pub fn font(mut self, f: Font) -> Self {
-        self.label = self.label.font(f);
-        self
-    }
-    /// Override the link color (default the platform tint blue).
-    pub fn color(mut self, c: day_spec::Color) -> Self {
-        self.label = self.label.color(c);
-        self
-    }
-    /// Render the link text bold.
-    pub fn bold(mut self) -> Self {
-        self.label = self.label.bold();
-        self
-    }
-}
-
-impl Piece for Link {
-    fn build(self, cx: &mut BuildCx) -> RNode {
-        let url = self.url;
-        let mut label = self.label;
-        if day_core::capability(day_spec::Cap::TextLinks) == day_spec::Support::Native {
-            // Use native link runs for theme colors, hover/pressed states, keyboard focus
-            // and accessibility. Keep ranges together with localized/reactive text.
-            let source = label.text.clone();
-            let font = day_spec::FontSpec {
-                style: label.font,
-                scale: label.font_scale,
-                weight: label.weight,
-                italic: label.italic,
-                ..Default::default()
-            };
-            let color = label
-                .color
-                .as_ref()
-                .map(super::canvas::Reactive::get_untracked);
-            let target = url.clone();
-            let runs = move |text: &str| {
-                vec![day_spec::TextRun {
-                    range: 0..text.len(),
-                    font,
-                    color,
-                    link: Some(target.clone()),
-                    ..Default::default()
-                }]
-            };
-            let initial = source.initial();
-            label.runs = runs(&initial);
-            label.text = TextSource::Static(initial);
-            let node = label.build(cx);
-            source.bind_to(
-                node,
-                move |text| {
-                    let spans = runs(&text);
-                    Box::new(LabelPatch::Runs(text, spans))
-                },
-                true,
-            );
-            // Synthetic taps still exercise link policy; native activation is LinkActivated.
-            cx.on(node, move |ev| {
-                if matches!(ev, Event::Tap(_)) {
-                    open_link(&url);
-                }
-            });
-            node
-        } else {
-            if label.color.is_none() {
-                label = label.color(LINK_BLUE);
-            }
-            label
-                .on_tap(move || open_link(&url))
-                .a11y(|b| b.role(Role::Button))
-                .build(cx)
-        }
-    }
+pub fn link<M>(text: impl IntoText<M>, url: impl Into<String>) -> Label {
+    let mut label = label(text);
+    label.link = Some(url.into());
+    label
 }
 
 #[must_use]
@@ -621,7 +910,7 @@ pub struct Button {
     native_style: day_spec::props::ButtonStyleSpec,
     /// A reactive tint, kept apart from `native_style` so the color can follow a signal. Set by
     /// [`Button::tint`]; it wins over `bordered`/`prominent` because it is the more specific ask.
-    tint: Option<Reactive<day_spec::Color>>,
+    tint: Option<Reactive<day_spec::Ink>>,
     enabled: Reactive<bool>,
     selected: Reactive<bool>,
 }
@@ -713,7 +1002,7 @@ impl Button {
     /// A backend that cannot recolor its button ignores the tint and draws its ordinary button
     /// (docs/buttons.md), because a plain button on one platform is a far smaller loss than a
     /// colored rectangle that is no longer a button.
-    pub fn tint<M>(mut self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
+    pub fn tint<M>(mut self, color: impl IntoReactive<day_spec::Ink, M>) -> Self {
         self.tint = Some(color.into_reactive());
         self
     }
@@ -784,7 +1073,7 @@ impl Piece for Button {
         if let Some(c @ Reactive::Dyn(_)) = self.tint.clone() {
             bind(
                 move || c.get(),
-                move |col: &day_spec::Color| {
+                move |col: &day_spec::Ink| {
                     with_tree(|t| {
                         t.patch(
                             node,
@@ -1516,8 +1805,10 @@ impl Piece for Spacer {
 /// the `conformance` feature, so a shipping app links none of it.
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
+    use day_core::Piece;
     use day_core::conformance::{Case, Drive, FrameExpect, NativeExpect};
     use day_reactive::Signal;
+    use day_spec::props::Truncation;
     use day_spec::{Cap, Font, Role, kinds};
 
     use crate::*;
@@ -1801,6 +2092,39 @@ pub(crate) mod conformance {
             })
     }
 
+    /// A label's own color stays under its runs when new runs replace the old ones.
+    #[day_macros::test(day_core)]
+    fn label_runs_keep_the_label_color() -> Case {
+        let text = Signal::new(
+            "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588} **\u{2588}**".to_string(),
+        );
+        Case::new()
+            .proves(kinds::LABEL)
+            .requires(Cap::TextRuns)
+            .requires(Cap::Snapshot)
+            .page(move || {
+                column((
+                    label(text)
+                        .markdown()
+                        .color(day_spec::Color::rgb(1.0, 0.0, 0.0))
+                        .id(day_core::id!(colored)),
+                    button("Restyle")
+                        .id(day_core::id!(restyle))
+                        .action(move || {
+                            text.set(
+                                "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588} *\u{2588}*"
+                                    .into(),
+                            );
+                        }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("colored", 0.1, 0.5, "#ff0000").await?;
+                d.tap("restyle").await?;
+                d.sample_pixel("colored", 0.1, 0.5, "#ff0000").await
+            })
+    }
+
     /// Replacing link runs, clearing them and restoring them preserves the native text.
     /// Native input suites separately exercise each platform's span hit testing.
     #[day_macros::test(day_core)]
@@ -1833,6 +2157,387 @@ pub(crate) mod conformance {
                 d.assert_text("links", "Plain 😀").await?;
                 d.tap("restore").await?;
                 d.assert_text("links", "Restored").await
+            })
+    }
+
+    /// A marker box under a label, so a case can compare two labels' heights by where their
+    /// markers sit.
+    fn foot(id: day_core::ElementId) -> impl Piece {
+        rectangle()
+            .fill(day_spec::Color::hex(0x0033_6699))
+            .frame(10.0, 4.0)
+            .id(id)
+    }
+
+    const LONG: &str = "Day lays this sentence out over many lines when its label is narrow, \
+        so a line limit has plenty of text to cut and the ellipsis has something to stand for.";
+
+    /// A line limit caps the label's height on every toolkit: held to two lines, a long label
+    /// is exactly as tall as a two-line one, and held to one, as tall as a one-line one. The
+    /// limit follows its signal, and the text Day reports stays whole.
+    #[day_macros::test(day_core)]
+    fn label_max_lines() -> Case {
+        let limit = Signal::new(0u32);
+        Case::new()
+            .proves(kinds::LABEL)
+            .page(move || {
+                column((
+                    row((
+                        column((
+                            label(LONG)
+                                .max_lines(limit)
+                                .width(100.0)
+                                .id(day_core::id!(ml_text)),
+                            foot(day_core::id!(ml_foot)),
+                        ))
+                        .align(HAlign::Leading),
+                        column((label("Ag\nAg").width(100.0), foot(day_core::id!(ml_two))))
+                            .align(HAlign::Leading),
+                        column((label("Ag").width(100.0), foot(day_core::id!(ml_one))))
+                            .align(HAlign::Leading),
+                    ))
+                    .align(VAlign::Top),
+                    button("Two lines")
+                        .action(move || limit.set(2))
+                        .id(day_core::id!(ml_set_two)),
+                    button("One line")
+                        .action(move || limit.set(1))
+                        .id(day_core::id!(ml_set_one)),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .shot("unlimited")
+            .drive(|d: Drive| async move {
+                let level_with = |other: &str| FrameExpect {
+                    y: Some(0.0),
+                    relative_to: Some(other.into()),
+                    ..Default::default()
+                };
+                d.tap("ml_set_two").await?;
+                d.wait_idle().await?;
+                d.assert_frame("ml_foot", level_with("ml_two")).await?;
+                d.shot("two").await?;
+                d.tap("ml_set_one").await?;
+                d.wait_idle().await?;
+                d.assert_frame("ml_foot", level_with("ml_one")).await?;
+                d.assert_text("ml_text", LONG).await
+            })
+    }
+
+    /// A one-line label stays one line tall and as wide as its box in each truncation mode,
+    /// and the text Day reports is the whole text. Where the ellipsis sits is for the capture.
+    #[day_macros::test(day_core)]
+    fn label_truncation_modes() -> Case {
+        let mode = Signal::new(Truncation::Middle);
+        Case::new()
+            .proves(kinds::LABEL)
+            .page(move || {
+                column((
+                    row((
+                        column((
+                            label("/usr/local/share/day/templates/app/src/pages.rs")
+                                .single_line()
+                                .truncation(mode)
+                                .width(120.0)
+                                .id(day_core::id!(tr_path)),
+                            foot(day_core::id!(tr_foot)),
+                        ))
+                        .align(HAlign::Leading),
+                        column((label("Ag").width(120.0), foot(day_core::id!(tr_one))))
+                            .align(HAlign::Leading),
+                    ))
+                    .align(VAlign::Top),
+                    button("Head")
+                        .action(move || mode.set(Truncation::Head))
+                        .id(day_core::id!(tr_head)),
+                    button("Tail")
+                        .action(move || mode.set(Truncation::Tail))
+                        .id(day_core::id!(tr_tail)),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .shot("middle")
+            .drive(|d: Drive| async move {
+                let one_line = || FrameExpect {
+                    y: Some(0.0),
+                    relative_to: Some("tr_one".into()),
+                    ..Default::default()
+                };
+                d.assert_frame("tr_foot", one_line()).await?;
+                d.tap("tr_head").await?;
+                d.wait_idle().await?;
+                d.assert_frame("tr_foot", one_line()).await?;
+                d.shot("head").await?;
+                d.tap("tr_tail").await?;
+                d.wait_idle().await?;
+                d.assert_frame("tr_foot", one_line()).await?;
+                d.assert_text("tr_path", "/usr/local/share/day/templates/app/src/pages.rs")
+                    .await
+            })
+    }
+
+    /// Line height is a multiple of the em, the font size as drawn, compared here without
+    /// assuming how many units a point is. Two one-line labels at 2.0 (four ems) end level with
+    /// three lines at 4/3 and with two lines at 2.0; a change of the multiple to 1.5 re-measures
+    /// both, so the pair (three ems) ends level with two lines at 1.5. Every reference stays at
+    /// or above a font's natural line height, so no platform floor gets in the way.
+    #[day_macros::test(day_core)]
+    fn label_line_height() -> Case {
+        let multiple = Signal::new(2.0);
+        let line = |text: &'static str| label(text).font(Font::System(20.0));
+        Case::new()
+            .proves(kinds::LABEL)
+            .page(move || {
+                column((
+                    row((
+                        column((
+                            line("Ag").line_height(multiple).id(day_core::id!(lh_one)),
+                            line("Ag").line_height(multiple),
+                            foot(day_core::id!(lh_pair_end)),
+                        ))
+                        .spacing(0.0),
+                        column((
+                            line("Ag\nAg\nAg").line_height(4.0 / 3.0),
+                            foot(day_core::id!(lh_four_end)),
+                        ))
+                        .spacing(0.0),
+                        column((
+                            line("Ag\nAg").line_height(2.0).id(day_core::id!(lh_two)),
+                            foot(day_core::id!(lh_two_end)),
+                        ))
+                        .spacing(0.0),
+                        column((
+                            line("Ag\nAg").line_height(1.5),
+                            foot(day_core::id!(lh_three_end)),
+                        ))
+                        .spacing(0.0),
+                    ))
+                    .spacing(8.0)
+                    .align(VAlign::Top),
+                    button("Tighter")
+                        .action(move || multiple.set(1.5))
+                        .id(day_core::id!(lh_tighter)),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                let level_with = |reference: &str| FrameExpect {
+                    y: Some(0.0),
+                    relative_to: Some(reference.into()),
+                    tolerance: Some(2.0),
+                    ..Default::default()
+                };
+                d.assert_frame("lh_pair_end", level_with("lh_four_end"))
+                    .await?;
+                d.assert_frame("lh_two_end", level_with("lh_four_end"))
+                    .await?;
+                d.tap("lh_tighter").await?;
+                d.wait_idle().await?;
+                d.assert_frame("lh_pair_end", level_with("lh_three_end"))
+                    .await
+            })
+    }
+
+    /// Letter spacing is in ems of the label's own font as drawn, compared without assuming
+    /// how many units a point is. Every row holds two labels, so a label's own inset (AppKit's
+    /// text field cell adds two points a side) and its rounding cancel, and every spaced label
+    /// has a spaced partner of the same length, so it does not matter whether a platform adds
+    /// the spacing after the last character too.
+    ///
+    /// Three characters of a 40-point font spaced by 0.75 em gain exactly what three of a
+    /// 20-point font spaced by 1.5 em gain, so the two rows end level within a point of
+    /// rounding; spacing that ignored the font's size would not. Then the size of the em: eight
+    /// characters spaced by a quarter em gain one em more than four, which one em space
+    /// (U+2003) stands in for, so an em taken as a point where the font draws larger (Linux
+    /// draws a 20-point font 26.7 units tall) falls a quarter of an em short. An em space is a
+    /// font's em by definition but not always to the unit (San Francisco's is 0.98 em at 20
+    /// points), so that comparison allows half a point more than rounding.
+    #[day_macros::test(day_core)]
+    fn label_letter_spacing() -> Case {
+        let at = |text: &'static str, points: f64| label(text).font(Font::System(points));
+        let level = |reference: &str, tolerance: f64| FrameExpect {
+            x: Some(0.0),
+            relative_to: Some(reference.into()),
+            tolerance: Some(tolerance),
+            ..Default::default()
+        };
+        Case::new()
+            .proves(kinds::LABEL)
+            .page(move || {
+                column((
+                    row((
+                        at("HHH", 40.0).letter_spacing(0.75),
+                        at("HHH", 20.0),
+                        foot(day_core::id!(ls_large_end)),
+                    )),
+                    row((
+                        at("HHH", 40.0),
+                        at("HHH", 20.0).letter_spacing(1.5),
+                        foot(day_core::id!(ls_small_end)),
+                    )),
+                    row((
+                        at("HHHHHHHH", 20.0)
+                            .letter_spacing(0.25)
+                            .id(day_core::id!(ls_spaced)),
+                        at("HH", 20.0),
+                        foot(day_core::id!(ls_spaced_end)),
+                    )),
+                    row((
+                        at("HHHH", 20.0).letter_spacing(0.25),
+                        at("HH\u{2003}HHHH", 20.0),
+                        foot(day_core::id!(ls_plain_end)),
+                    )),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .shot("default")
+            .drive(move |d: Drive| async move {
+                d.assert_frame("ls_large_end", level("ls_small_end", 1.0))
+                    .await?;
+                d.assert_frame("ls_spaced_end", level("ls_plain_end", 1.5))
+                    .await?;
+                d.assert_text("ls_spaced", "HHHHHHHH").await
+            })
+    }
+
+    /// Decorations and font features change how text draws, never what it says: a label with a
+    /// wavy colored underline on one word, a double underline over the whole text, small caps
+    /// and oldstyle figures still reports its plain text.
+    #[day_macros::test(day_core)]
+    fn label_decorations_and_features() -> Case {
+        Case::new()
+            .proves(kinds::LABEL)
+            .requires(Cap::TextRuns)
+            .page(|| {
+                column((
+                    label("")
+                        .runs_from(
+                            TextBuilder::new()
+                                .text("Check ")
+                                .underline_styled(
+                                    "unknown",
+                                    day_spec::Decoration::wavy()
+                                        .color(day_spec::Color::hex(0x00D0_021B)),
+                                )
+                                .text(" and ")
+                                .strikethrough_styled("old", day_spec::DecorationStyle::Double)
+                                .text(" in ")
+                                .small_caps("Small Caps"),
+                        )
+                        .id(day_core::id!(dec_runs)),
+                    label("Doubly underlined")
+                        .underline(day_spec::Decoration::double())
+                        .id(day_core::id!(dec_whole)),
+                    label("Struck in red")
+                        .strikethrough(
+                            day_spec::Decoration::SINGLE.color(day_spec::Color::hex(0x00D0_021B)),
+                        )
+                        .id(day_core::id!(dec_struck)),
+                    label("Chapter 1234567890")
+                        .small_caps()
+                        .oldstyle_figures()
+                        .id(day_core::id!(dec_features)),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.assert_text("dec_runs", "Check unknown and old in Small Caps")
+                    .await?;
+                d.assert_text("dec_whole", "Doubly underlined").await?;
+                d.assert_text("dec_struck", "Struck in red").await?;
+                d.assert_text("dec_features", "Chapter 1234567890").await
+            })
+    }
+
+    /// A label that asks for selection reports is selectable and still shows its text. The
+    /// reports themselves need a native selection gesture, which each toolkit's native input
+    /// suite makes; the mock harness raises the event directly (`tests/text_mock.rs`).
+    #[day_macros::test(day_core)]
+    fn label_on_selection() -> Case {
+        let chosen = Signal::new(String::new());
+        Case::new()
+            .proves(kinds::LABEL)
+            .proves_duty("set_selectable")
+            .page(move || {
+                column((
+                    label("Select part of this sentence")
+                        .on_selection(move |s| chosen.set(s.text.clone()))
+                        .id(day_core::id!(sel_text)),
+                    label(move || chosen.get()).id(day_core::id!(sel_echo)),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("sel_text", "Select part of this sentence")
+                    .await?;
+                d.assert_text("sel_echo", "").await
+            })
+    }
+
+    /// The system text scale is a positive number, the same for `Body` through either reader.
+    #[day_macros::test(day_core)]
+    fn text_scale_reads() -> Case {
+        Case::new()
+            .proves_duty("text_scale")
+            .page(|| {
+                label(|| format!("{:.2}", day_core::text_scale()))
+                    .max_text_scale(1.0)
+                    .id(day_core::id!(ts_scale))
+            })
+            .drive(|d: Drive| async move {
+                let scale = day_core::text_scale();
+                d.check(
+                    scale.is_finite() && scale > 0.0,
+                    "the text scale is positive",
+                )?;
+                d.check_eq(scale, day_core::text_scale_of(Font::Body))?;
+                d.assert_text("ts_scale", &format!("{scale:.2}")).await
+            })
+    }
+
+    /// A link is a label: it takes the label's builders, follows a reactive text, and a
+    /// handler set with `on_link` replaces the default opening.
+    #[day_macros::test(day_core)]
+    fn link_takes_label_builders() -> Case {
+        let title = Signal::new("Read the guide".to_owned());
+        let handled = Signal::new(String::new());
+        Case::new()
+            .proves_duty("open_url")
+            .page(move || {
+                column((
+                    link(title, "https://daybrite.dev/docs")
+                        .font(Font::Footnote)
+                        .bold()
+                        .single_line()
+                        .truncation(Truncation::Middle)
+                        .id(day_core::id!(lk_default)),
+                    link("Handled here", "app:custom")
+                        .on_link(move |target| handled.set(target.to_owned()))
+                        .id(day_core::id!(lk_handled)),
+                    label(move || handled.get()).id(day_core::id!(lk_echo)),
+                    button("Retitle")
+                        .action(move || title.set("Open the guide".into()))
+                        .id(day_core::id!(lk_retitle)),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("lk_default", "Read the guide").await?;
+                d.tap("lk_retitle").await?;
+                d.assert_text("lk_default", "Open the guide").await?;
+                d.tap("lk_default").await?;
+                d.assert_opened_url("https://daybrite.dev/docs").await?;
+                d.tap("lk_handled").await?;
+                d.assert_text("lk_echo", "app:custom").await
             })
     }
 
@@ -2003,6 +2708,57 @@ pub(crate) mod conformance {
                 d.assert_value("slider", 10.0).await?;
                 d.tap("set").await?;
                 d.assert_value("slider", 40.0).await
+            })
+    }
+
+    /// The app moving a slider is not the reader moving it (DESIGN.md §4.4): the native value
+    /// changes, and nothing comes back through the binding as if a hand had dragged the thumb.
+    /// A media scrubber that echoed its own position would seek on every tick.
+    #[day_macros::test(day_core)]
+    fn slider_set_by_the_app_is_not_echoed() -> Case {
+        /// A slider value that counts the writes the slider makes to it.
+        #[derive(Clone, Copy)]
+        struct Counted {
+            value: Signal<f64>,
+            writes: Signal<u32>,
+        }
+        impl Binding<f64> for Counted {
+            fn read(&self) -> f64 {
+                self.value.get()
+            }
+            fn peek(&self) -> f64 {
+                self.value.get_untracked()
+            }
+            fn write(&self, v: f64) {
+                self.writes.update(|n| *n += 1);
+                self.value.set(v);
+            }
+        }
+        let value = Signal::new(10.0f64);
+        let writes = Signal::new(0u32);
+        Case::new()
+            .proves(kinds::SLIDER)
+            .page(move || {
+                column((
+                    slider(Counted { value, writes })
+                        .range(0.0..=50.0)
+                        .id(day_core::id!(slider)),
+                    button("Step")
+                        .action(move || value.update(|v| *v += 7.5))
+                        .id(day_core::id!(step)),
+                    label(move || format!("writes {}", writes.get())).id(day_core::id!(writes)),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_value("slider", 10.0).await?;
+                for _ in 0..3 {
+                    d.tap("step").await?;
+                }
+                d.assert_value("slider", 32.5).await?;
+                d.wait_idle().await?;
+                d.pause(0.3).await?;
+                d.assert_text("writes", "writes 0").await
             })
     }
 

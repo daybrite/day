@@ -32,26 +32,41 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, InputPurpose,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, DrawOp, Event, EventSink, Font, InputPurpose,
     InputTraits, NodeId, PieceKind, Platform, Point, Proposal, Rect, Registry, Renderer, Size,
     Support, Toolkit, Transform, WindowOptions, ffi_guard, kinds, props_of,
 };
 
-/// An `AnimSpec` as the shim's `(duration_ms, curve)` pair — `(0, 0)` meaning "no animation, set
-/// it outright". The curve encoding is shared with day-toolkit-qt's shim (DESIGN.md §8.4).
-fn xaml_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
-    match anim {
-        None => (0, 0),
-        Some(a) => (
-            a.duration_ms as c_int,
-            match a.curve {
-                Curve::Linear => 0,
-                Curve::EaseIn => 1,
-                Curve::EaseOut => 2,
-                Curve::EaseInOut => 3,
-                Curve::Spring { .. } => 4,
-            },
-        ),
+/// An `AnimSpec` as the shim plays it ([`ffi::DayAnim`]), owning the samples the struct points
+/// at. The shim plays one forward cycle of `AnimSpec::keyframes` as a key-frame animation, so
+/// every curve, the physical spring included, runs exactly as the contract samples it
+/// (docs/tween.md); `None` sets the value outright.
+struct XamlAnim {
+    raw: ffi::DayAnim,
+    _progress: Vec<f64>,
+}
+
+impl XamlAnim {
+    fn new(anim: Option<&AnimSpec>) -> Option<XamlAnim> {
+        let a = anim?;
+        let progress: Vec<f64> = a.keyframes().iter().map(|k| k.progress).collect();
+        let raw = ffi::DayAnim {
+            delay_ms: c_int::try_from(a.delay_ms).unwrap_or(c_int::MAX),
+            duration_ms: c_int::try_from(a.duration_ms).unwrap_or(c_int::MAX),
+            repeat: a.repeat,
+            autoreverse: c_int::from(a.autoreverse),
+            frames: c_int::try_from(progress.len()).unwrap_or(0),
+            progress: progress.as_ptr(),
+        };
+        Some(XamlAnim {
+            raw,
+            _progress: progress,
+        })
+    }
+
+    /// The pointer the shim takes: null for "at once".
+    fn ptr(anim: Option<&XamlAnim>) -> *const ffi::DayAnim {
+        anim.map_or(std::ptr::null(), |a| &raw const a.raw)
     }
 }
 
@@ -78,6 +93,28 @@ day_core::tls_group! {
     /// Label ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell a link
     /// run's Hyperlink which node to report against. Entries drop in `release`.
     static LABEL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+    /// Label ptr → what a label held to one line with head or middle truncation shows
+    /// (docs/text.md "Truncation"): XAML trims the tail only, so the label shows
+    /// `day_spec::elide`'s string and keeps the whole text here for the read-back. Entries drop
+    /// in `release`.
+    static LABEL_ELIDE: RefCell<HashMap<usize, Elided>> = RefCell::new(HashMap::new());
+    /// Node id → the text a selection-reporting label displays, which its UTF-16 selection
+    /// offsets index (docs/text.md "Selection"). Entries drop in `release`.
+    static LABEL_TEXT: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
+    /// Label ptr → its paragraph alignment, re-read when the label is given a reading
+    /// direction of its own (`set_layout_direction`). Entries drop in `release`.
+    static LABEL_ALIGN: RefCell<HashMap<usize, day_spec::props::TextAlign>> =
+        RefCell::new(HashMap::new());
+    /// Labels that currently carry runs. Entries drop in `release`.
+    static LABEL_RUNS: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+    /// Every applied ink that follows the appearance, by view and slot, with the call that
+    /// applies it again (docs/color.md "Following the appearance"). XAML has no color that
+    /// re-resolves itself outside a `{ThemeResource}`, so a switch re-applies these
+    /// (`repaint_inks`). Fixed inks have no entry. Entries drop in `release`.
+    static INKS: RefCell<HashMap<(usize, InkSlot), Repaint>> = RefCell::new(HashMap::new());
+    /// Container ptr → its surface as last applied (docs/surfaces.md), the role kept from
+    /// realize, and whether it is drawn as a styled surface. Entries drop in `release`.
+    static SURFACES: RefCell<HashMap<usize, Surface>> = RefCell::new(HashMap::new());
     /// Elements marked `.window_drag_region()` (docs/window-chrome.md), so `release` can drop the
     /// shim's reference to one before the element goes.
     static DRAG_REGIONS: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
@@ -571,29 +608,298 @@ fn apply_button_content(
 /// unaffected by the style.
 fn apply_button_style(h: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
     use day_spec::props::ButtonStyleSpec as S;
-    let argb = |c: day_spec::Color| {
-        let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
-        (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
-    };
-    let (kind, fill) = match style {
+    let (kind, tint) = match style {
         // A XAML Button pads a one-glyph title modestly; Compact takes the stock look.
-        S::Automatic | S::Compact => (0, day_spec::Color::CLEAR),
-        S::Bordered => (1, day_spec::Color::CLEAR),
-        S::Prominent => (2, day_spec::Color::CLEAR),
+        S::Automatic | S::Compact => (0, day_spec::Ink::CLEAR),
+        S::Bordered => (1, day_spec::Ink::CLEAR),
+        S::Prominent => (2, day_spec::Ink::CLEAR),
         S::Tinted(c) => (3, c),
         // Borderless: no fill or border at rest, the template's hover and pressed fills kept.
-        S::Plain => (4, day_spec::Color::CLEAR),
+        S::Plain => (4, day_spec::Ink::CLEAR),
     };
-    // SAFETY: `h` is a live Button handle from `day_xaml_button_new`; the shim only reads the
-    // packed colors.
-    unsafe { ffi::day_xaml_button_set_style(h, kind, argb(fill), argb(S::on_tint(fill))) };
+    // The readable title color is computed from the fill on each side (docs/color.md).
+    paint_inks(
+        h,
+        InkSlot::ButtonTint,
+        tint.is_dynamic(),
+        move |h, palette| {
+            let fill = tint.resolve(palette);
+            // SAFETY: `h` is a live Button handle from `day_xaml_button_new`; the shim only reads
+            // the packed colors.
+            unsafe {
+                ffi::day_xaml_button_set_style(h, kind, argb(fill), argb(S::on_tint(fill)));
+            };
+        },
+    );
 }
 
 /// Send a label's runs across as a begin + one add per run (docs/text-runs.md).
 ///
 /// Runs become `Inline`s in the one `TextBlock`, so the paragraph still wraps and selects as a
 /// unit. Flags pack the styling so each run is a single call with no marshaling.
+/// A label that shows an elided string ([`LABEL_ELIDE`]): the whole text, the mode, and the
+/// width it was last elided for (0 before its first frame).
+struct Elided {
+    full: String,
+    mode: day_spec::props::Truncation,
+    width: f64,
+}
+
+/// The paragraph attributes on a label (docs/text.md), from `realize` and from
+/// `LabelPatch::Paragraph`. `plain` is false for a label with runs, which keeps XAML's tail
+/// trimming whatever the mode (elision cuts characters and knows nothing about runs).
+fn apply_paragraph(
+    h: *mut c_void,
+    wraps: bool,
+    para: &day_spec::props::LabelParagraph,
+    text: &str,
+    plain: bool,
+) {
+    unsafe {
+        ffi::day_xaml_label_set_paragraph(
+            h,
+            c_int::from(wraps),
+            c_int::try_from(para.max_lines).unwrap_or(c_int::MAX),
+            para.letter_spacing,
+            para.line_height,
+        );
+    }
+    let one_line = !wraps || para.max_lines == 1;
+    let elides = plain && one_line && para.truncation != day_spec::props::Truncation::Tail;
+    let key = h as usize;
+    if elides {
+        let width = LABEL_ELIDE.with(|m| {
+            let mut m = m.borrow_mut();
+            let e = m.entry(key).or_insert_with(|| Elided {
+                full: text.to_owned(),
+                mode: para.truncation,
+                width: 0.0,
+            });
+            e.mode = para.truncation;
+            text.clone_into(&mut e.full);
+            e.width
+        });
+        if width > 0.0 {
+            elide_label(h, width);
+        }
+    } else if LABEL_ELIDE.with(|m| m.borrow_mut().remove(&key)).is_some() {
+        // Back to the platform's own trimming: show the whole text again.
+        let whole = cstr(text);
+        unsafe { ffi::day_xaml_label_show_elided(h, whole.as_ptr(), whole.as_ptr()) };
+    }
+}
+
+/// Show an elided label's text cut to `width` (a no-op for every other label).
+fn elide_label(h: *mut c_void, width: f64) {
+    let Some((full, mode)) = LABEL_ELIDE.with(|m| {
+        let mut m = m.borrow_mut();
+        let e = m.get_mut(&(h as usize))?;
+        e.width = width;
+        Some((e.full.clone(), e.mode))
+    }) else {
+        return;
+    };
+    let shown = day_spec::elide(&full, mode, width, |s| unsafe {
+        ffi::day_xaml_label_text_width(h, cstr(s).as_ptr())
+    });
+    unsafe { ffi::day_xaml_label_show_elided(h, cstr(&shown).as_ptr(), cstr(&full).as_ptr()) };
+}
+
+/// A label's text changed: the stored copies follow, and an elided label is cut again at its
+/// last width.
+fn note_label_text(h: *mut c_void, text: &str) {
+    if let Some(node) = LABEL_NODE.with(|m| m.borrow().get(&(h as usize)).copied()) {
+        LABEL_TEXT.with(|m| {
+            if let Some(t) = m.borrow_mut().get_mut(&node) {
+                text.clone_into(t);
+            }
+        });
+    }
+    let width = LABEL_ELIDE.with(|m| {
+        m.borrow_mut().get_mut(&(h as usize)).map(|e| {
+            text.clone_into(&mut e.full);
+            e.width
+        })
+    });
+    if let Some(width) = width
+        && width > 0.0
+    {
+        elide_label(h, width);
+    }
+}
+
+/// The label's current text, and whether it is plain (no runs), for a paragraph patch.
+fn label_text_of(h: *mut c_void) -> (String, bool) {
+    if let Some(full) = LABEL_ELIDE.with(|m| m.borrow().get(&(h as usize)).map(|e| e.full.clone()))
+    {
+        return (full, true);
+    }
+    // SAFETY: the shim returns a heap string (or null) released here through its own free.
+    let text = unsafe {
+        let p = ffi::day_xaml_label_text(h);
+        if p.is_null() {
+            String::new()
+        } else {
+            let s = CStr::from_ptr(p).to_string_lossy().into_owned();
+            ffi::day_xaml_string_free(p);
+            s
+        }
+    };
+    (
+        text,
+        !LABEL_RUNS.with(|m| m.borrow().contains(&(h as usize))),
+    )
+}
+
+/// A label's alignment as the shim's code: 0 leading, 1 center, 2 trailing, 3 justified, read in
+/// the app's direction (a label with no reading direction of its own is laid out in it).
+fn label_align_code(align: day_spec::props::TextAlign) -> c_int {
+    let rtl = day_core::layout_direction() == day_spec::LayoutDirection::Rtl;
+    match align {
+        day_spec::props::TextAlign::Center => 1,
+        day_spec::props::TextAlign::Trailing => {
+            if rtl {
+                0
+            } else {
+                2
+            }
+        }
+        day_spec::props::TextAlign::Leading => {
+            if rtl {
+                2
+            } else {
+                0
+            }
+        }
+        day_spec::props::TextAlign::Justified => 3,
+    }
+}
+
+/// `FontSpec::{small_caps, oldstyle_figures}` on a label.
+fn apply_label_features(h: *mut c_void, f: day_spec::FontSpec) {
+    unsafe {
+        ffi::day_xaml_label_set_features(
+            h,
+            c_int::from(f.small_caps),
+            c_int::from(f.oldstyle_figures),
+        );
+    }
+}
+
+/// A selection-reporting label's selection changed (`day_xaml_label_report_selection`):
+/// UTF-16 offsets into the text it displays, converted to byte offsets for
+/// `Event::TextSelected`.
+extern "C" fn on_label_selection(id: u64, start: c_int, end: c_int) {
+    ffi_guard::contain((), || {
+        let text = LABEL_TEXT
+            .with(|m| m.borrow().get(&id).cloned())
+            .unwrap_or_default();
+        let to_byte = |units: c_int| utf16_to_byte(&text, usize::try_from(units).unwrap_or(0));
+        emit(
+            NodeId(id),
+            Event::TextSelected {
+                start: to_byte(start),
+                end: to_byte(end),
+            },
+        );
+    });
+}
+
+/// The byte offset in `text` of the character boundary at `units` UTF-16 code units, clamped
+/// to the text.
+fn utf16_to_byte(text: &str, units: usize) -> usize {
+    let mut seen = 0usize;
+    for (byte, ch) in text.char_indices() {
+        if seen >= units {
+            return byte;
+        }
+        seen += ch.len_utf16();
+    }
+    text.len()
+}
+
+#[cfg(test)]
+mod label_text_tests {
+    use super::*;
+
+    #[test]
+    fn utf16_offsets_land_on_char_boundaries() {
+        let text = "a\u{e9}\u{1f600}b";
+        assert_eq!(utf16_to_byte(text, 0), 0);
+        assert_eq!(utf16_to_byte(text, 1), 1);
+        assert_eq!(utf16_to_byte(text, 2), 3);
+        // The emoji is two UTF-16 units and four bytes.
+        assert_eq!(utf16_to_byte(text, 4), 7);
+        assert_eq!(utf16_to_byte(text, 5), 8);
+        assert_eq!(utf16_to_byte(text, 99), 8);
+    }
+
+    #[test]
+    fn justified_has_its_own_code() {
+        assert_eq!(label_align_code(day_spec::props::TextAlign::Justified), 3);
+        assert_eq!(label_align_code(day_spec::props::TextAlign::Center), 1);
+    }
+}
+
+/// An image's tint, kept for the appearance when it follows it; the shim already shows it.
+fn keep_image_tint(h: *mut c_void, tint: Option<day_spec::Ink>) {
+    let ink = tint.unwrap_or(day_spec::Ink::CLEAR);
+    keep_inks(
+        h,
+        InkSlot::ImageTint,
+        ink.is_dynamic(),
+        move |h, palette| {
+            // SAFETY: the handle is a live image (see `repaint_inks`), on the UI thread.
+            unsafe { ffi::day_xaml_image_retint(h, ink_argb(ink, palette)) };
+        },
+    );
+}
+
+/// A label's text color, kept for the appearance when it follows it.
+fn paint_label_color(h: *mut c_void, ink: day_spec::Ink) {
+    paint_inks(
+        h,
+        InkSlot::LabelColor,
+        ink.is_dynamic(),
+        move |h, palette| {
+            // SAFETY: the handle is a live label (see `repaint_inks`), on the UI thread.
+            unsafe { ffi::day_xaml_label_set_color(h, ink_argb(ink, palette)) };
+        },
+    );
+}
+
+/// Show a label's runs, and keep them for the appearance when a run's color follows it.
 fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextRun]) {
+    let dynamic = runs.iter().any(|r| {
+        r.color.is_some_and(day_spec::Ink::is_dynamic)
+            || r.background.is_some_and(day_spec::Ink::is_dynamic)
+    });
+    if dynamic {
+        let (text, runs) = (text.to_owned(), runs.to_vec());
+        paint_inks(h, InkSlot::LabelRuns, true, move |h, palette| {
+            apply_label_runs(h, node, &text, &runs, palette);
+        });
+    } else {
+        keep_inks(h, InkSlot::LabelRuns, false, |_, _| {});
+        apply_label_runs(h, node, text, runs, &day_spec::Palette::current());
+    }
+}
+
+/// Send a label's runs, their colors resolved against `palette`.
+fn apply_label_runs(
+    h: *mut c_void,
+    node: u64,
+    text: &str,
+    runs: &[day_spec::TextRun],
+    palette: &day_spec::Palette,
+) {
+    LABEL_RUNS.with(|m| {
+        if runs.is_empty() {
+            m.borrow_mut().remove(&(h as usize));
+        } else {
+            m.borrow_mut().insert(h as usize);
+        }
+    });
     if runs.is_empty() {
         // The plain setter also clears the Inlines, so a label losing its runs stops rendering
         // the styled version.
@@ -622,10 +928,10 @@ fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextR
             if r.font.monospace {
                 flags |= 4;
             }
-            if r.strikethrough {
+            if r.strikethrough.is_some() {
                 flags |= 8;
             }
-            if let Some(c) = r.color {
+            if let Some(c) = r.color.map(|c| c.resolve(palette)) {
                 flags |= 16;
                 let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
                 argb = (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b);
@@ -634,12 +940,18 @@ fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextR
                 let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
                 (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
             };
-            if let Some(c) = r.background {
+            if let Some(c) = r.background.map(|c| c.resolve(palette)) {
                 flags |= 32;
                 bg_argb = pack(c);
             }
-            if r.underline.is_on() {
+            if r.underline.is_some() {
                 flags |= 64;
+            }
+            if r.font.small_caps {
+                flags |= 128;
+            }
+            if r.font.oldstyle_figures {
+                flags |= 256;
             }
             if let Some(u) = r.link.as_deref() {
                 link = u.to_string();
@@ -800,9 +1112,10 @@ extern "C" fn on_text_handled(id: u64) -> c_int {
     ffi_guard::contain(0, || c_int::from(day_spec::keys::text(NodeId(id))))
 }
 
-/// A key that reached a focused canvas (docs/menus.md): `key` is the day name, `text` what it
-/// typed on the full route (null for a key that typed nothing), `modifiers` the
-/// [`day_spec::KeyEvent`] mask. Both strings are valid for the call.
+/// A key that reached a focused canvas or focusable container (docs/menus.md): `key` is the day
+/// name, `text` what it typed on the full route (null for a key that typed nothing),
+/// `modifiers` the [`day_spec::Modifiers`] mask with the phase bits above it. Both strings are
+/// valid for the call.
 #[cfg(feature = "winui")]
 extern "C" fn on_key(id: u64, key: *const c_char, text: *const c_char, modifiers: c_int) {
     ffi_guard::contain((), || {
@@ -812,18 +1125,21 @@ extern "C" fn on_key(id: u64, key: *const c_char, text: *const c_char, modifiers
         // SAFETY: the shim passes NUL-terminated UTF-8 strings (or null) that outlive the call.
         let read = |p: *const c_char| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
         let key = read(key);
-        let modifiers = modifiers as u8;
+        // The low byte is the modifier mask; bits 8 and 9 the phase (docs/menus.md "Key phases").
+        let phase = day_spec::KeyPhase::from_wire(f64::from(modifiers));
+        let modifiers = (modifiers & 0xff) as u8;
         let event = if text.is_null() {
             day_spec::KeyEvent::named(key, modifiers)
         } else {
             day_spec::KeyEvent::typed_by(key, read(text), modifiers)
         };
-        emit(NodeId(id), Event::Key(event));
+        emit(NodeId(id), Event::Key(event.with_phase(phase)));
     });
 }
 
 /// A text field's Up, Down or Escape (docs/textfield.md "Keys"): reported, and claimed, when
-/// the field has a key handler and no modifier is held.
+/// the field has a key handler and no modifier is held; repeats and the release of a claimed
+/// key arrive with their phase bits above the modifier mask.
 extern "C" fn on_field_key(id: u64, name: *const c_char, modifiers: c_int) -> c_int {
     ffi_guard::contain(0, || {
         if name.is_null() {
@@ -832,10 +1148,16 @@ extern "C" fn on_field_key(id: u64, name: *const c_char, modifiers: c_int) -> c_
         // SAFETY: the shim passes one of its own NUL-terminated literals.
         let name = unsafe { CStr::from_ptr(name) }.to_string_lossy();
         let node = NodeId(id);
-        if !day_spec::keys::field_claims(node, &name, modifiers as u8) {
+        let phase = day_spec::KeyPhase::from_wire(f64::from(modifiers));
+        let mods = (modifiers & 0xff) as u8;
+        // The release of a claimed key is claimed with it: the shim only asks for those.
+        if phase != day_spec::KeyPhase::Up && !day_spec::keys::field_claims(node, &name, mods) {
             return 0;
         }
-        emit(node, Event::Key(day_spec::KeyEvent::named(name, 0)));
+        emit(
+            node,
+            Event::Key(day_spec::KeyEvent::named(name, 0).with_phase(phase)),
+        );
         1
     })
 }
@@ -1476,6 +1798,98 @@ impl Toolkit for Xaml {
         transfer::target(h, target);
     }
 
+    #[cfg(feature = "winui")]
+    fn list_scroll(&mut self, h: &WinHandle, to: day_spec::ListScroll) -> bool {
+        list::list_scroll(h, to);
+        true
+    }
+
+    // Holding plus a timed mouse hold, DoubleTapped, the observed pointer down, and the
+    // contacts by pointer id: every kind is the platform's own (docs/gestures.md).
+    fn gesture_support(&self, _kind: day_spec::GestureKind) -> Support {
+        Support::Native
+    }
+
+    fn set_hit_slop(&mut self, h: &WinHandle, _node: NodeId, slop: day_spec::Insets) {
+        // Leading and trailing follow the app's reading direction.
+        let (left, right) = if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+            (slop.trailing, slop.leading)
+        } else {
+            (slop.leading, slop.trailing)
+        };
+        unsafe { ffi::day_xaml_set_hit_slop(h.0, left, slop.top, right, slop.bottom) };
+    }
+
+    fn set_drag_axis(&mut self, h: &WinHandle, _node: NodeId, axis: Option<day_spec::DragAxis>) {
+        let code = match axis {
+            None => 0,
+            Some(day_spec::DragAxis::Horizontal) => 1,
+            Some(day_spec::DragAxis::Vertical) => 2,
+        };
+        unsafe { ffi::day_xaml_set_drag_axis(h.0, code) };
+    }
+
+    fn set_subtree_enabled(&mut self, h: &WinHandle, _node: NodeId, enabled: bool) {
+        unsafe { ffi::day_xaml_set_subtree_enabled(h.0, c_int::from(enabled)) };
+    }
+
+    fn primary_pointer(&self) -> day_spec::PointerKind {
+        pointer_kind(unsafe { ffi::day_xaml_primary_pointer() })
+    }
+
+    // Windows' one "Text size" factor (`UISettings.TextScaleFactor`), which XAML applies to
+    // every text element itself; the style does not matter (docs/text.md "System text size").
+    fn text_scale(&mut self, _style: Font) -> f64 {
+        let f = unsafe { ffi::day_xaml_text_scale() };
+        if f.is_finite() && f > 0.0 { f } else { 1.0 }
+    }
+
+    fn set_layout_direction(
+        &mut self,
+        h: &WinHandle,
+        kind: PieceKind,
+        direction: day_spec::LayoutDirection,
+    ) {
+        let rtl = c_int::from(direction == day_spec::LayoutDirection::Rtl);
+        if kind == kinds::LABEL {
+            // The label's own flow, its alignment re-read against it: XAML's Left and Right
+            // are that flow's start and end.
+            let align = LABEL_ALIGN.with(|m| m.borrow().get(&(h.0 as usize)).copied());
+            let code = match align.unwrap_or_default() {
+                day_spec::props::TextAlign::Leading => 0,
+                day_spec::props::TextAlign::Center => 1,
+                day_spec::props::TextAlign::Trailing => 2,
+                day_spec::props::TextAlign::Justified => 3,
+            };
+            unsafe { ffi::day_xaml_label_set_direction(h.0, rtl, code) };
+            return;
+        }
+        // Leaf controls only: a panel's FlowDirection would mirror Day's frames inside it.
+        if matches!(
+            kind,
+            kinds::CONTAINER | kinds::SCROLL | kinds::LIST | kinds::NAV | kinds::NAV_PAGE
+        ) {
+            return;
+        }
+        unsafe { ffi::day_xaml_set_flow_direction(h.0, rtl) };
+    }
+
+    #[cfg(feature = "winui")]
+    fn set_focusable(&mut self, h: &WinHandle, node: NodeId, focusable: bool) {
+        if focusable {
+            unsafe {
+                ffi::day_xaml_set_focusable(
+                    h.0,
+                    node.0,
+                    on_key_handled,
+                    on_text_handled,
+                    on_key,
+                    on_focus,
+                );
+            };
+        }
+    }
+
     fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
         unsafe {
             day_toolkit_xaml_sys::day_xaml_set_visible(handle.0, i32::from(visible));
@@ -1602,8 +2016,9 @@ impl Toolkit for Xaml {
             // Windows' "Show animations" switch (`UISettings.AnimationsEnabled`), read live and
             // re-reported when the user flips it (docs/accessibility.md).
             Cap::ReduceMotion => Support::Native,
-            // XAML Storyboards tween opacity, the transform channels and an animated fill
-            // (DESIGN.md §8.4); an animated frame applies at commit.
+            // XAML Storyboards play the whole AnimSpec (delay, repeat, auto-reverse, the spring as
+            // its own samples) on opacity, the transform channels, the frame and a fill
+            // (docs/tween.md).
             Cap::Animation => Support::Native,
             // A topmost child of the content Canvas — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
@@ -1616,6 +2031,35 @@ impl Toolkit for Xaml {
             // A UIA notification (AutomationPeer.RaiseNotificationEvent) raised from the
             // primary window's tree (docs/accessibility.md).
             Cap::Announce => Support::Native,
+            // KeyStatus.WasKeyDown for repeats and KeyUp for releases on every key route
+            // (docs/menus.md "Key phases").
+            Cap::KeyPhases => Support::Native,
+            // TextBlock.SelectionChanged, with the TextPointer offsets read as UTF-16 units of the
+            // displayed text (docs/text.md "Selection").
+            Cap::LabelSelection => Support::Native,
+            // ScrollViewer.ViewChanged for the offset and the zoom; DirectManipulation started,
+            // inertial and completed (and a wheel burst) for the phases; ZoomMode with
+            // Min/MaxZoomFactor (docs/scroll.md).
+            Cap::ScrollOffset | Cap::ScrollPhases | Cap::ScrollZoom => Support::Native,
+            // A ScrollViewer over Day's canvas has no snap points of its own: the shim settles on
+            // the nearest stop when a scroll comes to rest.
+            Cap::ScrollSnap => Support::Emulated,
+            // The ItemsRepeater host reports its realized rows and the ScrollViewer's extent, and
+            // brings a row into view with an alignment ratio and the platform's animation.
+            #[cfg(feature = "winui")]
+            Cap::ListViewport | Cap::ListScrollAlign => Support::Native,
+            // The reader's scrolls, told from the list's own BringIntoView: a wheel or a
+            // scrolling key that moves the view, a DirectManipulation started under a touch or
+            // pen contact, and the scroll bar's user-only Scroll (docs/list.md "Following the
+            // end").
+            #[cfg(feature = "winui")]
+            Cap::ListReaderScroll => Support::Native,
+            // Transparent bands around a container, which its recognizers hear (docs/gestures.md
+            // "Hit slop").
+            Cap::HitSlop => Support::Native,
+            // WinUI 3's UIElement tab stop on the container (docs/focus.md).
+            #[cfg(feature = "winui")]
+            Cap::Focusable => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -1626,32 +2070,19 @@ impl Toolkit for Xaml {
                 Some(Builtin::Container) => {
                     let h = ffi::day_xaml_container_new();
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
-                        if p.role == Some(day_spec::SurfaceRole::SectionCard) {
-                            // Theme-resource card brush — tracks light/dark automatically.
-                            ffi::day_xaml_container_set_card(h, p.corner_radius);
-                        }
-                        if p.role == Some(day_spec::SurfaceRole::Window) {
-                            // The page background an opaque cover is grounded in.
-                            ffi::day_xaml_cover_ground(h);
-                        }
-                        if let Some(bg) = p.background {
-                            ffi::day_xaml_container_set_bg(h, argb(bg));
-                        }
-                        if p.corner_radius > 0.0
-                            && p.role != Some(day_spec::SurfaceRole::SectionCard)
-                        {
-                            ffi::day_xaml_container_set_corner(h, p.corner_radius);
-                        }
+                        realize_surface(h, p);
                     }
                     WinHandle(h)
                 }
                 Some(Builtin::Scroll) => {
-                    let horizontal = props
+                    let p = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
-                        .is_some_and(|p| p.horizontal);
+                        .cloned()
+                        .unwrap_or_default();
                     let mut content: *mut c_void = std::ptr::null_mut();
-                    let sv = ffi::day_xaml_scroll_new(&raw mut content, c_int::from(horizontal));
+                    let sv = ffi::day_xaml_scroll_new(&raw mut content, c_int::from(p.horizontal));
                     SCROLL_STATE.with(|m| m.borrow_mut().insert(sv as usize, content));
+                    configure_scroll(sv, id, &p);
                     WinHandle(sv)
                 }
                 Some(Builtin::Canvas) => {
@@ -1883,38 +2314,26 @@ impl Toolkit for Xaml {
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_xaml_label_set_font(h, pt, weight, italic, tabular);
                     apply_custom_family(h, p.font);
+                    apply_label_features(h, p.font);
                     // Realize-only, as on Qt: `LabelPatch` carries no `Align`, so a label whose
                     // alignment changes is rebuilt rather than patched.
-                    ffi::day_xaml_label_set_align(
-                        h,
-                        match p.align {
-                            day_spec::props::TextAlign::Center => 1,
-                            day_spec::props::TextAlign::Trailing => {
-                                if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
-                                    0
-                                } else {
-                                    2
-                                }
-                            }
-                            day_spec::props::TextAlign::Leading => {
-                                if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
-                                    2
-                                } else {
-                                    0
-                                }
-                            }
-                        },
-                    );
+                    ffi::day_xaml_label_set_align(h, label_align_code(p.align));
+                    LABEL_ALIGN.with(|m| m.borrow_mut().insert(h as usize, p.align));
+                    if p.reports_selection {
+                        LABEL_TEXT.with(|m| m.borrow_mut().insert(id.0, p.text.clone()));
+                        ffi::day_xaml_label_report_selection(h, id.0, on_label_selection);
+                    }
                     if p.role == day_spec::props::TextRole::Secondary {
                         ffi::day_xaml_label_set_secondary(h);
                     }
                     if let Some(c) = p.color {
-                        ffi::day_xaml_label_set_color(h, argb(c));
+                        paint_label_color(h, c);
                     }
                     LABEL_NODE.with(|m| m.borrow_mut().insert(h as usize, id.0));
                     if !p.runs.is_empty() {
                         set_label_runs(h, id.0, &p.text, &p.runs);
                     }
+                    apply_paragraph(h, p.wraps, &p.paragraph(), &p.text, p.runs.is_empty());
                     WinHandle(h)
                 }
                 Some(Builtin::Button) => {
@@ -2020,15 +2439,25 @@ impl Toolkit for Xaml {
                     // vector/raster resolution below is NAMED-only, so it stays inside that arm
                     // rather than running for sources that have no name to resolve.
                     match &p.source {
+                        // A raster takes its tint after it exists (docs/images.md "Tinting"):
+                        // the shim recolors the pixels it holds, as it does for a later patch.
                         day_spec::ImageSource::Bytes(bytes) => {
-                            WinHandle(ffi::day_xaml_image_bytes_new(
+                            let h = ffi::day_xaml_image_bytes_new(
                                 bytes.as_ptr(),
                                 bytes.len() as c_int,
                                 mode,
-                            ))
+                            );
+                            if let Some(tint) = p.tint {
+                                ffi::day_xaml_image_set_tint(h, argb(tint), 1);
+                            }
+                            WinHandle(h)
                         }
                         day_spec::ImageSource::Decoded(id) => {
-                            WinHandle(ffi::day_xaml_image_bitmap_new(id.0, mode))
+                            let h = ffi::day_xaml_image_bitmap_new(id.0, mode);
+                            if let Some(tint) = p.tint {
+                                ffi::day_xaml_image_set_tint(h, argb(tint), 1);
+                            }
+                            WinHandle(h)
                         }
                         day_spec::ImageSource::Named(_) => {
                             // The shim's tint mode: 0 draws the art as authored, 1 composes
@@ -2049,6 +2478,19 @@ impl Toolkit for Xaml {
                                 );
                                 (!h.is_null()).then_some(h)
                             });
+                            // A tinted raster that is not a template: the image itself,
+                            // recolored by the shim, so it keeps its content mode. WinUI
+                            // only; system XAML has no Win2D to recolor with and falls
+                            // through to the icon below.
+                            let recolored = || {
+                                let uri = image_uri(&named);
+                                if tinted != 1 || uri.is_empty() || !cfg!(feature = "winui") {
+                                    return None;
+                                }
+                                let h = ffi::day_xaml_image_new(cstr(&uri).as_ptr(), mode);
+                                ffi::day_xaml_image_set_tint(h, p.tint.map_or(0, argb), 1);
+                                Some(h)
+                            };
                             // Raster fallbacks: a monochrome BitmapIcon still honors a tint (or
                             // the theme foreground), and a plain Image carries the art as
                             // authored.
@@ -2068,9 +2510,9 @@ impl Toolkit for Xaml {
                                 );
                                 (!h.is_null()).then_some(h)
                             };
-                            WinHandle(geometry.or_else(tinted).unwrap_or_else(|| {
-                                ffi::day_xaml_image_new(cstr(&image_uri(&named)).as_ptr(), mode)
-                            }))
+                            WinHandle(geometry.or_else(recolored).or_else(tinted).unwrap_or_else(
+                                || ffi::day_xaml_image_new(cstr(&image_uri(&named)).as_ptr(), mode),
+                            ))
                         }
                     }
                 }
@@ -2094,6 +2536,18 @@ impl Toolkit for Xaml {
                     placeholder_handle(kind)
                 }
             };
+            match Builtin::from_key(kind) {
+                // Pass-through (docs/gestures.md): no pointer input until something that takes
+                // it is attached.
+                Some(Builtin::Image) => {
+                    ffi::day_xaml_set_passive(handle.0);
+                    if let Some(p) = props.downcast_ref::<day_spec::props::ImageProps>() {
+                        keep_image_tint(handle.0, p.tint);
+                    }
+                }
+                Some(Builtin::Divider) => ffi::day_xaml_set_passive(handle.0),
+                _ => {}
+            }
             ffi::day_xaml_on_control_loaded(handle.0, id.0, control_loaded);
             handle
         }
@@ -2121,6 +2575,7 @@ impl Toolkit for Xaml {
                                     tint.map_or(0, argb),
                                     i32::from(tint.is_some()),
                                 );
+                                keep_image_tint(h.0, *tint);
                             }
                             day_spec::props::ImagePatch::Source(source) => match source {
                                 day_spec::ImageSource::Named(name) => {
@@ -2147,44 +2602,49 @@ impl Toolkit for Xaml {
                         }
                     }
                 }
-                kinds::CONTAINER => {
-                    if let Some(ContainerPatch::Background(c)) =
-                        patch.downcast_ref::<ContainerPatch>()
-                    {
-                        // A cleared background maps to fully transparent (best-effort on XAML).
-                        // Unlike the other desktop backends this one INTERPOLATES an animated fill
-                        // (DESIGN.md §8.4): the fill is a SolidColorBrush we own, and XAML tweens
-                        // brush color given EnableDependentAnimation.
-                        let (dur, curve) = xaml_anim_args(anim);
-                        ffi::day_xaml_container_animate_bg(
-                            h.0,
-                            argb(c.unwrap_or(day_spec::Color::CLEAR)),
-                            dur,
-                            curve,
-                        );
-                    }
-                }
+                kinds::CONTAINER => match patch.downcast_ref::<ContainerPatch>() {
+                    Some(ContainerPatch::Fill(fill)) => patch_fill(h.0, fill.as_ref(), anim),
+                    Some(ContainerPatch::Surface(p)) => patch_surface(h.0, p),
+                    None => {}
+                },
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
+                            LabelPatch::Paragraph(para) => {
+                                // `wraps` is realize-time; the shim keeps it on the block.
+                                let wraps = ffi::day_xaml_label_wraps(h.0) != 0;
+                                let (text, plain) = label_text_of(h.0);
+                                apply_paragraph(h.0, wraps, para, &text, plain);
+                            }
                             LabelPatch::Text(t) => {
+                                // Plain text replaces the runs, and their colors with them.
+                                keep_inks(h.0, InkSlot::LabelRuns, false, |_, _| {});
                                 ffi::day_xaml_label_set_text(h.0, cstr(t).as_ptr());
+                                note_label_text(h.0, t);
                             }
                             LabelPatch::Font(f) => {
                                 let (pt, weight, italic, tabular) = font_params(*f);
                                 ffi::day_xaml_label_set_font(h.0, pt, weight, italic, tabular);
                                 apply_custom_family(h.0, *f);
+                                apply_label_features(h.0, *f);
+                                // An elided string was cut for the old font.
+                                let width = LABEL_ELIDE.with(|m| {
+                                    m.borrow().get(&(h.0 as usize)).map_or(0.0, |e| e.width)
+                                });
+                                if width > 0.0 {
+                                    elide_label(h.0, width);
+                                }
                             }
                             LabelPatch::Runs(text, runs) => {
                                 let node = LABEL_NODE
                                     .with(|m| m.borrow().get(&(h.0 as usize)).copied())
                                     .unwrap_or(0);
                                 set_label_runs(h.0, node, text, runs);
+                                note_label_text(h.0, text);
                             }
-                            LabelPatch::Color(c) => ffi::day_xaml_label_set_color(
-                                h.0,
-                                argb(c.unwrap_or(day_spec::Color::CLEAR)),
-                            ),
+                            LabelPatch::Color(c) => {
+                                paint_label_color(h.0, c.unwrap_or(day_spec::Ink::CLEAR));
+                            }
                         }
                     }
                 }
@@ -2244,6 +2704,15 @@ impl Toolkit for Xaml {
                 kinds::LIST => {
                     if let Some(patch) = patch.downcast_ref::<ListPatch>() {
                         list::patch(h, patch);
+                    }
+                }
+                kinds::SCROLL => {
+                    // Zoom is WinUI's: system XAML builds no zooming scroll view.
+                    #[cfg(feature = "winui")]
+                    if let Some(day_spec::props::ScrollPatch::Zoom { scale, animated }) =
+                        patch.downcast_ref::<day_spec::props::ScrollPatch>()
+                    {
+                        ffi::day_xaml_scroll_zoom(h.0, *scale, c_int::from(*animated));
                     }
                 }
                 kinds::NAV_MENU => {
@@ -2337,9 +2806,26 @@ impl Toolkit for Xaml {
                             .unwrap_or(day_spec::WINDOW_NODE);
                         match p {
                             CoverPatch::Present { background, .. } => {
-                                match background {
-                                    Some(bg) => ffi::day_xaml_container_set_bg(h.0, argb(*bg)),
-                                    None => ffi::day_xaml_cover_ground(h.0),
+                                // The cover takes every press over the content beneath it.
+                                ffi::day_xaml_hit_on(h.0);
+                                // Its ground follows the appearance: an ink, or the page
+                                // background of the scheme in force.
+                                match *background {
+                                    Some(bg) => paint_inks(
+                                        h.0,
+                                        InkSlot::Surface,
+                                        bg.is_dynamic(),
+                                        // A live cover handle, on the UI thread.
+                                        move |h, palette| {
+                                            ffi::day_xaml_container_set_bg(
+                                                h,
+                                                ink_argb(bg, palette),
+                                            );
+                                        },
+                                    ),
+                                    None => paint_inks(h.0, InkSlot::Surface, true, |h, _| {
+                                        ffi::day_xaml_cover_ground(h);
+                                    }),
                                 }
                                 // The ROOT canvas, not the content one: a cover parented to the
                                 // content canvas is bounded by the page area, leaving the menu
@@ -2530,7 +3016,14 @@ impl Toolkit for Xaml {
         }
         let key = h.0 as usize;
         BUTTON_MENUS.with(|m| m.borrow_mut().retain(|_, (button, _)| *button != key));
-        LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
+        if let Some(node) = LABEL_NODE.with(|m| m.borrow_mut().remove(&key)) {
+            LABEL_TEXT.with(|m| m.borrow_mut().remove(&node));
+        }
+        LABEL_ELIDE.with(|m| m.borrow_mut().remove(&key));
+        LABEL_ALIGN.with(|m| m.borrow_mut().remove(&key));
+        LABEL_RUNS.with(|m| m.borrow_mut().remove(&key));
+        INKS.with(|m| m.borrow_mut().retain(|(view, _), _| *view != key));
+        SURFACES.with(|m| m.borrow_mut().remove(&key));
         if let Some(node) = TEXT_FIELD_NODE.with(|m| m.borrow_mut().remove(&key)) {
             TEXT_FIELD_ECHO.with(|m| m.borrow_mut().remove(&node));
         }
@@ -2911,16 +3404,24 @@ impl Toolkit for Xaml {
     // relayout. `anim = Some` hands the target to XAML's compositor as a Storyboard; `None` sets it
     // outright. Day never ticks these frames itself (§0.3).
     fn set_opacity(&mut self, h: &WinHandle, opacity: f64, anim: Option<&AnimSpec>) {
-        let (dur, curve) = xaml_anim_args(anim);
-        unsafe { ffi::day_xaml_set_opacity(h.0, opacity, dur, curve) };
+        let anim = XamlAnim::new(anim);
+        unsafe { ffi::day_xaml_set_opacity(h.0, opacity, XamlAnim::ptr(anim.as_ref())) };
     }
 
     fn set_transform(&mut self, h: &WinHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
         // A CompositeTransform about the element's center — the same anchor AppKit's layer and
         // Qt's painter transform use, so a rotated/scaled box matches across backends.
-        let (dur, curve) = xaml_anim_args(anim);
+        let anim = XamlAnim::new(anim);
         unsafe {
-            ffi::day_xaml_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve);
+            ffi::day_xaml_set_transform(
+                h.0,
+                t.tx,
+                t.ty,
+                t.sx,
+                t.sy,
+                t.rotation.degrees(),
+                XamlAnim::ptr(anim.as_ref()),
+            );
         };
     }
 
@@ -2936,7 +3437,7 @@ impl Toolkit for Xaml {
         (b >= 0.0).then_some(b)
     }
 
-    fn set_frame(&mut self, h: &WinHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+    fn set_frame(&mut self, h: &WinHandle, frame: Rect, anim: Option<&AnimSpec>) {
         // A split nav's sidebar page IS the NavigationView's PaneHeader: clip it to a fixed header
         // height (a Canvas has no desired size) so day's logo/title piece sits at the pane top; the
         // NavigationView owns everything below it. Width follows the frame day proposes.
@@ -2952,17 +3453,38 @@ impl Toolkit for Xaml {
             };
             return;
         }
-        unsafe {
-            ffi::day_xaml_set_geometry(
-                h.0,
-                frame.origin.x.round() as c_int,
-                frame.origin.y.round() as c_int,
-                frame.size.width.round() as c_int,
-                frame.size.height.round() as c_int,
-            );
-        };
+        if let Some(anim) = XamlAnim::new(anim) {
+            // Position and size played from the frame shown now (docs/tween.md).
+            unsafe {
+                ffi::day_xaml_set_geometry_animated(
+                    h.0,
+                    frame.origin.x.round(),
+                    frame.origin.y.round(),
+                    frame.size.width.round(),
+                    frame.size.height.round(),
+                    &raw const anim.raw,
+                );
+            }
+        } else {
+            unsafe {
+                ffi::day_xaml_set_geometry(
+                    h.0,
+                    frame.origin.x.round() as c_int,
+                    frame.origin.y.round() as c_int,
+                    frame.size.width.round() as c_int,
+                    frame.size.height.round() as c_int,
+                );
+            };
+        }
         // (Nav hosts are NavigationViews — they reflow their own regions, which report FrameChanged.)
         list::frame(h, frame);
+        // A head- or middle-truncated label is cut again for its new width.
+        let elided_at = LABEL_ELIDE.with(|m| m.borrow().get(&(h.0 as usize)).map(|e| e.width));
+        if let Some(width) = elided_at
+            && (width - frame.size.width).abs() > 0.25
+        {
+            elide_label(h.0, frame.size.width);
+        }
     }
 
     // Scroll (docs §7.6): size the ScrollViewer's inner content Canvas to the content extent so it
@@ -3011,6 +3533,12 @@ impl Toolkit for Xaml {
 
     fn enable_gesture(&mut self, h: &WinHandle, node: NodeId, kind: day_spec::GestureKind) {
         let k = match kind {
+            // DoubleTapped, with the single tap held for the double-click time while both are
+            // enabled; the pointer down observed with handledEventsToo; every contact by pointer
+            // id (docs/gestures.md).
+            day_spec::GestureKind::DoubleTap => 8,
+            day_spec::GestureKind::Press => 9,
+            day_spec::GestureKind::Touches => 10,
             day_spec::GestureKind::Tap => 0,
             day_spec::GestureKind::LongPress => 1,
             day_spec::GestureKind::Drag => 2,
@@ -3147,19 +3675,47 @@ impl Toolkit for Xaml {
             _ => Role::None,
         };
         let (label, value, identifier) = (take(raw.label), take(raw.value), take(raw.identifier));
+        // An elided label reads back whole (docs/text.md "Truncation").
+        let shown = take(raw.text);
+        let text = LABEL_ELIDE
+            .with(|m| m.borrow().get(&(h.0 as usize)).map(|e| e.full.clone()))
+            .or(shown);
         day_spec::NativeSnapshot {
             found,
             role: if found { role } else { Role::None },
             label: label.filter(|_| found),
             value: value.filter(|_| found),
             identifier: identifier.filter(|_| found),
-            text: take(raw.text),
+            text,
             number: (raw.has_number != 0).then_some(raw.number),
             checked: tri(raw.checked),
             enabled: tri(raw.enabled),
             visible: tri(raw.visible),
             frame: (raw.has_frame != 0).then(|| Rect::new(raw.x, raw.y, raw.w, raw.h)),
         }
+    }
+
+    // The values the storyboards write through the property system as they play, read on the
+    // UI thread: opacity, the CompositeTransform's translation, the frame from Canvas.Left/Top
+    // and Width/Height, and the fill brush's color (docs/tween.md "Mid-flight read-back").
+    fn read_displayed(&self, h: &WinHandle) -> day_spec::Displayed {
+        let mut out = [0.0f64; 11];
+        // SAFETY: `out` has the eleven slots the shim writes.
+        let read = unsafe { ffi::day_xaml_read_displayed(h.0, out.as_mut_ptr()) };
+        let mut shown = day_spec::Displayed::default();
+        if read & 1 != 0 {
+            shown.opacity = Some(out[0]);
+        }
+        if read & 2 != 0 {
+            shown.translation = Some(Point::new(out[1], out[2]));
+        }
+        if read & 4 != 0 {
+            shown.frame = Some(Rect::new(out[3], out[4], out[5], out[6]));
+        }
+        if read & 8 != 0 {
+            shown.background = Some(day_spec::Color::rgba(out[7], out[8], out[9], out[10]));
+        }
+        shown
     }
 
     fn attach_tree(&mut self, host: &WinHandle, source: day_spec::TreeSource) {
@@ -3469,9 +4025,11 @@ impl Toolkit for Xaml {
             C::Closable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 5, c_int::from(*on)) },
             C::Visible(on) => unsafe { ffi::day_xaml_window_set_flag(win, 6, c_int::from(*on)) },
             // The title bar's DWM dark flag and the island root's RequestedTheme.
-            C::Appearance(dark) => unsafe {
-                ffi::day_xaml_window_set_appearance(win, dark.map_or(-1, c_int::from));
-            },
+            C::Appearance(dark) => {
+                unsafe { ffi::day_xaml_window_set_appearance(win, dark.map_or(-1, c_int::from)) };
+                // The window's inks, for its own scheme.
+                repaint_inks();
+            }
             // FlashWindowEx.
             C::RequestAttention(a) => unsafe {
                 ffi::day_xaml_window_attention(
@@ -3633,6 +4191,14 @@ impl Toolkit for Xaml {
             Some(true) => 2,  // dark
         };
         unsafe { ffi::day_xaml_set_appearance(mode) };
+        // Every ink that follows the appearance, for the scheme now shown (docs/color.md).
+        repaint_inks();
+    }
+
+    /// The Fluent theme resource of each role (docs/color.md "Roles"), read for the app's
+    /// appearance from the theme dictionaries; Day's fallback where the resource set has none.
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        theme_color(role, self.dark_mode())
     }
 
     /// The system's light/dark setting (a `DAY_THEME` force wins). Previously this took the trait
@@ -3852,12 +4418,163 @@ fn snapshot_via(capture: impl FnOnce(*const c_char) -> c_int) -> Result<Vec<u8>,
     Ok(bytes)
 }
 
-fn argb(c: day_spec::Color) -> u32 {
+/// An ink as the shim's packed ARGB, resolved for the app's current appearance.
+fn argb(c: impl Into<day_spec::Ink>) -> u32 {
+    ink_argb(c.into(), &day_spec::Palette::current())
+}
+
+/// An ink as the shim's packed ARGB, resolved against `palette`.
+fn ink_argb(ink: day_spec::Ink, palette: &day_spec::Palette) -> u32 {
+    let c = ink.resolve(palette);
     let a = (c.a.clamp(0.0, 1.0) * 255.0) as u32;
     let r = (c.r.clamp(0.0, 1.0) * 255.0) as u32;
     let g = (c.g.clamp(0.0, 1.0) * 255.0) as u32;
     let b = (c.b.clamp(0.0, 1.0) * 255.0) as u32;
     (a << 24) | (r << 16) | (g << 8) | b
+}
+
+/// A packed ARGB from the shim as a color.
+fn color_of_argb(argb: u32) -> day_spec::Color {
+    let channel = |shift: u32| f64::from((argb >> shift) & 0xff) / 255.0;
+    day_spec::Color::rgba(channel(16), channel(8), channel(0), channel(24))
+}
+
+/// The Fluent theme resources a role reads, first found wins, and the alpha its color is
+/// multiplied by (docs/color.md "Roles"). `HyperlinkForeground`, `TextControlPlaceholderForeground`
+/// and `TextControlSelectionHighlightColor` are what XAML's own controls draw with; the accent
+/// text brush is the link color where the first is missing.
+fn role_keys(role: day_spec::SystemColor) -> (&'static [&'static CStr], f64) {
+    use day_spec::SystemColor as R;
+    match role {
+        R::Accent => (&[c"AccentFillColorDefaultBrush"], 1.0),
+        R::Text => (&[c"TextFillColorPrimaryBrush"], 1.0),
+        R::SecondaryText => (&[c"TextFillColorSecondaryBrush"], 1.0),
+        R::TertiaryText => (&[c"TextFillColorTertiaryBrush"], 1.0),
+        R::Placeholder => (
+            &[
+                c"TextControlPlaceholderForeground",
+                c"TextFillColorSecondaryBrush",
+            ],
+            1.0,
+        ),
+        R::Link => (
+            &[c"HyperlinkForeground", c"AccentTextFillColorPrimaryBrush"],
+            1.0,
+        ),
+        R::Separator => (&[c"DividerStrokeColorDefaultBrush"], 1.0),
+        R::ControlFill => (&[c"ControlFillColorDefaultBrush"], 1.0),
+        R::Background | R::GroupedBackground => (&[c"SolidBackgroundFillColorBaseBrush"], 1.0),
+        R::Surface => (&[c"CardBackgroundFillColorDefaultBrush"], 1.0),
+        R::ElevatedSurface => (&[c"SolidBackgroundFillColorTertiaryBrush"], 1.0),
+        R::Selection => (
+            &[
+                c"TextControlSelectionHighlightColor",
+                c"AccentFillColorDefaultBrush",
+            ],
+            0.35,
+        ),
+        R::Destructive => (&[c"SystemFillColorCriticalBrush"], 1.0),
+        R::Success => (&[c"SystemFillColorSuccessBrush"], 1.0),
+        R::Warning => (&[c"SystemFillColorCautionBrush"], 1.0),
+    }
+}
+
+/// A role's color in one appearance: its theme resource, or Day's fallback where the resource
+/// set has none (system XAML without WinUI's Fluent resources).
+fn theme_color(role: day_spec::SystemColor, dark: bool) -> day_spec::Color {
+    let (keys, alpha) = role_keys(role);
+    for key in keys {
+        let mut packed: std::os::raw::c_uint = 0;
+        // SAFETY: `key` is NUL-terminated and `packed` outlives the call, which only writes it.
+        let found =
+            unsafe { ffi::day_xaml_theme_color(key.as_ptr(), c_int::from(dark), &raw mut packed) };
+        if found != 0 {
+            let mut c = color_of_argb(packed);
+            c.a *= alpha;
+            return c;
+        }
+    }
+    role.fallback(dark)
+}
+
+/// Every role in one appearance, as `system_color` answers them.
+fn theme_palette(dark: bool) -> day_spec::Palette {
+    day_spec::Palette {
+        dark,
+        colors: day_spec::SystemColor::ALL.map(|role| theme_color(role, dark)),
+    }
+}
+
+/// Which inks of a view an entry in [`INKS`] applies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum InkSlot {
+    /// A container's fill, border and shadow, or a cover's ground.
+    Surface,
+    /// A label's text color.
+    LabelColor,
+    /// A label's runs (their colors and highlights).
+    LabelRuns,
+    /// A tinted button's fill and title.
+    ButtonTint,
+    /// An image's tint.
+    ImageTint,
+}
+
+/// What applies one view's inks again for a palette.
+type Repaint = Rc<dyn Fn(*mut c_void, &day_spec::Palette)>;
+
+/// Apply a view's inks with the current palette and keep the call for the next appearance switch
+/// when any of them follows the appearance (`dynamic`); otherwise the slot is forgotten.
+fn paint_inks(
+    h: *mut c_void,
+    slot: InkSlot,
+    dynamic: bool,
+    apply: impl Fn(*mut c_void, &day_spec::Palette) + 'static,
+) {
+    apply(h, &day_spec::Palette::current());
+    keep_inks(h, slot, dynamic, apply);
+}
+
+/// Keep (when `dynamic`) or forget the call that applies a view's inks, without applying them now:
+/// for a value the caller has just applied its own way (an animated fill).
+fn keep_inks(
+    h: *mut c_void,
+    slot: InkSlot,
+    dynamic: bool,
+    apply: impl Fn(*mut c_void, &day_spec::Palette) + 'static,
+) {
+    let key = (h as usize, slot);
+    INKS.with(|m| {
+        let mut m = m.borrow_mut();
+        if dynamic {
+            m.insert(key, Rc::new(apply));
+        } else {
+            m.remove(&key);
+        }
+    });
+}
+
+/// The appearance changed (the system's, the app's override or one window's): every kept ink
+/// again, each for the appearance its view is shown in. Runs where the shim has already
+/// re-themed the windows, before or after day-core refreshes `Palette::current`, so it reads the
+/// palettes from the theme resources itself.
+fn repaint_inks() {
+    let entries: Vec<(usize, Repaint)> = INKS.with(|m| {
+        m.borrow()
+            .iter()
+            .map(|(&(h, _), apply)| (h, Rc::clone(apply)))
+            .collect()
+    });
+    if entries.is_empty() {
+        return;
+    }
+    let palettes = [theme_palette(false), theme_palette(true)];
+    for (h, apply) in entries {
+        let h = h as *mut c_void;
+        // SAFETY: a kept view is live; `release` forgets its entries.
+        let dark = unsafe { ffi::day_xaml_element_dark(h) } != 0;
+        apply(h, &palettes[usize::from(dark)]);
+    }
 }
 
 /// Per-row section titles (docs/navigation.md) as one line-joined list, parallel to the rows: the
@@ -3870,10 +4587,397 @@ fn join_sections(sections: &[Option<String>]) -> String {
         .join("\n")
 }
 
+/// A container's surface as last applied (docs/surfaces.md).
+#[derive(Clone, Debug, Default)]
+struct Surface {
+    /// The styling; `role` is the realize-time one and never changes.
+    props: ContainerProps,
+    /// Drawn by the shim's styled surface (a `Border`) rather than the plain fill rectangle.
+    styled: bool,
+}
+
+/// Whether a container needs the styled-surface path (docs/surfaces.md): a border, a gradient,
+/// a shadow, or a corner radius on some corners only. Everything else, role surfaces included,
+/// keeps the plain fill and uniform corner path it has always had.
+fn styled_surface(p: &ContainerProps) -> bool {
+    p.role.is_none()
+        && (p.border.is_some()
+            || p.fill
+                .as_ref()
+                .is_some_and(|f| !matches!(f, day_spec::Paint::Solid(_)))
+            || p.shadow.is_some()
+            || (p.corner_radius > 0.0 && p.corners != day_spec::Corners::ALL))
+}
+
+/// Whether any color of a surface follows the appearance.
+fn surface_is_dynamic(p: &ContainerProps) -> bool {
+    p.fill.as_ref().is_some_and(day_spec::Paint::is_dynamic)
+        || p.border.is_some_and(|b| b.color.is_dynamic())
+        || p.shadow.is_some_and(|s| s.color.is_dynamic())
+}
+
+/// A gradient's stops as the two parallel arrays the shim takes: offsets clamped to 0..=1,
+/// and ARGB colors resolved against `palette`.
+fn gradient_stops(
+    stops: &[(f64, day_spec::Ink)],
+    palette: &day_spec::Palette,
+) -> (Vec<c_double>, Vec<u32>) {
+    stops
+        .iter()
+        .map(|&(at, color)| (at.clamp(0.0, 1.0), ink_argb(color, palette)))
+        .unzip()
+}
+
+/// Realize a container's surface on `h`: the plain fill and corner path, or a styled surface,
+/// and its colors.
+///
+/// # Safety
+///
+/// `h` is a live container handle and this runs on the UI thread, like every shim call.
+unsafe fn realize_surface(h: *mut c_void, p: &ContainerProps) {
+    let styled = styled_surface(p);
+    // SAFETY: `h` is live per this function's contract.
+    unsafe {
+        if styled {
+            shape_surface(h, p);
+        } else {
+            if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                // Theme-resource card brush — tracks light/dark automatically.
+                ffi::day_xaml_container_set_card(h, p.corner_radius);
+            }
+            if p.role == Some(day_spec::SurfaceRole::Window) {
+                // The page background an opaque cover is grounded in.
+                ffi::day_xaml_cover_ground(h);
+            }
+            if p.corner_radius > 0.0 && p.role != Some(day_spec::SurfaceRole::SectionCard) {
+                ffi::day_xaml_container_set_corner(h, p.corner_radius);
+            }
+        }
+    }
+    let surface = Surface {
+        props: p.clone(),
+        styled,
+    };
+    SURFACES.with(|m| m.borrow_mut().insert(h as usize, surface.clone()));
+    paint_surface(h, surface, true);
+}
+
+/// Apply a surface's colors now and keep them for the appearance. `realize`: nothing was
+/// applied before, so an absent fill, border or shadow has nothing to clear.
+fn paint_surface(h: *mut c_void, surface: Surface, realize: bool) {
+    let dynamic = surface_is_dynamic(&surface.props);
+    paint_inks(h, InkSlot::Surface, dynamic, move |h, palette| {
+        // SAFETY: the handle is live (see `repaint_inks`) and this runs on the UI thread.
+        unsafe { surface_colors(h, &surface, palette, realize) };
+    });
+}
+
+/// The shape of a styled surface: corners, which corners, and the clip.
+///
+/// # Safety
+///
+/// `h` is a live container handle and this runs on the UI thread.
+unsafe fn shape_surface(h: *mut c_void, p: &ContainerProps) {
+    // SAFETY: `h` is live per this function's contract.
+    unsafe {
+        ffi::day_xaml_container_set_surface(
+            h,
+            p.corner_radius,
+            c_int::from(p.corners.bits()),
+            c_int::from(p.clips),
+        );
+    }
+}
+
+/// A surface's fill, border and shadow, resolved against `palette`. A plain surface has a
+/// solid fill at most.
+///
+/// # Safety
+///
+/// `h` is a live container handle and this runs on the UI thread. Every pointer passed below
+/// names a local that outlives its call, with the length passed beside it.
+unsafe fn surface_colors(
+    h: *mut c_void,
+    surface: &Surface,
+    palette: &day_spec::Palette,
+    realize: bool,
+) {
+    use day_spec::Paint;
+    let p = &surface.props;
+    // SAFETY: per this function's contract.
+    unsafe {
+        if !surface.styled {
+            if let Some(Paint::Solid(ink)) = p.fill {
+                ffi::day_xaml_container_set_bg(h, ink_argb(ink, palette));
+            }
+            return;
+        }
+        match &p.fill {
+            Some(Paint::Solid(ink)) => ffi::day_xaml_container_set_bg(h, ink_argb(*ink, palette)),
+            Some(Paint::Linear(g)) => {
+                let line = [g.start.x, g.start.y, g.end.x, g.end.y];
+                let (offsets, colors) = gradient_stops(&g.stops, palette);
+                ffi::day_xaml_container_set_gradient(
+                    h,
+                    line.as_ptr(),
+                    offsets.as_ptr(),
+                    colors.as_ptr(),
+                    offsets.len() as c_int,
+                );
+            }
+            Some(Paint::Radial(g)) => {
+                let (offsets, colors) = gradient_stops(&g.stops, palette);
+                ffi::day_xaml_container_set_radial(
+                    h,
+                    g.center.x,
+                    g.center.y,
+                    g.radius,
+                    offsets.as_ptr(),
+                    colors.as_ptr(),
+                    offsets.len() as c_int,
+                );
+            }
+            Some(Paint::Conic(g)) => {
+                let (offsets, colors) = gradient_stops(&g.stops, palette);
+                ffi::day_xaml_container_set_conic(
+                    h,
+                    g.center.x,
+                    g.center.y,
+                    g.start.degrees(),
+                    offsets.as_ptr(),
+                    colors.as_ptr(),
+                    offsets.len() as c_int,
+                );
+            }
+            None if !realize => ffi::day_xaml_container_set_bg(h, 0),
+            None => {}
+        }
+        match p.border {
+            Some(border) => {
+                ffi::day_xaml_container_set_border(
+                    h,
+                    ink_argb(border.color, palette),
+                    border.width,
+                );
+            }
+            None if !realize => ffi::day_xaml_container_set_border(h, 0, 0.0),
+            None => {}
+        }
+        let shadow = p.shadow.filter(|s| s.color.resolve(palette).a > 0.0);
+        match shadow {
+            Some(s) => ffi::day_xaml_container_set_shadow(
+                h,
+                ink_argb(s.color, palette),
+                s.blur,
+                s.dx,
+                s.dy,
+            ),
+            None if !realize => ffi::day_xaml_container_set_shadow(h, 0, 0.0, 0.0, 0.0),
+            None => {}
+        }
+    }
+}
+
+/// `ContainerPatch::Fill`: a solid fill (or none) keeps the motion contract (docs/tween.md rule
+/// 8: animated with `anim`, appearing or going away at once); a gradient applies at once and
+/// makes the container a styled surface.
+///
+/// # Safety
+///
+/// `h` is a live container handle and this runs on the UI thread.
+unsafe fn patch_fill(h: *mut c_void, fill: Option<&day_spec::Paint>, anim: Option<&AnimSpec>) {
+    let mut surface = SURFACES
+        .with(|m| m.borrow().get(&(h as usize)).cloned())
+        .unwrap_or_default();
+    surface.props.fill = fill.cloned();
+    let solid = match fill {
+        None => Some(None),
+        Some(day_spec::Paint::Solid(ink)) => Some(Some(*ink)),
+        Some(_) => None,
+    };
+    if let Some(solid) = solid {
+        // Unlike the other desktop backends this one INTERPOLATES an animated fill (DESIGN.md
+        // §8.4): the fill is a SolidColorBrush we own, and XAML tweens brush color given
+        // EnableDependentAnimation. A cleared background maps to fully transparent.
+        let anim = XamlAnim::new(anim.filter(|_| solid.is_some()));
+        // SAFETY: `h` is live per this function's contract; `anim` outlives the call.
+        unsafe {
+            ffi::day_xaml_container_animate_bg(
+                h,
+                argb(solid.unwrap_or(day_spec::Ink::CLEAR)),
+                XamlAnim::ptr(anim.as_ref()),
+            );
+        }
+        let dynamic = surface_is_dynamic(&surface.props);
+        let kept = surface.clone();
+        keep_inks(h, InkSlot::Surface, dynamic, move |h, palette| {
+            // SAFETY: the handle is live (see `repaint_inks`) and this runs on the UI thread.
+            unsafe { surface_colors(h, &kept, palette, false) };
+        });
+    } else {
+        if !surface.styled {
+            // SAFETY: `h` is live per this function's contract.
+            unsafe { shape_surface(h, &surface.props) };
+            surface.styled = true;
+        }
+        paint_surface(h, surface.clone(), false);
+    }
+    SURFACES.with(|m| m.borrow_mut().insert(h as usize, surface));
+}
+
+/// `ContainerPatch::Surface`: every styling field at once (docs/surfaces.md "Reactive
+/// surfaces"), applied in place by reshaping the container as a styled surface. XAML cannot
+/// animate a `CornerRadius`, so the change applies at once. A role surface (a section card, a
+/// cover's ground) keeps its realize-time look.
+///
+/// # Safety
+///
+/// `h` is a live container handle and this runs on the UI thread.
+unsafe fn patch_surface(h: *mut c_void, p: &ContainerProps) {
+    let mut surface = SURFACES
+        .with(|m| m.borrow().get(&(h as usize)).cloned())
+        .unwrap_or_default();
+    if surface.props.role.is_some() {
+        return;
+    }
+    surface.props = ContainerProps {
+        role: None,
+        ..p.clone()
+    };
+    surface.styled = true;
+    // SAFETY: `h` is live per this function's contract.
+    unsafe { shape_surface(h, &surface.props) };
+    SURFACES.with(|m| m.borrow_mut().insert(h as usize, surface.clone()));
+    paint_surface(h, surface, false);
+}
+
+#[cfg(test)]
+mod styled_surface_tests {
+    use super::*;
+    use day_spec::{Border, Color, Corners, LinearGradient, Shadow, SurfaceRole};
+
+    fn plain() -> ContainerProps {
+        ContainerProps {
+            fill: Some(Color::rgb(0.0, 0.0, 1.0).into()),
+            corner_radius: 12.0,
+            clips: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn plain_fill_and_uniform_corners_keep_the_plain_path() {
+        assert!(!styled_surface(&ContainerProps::default()));
+        assert!(!styled_surface(&plain()));
+        // A corner selection with nothing to round is not a styled surface either.
+        let square = ContainerProps {
+            corner_radius: 0.0,
+            corners: Corners::TOP,
+            ..plain()
+        };
+        assert!(!styled_surface(&square));
+    }
+
+    #[test]
+    fn each_new_property_takes_the_styled_path() {
+        let border = ContainerProps {
+            border: Some(Border::new(Color::BLACK, 2.0)),
+            ..plain()
+        };
+        let gradient = ContainerProps {
+            fill: Some(LinearGradient::vertical(Color::WHITE, Color::BLACK).into()),
+            ..plain()
+        };
+        let shadow = ContainerProps {
+            shadow: Some(Shadow::new(Color::BLACK, 4.0)),
+            clips: false,
+            ..plain()
+        };
+        let corners = ContainerProps {
+            corners: Corners::TOP,
+            ..plain()
+        };
+        for props in [border, gradient, shadow, corners] {
+            assert!(styled_surface(&props));
+        }
+    }
+
+    #[test]
+    fn a_role_surface_keeps_its_theme_material() {
+        let card = ContainerProps {
+            role: Some(SurfaceRole::SectionCard),
+            border: Some(Border::new(Color::BLACK, 2.0)),
+            ..plain()
+        };
+        assert!(!styled_surface(&card));
+    }
+
+    #[test]
+    fn gradient_stops_split_into_clamped_offsets_and_argb() {
+        let (offsets, colors) = gradient_stops(
+            &[
+                (-0.5, Color::rgb(1.0, 0.0, 0.0).into()),
+                (0.5, Color::rgba(0.0, 1.0, 0.0, 0.0).into()),
+                (1.5, Color::rgb(0.0, 0.0, 1.0).into()),
+            ],
+            &day_spec::Palette::fallback(false),
+        );
+        assert_eq!(offsets, [0.0, 0.5, 1.0]);
+        assert_eq!(colors, [0xffff_0000, 0x0000_ff00, 0xff00_00ff]);
+    }
+
+    #[test]
+    fn radial_and_conic_fills_take_the_styled_path() {
+        let stops = [(0.0, Color::WHITE), (1.0, Color::BLACK)];
+        let radial = ContainerProps {
+            fill: Some(
+                day_spec::RadialGradient::new(day_spec::UnitPoint::CENTER, 0.5, stops).into(),
+            ),
+            ..plain()
+        };
+        let conic = ContainerProps {
+            fill: Some(day_spec::ConicGradient::centered(day_spec::Angle::ZERO, stops).into()),
+            ..plain()
+        };
+        assert!(styled_surface(&radial));
+        assert!(styled_surface(&conic));
+    }
+
+    #[test]
+    fn an_ink_resolves_per_palette_and_only_dynamic_surfaces_are_kept() {
+        let pair = day_spec::Ink::adaptive(Color::rgb(1.0, 0.0, 0.0), Color::rgb(0.0, 0.0, 1.0));
+        assert_eq!(
+            ink_argb(pair, &day_spec::Palette::fallback(false)),
+            0xffff_0000
+        );
+        assert_eq!(
+            ink_argb(pair, &day_spec::Palette::fallback(true)),
+            0xff00_00ff
+        );
+        assert!(!surface_is_dynamic(&plain()));
+        let role = ContainerProps {
+            border: Some(Border::new(day_spec::SystemColor::Separator, 1.0)),
+            ..plain()
+        };
+        assert!(surface_is_dynamic(&role));
+        assert_eq!(color_of_argb(0x80ff_0000).r, 1.0);
+        assert!((color_of_argb(0x80ff_0000).a - 128.0 / 255.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn every_role_names_a_theme_resource() {
+        for role in day_spec::SystemColor::ALL {
+            let (keys, alpha) = role_keys(role);
+            assert_ne!(keys.len(), 0);
+            assert!(alpha > 0.0 && alpha <= 1.0);
+        }
+    }
+}
+
 /// Per-row nav icon tints (docs/vectors.md) as one line-joined ARGB list, parallel to the rows.
 /// `0` is the untinted row — fully transparent is not a color anyone can mean, and it keeps the
 /// list positional so a row without a tint cannot shift the ones after it.
-fn join_tints(tints: &[Option<day_spec::Color>]) -> String {
+fn join_tints(tints: &[Option<day_spec::Ink>]) -> String {
     tints
         .iter()
         .map(|t| t.map_or(0, argb).to_string())
@@ -3952,7 +5056,10 @@ extern "C" fn primary_closed() {
 /// The user flipped Windows between light and dark: re-read the setting into day's dark signal so
 /// palette closures recolor live, the same way GTK's `StyleManager` `dark` notify drives it.
 extern "C" fn appearance_changed() {
-    ffi_guard::contain((), day_core::note_appearance_changed);
+    ffi_guard::contain((), || {
+        day_core::note_appearance_changed();
+        repaint_inks();
+    });
 }
 /// The user flipped Windows' "Show animations" switch: re-read it into day's reduce-motion gate
 /// (docs/accessibility.md). The shim has already crossed from `UISettings`' thread-pool thread
@@ -4236,6 +5343,16 @@ extern "C" fn on_gesture(
         let ev = match phase {
             0 => Event::Tap(at),
             4 => Event::LongPress(at),
+            16 => Event::DoubleTap(at),
+            17 | 18 => Event::Press {
+                pressed: phase == 17,
+                location: at,
+            },
+            // The manipulation's own release velocity, already in DIPs per second.
+            19 => Event::GestureVelocity {
+                kind: day_spec::GestureKind::Drag,
+                velocity: Point::new(tx, ty),
+            },
             5..=7 => Event::Pinch {
                 phase: match phase {
                     5 => DragPhase::Began,
@@ -4285,6 +5402,151 @@ extern "C" fn on_gesture(
         };
         emit(NodeId(id), ev);
     });
+}
+
+/// The touches recognizer's report (`day_xaml_set_touches_cb`): every contact on the node as
+/// `"id,phase,x,y,pressure,kind;…"`.
+extern "C" fn on_touches(id: u64, encoded: *const c_char) {
+    ffi_guard::contain((), || {
+        if encoded.is_null() {
+            return;
+        }
+        // SAFETY: the shim passes a NUL-terminated string that outlives the call.
+        let encoded = unsafe { CStr::from_ptr(encoded) }.to_string_lossy();
+        let touches = parse_touches(&encoded);
+        if !touches.is_empty() {
+            emit(NodeId(id), Event::Touches(touches));
+        }
+    });
+}
+
+/// The shim's touches wire, contact by contact; a malformed contact is skipped.
+fn parse_touches(encoded: &str) -> Vec<day_spec::Touch> {
+    use day_spec::{Touch, TouchPhase};
+    encoded
+        .split(';')
+        .filter_map(|contact| {
+            let mut f = contact.split(',');
+            let id = f.next()?.parse::<u64>().ok()?;
+            let phase = match f.next()?.parse::<u8>().ok()? {
+                0 => TouchPhase::Began,
+                1 => TouchPhase::Moved,
+                2 => TouchPhase::Stationary,
+                3 => TouchPhase::Ended,
+                _ => TouchPhase::Cancelled,
+            };
+            let x = f.next()?.parse::<f64>().ok()?;
+            let y = f.next()?.parse::<f64>().ok()?;
+            let pressure = f.next()?.parse::<f64>().ok()?;
+            let kind = pointer_kind(f.next()?.parse::<c_int>().ok()?);
+            Some(
+                Touch::new(id, phase, Point::new(x, y))
+                    .with_pressure(pressure)
+                    .with_kind(kind),
+            )
+        })
+        .collect()
+}
+
+/// The shim's input-kind code: 0 touch, 1 mouse, 2 stylus.
+fn pointer_kind(code: c_int) -> day_spec::PointerKind {
+    match code {
+        0 => day_spec::PointerKind::Touch,
+        2 => day_spec::PointerKind::Stylus,
+        _ => day_spec::PointerKind::Mouse,
+    }
+}
+
+/// A scroll view's realize-time preferences (docs/scroll.md): hidden bars, snapping, zoom and
+/// the reports the app asked for. `bounce` stays the platform's: a `ScrollViewer` has no
+/// switch for its overscroll.
+#[cfg(feature = "winui")]
+fn configure_scroll(sv: *mut c_void, id: NodeId, p: &day_spec::props::ScrollProps) {
+    use day_spec::props::{ScrollIndicators, ScrollSnap};
+    let (snap, interval) = match p.snap {
+        ScrollSnap::None => (0, 0.0),
+        ScrollSnap::Page => (1, 0.0),
+        ScrollSnap::Interval(points) => (2, points),
+    };
+    let (zoom_min, zoom_max) = p.zoom.map_or((0.0, 0.0), |z| (z.min, z.max));
+    unsafe {
+        ffi::day_xaml_scroll_configure(
+            sv,
+            id.0,
+            c_int::from(p.indicators == ScrollIndicators::Hidden),
+            snap,
+            interval,
+            zoom_min,
+            zoom_max,
+            c_int::from(p.track_offset),
+            c_int::from(p.track_phase),
+            on_scroll_event,
+        );
+    }
+}
+
+/// System XAML keeps its scroll view as realized: the preferences above are WinUI's.
+#[cfg(not(feature = "winui"))]
+fn configure_scroll(_sv: *mut c_void, _id: NodeId, _p: &day_spec::props::ScrollProps) {}
+
+/// A scroll view's report (`day_xaml_scroll_configure`): kind 0 the offset, 1 the phase, 2 the
+/// zoom scale.
+#[cfg(feature = "winui")]
+extern "C" fn on_scroll_event(id: u64, kind: c_int, a: c_double, b: c_double) {
+    ffi_guard::contain((), || {
+        let event = match kind {
+            0 => Event::ScrollChanged(Point::new(a, b)),
+            1 => Event::ScrollPhase(match a as i32 {
+                1 => day_spec::ScrollPhase::Dragging,
+                2 => day_spec::ScrollPhase::Coasting,
+                _ => day_spec::ScrollPhase::Idle,
+            }),
+            _ => Event::ScrollZoomed(a),
+        };
+        emit(NodeId(id), event);
+    });
+}
+
+/// Windows' "Text size" changed; XAML has re-scaled its text already (docs/text.md).
+extern "C" fn text_scale_changed() {
+    ffi_guard::contain((), day_core::note_text_size_changed);
+}
+
+/// The device behind the latest pointer input changed (docs/gestures.md "Input kind").
+extern "C" fn on_pointer_kind(code: c_int) {
+    ffi_guard::contain((), || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::PointerKindChanged(pointer_kind(code)),
+        );
+    });
+}
+
+#[cfg(test)]
+mod touches_tests {
+    use super::*;
+
+    #[test]
+    fn the_wire_reads_every_contact() {
+        let t = parse_touches("0,0,1.500,2.000,1.0000,1;7,3,3.000,4.000,0.5000,0");
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[0].id, 0);
+        assert_eq!(t[0].phase, day_spec::TouchPhase::Began);
+        assert_eq!(t[0].location, Point::new(1.5, 2.0));
+        assert_eq!(t[0].kind, day_spec::PointerKind::Mouse);
+        assert_eq!(t[1].id, 7);
+        assert_eq!(t[1].phase, day_spec::TouchPhase::Ended);
+        assert!((t[1].pressure - 0.5).abs() < 1e-9);
+        assert_eq!(t[1].kind, day_spec::PointerKind::Touch);
+    }
+
+    #[test]
+    fn a_malformed_contact_is_skipped() {
+        let t = parse_touches("x;1,1,0,0,1,2;");
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].kind, day_spec::PointerKind::Stylus);
+        assert_eq!(t[0].phase, day_spec::TouchPhase::Moved);
+    }
 }
 
 impl Platform for Xaml {
@@ -4349,6 +5611,9 @@ impl Platform for Xaml {
             ffi::day_xaml_label_link_cb(on_link);
             ffi::day_xaml_set_toolbar_cb(toolbar::on_toolbar_value);
             ffi::day_xaml_set_lifecycle_cb(on_lifecycle);
+            ffi::day_xaml_set_touches_cb(on_touches);
+            ffi::day_xaml_set_pointer_kind_cb(on_pointer_kind);
+            ffi::day_xaml_watch_text_scale(text_scale_changed);
             ffi::day_xaml_set_present_cb(present_cb);
             // Before `ready`: the app's first build may already ask for a window state.
             ffi::day_xaml_set_window_state_cb(win_state);

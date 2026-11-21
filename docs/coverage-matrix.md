@@ -117,7 +117,7 @@ An app branches on this rather than on the target name.
 | `NavRepresent` | N | E | – | N | – | E | E | N |
 | `NavContentList` | N | E | N | N | – | – | – | – |
 | `NavHeader` | – | N | – | – | N | N | N | – |
-| `Appearance` | N | N | N | – | N | ? | ? | N |
+| `Appearance` | N | N | N | ? | N | ? | ? | N |
 | `AppMenu` | N | – | N | N | N | – | – | E |
 | `Dialogs` | N | N | N | N | N | N | N | N |
 | `FileDialogs` | N | N | N | N | N | N | N | N |
@@ -127,7 +127,8 @@ An app branches on this rather than on the target name.
 | `CoverSheet` | N | N | – | – | – | – | – | – |
 | `StatusBarHidden` | – | N | – | – | – | N | N | – |
 | `TextEditable` | N | N | N | N | N | N | E | N |
-| `TextSelectable` | N | N | – | N | E | N | E | N |
+| `TextSelectable` | N | N | E | N | E | N | E | N |
+| `LabelSelection` | N | N | N | N | N | N | – | N |
 | `TextSpellCheck` | N | N | – | – | N | N | – | N |
 | `MultiWindow` | N | ? | N | N | N | N | ? | – |
 | `AppBadgeCount` | N | N | ? | ? | N | – | ? | E |
@@ -168,3 +169,15 @@ An app branches on this rather than on the target name.
 | `DynamicShortcuts` | N | N | – | – | N | ? | – | – |
 | `ListSections` | N | N | E | E | E | E | E | E |
 | `ShareActions` | N | N | – | – | – | ? | – | – |
+| `ScrollOffset` | N | N | N | N | N | N | N | N |
+| `ScrollPhases` | N | N | N | – | N | N | N | N |
+| `ScrollSnap` | E | N | – | E | E | E | N | N |
+| `ScrollZoom` | N | N | – | – | N | – | – | – |
+| `ScrollKeyboardDismiss` | – | N | – | – | – | N | E | ? |
+| `PagerProgress` | – | N | – | – | – | N | N | – |
+| `ListViewport` | N | N | N | N | N | N | N | N |
+| `ListReaderScroll` | N | N | N | N | N | N | N | N |
+| `ListScrollAlign` | N | N | N | N | N | N | N | N |
+| `Focusable` | N | N | N | N | N | N | N | N |
+| `KeyPhases` | N | N | N | N | N | N | N | N |
+| `HitSlop` | N | N | N | E | N | N | N | N |

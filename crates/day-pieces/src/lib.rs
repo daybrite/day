@@ -34,7 +34,7 @@ pub mod render;
 pub mod dynreg;
 /// `#[day_pieces::builder(FooBuilder)]`: a piece's builder trait, generated from its inherent
 /// impl (docs/api-style.md "Typed builders and erasure").
-pub use day_core::{Dimension, ElementId, IntoElementKey, id};
+pub use day_core::{Dimension, ElementId, Grow, IntoElementKey, id};
 pub use day_macros::builder;
 
 // The piece vocabulary: one logical group per module, re-exported flat (see each module's docs).
@@ -51,11 +51,11 @@ pub mod conformance;
 mod forms;
 mod image;
 mod inputs;
-mod leaves;
-/// Inline markdown → styled runs (docs/markdown.md). The parser moved to day-spec, beside
-/// the `TextRun`s it produces and the other format codecs; this keeps the old path working.
-pub use day_spec::markdown;
+/// A drop destination (docs/drag-and-drop.md): what [`Decorate::drop_target`] takes.
+pub use day_spec::transfer::Target as DropTarget;
 mod inspector;
+mod leaves;
+mod markdown;
 mod menus;
 mod nav;
 mod shapes;
@@ -78,6 +78,7 @@ pub use image::*;
 pub use inputs::*;
 pub use inspector::*;
 pub use leaves::*;
+pub use markdown::*;
 pub use menus::*;
 pub use nav::*;
 pub use shapes::*;
@@ -100,7 +101,7 @@ pub use datetime::{
     time_picker,
 };
 pub use day_localization::NumberFormat;
-pub use pager::{Pager, PagerState, pager};
+pub use pager::{Pager, PagerBuilder, PagerState, pager};
 pub use pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
 pub use searchfield::{SearchField, SearchFieldBuilder, search_field};
 pub use stepper::{
@@ -114,7 +115,7 @@ pub mod prelude {
         DatePicker, DatePickerBuilder, DayDate, DayTime, TimePicker, TimePickerBuilder,
         date_picker, time_picker,
     };
-    pub use crate::pager::{Pager, PagerState, pager};
+    pub use crate::pager::{Pager, PagerBuilder, PagerState, pager};
     pub use crate::pullrefresh::{PullRefresh, PullRefreshBuilder, pull_to_refresh};
     pub use crate::searchfield::{SearchField, SearchFieldBuilder, search_field};
     pub use crate::stepper::{
@@ -135,31 +136,34 @@ pub mod prelude {
         ColumnBuilder, Command, Confirm, ContentList, Corner, Cover, Decorate, Decorated, Delete,
         Drag, Draw, FileAccess, FileUrl, Form, FormSection, Grid, GridRow, HAlign, Inspector,
         IntoFocusBinding, IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot,
-        LabelBuilder, Labeled, Link, List, ListItem, ListItemBuilder, Loaded, MenuButton,
-        MenuButtonBuilder, MenuContent, MenuEntry, Modifier, Move, NativeRef, Nav, NavContent,
-        NavDrag, NavDrop, NavItem, NavStack, NavStyle, OpenFile, OpenFiles, OpenFolder, Pan,
-        PathBuilder, Pinch, ProgressBuilder, Prompt, Reactive, Reorder, ReorderVerdict, Rotate,
-        Route, RoutePath, RowBuilder, RowFit, SaveFile, Search, SearchReveal, Sections, ShapeKind,
-        ShapePiece, Share, ShareAction, StatusItem, SwipeAction, TextBuilder, VAlign, VectorWeight,
-        When, ZStack, adaptive, alert, app_environment, app_menu, arc, button, canvas, capsule,
-        circle, column, confirm, cover, current_route, divider, dock_menu, each, ellipse,
-        environment, focused_environment, form, frame_clock, grid, grid_row, image, inspector,
-        item, items, keyed, label, labeled, line, link, list, list_item, load, menu_button,
-        menu_item, menu_role, menu_separator, nav, nav_back, nav_items, nav_link, nav_link_to,
-        nav_stack, navigate, navigate_to, open_file, open_files, open_folder, open_link, picker,
-        picker_optional, polygon, progress, prompt, rectangle, rounded_rectangle, route,
-        route_param, route_params, row, save_file, scroll, section, secure_field, segment, shape,
-        shape_group, shape_group_fn, share_action, share_support, slider, spacer, spinner, split,
-        status_item, sub_menu, swipe_action, switch, text_area, text_field, toggle, toolbar_button,
-        toolbar_label, toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector,
-        when, with_environment, zstack,
+        LabelBuilder, Labeled, List, ListItem, ListItemBuilder, Loaded, Markdown, MarkdownBuilder,
+        MarkdownCode, MenuButton, MenuButtonBuilder, MenuContent, MenuEntry, Modifier, Move,
+        NativeRef, Nav, NavContent, NavDrag, NavDrop, NavItem, NavStack, NavStyle, OpenFile,
+        OpenFiles, OpenFolder, Pan, PathBuilder, Pinch, ProgressBuilder, Prompt, Reactive, Reorder,
+        ReorderVerdict, Rotate, Route, RoutePath, RowBuilder, RowFit, SaveFile, Search,
+        SearchReveal, Sections, SelectedText, ShapeKind, ShapePiece, Share, ShareAction,
+        StatusItem, Surface, SwipeAction, TextBuilder, VAlign, VectorWeight, When, ZStack,
+        adaptive, alert, app_environment, app_menu, arc, button, canvas, capsule, circle, column,
+        confirm, cover, current_route, divider, dock_menu, each, ellipse, environment,
+        focused_environment, form, grid, grid_row, image, inspector, item, items, keyed, label,
+        labeled, line, link, list, list_item, load, markdown, menu_button, menu_item, menu_role,
+        menu_separator, nav, nav_back, nav_items, nav_link, nav_link_to, nav_stack, navigate,
+        navigate_to, open_file, open_files, open_folder, open_link, picker, picker_optional,
+        polygon, progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params,
+        row, save_file, scroll, section, secure_field, segment, shape, shape_group, shape_group_fn,
+        share_action, share_support, slider, spacer, spinner, split, status_item, sub_menu,
+        swipe_action, switch, text_area, text_field, toggle, toolbar_button, toolbar_label,
+        toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector, when,
+        with_environment, zstack,
     };
-    pub use crate::{Space, TextPreset};
+    pub use crate::{DropTarget, InteractionState};
+    pub use crate::{Radius, Space, TextPreset};
     // Canvas export (docs/canvas.md "Exporting"): record a drawing once, render it to a bitmap
     // or a PDF through the toolkit's own painter, and ask what this target can do first.
     pub use crate::{CanvasExports, Drawing, PdfDocument, canvas_exports};
-    pub use day_core::system_color;
-    pub use day_spec::{ExportError, SystemColor};
+    // The color a view is drawn in (docs/color.md): a fixed `Color`, a light/dark pair or a
+    // platform role, accepted by every color parameter; `day::resolve(ink)` reads one.
+    pub use day_spec::{ExportError, Ink, Palette, SystemColor};
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{
         Branches, MoveVerdict, NodeSource, TreeBuilder, TreeConn, TreePiece, branches, tree,
@@ -171,7 +175,7 @@ pub mod prelude {
     // `RowBuilder` sit in the list above, in alphabetical company.)
     pub use crate::{
         AdaptiveBuilder, CoverBuilder, DividerBuilder, FormSectionBuilder, GridBuilder,
-        GridRowBuilder, ImageBuilder, InspectorBuilder, LinkBuilder, ListBuilder, NavBuilder,
+        GridRowBuilder, ImageBuilder, InspectorBuilder, LanesBuilder, ListBuilder, NavBuilder,
         NavStackBuilder, PickerBuilder, ScrollBuilder, ShapePieceBuilder, SliderBuilder,
         SplitBuilder, TextAreaBuilder, TextFieldBuilder, ToggleBuilder, VectorBuilder, WhenBuilder,
         ZStackBuilder,
@@ -180,11 +184,13 @@ pub mod prelude {
     pub use crate::{ModelSlot, Rows, StoreRows, StoreTree, StoreTrees};
     pub use crate::{Picker, TextArea};
     pub use day_core::{
-        Alignment, AnyPiece, BuildCx, Dimension, Either, Piece, PieceFn, PieceSeq, RNode,
+        Alignment, AnyPiece, BuildCx, Dimension, Either, Grow, Piece, PieceFn, PieceSeq, RNode,
         ScrollTarget, announce, announce_urgent, invalidate_size, open_url, piece_fn,
         with_animation,
     };
-    pub use day_geometry::{Affine, Animatable, Color, Insets, Point, Rect, Size, Transform};
+    pub use day_geometry::{
+        Affine, Angle, Animatable, Color, Insets, Point, Rect, Size, Transform,
+    };
     pub use day_reactive::{
         AnyBinding, Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
@@ -193,14 +199,22 @@ pub mod prelude {
     pub use day_spec::props::NavPresentation;
     pub use day_spec::props::PickerStyle;
     pub use day_spec::props::RowHeight;
-    pub use day_spec::props::TextAlign;
+    // Lists and scroll views (docs/list.md, docs/scroll.md): where a row lands, what a scroll
+    // view does with the keyboard, and where user-driven scrolling stands.
+    pub use crate::{Lanes, RowTarget, lanes};
+    pub use day_spec::props::{KeyboardDismiss, KeyboardTaps};
     pub use day_spec::props::{PaneEdge, SplitAxis};
-    pub use day_spec::{AnimSpec, AnimSpec as Animation, Curve};
+    pub use day_spec::props::{TextAlign, Truncation};
+    pub use day_spec::{AnimSpec, Curve};
     pub use day_spec::{AssetName, FontFamily, ImageName};
-    pub use day_spec::{DragPhase, Edges, GestureKind};
+    pub use day_spec::{DragAxis, DragPhase, Edges, GestureKind};
+    // Raw contacts and the input kind (docs/gestures.md "Touches", "Input kind").
+    pub use day_spec::{PointerKind, Touch, TouchPhase};
+    pub use day_spec::{RowAlign, ScrollPhase};
     // Text entry (docs/textfield.md): what a field collects and what its action key says.
     pub use day_spec::{
-        DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, TextVAlign, UnitPoint,
+        BlendMode, Border, ConicGradient, Corners, DrawOp, LinearGradient, Paint, RadialGradient,
+        Shadow, Shape, TextAnchor, TextVAlign, UnitPoint,
     };
     pub use day_spec::{InputPurpose, SubmitLabel};
     // Canvas fonts and the platform font list (docs/fonts.md).
@@ -210,11 +224,11 @@ pub mod prelude {
     // label's runs are, and what `day-piece-text-editor` edits, plus the Markdown / HTML / RTF
     // codecs over it.
     pub use day_spec::{
-        LabelStyle, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPlacement, ToolbarValue,
+        Decoration, DecorationStyle, ListStyle, ParagraphRun, ParagraphStyle, RunStyle, StyledText,
+        TextRun,
     };
     pub use day_spec::{
-        ListStyle, ParagraphAlign, ParagraphRun, ParagraphStyle, RunStyle, StyledText, TextRun,
-        Underline,
+        LabelStyle, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPlacement, ToolbarValue,
     };
     pub use day_spec::{MenuBarRole, MenuItem, MenuRole, Shortcut};
     pub use std::time::Duration;

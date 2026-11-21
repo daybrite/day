@@ -8,14 +8,19 @@ use day_spec::NodeId;
 crate::java_class! {
     DayPager => dev.daybrite.day.piece.pager.DayPager,
     methods {
-        static fn make(id: jlong, slots: jint) -> android.view.View,
+        static fn make(id: jlong, slots: jint, track: jboolean) -> android.view.View,
         static fn configure(view: android.view.View, order: JString, selected: jint, epoch: jlong),
     },
 }
 
 fn make(_: &mut Material, p: &PagerProps, id: NodeId) -> AHandle {
     let slots = p.slots as i32;
-    crate::realize("pager", |env| DayPager::make(env, id.0 as i64, slots))
+    // `track_progress`: ViewPager's onPageScrolled reports the position (docs/pager.md
+    // "Progress"), at most once per frame, then the integral one at rest.
+    let track = p.track_progress;
+    crate::realize("pager", |env| {
+        DayPager::make(env, id.0 as i64, slots, track)
+    })
 }
 
 fn update(_: &mut Material, h: &AHandle, patch: &PagerPatch) {

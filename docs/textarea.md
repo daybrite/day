@@ -75,15 +75,17 @@ gates its three toggles that way):
 | attribute | Cap | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") |
 |---|---|---|---|---|---|---|---|---|
 | editable | `Cap::TextEditable` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | emulated |
-| selectable | `Cap::TextSelectable` | ✓ | ✓ | — (always on) | ✓ | ✓ | emulated | emulated |
+| selectable | `Cap::TextSelectable` | ✓ | ✓ | emulated | ✓ | ✓ | emulated | emulated |
 | spell-check | `Cap::TextSpellCheck` | ✓ | ✓ | — (none built in) | — (none) | ✓ | ✓ | follow-up |
 
-GTK's [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) is always selectable (no toggle), and neither GTK nor Qt ships a built-in
-spell-checker (that needs libspelling/gspell or Hunspell).
+GTK's [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) has no selection switch, so [`.selectable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is emulated there:
+Day collapses every selection to the caret, stops the copy, cut and select-all key bindings,
+and withholds the context menu; typing still works when the area is editable. Neither GTK nor
+Qt ships a built-in spell-checker (that needs libspelling/gspell or Hunspell).
 
 **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** honors editable and spell-check with the plain [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) properties `IsReadOnly` and
 `IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) /
-[`RichTextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) carries no equivalent, so [`.selectable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is EMULATED:
+[`RichTextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) carries no equivalent, so [`.selectable(false)`](https://docs.rs/day-pieces/latest/day_pieces/trait.TextAreaBuilder.html#tymethod.selectable) is emulated:
 the shim collapses each selection as `SelectionChanged` reports it and suppresses the context menu,
 which is the other route to Copy / Select All.
 

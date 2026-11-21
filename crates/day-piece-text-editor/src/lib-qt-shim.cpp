@@ -103,8 +103,9 @@ QColor unpack(uint32_t argb) {
 
 // A run's attributes as one QTextCharFormat. `underline` follows Day's `Underline`: 0 none,
 // 1 single, 2 double, 3 dotted, 4 wavy.
-QTextCharFormat runFormat(double pt, int weight, int italic, int mono, int underline, int strike,
-                          int has_fg, uint32_t fg, int has_bg, uint32_t bg) {
+// `has_ul`/`ul` carry the underline's own color; without one the line takes the text color.
+QTextCharFormat runFormat(double pt, int weight, int italic, int mono, int underline, int has_ul,
+                          uint32_t ul, int strike, int has_fg, uint32_t fg, int has_bg, uint32_t bg) {
     QTextCharFormat f;
     f.setFontPointSize(pt);
     f.setFontWeight(weight);
@@ -132,6 +133,9 @@ QTextCharFormat runFormat(double pt, int weight, int italic, int mono, int under
             f.setUnderlineStyle(QTextCharFormat::SingleUnderline);
             break;
         }
+        // An invalid color draws the line in the text color, and clears a color an earlier
+        // run left on the same range.
+        f.setUnderlineColor(has_ul != 0 ? unpack(ul) : QColor());
     }
     if (has_fg != 0)
         f.setForeground(unpack(fg));
@@ -222,11 +226,12 @@ void day_texteditor_begin_attrs(void *ptr) {
 }
 
 void day_texteditor_apply_run(void *ptr, int start, int len, double pt, int weight, int italic,
-                              int mono, int underline, int strike, int has_fg, uint32_t fg,
-                              int has_bg, uint32_t bg) {
+                              int mono, int underline, int has_ul, uint32_t ul, int strike,
+                              int has_fg, uint32_t fg, int has_bg, uint32_t bg) {
     DayTextEditor *w = static_cast<DayTextEditor *>(ptr);
     QTextCursor c = cursorOver(w, start, len);
-    c.mergeCharFormat(runFormat(pt, weight, italic, mono, underline, strike, has_fg, fg, has_bg, bg));
+    c.mergeCharFormat(
+        runFormat(pt, weight, italic, mono, underline, has_ul, ul, strike, has_fg, fg, has_bg, bg));
 }
 
 // `align`: 0 natural, 1 center, 2 trailing, 3 justified. `marker` is non-zero for a list item,
@@ -274,10 +279,11 @@ void day_texteditor_set_selection(void *ptr, int start, int len) {
 // Qt's typing style is the nicest of the eight: with a collapsed cursor, the current char format is
 // what the next character takes.
 void day_texteditor_set_typing(void *ptr, double pt, int weight, int italic, int mono, int underline,
-                               int strike, int has_fg, uint32_t fg, int has_bg, uint32_t bg) {
+                               int has_ul, uint32_t ul, int strike, int has_fg, uint32_t fg,
+                               int has_bg, uint32_t bg) {
     DayTextEditor *w = static_cast<DayTextEditor *>(ptr);
     w->setCurrentCharFormat(
-        runFormat(pt, weight, italic, mono, underline, strike, has_fg, fg, has_bg, bg));
+        runFormat(pt, weight, italic, mono, underline, has_ul, ul, strike, has_fg, fg, has_bg, bg));
 }
 
 void day_texteditor_set_editable(void *ptr, int editable) {

@@ -9,10 +9,21 @@ import androidx.viewpager.widget.PagerAdapter;
 import dev.daybrite.day.bridge.DayBridge;
 import java.util.ArrayList;
 
-/** Fixed identity page slots; only the reading order changes. Native scrolling owns every frame. */
+/** Fixed identity page slots; only the reading order changes. Native scrolling owns every frame.
+ *  With `track`, the pager also reports its continuous position (docs/pager.md "Progress"):
+ *  ViewPager's onPageScrolled gives the page at the leading edge and the fraction toward the next,
+ *  in adapter order, which is the reading order the piece sent. At most one report per frame while
+ *  pages move, and the integral position once they rest. */
 public final class DayPager extends FrameLayout {
     private final long node;
     private final int capacity;
+    private final boolean track;
+    private float progress = -1f;
+    private boolean progressPosted;
+    private final Runnable sendProgress = () -> {
+        progressPosted = false;
+        if (progress >= 0f) emit("progress " + this.epoch + " " + progress);
+    };
     private final ArrayList<View> slots = new ArrayList<>();
     private final ArrayList<Integer> order = new ArrayList<>();
     private final ViewPager pager;
@@ -36,9 +47,9 @@ public final class DayPager extends FrameLayout {
             return index < 0 ? POSITION_NONE : index;
         }
     };
-    private DayPager(long node, int capacity) {
+    private DayPager(long node, int capacity, boolean track) {
         super(DayBridge.ctx);
-        this.node = node; this.capacity = capacity;
+        this.node = node; this.capacity = capacity; this.track = track;
         pager = new ViewPager(DayBridge.ctx) {
             private float downX;
             @Override public boolean onInterceptTouchEvent(MotionEvent e) {
@@ -56,7 +67,22 @@ public final class DayPager extends FrameLayout {
         addView(pager, new FrameLayout.LayoutParams(-1,-1));
         internal = false;
         pager.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
+            @Override public void onPageScrolled(int position, float offset, int offsetPx) {
+                if (!track) return;
+                progress = position + offset;
+                if (!progressPosted) {
+                    progressPosted = true;
+                    postOnAnimation(sendProgress);
+                }
+            }
             @Override public void onPageScrollStateChanged(int state) {
+                // At rest: the integral position, whatever the last frame's report said.
+                if (track && state == ViewPager.SCROLL_STATE_IDLE && pager.getCurrentItem() < order.size()) {
+                    progress = pager.getCurrentItem();
+                    removeCallbacks(sendProgress);
+                    progressPosted = false;
+                    sendProgress.run();
+                }
                 if (updating) return;
                 // Accessibility and keyboard paging settle through the same path as touch.
                 if (state != ViewPager.SCROLL_STATE_IDLE && !dragging) {
@@ -100,6 +126,6 @@ public final class DayPager extends FrameLayout {
         if (position >= 0) pager.setCurrentItem(position, false);
         updating = false;
     }
-    public static View make(long id, int slots) { return new DayPager(id,slots); }
+    public static View make(long id, int slots, boolean track) { return new DayPager(id,slots,track); }
     public static void configure(View view, String order, int selected, long epoch) { ((DayPager)view).apply(order,selected,epoch); }
 }

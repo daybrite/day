@@ -6,7 +6,7 @@
 //! out of selection and keyboard travel, and binds one extra cell: the shim's pinned copy of
 //! the current section's header.
 use super::*;
-use day_spec::{ListSource, SwipeEdge};
+use day_spec::{ListScroll, ListSource, RowAlign, SwipeEdge};
 
 #[derive(Clone, Copy)]
 struct Binding {
@@ -50,8 +50,30 @@ fn is_header(source: &ListSource, row: usize) -> bool {
     source.is_header.as_ref().is_some_and(|f| f(row))
 }
 
+/// A list's header, footer, empty state or padding row (docs/list.md "Supplementary rows").
+fn is_supplement(source: &ListSource, row: usize) -> bool {
+    source.is_supplement.as_ref().is_some_and(|f| f(row))
+}
+
+/// A row that is never selected, activated or given row chrome: a section header or a
+/// supplementary row.
+fn is_bare(source: &ListSource, row: usize) -> bool {
+    is_header(source, row) || is_supplement(source, row)
+}
+
 extern "C" fn changed(host: *mut c_void) {
     ffi_guard::contain((), || schedule(host as usize, false));
+}
+
+/// The reader started scrolling the list themselves (docs/list.md "Following the end"): the
+/// shim calls this for the wheel, a touch or pen pan, the scroll bar and the scrolling keys,
+/// never for the list's own scrolls.
+extern "C" fn reader(host: *mut c_void) {
+    ffi_guard::contain((), || {
+        if let Some(report) = source(host as usize).and_then(|s| s.reader_scroll) {
+            report();
+        }
+    });
 }
 
 pub(super) fn new(node: NodeId, props: &ListProps) -> *mut c_void {
@@ -71,6 +93,7 @@ pub(super) fn new(node: NodeId, props: &ListProps) -> *mut c_void {
             action,
             can_move,
             moved,
+            reader,
         )
     };
     LISTS.with(|m| {
@@ -132,8 +155,10 @@ pub(super) fn frame(host: &WinHandle, frame: Rect) {
 pub(super) fn patch(host: &WinHandle, patch: &ListPatch) {
     match patch {
         ListPatch::Reload | ListPatch::Splice(_) => schedule(host.0 as usize, true),
-        ListPatch::ScrollToEnd => scroll(host.0 as usize, None),
-        ListPatch::ScrollToRow(row) => scroll(host.0 as usize, Some(*row)),
+        ListPatch::ScrollToEnd => scroll(host.0 as usize, None, RowAlign::End, false),
+        ListPatch::ScrollToRow(row) => {
+            scroll(host.0 as usize, Some(*row), RowAlign::Start, false);
+        }
         ListPatch::Selected(rows) => {
             LISTS.with(|m| {
                 if let Some(e) = m.borrow_mut().get_mut(&(host.0 as usize)) {
@@ -148,16 +173,31 @@ pub(super) fn patch(host: &WinHandle, patch: &ListPatch) {
     }
 }
 
-fn scroll(host: usize, row: Option<usize>) {
+/// A row scroll with an alignment, animated or not (`Toolkit::list_scroll`, docs/list.md).
+/// Queued behind the row updates already posted, so a scroll to a row a splice just added
+/// finds it.
+pub(super) fn list_scroll(host: &WinHandle, to: ListScroll) {
+    scroll(host.0 as usize, to.row, to.align, to.animated);
+}
+
+fn scroll(host: usize, row: Option<usize>, align: RowAlign, animated: bool) {
     let node = LISTS.with(|m| m.borrow().get(&host).map(|e| e.node));
+    let align = match align {
+        RowAlign::Nearest => 0,
+        RowAlign::Start => 1,
+        RowAlign::Center => 2,
+        RowAlign::End => 3,
+    };
     Xaml::post(Box::new(move || {
         if LISTS.with(|m| m.borrow().get(&host).map(|e| e.node)) != node || node.is_none() {
             return;
         }
         unsafe {
-            ffi::day_winui_list_scroll(
+            ffi::day_winui_list_scroll_to(
                 host as *mut c_void,
                 row.map_or(-1, |r| r.min(i32::MAX as usize) as i32),
+                align,
+                c_int::from(animated),
             );
         };
         schedule(host, false);
@@ -209,6 +249,13 @@ fn fill(host: usize, node: NodeId) {
                 .collect();
             unsafe { ffi::day_winui_list_headers(raw, headers.as_ptr(), headers.len() as i32) };
         }
+        if let Some(is_supplement) = &source.is_supplement {
+            let plain: Vec<i32> = (0..len)
+                .filter(|r| is_supplement(*r))
+                .map(|r| r as i32)
+                .collect();
+            unsafe { ffi::day_winui_list_plain(raw, plain.as_ptr(), plain.len() as i32) };
+        }
         unsafe { ffi::day_winui_list_reload(raw, len as i32) };
     }
     unsafe { ffi::day_winui_list_layout(raw) };
@@ -239,6 +286,7 @@ fn fill(host: usize, node: NodeId) {
     }
     let mut active = HashMap::new();
     let mut first = None;
+    let mut last = None;
     let len = (source.len)();
     for c in cells.into_iter().filter(|c| c.row >= 0 && c.width > 0.0) {
         let row = c.row as usize;
@@ -257,7 +305,7 @@ fn fill(host: usize, node: NodeId) {
         }
         // A header sizes to its content even among uniform rows.
         let measured = match height {
-            RowHeight::Uniform(h) if !is_header(&source, row) => h.max(1.0),
+            RowHeight::Uniform(h) if !is_bare(&source, row) => h.max(1.0),
             _ => (source.cell_height)(c.cell).max(1.0),
         };
         unsafe { ffi::day_winui_list_cell_size(raw, c.cell, c.generation, c.width, measured) };
@@ -272,6 +320,7 @@ fn fill(host: usize, node: NodeId) {
         );
         if c.visible != 0 {
             first = Some(first.map_or(row, |f: usize| f.min(row)));
+            last = Some(last.map_or(row, |l: usize| l.max(row)));
         }
         if rebind {
             offer(raw, c.cell, c.row);
@@ -286,7 +335,26 @@ fn fill(host: usize, node: NodeId) {
         pin(host, node, &source, reload);
     }
     paint_selection(host);
-    if let (Some(report), Some(first)) = (&source.first_visible, first) {
+    if let Some(report) = &source.viewport {
+        // The rows in view and the distance from the viewport's bottom to the content's
+        // (docs/list.md "Visible rows"), after every scroll step, resize and reload.
+        if let (Some(first), Some(last)) = (first, last) {
+            let (mut extent, mut offset, mut viewport) = (0.0, 0.0, 0.0);
+            unsafe {
+                ffi::day_winui_list_metrics(
+                    raw,
+                    &raw mut extent,
+                    &raw mut offset,
+                    &raw mut viewport,
+                );
+            };
+            report(day_spec::ListViewport {
+                first,
+                last: last.max(first),
+                end_distance: (extent - offset - viewport).max(0.0),
+            });
+        }
+    } else if let (Some(report), Some(first)) = (&source.first_visible, first) {
         report(first);
     }
 }
@@ -346,8 +414,8 @@ extern "C" fn selected(host: *mut c_void, row: i32, modifiers: i32) {
             return;
         };
         let len = (source.len)();
-        // Headers are never selected or activated (docs/list.md "Sections").
-        if row >= 0 && is_header(&source, row as usize) {
+        // Headers and supplementary rows are never selected or activated (docs/list.md).
+        if row >= 0 && is_bare(&source, row as usize) {
             return;
         }
         let event = LISTS.with(|m| {
@@ -361,7 +429,7 @@ extern "C" fn selected(host: *mut c_void, row: i32, modifiers: i32) {
                 return None;
             }
             if modifiers == 16 && e.props.multi_select {
-                e.selected = (0..len).filter(|r| !is_header(&source, *r)).collect();
+                e.selected = (0..len).filter(|r| !is_bare(&source, *r)).collect();
             } else if row < 0 || row as usize >= len {
                 return None;
             } else {
@@ -377,7 +445,7 @@ extern "C" fn selected(host: *mut c_void, row: i32, modifiers: i32) {
                 } else if e.props.multi_select && modifiers & 2 != 0 {
                     let anchor = e.anchor.unwrap_or(row).min(len.saturating_sub(1));
                     e.selected = (anchor.min(row)..=anchor.max(row))
-                        .filter(|r| !is_header(&source, *r))
+                        .filter(|r| !is_bare(&source, *r))
                         .collect();
                 } else if e.props.multi_select && modifiers & 1 != 0 {
                     if !e.selected.remove(&row) {
@@ -410,7 +478,7 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
         let Some(source) = source(host as usize) else {
             return;
         };
-        if row < 0 || row as usize >= (source.len)() || is_header(&source, row as usize) {
+        if row < 0 || row as usize >= (source.len)() || is_bare(&source, row as usize) {
             return;
         }
         let row = row as usize;
@@ -419,7 +487,10 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
         if let Some(swipe) = &source.swipe {
             for (edge, code) in [(SwipeEdge::Leading, 0), (SwipeEdge::Trailing, 1)] {
                 for (index, action) in (swipe.actions_at)(row, edge).into_iter().enumerate() {
-                    let color = action.tint.map(|c| [c.r, c.g, c.b, c.a]);
+                    let color = action
+                        .tint
+                        .map(day_spec::Ink::resolved)
+                        .map(|c| [c.r, c.g, c.b, c.a]);
                     unsafe {
                         ffi::day_winui_list_action_add(
                             host,

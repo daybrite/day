@@ -430,7 +430,7 @@ fn with_no_typing_style_bound_typed_text_inherits() {
 fn a_document_with_paragraph_attributes_realizes_and_stays_valid() {
     let probe = boot(|| {
         let mut d = StyledText::markdown("# Title\n- one\n- two", Font::Body);
-        d.apply_paragraph(0..1, |p| p.align = day_spec::ParagraphAlign::Center);
+        d.apply_paragraph(0..1, |p| p.align = day_spec::props::TextAlign::Center);
         assert!(d.validate().is_ok());
         text_editor(Signal::new(d)).any()
     });
@@ -641,4 +641,45 @@ fn an_editor_built_over_text_answers_for_it_before_any_edit() {
     text.set("changed".into());
     flush_sync();
     assert_eq!(probe_text(), "changed");
+}
+
+#[test]
+fn an_appearance_change_resends_runs_whose_inks_follow_it() {
+    // The arms that apply concrete colors (GTK tags, the web's markup, the ArkTS and Android
+    // spans) resolve a pair or a role once; the piece sends the attributes again when the
+    // palette changes, and only for a document that has such an ink.
+    let f = boot_editor();
+    f.doc.update(|d| {
+        d.runs[0].color = Some(day_spec::Ink::adaptive(
+            day_spec::Color::rgb(0.8, 0.0, 0.0),
+            day_spec::Color::rgb(1.0, 0.5, 0.5),
+        ));
+    });
+    flush_sync();
+    let mark = f.probe.log_len();
+    day_core::set_appearance(Some(true));
+    flush_sync();
+    let log = f.probe.log_since(mark);
+    assert!(
+        log.iter().any(|l| l.contains("SetAttributes")),
+        "an adaptive run is sent again after the switch: {log:?}"
+    );
+    assert!(
+        !log.iter().any(|l| l.contains("SetDocument")),
+        "the text did not change: {log:?}"
+    );
+
+    // Fixed colors have nothing to follow.
+    f.doc
+        .update(|d| d.runs[0].color = Some(day_spec::Ink::Fixed(day_spec::Color::BLACK)));
+    flush_sync();
+    let mark = f.probe.log_len();
+    day_core::set_appearance(Some(false));
+    flush_sync();
+    let log = f.probe.log_since(mark);
+    assert!(
+        !log.iter().any(|l| l.contains("SetAttributes")),
+        "a document with fixed inks is not re-sent: {log:?}"
+    );
+    day_core::set_appearance(None);
 }

@@ -44,6 +44,9 @@ using Prepare = unsigned char* (*)(void*,double,double,size_t*);
 using Free = void (*)(unsigned char*,size_t);
 using Accept = bool (*)(void*,double,double,const char*,bool);
 using Receive = bool (*)(void*,double,double,const unsigned char*,size_t,bool);
+// The drag left the view without dropping, or its session ended over it (docs/drag-and-drop.md
+// "Accepting drops"): Qt sends `DragLeave` for both, Escape and a drop elsewhere included.
+using Leave = void (*)(void*);
 
 static QMimeData* dataFromPacket(const QByteArray &packet) {
     auto mime = new QMimeData;
@@ -81,7 +84,7 @@ class DayTransfer : public QObject {
     QPoint start;
     bool armed=false;
 public:
-    Prepare prepare=nullptr; Free release=nullptr; Accept accept=nullptr; Receive receive=nullptr;
+    Prepare prepare=nullptr; Free release=nullptr; Accept accept=nullptr; Receive receive=nullptr; Leave leave=nullptr;
     explicit DayTransfer(QWidget *v):QObject(v),view(v) { qApp->installEventFilter(this); v->setProperty("dayTransfer",QVariant::fromValue((void*)this)); }
     bool eventFilter(QObject *object,QEvent *event) override {
         auto w=qobject_cast<QWidget*>(object); if(!view || !w) return false;
@@ -101,10 +104,16 @@ public:
             }
         }
         if(w!=view || !accept) return false;
+        if(event->type()==QEvent::DragLeave) { if(leave) leave(view); return false; }
         if(event->type()==QEvent::DragEnter || event->type()==QEvent::DragMove || event->type()==QEvent::Drop) {
+            // Asked on every move, not only on entry, so a position-dependent policy can turn
+            // the hover off and on again.
             auto e=static_cast<QDropEvent*>(event); auto types=e->mimeData()->formats().join('\n').toUtf8();
             bool ok=(e->possibleActions() & Qt::CopyAction) && accept(view,e->position().x(),e->position().y(),types.constData(),e->source()!=nullptr);
-            if(ok && event->type()==QEvent::Drop) { auto packet=packetFromData(e->mimeData()); ok=packet.size()<=limit && receive(view,e->position().x(),e->position().y(),(const unsigned char*)packet.constData(),packet.size(),e->source()!=nullptr); }
+            bool delivered=false;
+            if(ok && event->type()==QEvent::Drop) { auto packet=packetFromData(e->mimeData()); delivered=packet.size()<=limit; ok=delivered && receive(view,e->position().x(),e->position().y(),(const unsigned char*)packet.constData(),packet.size(),e->source()!=nullptr); }
+            // A refused drop ends the hover too: Qt sends no `DragLeave` after a drop.
+            if(event->type()==QEvent::Drop && !delivered && leave) leave(view);
             if(ok) { e->setDropAction(Qt::CopyAction); e->accept(); } else e->ignore();
             return true;
         }
@@ -118,4 +127,4 @@ static DayTransfer* controller(QWidget *w) {
     auto c=(DayTransfer*)w->property("dayTransfer").value<void*>(); return c ? c : new DayTransfer(w);
 }
 extern "C" void day_qt_drag_source(void *w,Prepare p,Free f) { auto v=(QWidget*)w; auto c=controller(v); c->prepare=p; c->release=f; v->setProperty("dayTransferSource",true); }
-extern "C" void day_qt_drop_target(void *w,Accept a,Receive r) { auto v=(QWidget*)w; auto c=controller(v); c->accept=a; c->receive=r; v->setAcceptDrops(true); }
+extern "C" void day_qt_drop_target(void *w,Accept a,Receive r,Leave l) { auto v=(QWidget*)w; auto c=controller(v); c->accept=a; c->receive=r; c->leave=l; v->setAcceptDrops(true); }

@@ -17,9 +17,9 @@
 
 extern "C" {
 void day_qt_open_file(const char *) {}
-void day_qt_enable_keys(void *, uint64_t, int (*)(uint64_t, int, int));
-void day_qt_set_text_keys(int (*)(uint64_t), int (*)(uint64_t, const char *, const char *, int));
-void day_qt_lineedit_enable_field_keys(void *, uint64_t, int (*)(uint64_t, const char *, int, int));
+void day_qt_enable_keys(void *, uint64_t, int (*)(uint64_t, int, int, int));
+void day_qt_set_text_keys(int (*)(uint64_t), int (*)(uint64_t, const char *, const char *, int, int));
+void day_qt_lineedit_enable_field_keys(void *, uint64_t, int (*)(uint64_t, const char *, int, int, int));
 void day_qt_lineedit_select(void *, int, int);
 }
 
@@ -28,23 +28,43 @@ struct Received {
     bool typed;
     std::string text;
     int mods;
+    int phase;
 };
 static std::vector<Received> received;
 static int query(uint64_t node) { return node == 42; }
-static int key(uint64_t node, const char *name, const char *text, int mods) {
+static int key(uint64_t node, const char *name, const char *text, int mods, int phase) {
     assert(node == 42);
-    received.push_back({name ? name : "", text != nullptr, text ? text : "", mods});
+    received.push_back({name ? name : "", text != nullptr, text ? text : "", mods, phase});
     return 1;
 }
-static int short_key(uint64_t, int, int) { return 1; }
+// The short route's reports: (code, phase).
+static std::vector<std::pair<int, int>> short_keys;
+static int short_key(uint64_t, int code, int, int phase) {
+    short_keys.push_back({code, phase});
+    return 1;
+}
 // A line edit's claimed keys (docs/textfield.md "Keys"): the plain ones, as Day's
 // `keys::field_claims` answers for a field with a handler.
 static std::vector<std::string> field_keys;
-static int field_key(uint64_t node, const char *name, int mods, int deliver) {
+static int field_key(uint64_t node, const char *name, int mods, int deliver, int phase) {
     assert(node == 9);
+    if (phase == 2) {
+        field_keys.push_back(std::string("up ") + name);
+        return 1;
+    }
     if (mods != 0) return 0;
-    if (deliver) field_keys.push_back(name);
+    if (deliver) field_keys.push_back(phase == 1 ? std::string("repeat ") + name : std::string(name));
     return 1;
+}
+// A release the way Qt delivers one; `repeat` marks the release X11 sends between repeats.
+static void release(QWidget &w, int key, Qt::KeyboardModifiers m, const QString &text = QString(),
+                    bool repeat = false) {
+    QKeyEvent kr(QEvent::KeyRelease, key, m, text, repeat);
+    QApplication::sendEvent(&w, &kr);
+}
+static void repeatPress(QWidget &w, int key, Qt::KeyboardModifiers m, const QString &text = QString()) {
+    QKeyEvent kp(QEvent::KeyPress, key, m, text, true);
+    QApplication::sendEvent(&w, &kp);
 }
 
 // A press the way Qt delivers one: ShortcutOverride first (the shortcut map's question),
@@ -86,7 +106,23 @@ int main(int argc, char **argv) {
 
     // A key that types: named by its character, carrying what it typed.
     press(w, Qt::Key_A, Qt::NoModifier, "a");
-    { Received r = one(); assert(r.key == "a" && r.typed && r.text == "a" && r.mods == 0); }
+    { Received r = one(); assert(r.key == "a" && r.typed && r.text == "a" && r.mods == 0 && r.phase == 0); }
+    // Held, it repeats with its text (X11 sends a release between repeats: dropped), and its
+    // release is the same key, with no text, and is claimed.
+    release(w, Qt::Key_A, Qt::NoModifier, "a", true);
+    none();
+    repeatPress(w, Qt::Key_A, Qt::NoModifier, "a");
+    { Received r = one(); assert(r.key == "a" && r.typed && r.text == "a" && r.phase == 1); }
+    {
+        QKeyEvent up(QEvent::KeyRelease, Qt::Key_A, Qt::NoModifier, "a");
+        const bool claimed = QApplication::sendEvent(&w, &up);
+        assert(claimed);
+        Received r = one();
+        assert(r.key == "a" && !r.typed && r.phase == 2);
+    }
+    // A key released twice (or never pressed while focused) has no second up.
+    release(w, Qt::Key_A, Qt::NoModifier, "a");
+    none();
     press(w, Qt::Key_A, Qt::ShiftModifier, "A");
     { Received r = one(); assert(r.key == "A" && r.typed && r.text == "A" && r.mods == 1); }
     // A key that types nothing: named, no text.
@@ -162,6 +198,21 @@ int main(int argc, char **argv) {
     assert(!plain.testAttribute(Qt::WA_InputMethodEnabled));
     press(plain, Qt::Key_A, Qt::NoModifier, "a");
     none();
+    assert(short_keys.empty());
+    // The short route's phases: down, repeat, the up of a claimed down; no up after the focus
+    // left (the key went down while focused and came up elsewhere).
+    press(plain, Qt::Key_Right, Qt::NoModifier);
+    repeatPress(plain, Qt::Key_Right, Qt::NoModifier);
+    release(plain, Qt::Key_Right, Qt::NoModifier, QString(), true);
+    release(plain, Qt::Key_Right, Qt::NoModifier);
+    assert((short_keys == std::vector<std::pair<int, int>>{{1, 0}, {1, 1}, {1, 2}}));
+    short_keys.clear();
+    press(plain, Qt::Key_Left, Qt::NoModifier);
+    QFocusEvent out(QEvent::FocusOut, Qt::TabFocusReason);
+    QApplication::sendEvent(&plain, &out);
+    release(plain, Qt::Key_Left, Qt::NoModifier);
+    assert((short_keys == std::vector<std::pair<int, int>>{{0, 0}}));
+    short_keys.clear();
 
     // A line edit with a key handler: plain Up, Down and Escape are the app's, ahead of the
     // field and of an Escape shortcut (a sheet's back); a modified arrow stays the field's.
@@ -179,9 +230,12 @@ int main(int argc, char **argv) {
     press(field, Qt::Key_Escape, Qt::NoModifier, QString(QChar(27)), &escapeWon);
     assert(!escapeWon && escapes == 0);
     press(field, Qt::Key_Down, Qt::NoModifier);
+    repeatPress(field, Qt::Key_Down, Qt::NoModifier);
+    release(field, Qt::Key_Down, Qt::NoModifier);
     press(field, Qt::Key_Up, Qt::NoModifier);
     press(field, Qt::Key_Up, Qt::ShiftModifier);
-    assert((field_keys == std::vector<std::string>{"Escape", "ArrowDown", "ArrowUp"}));
+    assert((field_keys == std::vector<std::string>{"Escape", "ArrowDown", "repeat ArrowDown",
+                                                   "up ArrowDown", "ArrowUp"}));
     assert(field.cursorPosition() == 4);
     // Selection in characters: the emoji is one character and two UTF-16 units.
     day_qt_lineedit_select(&field, 2, 3);

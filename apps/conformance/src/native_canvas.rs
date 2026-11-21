@@ -12,6 +12,12 @@ pub fn page() -> impl Piece {
     let began = Signal::new(0u32);
     let changed = Signal::new(false);
     let delta = Signal::new(Point::ZERO);
+    // Repaint on every display frame for as long as the page is mounted.
+    day::frame::subscribe(move |_| {
+        frames.update(|v| *v += 1);
+        std::ops::ControlFlow::Continue(())
+    })
+    .in_scope();
     column((
         rectangle()
             .fill(move || {
@@ -54,6 +60,5 @@ pub fn page() -> impl Piece {
         })
         .id(day::id!(native_canvas::delta_valid)),
         label(move || format!("Frames: {}", frames.get())).id(day::id!(native_canvas::frames)),
-        frame_clock(move |_| frames.update(|v| *v += 1)),
     ))
 }

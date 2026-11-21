@@ -19,6 +19,7 @@ unsafe extern "C" {
         h: *mut c_void,
         accept: extern "C" fn(*mut c_void, f64, f64, *const c_char, bool) -> bool,
         receive: extern "C" fn(*mut c_void, f64, f64, *const u8, usize, bool) -> bool,
+        leave: extern "C" fn(*mut c_void),
     );
 }
 extern "C" fn prepare(h: *mut c_void, x: f64, y: f64, len: *mut usize) -> *mut u8 {
@@ -81,6 +82,15 @@ extern "C" fn receive(h: *mut c_void, x: f64, y: f64, p: *const u8, n: usize, lo
         })
     })
 }
+/// The drag left the view without dropping, or its session ended over it (Qt's `DragLeave`,
+/// Escape and a drop elsewhere included): the hover ends (docs/drag-and-drop.md).
+extern "C" fn leave(h: *mut c_void) {
+    ffi_guard::contain((), || {
+        if let Some(t) = TARGETS.with(|t| t.get(h as usize)) {
+            t.leave();
+        }
+    });
+}
 pub fn source(h: &QtHandle, source: Source) {
     SOURCES.with(|t| t.insert(h.0 as usize, source));
     unsafe {
@@ -90,6 +100,6 @@ pub fn source(h: &QtHandle, source: Source) {
 pub fn target(h: &QtHandle, target: Target) {
     TARGETS.with(|t| t.insert(h.0 as usize, target));
     unsafe {
-        day_qt_drop_target(h.0, accept, receive);
+        day_qt_drop_target(h.0, accept, receive, leave);
     }
 }

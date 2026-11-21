@@ -75,6 +75,7 @@ NOTES_ACCENT = "#FF6B35"
 | `resources` | A `resource/`-shaped directory merged over the app's, by relative path |
 | `store` | A `store/`-shaped listing directory this flavor publishes with |
 | `[signing.<platform>]` | Release signing for this flavor, platform by platform, in the shape `Day.toml` takes. A platform the flavor states is the flavor's, whole; the rest are inherited. For a flavor that ships under another account — a white-label build the customer signs, or an app continuing a listing another team owns |
+| `[permissions]` | Portable permissions that replace the base app's, key by key; the rest are inherited. A development build signed with a profile that cannot grant an entitlement turns that permission off (`notifications = false`) instead of failing to sign. `raw` declarations stay in `Day.toml` |
 
 Unknown keys are an error. A misspelled key that still parsed would build the base app under the
 flavor's name, and nothing in the output would say so.

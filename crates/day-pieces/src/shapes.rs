@@ -3,18 +3,18 @@
 
 //! High-level vector shapes atop the canvas display list: `rectangle`, `circle`, `ellipse`,
 //! `capsule`, `rounded_rectangle`, `arc`, `line`, and `polygon`, combined with `shape_group`.
-//! Reactive fill/stroke, rotate/scale/offset transforms, and tap/drag gestures.
+//! Reactive fill/stroke, rotation/scale/translation transforms, and tap/drag gestures.
 
 use std::rc::Rc;
 
 use day_core::*;
-use day_spec::{Color, Event, LinearGradient, Point, RadialGradient, Rect, Shape, Size, UnitPoint};
+use day_spec::{Angle, Event, Ink, Paint, Point, Rect, Shape, Size, UnitPoint};
 
 use crate::*;
 
 // ---------------------------------------------------------------------------
 // Shapes (docs/shapes.md): high-level shape pieces atop the canvas display list. Frame-relative
-// geometry, reactive fill/stroke, rotate/scale/offset transforms, and tap/drag gestures.
+// geometry, reactive fill/stroke, rotation/scale/translation transforms, and tap/drag gestures.
 // ---------------------------------------------------------------------------
 
 use day_geometry::Affine;
@@ -30,10 +30,10 @@ pub enum ShapeKind {
     Circle,
     Ellipse,
     Capsule,
-    /// A stroked arc of the inscribed ellipse; degrees, 0 = +x, clockwise.
+    /// A stroked arc of the inscribed ellipse; `start` from +x, both positive clockwise.
     Arc {
-        start_deg: f64,
-        sweep_deg: f64,
+        start: Angle,
+        sweep: Angle,
     },
     /// A stroked segment between two unit points of the resolved rect (stroke-only; fills are
     /// ignored). Unit points resolve unclamped, like every unit-space resolve.
@@ -48,7 +48,9 @@ pub enum ShapeKind {
     },
 }
 
-/// A corner radius: absolute points, or a 0..1 fraction of `min(width, height)`.
+/// A corner radius, for a shape (`rounded_rectangle(..)`) and a view (`.corner_radius(..)`,
+/// [`Surface::corner_radius`]) alike: absolute points, or a `0..=1` fraction of half the
+/// shorter side, which follows the frame as it resizes. `f64` and [`Radius`] convert.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Corner {
     Fixed(f64),
@@ -59,13 +61,37 @@ impl From<f64> for Corner {
         Corner::Fixed(v)
     }
 }
+impl From<Radius> for Corner {
+    fn from(r: Radius) -> Self {
+        Corner::Fixed(r.points())
+    }
+}
+impl Default for Corner {
+    /// Square.
+    fn default() -> Self {
+        Corner::Fixed(0.0)
+    }
+}
 impl Corner {
-    fn resolve(self, rect: Rect) -> f64 {
-        let cap = rect.size.width.min(rect.size.height) / 2.0;
+    /// Round ends: half the shorter side, a capsule or a circle.
+    pub const CAPSULE: Corner = Corner::Fraction(1.0);
+
+    /// The radius in points in a frame of `size`: at most half the shorter side.
+    #[must_use]
+    pub fn points(self, size: Size) -> f64 {
+        let cap = (size.width.min(size.height) / 2.0).max(0.0);
         match self {
             Corner::Fixed(v) => v.clamp(0.0, cap),
             Corner::Fraction(f) => f.clamp(0.0, 1.0) * cap,
         }
+    }
+    /// Whether the radius depends on the frame.
+    #[must_use]
+    pub fn is_relative(self) -> bool {
+        matches!(self, Corner::Fraction(_))
+    }
+    fn resolve(self, rect: Rect) -> f64 {
+        self.points(rect.size)
     }
 }
 impl ShapeKind {
@@ -85,14 +111,7 @@ impl ShapeKind {
                 let c = rect.center();
                 Shape::Ellipse(Rect::new(c.x - d / 2.0, c.y - d / 2.0, d, d))
             }
-            ShapeKind::Arc {
-                start_deg,
-                sweep_deg,
-            } => Shape::Arc {
-                rect,
-                start_deg,
-                sweep_deg,
-            },
+            ShapeKind::Arc { start, sweep } => Shape::Arc { rect, start, sweep },
             ShapeKind::Line { from, to } => Shape::Line(from.resolve(rect), to.resolve(rect)),
             ShapeKind::Polygon { points } => {
                 Shape::Polygon(points.iter().map(|p| p.resolve(rect)).collect())
@@ -141,53 +160,146 @@ impl ShapeKind {
     }
 }
 
-/// Drag info delivered to a shape's `.on_drag` handler.
+/// Drag info delivered to an `.on_drag` handler (docs/gestures.md "Gestures").
 ///
 /// `translation` is cumulative from where the pointer went down; `location` is where it is
 /// now, in the piece's own coordinates. The two are not redundant, because `Began` does not
 /// always arrive at the press: a backend whose recognizer has to watch a few events before it
 /// calls the gesture a drag (appkit raises `Began` on the first drag event) reports where it
 /// recognized the drag, with the translation from the press already applied. So the press is
-/// `location - translation`, on every backend and in every phase; take the anchor that way
-/// rather than from `Began`'s `location`, or a gesture measured from the anchor trails the
-/// pointer by however far it moved before the recognizer engaged.
-#[derive(Clone, Copy, Debug)]
+/// [`Drag::start`] (`location - translation`) on every backend and in every phase; take the
+/// anchor from there rather than from `Began`'s `location`, or a gesture measured from the
+/// anchor trails the pointer by however far it moved before the recognizer engaged.
+///
+/// `velocity` is how fast the pointer is moving, in points per second: at `Ended` it is the
+/// release velocity a fling or a spring starts from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Drag {
     pub phase: DragPhase,
     pub location: Point,
     pub translation: Point,
+    /// Points per second along the piece's axes. The platform recognizer's own measurement
+    /// at the release where it has one, Day's estimate from the last tenth of a second of
+    /// movement otherwise; zero once the pointer has rested that long.
+    pub velocity: Point,
+}
+
+impl Drag {
+    /// A drag event with no velocity; [`Drag::with_velocity`] adds one.
+    #[must_use]
+    pub fn new(phase: DragPhase, location: Point, translation: Point) -> Drag {
+        Drag {
+            phase,
+            location,
+            translation,
+            velocity: Point::ZERO,
+        }
+    }
+
+    /// This event with a velocity, in points per second.
+    #[must_use]
+    pub fn with_velocity(mut self, velocity: Point) -> Drag {
+        self.velocity = velocity;
+        self
+    }
+
+    /// Where the pointer went down, in the piece's coordinates: `location - translation`.
+    #[must_use]
+    pub fn start(&self) -> Point {
+        Point::new(
+            self.location.x - self.translation.x,
+            self.location.y - self.translation.y,
+        )
+    }
+
+    /// The release speed, in points per second: the length of [`Drag::velocity`].
+    #[must_use]
+    pub fn speed(&self) -> f64 {
+        self.velocity.x.hypot(self.velocity.y)
+    }
 }
 
 /// One pinch-gesture event, delivered to a `.on_pinch(…)` handler (docs/shapes.md). `scale`
 /// is cumulative since `Began` (1.0 = unchanged); `location` is the centroid, the anchor a
 /// zoom keeps stationary.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Pinch {
     pub phase: DragPhase,
     pub scale: f64,
     pub location: Point,
 }
 
+impl Pinch {
+    /// A pinch event.
+    #[must_use]
+    pub fn new(phase: DragPhase, scale: f64, location: Point) -> Pinch {
+        Pinch {
+            phase,
+            scale,
+            location,
+        }
+    }
+}
+
 /// One rotation-gesture event, delivered to a `.on_rotate(…)` handler (docs/canvas.md "Zoom
 /// and pan").
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Rotate {
     pub phase: DragPhase,
-    /// Radians, cumulative since `Began` for a two-finger gesture; a trackpad tick is a lone
-    /// `Changed` carrying that tick's own angle. Positive is clockwise on screen.
-    pub rotation: f64,
+    /// Cumulative since `Began` for a two-finger gesture; a trackpad tick is a lone `Changed`
+    /// carrying that tick's own angle. Positive is clockwise on screen.
+    pub rotation: Angle,
     /// The gesture's centroid in canvas coordinates (`Point::ZERO` where unknown, as Pinch does).
     pub location: Point,
 }
 
+impl Rotate {
+    /// A rotation event.
+    #[must_use]
+    pub fn new(phase: DragPhase, rotation: Angle, location: Point) -> Rotate {
+        Rotate {
+            phase,
+            rotation,
+            location,
+        }
+    }
+}
+
 /// One pan-gesture event, delivered to a `.on_pan(…)` handler (docs/shapes.md). `delta` is
 /// the movement since the previous event, so apply it incrementally; a discrete wheel tick
-/// arrives as a lone `Changed`.
-#[derive(Clone, Copy, Debug)]
+/// arrives as a lone `Changed`. `velocity` is how fast the pan is moving, in points per
+/// second, measured the way [`Drag::velocity`] is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct Pan {
     pub phase: DragPhase,
     pub delta: Point,
     pub location: Point,
+    /// Points per second; see [`Drag::velocity`].
+    pub velocity: Point,
+}
+
+impl Pan {
+    /// A pan event with no velocity; [`Pan::with_velocity`] adds one.
+    #[must_use]
+    pub fn new(phase: DragPhase, delta: Point, location: Point) -> Pan {
+        Pan {
+            phase,
+            delta,
+            location,
+            velocity: Point::ZERO,
+        }
+    }
+
+    /// This event with a velocity, in points per second.
+    #[must_use]
+    pub fn with_velocity(mut self, velocity: Point) -> Pan {
+        self.velocity = velocity;
+        self
+    }
 }
 
 /// The drawable description of a shape: everything but gestures. Cloneable so [`shape_group`]
@@ -195,14 +307,12 @@ pub struct Pan {
 #[derive(Clone)]
 struct ShapeSpec {
     kind: Reactive<ShapeKind>,
-    fill: Option<Reactive<Color>>,
-    fill_linear: Option<Reactive<LinearGradient>>,
-    fill_radial: Option<Reactive<RadialGradient>>,
-    stroke: Option<(Reactive<Color>, Reactive<f64>)>,
+    fill: Option<Reactive<Paint>>,
+    stroke: Option<(Reactive<Ink>, Reactive<f64>)>,
     inset: Reactive<f64>,
-    rotate: Reactive<f64>,
+    rotation: Reactive<Angle>,
     scale: Reactive<f64>,
-    offset: (Reactive<f64>, Reactive<f64>),
+    translation: (Reactive<f64>, Reactive<f64>),
     /// Unit-space sub-rect of the bounds this shape resolves in (`.at`).
     at: Option<Rect>,
 }
@@ -221,13 +331,11 @@ pub fn shape<M>(kind: impl IntoReactive<ShapeKind, M>) -> ShapePiece {
         spec: ShapeSpec {
             kind: kind.into_reactive(),
             fill: None,
-            fill_linear: None,
-            fill_radial: None,
             stroke: None,
             inset: Reactive::Const(0.0),
-            rotate: Reactive::Const(0.0),
+            rotation: Reactive::Const(Angle::ZERO),
             scale: Reactive::Const(1.0),
-            offset: (Reactive::Const(0.0), Reactive::Const(0.0)),
+            translation: (Reactive::Const(0.0), Reactive::Const(0.0)),
             at: None,
         },
         on_tap: None,
@@ -252,11 +360,9 @@ pub fn rounded_rectangle(corner: impl Into<Corner>) -> ShapePiece {
         corner: corner.into(),
     })
 }
-pub fn arc(start_deg: f64, sweep_deg: f64) -> ShapePiece {
-    shape(ShapeKind::Arc {
-        start_deg,
-        sweep_deg,
-    })
+/// A stroked arc of the frame's inscribed ellipse: `arc(Angle::deg(-90.0), Angle::deg(270.0))`.
+pub fn arc(start: Angle, sweep: Angle) -> ShapePiece {
+    shape(ShapeKind::Arc { start, sweep })
 }
 /// A stroked segment between two unit points of the frame: `line((0.16, 0.5), (0.84, 0.5))`.
 pub fn line(from: (f64, f64), to: (f64, f64)) -> ShapePiece {
@@ -277,26 +383,17 @@ pub fn polygon(points: impl IntoIterator<Item = (f64, f64)>) -> ShapePiece {
 
 #[day_macros::builder(ShapePieceBuilder)]
 impl ShapePiece {
-    pub fn fill<M>(mut self, p: impl IntoReactive<Color, M>) -> Self {
-        self.spec.fill = Some(p.into_reactive());
-        self
-    }
-    /// Fill with a [`LinearGradient`] (unit points resolve against the shape's bounds). Takes
-    /// precedence over [`Self::fill`] when both are set; reactive like every other property:
-    /// `rectangle().fill_linear(move || sky_gradient(state.get()))`.
-    pub fn fill_linear<M>(mut self, g: impl IntoReactive<LinearGradient, M>) -> Self {
-        self.spec.fill_linear = Some(g.into_reactive());
-        self
-    }
-    /// Fill with a [`RadialGradient`] (center + radius in the unit space of the shape's bounds,
-    /// stretching elliptically in non-square bounds). Precedence: radial over linear over solid.
-    pub fn fill_radial<M>(mut self, g: impl IntoReactive<RadialGradient, M>) -> Self {
-        self.spec.fill_radial = Some(g.into_reactive());
+    /// Fill with any [`Paint`]: a [`Color`](day_spec::Color), a
+    /// [`SystemColor`](day_spec::SystemColor), an [`Ink`], or a linear, radial or conic
+    /// gradient whose unit points resolve against the shape's bounds. Reactive like every
+    /// other property: `rectangle().fill(move || sky_gradient(state.get()))`.
+    pub fn fill<M>(mut self, paint: impl IntoReactive<Paint, M>) -> Self {
+        self.spec.fill = Some(paint.into_reactive());
         self
     }
     pub fn stroke<M1, M2>(
         mut self,
-        color: impl IntoReactive<Color, M1>,
+        color: impl IntoReactive<Ink, M1>,
         width: impl IntoReactive<f64, M2>,
     ) -> Self {
         self.spec.stroke = Some((color.into_reactive(), width.into_reactive()));
@@ -307,23 +404,25 @@ impl ShapePiece {
         self.spec.inset = v.into_reactive();
         self
     }
-    /// Rotate the drawn shape about its center, in degrees.
-    pub fn rotate<M>(mut self, deg: impl IntoReactive<f64, M>) -> Self {
-        self.spec.rotate = deg.into_reactive();
+    /// Rotate the drawn shape clockwise about its center, as [`Decorate::rotation`] turns a
+    /// view.
+    pub fn rotation<M>(mut self, angle: impl IntoReactive<Angle, M>) -> Self {
+        self.spec.rotation = angle.into_reactive();
         self
     }
-    /// Scale the drawn shape about its center (uniform).
+    /// Scale the drawn shape about its center (uniform), as [`Decorate::scale`] scales a view.
     pub fn scale<M>(mut self, s: impl IntoReactive<f64, M>) -> Self {
         self.spec.scale = s.into_reactive();
         self
     }
-    /// Translate the drawn shape within its frame.
-    pub fn offset<M1, M2>(
+    /// Move the drawn shape within its frame by (`x`, `y`) points, as
+    /// [`Decorate::translation`] moves a view.
+    pub fn translation<M1, M2>(
         mut self,
         x: impl IntoReactive<f64, M1>,
         y: impl IntoReactive<f64, M2>,
     ) -> Self {
-        self.spec.offset = (x.into_reactive(), y.into_reactive());
+        self.spec.translation = (x.into_reactive(), y.into_reactive());
         self
     }
     /// Resolve this shape inside the fractional sub-rect `(fx, fy, fw, fh)` of its bounds
@@ -345,12 +444,12 @@ impl ShapePiece {
     }
 }
 
-/// Compose the shape's rotate/scale (about its center) + offset into one affine.
-fn shape_transform(rect: Rect, rot_deg: f64, scale: f64, ox: f64, oy: f64) -> Affine {
+/// Compose the shape's rotation/scale (about its center) + translation into one affine.
+fn shape_transform(rect: Rect, rotation: Angle, scale: f64, ox: f64, oy: f64) -> Affine {
     let c = rect.center();
     Affine::translate(-c.x, -c.y)
         .then(Affine::scale(scale, scale))
-        .then(Affine::rotate(rot_deg.to_radians()))
+        .then(Affine::rotate(rotation))
         .then(Affine::translate(c.x, c.y))
         .then(Affine::translate(ox, oy))
 }
@@ -392,24 +491,20 @@ fn record_shape(spec: &ShapeSpec, d: &mut Draw, bounds: Rect) {
     let geom = kind.geometry(rect);
     let m = shape_transform(
         rect,
-        spec.rotate.get(),
+        spec.rotation.get(),
         spec.scale.get(),
-        spec.offset.0.get(),
-        spec.offset.1.get(),
+        spec.translation.0.get(),
+        spec.translation.1.get(),
     );
     let transformed = !m.is_identity();
     if transformed {
         d.save();
         d.concat(m);
     }
-    if !matches!(geom, Shape::Line(..)) {
-        if let Some(g) = &spec.fill_radial {
-            d.fill(geom.clone(), g.get());
-        } else if let Some(g) = &spec.fill_linear {
-            d.fill(geom.clone(), g.get());
-        } else if let Some(fill) = &spec.fill {
-            d.fill(geom.clone(), fill.get());
-        }
+    if !matches!(geom, Shape::Line(..))
+        && let Some(fill) = &spec.fill
+    {
+        d.fill(geom.clone(), fill.get());
     }
     if let Some((c, w)) = &spec.stroke {
         d.stroke(geom, c.get(), w.get());
@@ -482,10 +577,10 @@ impl Piece for ShapePiece {
                     let rect = bounds.inset(spec.inset.get_untracked());
                     let m = shape_transform(
                         rect,
-                        spec.rotate.get_untracked(),
+                        spec.rotation.get_untracked(),
                         spec.scale.get_untracked(),
-                        spec.offset.0.get_untracked(),
-                        spec.offset.1.get_untracked(),
+                        spec.translation.0.get_untracked(),
+                        spec.translation.1.get_untracked(),
                     );
                     let local = m.invert_apply(*p).unwrap_or(*p);
                     if spec.kind.get_untracked().contains(rect, local) {
@@ -503,11 +598,9 @@ impl Piece for ShapePiece {
                     translation,
                 } = ev
                 {
-                    on_drag(Drag {
-                        phase: *phase,
-                        location: *location,
-                        translation: *translation,
-                    });
+                    let velocity =
+                        day_core::gesture::velocity(day_core::rnode_to_id(node), GestureKind::Drag);
+                    on_drag(Drag::new(*phase, *location, *translation).with_velocity(velocity));
                 }
             });
         }

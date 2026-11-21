@@ -2390,8 +2390,9 @@ const COMPOSITE_LIB: &str = r#"//! __CRATE__: a composite Day piece (built purel
 
 use day_pieces::prelude::*;
 
-/// The chip's fill (iOS system blue). Swap for your own palette.
-const CHIP_BG: Color = Color::hex(0x0A_84_FF);
+/// The chip's fill: the platform's accent color, which follows the appearance. Swap in your own
+/// `Ink::adaptive(light, dark)` for a brand color.
+const CHIP_BG: Ink = Ink::system(SystemColor::Accent);
 
 /// A small rounded, padded, colored label, the "hello world" of composite pieces. Pure composition
 /// over [`label`] + the [`Decorate`] modifiers, so it renders natively on every backend.
@@ -2409,7 +2410,7 @@ pub fn __SNAKE__(text: impl Into<String>) -> impl Piece {
         .color(Color::WHITE)
         .padding(Insets::symmetric(10.0, 4.0))
         .background(CHIP_BG)
-        .corner_radius(10.0)
+        .corner_radius(Corner::CAPSULE)
 }
 "#;
 

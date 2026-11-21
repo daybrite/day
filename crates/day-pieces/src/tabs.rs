@@ -387,36 +387,38 @@ impl<K: Route> Piece for DocumentTabs<K> {
                                 ])],
                             })
                         })
-                        .drop_target(day_spec::transfer::Target {
-                            types: vec!["application/vnd.day.document-tab".into()],
-                            accept: Rc::new(|location| {
-                                if location.local
-                                    && location.has("application/vnd.day.document-tab")
-                                {
-                                    day_spec::transfer::Operation::Move
-                                } else {
-                                    day_spec::transfer::Operation::None
-                                }
-                            }),
-                            receive: Rc::new(move |drop| {
-                                let Some(key) = drop
-                                    .items
-                                    .first()
-                                    .and_then(|item| item.get("application/vnd.day.document-tab"))
-                                    .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                                    .and_then(|text| text.strip_prefix(&format!("{host_id}:")))
-                                    .and_then(K::from_key)
-                                else {
-                                    return false;
-                                };
-                                let Some(index) =
-                                    tabs.keys().iter().position(|key| key == &drop_key)
-                                else {
-                                    return false;
-                                };
-                                tabs.move_to(&key, index)
-                            }),
-                        })
+                        .drop_target(
+                            day_spec::transfer::Target::new(["application/vnd.day.document-tab"])
+                                .accept(|location| {
+                                    if location.local
+                                        && location.has("application/vnd.day.document-tab")
+                                    {
+                                        day_spec::transfer::Operation::Move
+                                    } else {
+                                        day_spec::transfer::Operation::None
+                                    }
+                                })
+                                .on_drop(move |drop| {
+                                    let Some(key) = drop
+                                        .items
+                                        .first()
+                                        .and_then(|item| {
+                                            item.get("application/vnd.day.document-tab")
+                                        })
+                                        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                                        .and_then(|text| text.strip_prefix(&format!("{host_id}:")))
+                                        .and_then(K::from_key)
+                                    else {
+                                        return false;
+                                    };
+                                    let Some(index) =
+                                        tabs.keys().iter().position(|key| key == &drop_key)
+                                    else {
+                                        return false;
+                                    };
+                                    tabs.move_to(&key, index)
+                                }),
+                        )
                     },
                 ),))
                 .spacing(4.0)
@@ -533,16 +535,15 @@ impl<K: Route> TabActions<K> {
     /// A drop target that moves a tab before this key, preserving document identity.
     pub fn drop_before(&self, key: K) -> day_spec::transfer::Target {
         let actions = self.clone();
-        day_spec::transfer::Target {
-            types: vec!["application/vnd.day.document-tab".into()],
-            accept: Rc::new(|location| {
+        day_spec::transfer::Target::new(["application/vnd.day.document-tab"])
+            .accept(|location| {
                 if location.local && location.has("application/vnd.day.document-tab") {
                     day_spec::transfer::Operation::Move
                 } else {
                     day_spec::transfer::Operation::None
                 }
-            }),
-            receive: Rc::new(move |drop| {
+            })
+            .on_drop(move |drop| {
                 let Some(moving) = drop
                     .items
                     .first()
@@ -561,8 +562,7 @@ impl<K: Route> TabActions<K> {
                     &moving,
                     index.saturating_sub(usize::from(from.is_some_and(|from| from < index))),
                 )
-            }),
-        }
+            })
     }
 }
 

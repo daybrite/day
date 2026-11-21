@@ -76,8 +76,9 @@ the architecture-level view and the rationale.
 | subsystem | normative doc | overview here |
 |---|---|---|
 | navigation — `routes!`, `nav`, `nav_stack`, deep links, predictive back, `on_back` guards and the app-level `on_system_back` handler | [docs/navigation.md](docs/navigation.md) | [§10.5](#105-navigation-and-presentation) |
-| native recycling lists — platform row metrics, and `list_item`, the platform's own row content (`Cap::ListItem`) | [docs/list.md](docs/list.md) | [§10](#10-native-list-integration), [§5.3](#53-built-in-pieces-mvp-set) |
-| scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | [docs/scroll.md](docs/scroll.md) | [§7.6](#76-scroll) |
+| native recycling lists — platform row metrics, and `list_item`, the platform's own row content (`Cap::ListItem`); keyed updates that splice (`diff_rows`, `list_sync`), `follow_end`, `on_end_reached`, `visible_rows`, the header, footer and empty-state rows, aligned row scrolls | [docs/list.md](docs/list.md) | [§10](#10-native-list-integration), [§5.3](#53-built-in-pieces-mvp-set) |
+| scrolling — the scroll piece and its preferences (indicators, bounce, paging and snapping, keyboard dismissal, content padding, zoom), the tracked offset and phase, programmatic `ScrollTarget`, dayscript `scroll_to` | [docs/scroll.md](docs/scroll.md) | [§7.6](#76-scroll) |
+| column lanes and weighted grow — `lanes`, which deals children into as many columns as fit during layout, and `Dimension::weight` | [docs/size-classes.md](docs/size-classes.md#lanes) | [§5.3](#53-built-in-pieces-mvp-set), [§7.3](#73-alignment-frames-and-modifiers) |
 | baseline alignment — form rows and `VAlign::FirstBaseline` sitting text on one line | [docs/baseline.md](docs/baseline.md) | [§7.10](#710-baseline-alignment) |
 | Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | [docs/duty-matrix.md](docs/duty-matrix.md) | [§8.1](#81-the-toolkit-trait) |
 | Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | [docs/coverage-matrix.md](docs/coverage-matrix.md) | [§8.2](#82-the-open-renderer-registry) |
@@ -105,7 +106,16 @@ the architecture-level view and the rationale.
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
 | app state — `Ambient` (per-window `scoped`, app-wide `app`, `ambient`/`focused`), the ambient environment | [docs/state.md](docs/state.md) | [§4.3](#43-scopes-and-disposal) |
 | canvas, shapes, gradients, gestures | [docs/shapes.md](docs/shapes.md) | [§11](#11-canvas) |
-| text & typography | [docs/text.md](docs/text.md), [docs/text-runs.md](docs/text-runs.md) | [§6.4](#64-typography) |
+| gestures and pointer input — tap, double tap, long press, press, drag with velocity and an axis, raw touches, hit slop, pass-through, `day::primary_pointer()`, `InteractionState`; the shared recognizers in `day-core/src/gesture.rs` that derive what a toolkit has no recognizer for | [docs/gestures.md](docs/gestures.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait), [§8.3](#83-events) |
+| keys — typed `Key`, `Modifiers`, `KeyPhase` (down, repeat, up), `.on_key` / `.on_key_up`, `Cap::KeyPhases` | [docs/menus.md](docs/menus.md) "Keys" | [§5.3](#53-built-in-pieces-mvp-set), [§8.3](#83-events) |
+| disabling a group — `.enabled(reactive)` on any piece: day-core patches the controls and drops the subtree's input, the toolkit disables the rest | [docs/forms.md](docs/forms.md) "Disabling a group" | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
+| canvas conic gradients, shadows and blend modes — `ConicGradient`, `Draw::shadowed`, `Draw::blended`, `OpCode::SetShadow`/`SetBlend` | [docs/canvas.md](docs/canvas.md) "Conic gradients", "Shadows", "Blend modes" | [§11](#11-canvas) |
+| styled native surfaces — `.surface(Surface)`: any `Paint` fill, per-corner rounding, `Radius` tokens and frame-relative corners, a border over the content, a shadow, all reactive, carried by `ContainerProps` and `ContainerPatch::{Fill, Surface}` | [docs/surfaces.md](docs/surfaces.md) | [§5.3](#53-built-in-pieces-mvp-set) |
+| colors — `Ink` (a fixed `Color`, a light/dark pair, a `SystemColor` role) accepted by every color parameter and followed natively across appearance switches; the sixteen roles; `Paint` as the one fill vocabulary; `day::resolve`, `day::palette` and `Palette::current` | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§8.1](#81-the-toolkit-trait) |
+| frame-driven motion — `day::motion`: `Animated` values, `Animation::{timing, tween, spring, decay, drive, delay, sequence, parallel, stagger}` with `.repeat`/`.looped`, the awaitable `Playing` handle, `Interpolation`; easing curves, a velocity-carrying spring, decay | [docs/tween.md](docs/tween.md) | [§8.4](#84-animation-and-display-frames) |
+| the `AnimSpec` contract — delay, cycle, repeat, autoreverse, physical springs, `AnimSpec::sample`/`keyframes`, `Toolkit::read_displayed`, the `assert_displayed` step | [docs/tween.md](docs/tween.md) "The animation contract" | [§8.4](#84-animation-and-display-frames), [§14](#14-scripting-dayscript) |
+| text & typography — semantic fonts, the tracked text scale and `max_text_scale`, line limits and truncation, letter spacing and line height, decorations, font features, selection reports | [docs/text.md](docs/text.md), [docs/text-runs.md](docs/text-runs.md) | [§6.4](#64-typography) |
+| Markdown view — `markdown(text)`, a self-sizing read-only document composed from labels; `MarkdownDocument` block parsing that resumes at the last block boundary | [docs/markdown-view.md](docs/markdown-view.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | localization — Fluent, `res::str` typed keys, locales | [docs/localization.md](docs/localization.md) | [§12](#12-localization-fluent), [§18.5](#185-typed-resource-constants-docsresourcesmd) |
 | resources — images, data assets, custom fonts, typed constants | [docs/resources.md](docs/resources.md) | [§18](#18-resources-icons-and-theming) |
 | accessibility & the a11y audit | [docs/accessibility.md](docs/accessibility.md) | [§13](#13-accessibility) |
@@ -773,7 +783,7 @@ Authoring-surface edges, specified now so they don't accrete ad hoc:
   inherent and returns `self`, so re-erasing an erased piece costs nothing.
 - **Deferring is not erasing.** A piece whose body must run at BUILD time (it reads an ambient
   `environment`, a scope, or the laid-out size) defers into `piece_fn`, which returns the
-  concrete `PieceFn<F>` — so `canvas`, `frame_clock`, `shape_group`, `shape_group_fn`, `each`
+  concrete `PieceFn<F>` — so `canvas`, `shape_group`, `shape_group_fn`, `each`
   and `with_environment` all return `impl Piece` and stay unboxed in the caller's type. The two
   form constructors are the deliberate exception: `form` and `labeled` erase, because their
   results are collected far more often than consumed inline, and a flat row type keeps a
@@ -902,7 +912,8 @@ caller's `.any()`, never the constructor's.
 > the navigation containers); the gesture decorators shipped as `.on_tap`/`.on_drag` (context
 > menus are declarative — `.context_menu(items)`, [docs/menus.md](docs/menus.md)). Three modifiers the design-era
 > §5.2 text listed as `Decorate` members never shipped there: `disabled` is spelled `enabled` and
-> is per-piece (`Button`, `Toggle`) because it needs a native control to gray out, and `visible`
+> was per-piece (`Button`, `Toggle`) because it needs a native control to gray out (since 2026-11
+> `Decorate::enabled` disables any subtree, [docs/forms.md](docs/forms.md)), and `visible`
 > and `on_key` did not exist at all — hide a subtree with `when`. `on_key` shipped later, as the
 > focus-scoped key route in the modifier list below. `Decorate` did instead grow the
 > transform family (`.opacity()`, `.rotation()`, `.scale()`, `.translation()`, `.transform()`) and
@@ -922,6 +933,18 @@ caller's `.any()`, never the constructor's.
 > `open_window(options, build)` reads key and kind from `WindowOptions` builders
 > (`res::window_options()` is generated); `Command::new(id, label, action)`; `Shortcut::primary`;
 > the `Insets` constructors. The vocabulary below is the current one.
+>
+> **Grown 2026-11.** The label's paragraph and decoration builders, `markdown`, the list's
+> `follow_end`/`on_end_reached`/`visible_rows`/header/footer/empty/`scroll_to_row` with a
+> `RowTarget`, the scroll view's preferences and observers, the pager's `progress`, the pointer
+> vocabulary (`on_double_tap`, `on_long_press`, `on_pressed`, `on_touches`, `on_drag_along`,
+> `hit_slop`, `interaction`), `enabled` on any piece, `.surface(..)` and inks for every color
+> shipped on all eight toolkits. What each toolkit does natively, emulates or leaves out is in
+> the "Toolkit support" tables of [docs/text.md](docs/text.md),
+> [docs/text-runs.md](docs/text-runs.md), [docs/list.md](docs/list.md),
+> [docs/scroll.md](docs/scroll.md), [docs/pager.md](docs/pager.md),
+> [docs/gestures.md](docs/gestures.md), [docs/forms.md](docs/forms.md),
+> [docs/surfaces.md](docs/surfaces.md) and [docs/color.md](docs/color.md).
 
 `TabSet<K>` owns ordered document keys and selection. `document_tabs` keeps each document
 resident across reorder and `.native(...)` presentation changes; `.on_close` separates a close
@@ -936,9 +959,19 @@ label(text)                        // text: impl IntoText — value, Signal<Stri
                                    //   so it wraps, selects and reads as one (docs/text-runs.md)
     .markdown().on_link(f)         //   inline markdown parsed at RUN TIME — the case a macro
                                    //   cannot serve, since the string is a translation or typed
-                                   //   (docs/markdown.md); a link run reports through on_link
-link(text, url)                    // tappable accent text → #route navigates in-app; other targets
-                                   //   open in the default handler; .font() / .color() / .bold()
+                                   //   (docs/text-runs.md); a link run reports through on_link
+    .max_lines(n).truncation(Truncation::Middle)   // reactive; a duty on all eight (docs/text.md)
+    .letter_spacing(0.05).line_height(1.4)         // multiples of the font size, reactive
+    .underline(Decoration::wavy().color(c))        // whole-label decoration; .strikethrough(d)
+    .small_caps().oldstyle_figures()               // font features, beside .tabular()
+    .font_scale(s).max_text_scale(1.3)             // reactive scale; a cap on Dynamic Type growth
+    .on_selection(f)                               // selectable + selection reports (Cap::LabelSelection)
+link(text, url)                    // a Label whose whole text is a link, so every label builder
+                                   //   applies → #route navigates in-app; other targets open in
+                                   //   the default handler
+markdown(text)                     // block Markdown as a self-sizing column of labels: headings,
+    .code_accessory(|code| …)      //   lists, quotes, fenced code, rules; a streamed text re-parses
+    .on_link(f).selectable_text()  //   only the block being written (docs/markdown-view.md)
 open_link(target)                  // shared default for link(), markdown and TextBuilder links:
                                    //   strip a leading # and call navigate; otherwise open_url
 button(text).action(f)             // .bordered() / .prominent() / .tint(color) / .selected(on)
@@ -982,16 +1015,32 @@ row(children).spacing(8.0).align(VAlign::Center)
     .fit(RowFit::Scroll)                 //   policies"); Wrap is ragged, WrapColumns
 adaptive(children).spacing(..)           //   uniform (a grow_w cell stretches it to the
                                          //   width); default Clip logs overflow in debug
+lanes(children).lane_width(320.0)  // column lanes: as many as fit, children dealt into them
+    .max_lanes(3).balanced()       //   during layout, so a resize moves the same children
+                                   //   (docs/size-classes.md "Lanes")
+x.grow(Dimension::Width.weight(2.0))  // a weighted share of spare space among growing
+                                   //   siblings, in a row, a column and each line of a Wrap row
 zstack(children)                   // overlay
 grid((grid_row((…)), …)).spacing(8.0)   // SwiftUI-style eager grid (docs/grid.md): columns
                                    //   infer from cells; .grid_span(n)/.grid_align(a) per cell
-scroll(child)
+scroll(child)                      // the platform's scroll view (docs/scroll.md)
+    .hide_indicators().no_bounce() //   preferences a toolkit applies where it can
+    .paging().snap_interval(292.0) //   Cap::ScrollSnap
+    .keyboard_dismiss(mode).keyboard_taps(taps)   // Cap::ScrollKeyboardDismiss
+    .content_padding(insets)       //   laid out by Day, scrolls with the content
+    .scroll_offset(binding)        //   the tracked offset (Cap::ScrollOffset)
+    .scroll_phase(binding)         //   Idle/Dragging/Coasting (Cap::ScrollPhases)
+    .zoom(1.0..=4.0).zoom_scale(binding)          // Cap::ScrollZoom
+    .scroll_target(binding)        //   a consumed command, animated
 adaptive((label, control, result)) // a row that stacks on a compact width without rebuilding
     .spacing(Space::S).stack_at(c) //   its children (docs/size-classes.md)
 form((section((…)).title(t), …))   // grouped platform forms (docs/forms.md)
 labeled(caption, control)
 x.card()                           // the platform's grouped surface: rounded, Space::M inset
-x.padding(Space::L).spacing(Space::S)  // tokens: Space::{XS,S,M,L,XL} beside raw points;
+x.padding(Space::L).spacing(Space::S)  // tokens: Space::{XS,S,M,L,XL} beside raw points,
+x.corner_radius(Radius::M)         //   Radius::{XS,S,M,L,XL}, Corner::CAPSULE beside raw points;
+x.background(SystemColor::Surface) //   any Ink: Color, Ink::adaptive(light, dark), a role (docs/color.md)
+cover(open_bool, |_| editor())     // a cover bound to a Signal<bool> (docs/cover.md)
 label(t).preset(&CAPTION)          //   const CAPTION: TextPreset = TextPreset::new(Font::Caption).secondary()
 
 // structure
@@ -1008,7 +1057,14 @@ test_host(content_fn)              // a test build's root: the content, or the c
 list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
     .reorderable(Reorder::new(f).guard(g).enabled(e))  // a list reorders exactly when it carries one
     .deletable(Delete::new(f).label(t).guard(g))       // ReorderVerdict::{Allow,Deny,Retarget(i)}
-    .multi_select().separators()/.no_separators().stick_to_bottom()
+    .multi_select().separators()/.no_separators()
+    .follow_end(40.0)              // follow new rows while the end is within 40 pt
+    .on_end_reached(400.0, f)      // once per approach: the moment to load more
+    .visible_rows(binding)         // the visible items, a Range<usize> (Cap::ListViewport)
+    .header(f).footer(f).empty(f)  // rows of their own around the items, on every toolkit
+    .content_padding(insets)
+    .scroll_to_row(binding)        // a consumed command: an index, or a RowTarget with
+                                   //   .align(RowAlign::…) and .instant()
     .selection(binding)            // a store list's selected key, two-way; reveals app writes
     .sections(key_fn, header_fn)   // section headers the platform pins (Cap::ListSections)
 list_item(title)                   // a row's standard content, the platform's own row: NATIVE where
@@ -1082,8 +1138,8 @@ PdfDocument::new().title(t).page(drawing).render()  canvas_exports()   // Cap::C
 announce(text)    announce_urgent(text)           // speak through the screen reader (Cap::Announce, docs/accessibility.md)
 rectangle()  rounded_rectangle(r)  circle()  capsule()  ellipse()  arc(start, sweep)
 line(a, b)  polygon(points)        // unit-point kinds over the existing Line/Polygon ops
-    .fill(color) / .fill_linear(g) / .fill_radial(g) / .stroke(color, w)
-    .rotate(deg) / .inset(v) / .offset(x, y)      // reactive: any of these takes a closure
+    .fill(paint) / .stroke(ink, w)                // one fill vocabulary: any Paint (docs/color.md)
+    .rotation(angle) / .scale(s) / .translation(x, y) / .inset(v)   // reactive; a view's names
     .at(fx, fy, fw, fh)            // fractional sub-rect placement (glyph composition)
 shape_group(shapes)  shape_group_fn(size_fn)      // many shapes, ONE canvas leaf (§3.6 there)
 
@@ -1145,7 +1201,9 @@ changes invalidate ancestors and reposition siblings. Layout never reads signals
 tree is borrowed. Bindings are disposed with the wrapper's scope. Regression coverage lives
 in `reactive_frame_*`, `reactive_size_bindings_*`, and `minimum_height_*` mock tests.
 
-`system_color(SystemColor)` reads a cached reactive app-wide palette. The toolkit supplies
+`day::resolve(ink)` and `day::palette()` read a cached reactive app-wide `Palette` (every
+`SystemColor` role); views never need them, since every color parameter takes the `Ink` itself
+([docs/color.md](docs/color.md)). The toolkit supplies
 colors through `Toolkit::system_color`; its default is a fixed light/dark fallback. Tree
 installation seeds the palette outside draw callbacks and refreshes it on remount. Appearance
 notifications refresh colors even when dark mode is unchanged. AppKit resolves NSColors in
@@ -1186,16 +1244,35 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(nam
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.max_width()` / `.max_height()` /
 `.min_width()` (caps that let content shrink to a smaller screen), `.aspect_ratio()`,
 `.grow(Dimension::Width)` (or `Height` / `Both`), `.aligned(Alignment::…)`, `.background()`,
-`.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
+`.corner_radius()`, `.surface(Surface)` (any `Paint` fill, per-corner rounding, border
+over the content and shadow on one native view, with `.border()` / `.shadow()` for the square
+case; [docs/surfaces.md](docs/surfaces.md)). Every modifier that can change takes a constant, a
+signal or a closure (`IntoReactive`): `.background`, `.corner_radius` (points, a `Radius` token,
+or a frame-relative `Corner`), `.border`, `.shadow`, `.surface`, `.padding` (so
+`.padding(move || day::safe_area())` follows a rotation), the size limits and `.aspect_ratio`;
+a constant costs nothing after realize. `.rotation` takes an `Angle`, the one angle type of
+`Affine`, `Transform`, arcs, conic gradients and `on_rotate`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
-`.on_pinch()` / `.on_pan()` / `.on_rotate()` (the continuous zoom/scroll/turn gestures, [docs/canvas.md](docs/canvas.md)), `.focused()`,
-`.on_key()` (the non-text keys, delivered only while THIS piece has focus — [docs/menus.md](docs/menus.md)),
+`.on_pinch()` / `.on_pan()` / `.on_rotate()` (the continuous zoom/scroll/turn gestures, [docs/canvas.md](docs/canvas.md)),
+`.on_double_tap()` / `.on_double_tap_at()` / `.on_long_press()` / `.on_pressed()` / `.on_touches()` /
+`.on_drag_along(axis, f)` / `.hit_slop()` (the rest of the pointer vocabulary: `Drag` and `Pan`
+carry a velocity, a drag can keep to one axis inside a scroll view, and a piece can take input
+beyond its bounds — [docs/gestures.md](docs/gestures.md)), `.interaction(InteractionState)`
+(tracked hovered / pressed / focused state for reactive modifiers to read), `.enabled()` (a
+constant or a reactive source; disables the whole subtree — [docs/forms.md](docs/forms.md)
+"Disabling a group"), `.drag_source()` / `.drop_target(DropTarget)` / `.on_files_dropped()`
+([docs/drag-and-drop.md](docs/drag-and-drop.md)), `.focused()`,
+`.on_key()` / `.on_key_up()` (the non-text keys as a typed `Key` with `Modifiers` and a phase,
+delivered only while THIS piece has focus — [docs/menus.md](docs/menus.md) "Keys"),
 `.keyboard()` (a canvas takes the whole keyboard while focused: every key, the text a press
 typed kept apart from the key's name, and the soft keyboard on a phone — "The full route" in
 [docs/menus.md](docs/menus.md)),
 `.focusable()` (opt a composed container into the focus system — the canvas contract behind
-`Toolkit::set_focusable`, [docs/focus.md](docs/focus.md); appkit today, a no-op elsewhere),
+`Toolkit::set_focusable`, [docs/focus.md](docs/focus.md); `Cap::Focusable` says where it is honored),
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),
+`.layout_direction()` (one reading direction for the piece's subtree: day-core mirrors its
+placement per node and tells each widget through `Toolkit::set_layout_direction`,
+[docs/localization.md](docs/localization.md) "Direction of a subtree"),
 `.cursor()` (the pointer's shape over the piece, a constant or a reactive source — routed to
 `Toolkit::set_cursor` with `Cap::Cursor` saying how faithfully; [docs/cursor.md](docs/cursor.md)),
 `.window_drag_region()` (the piece moves its window when dragged, like a title bar — routed to
@@ -1591,11 +1668,26 @@ the recorded shape sugar could take if branching ever becomes common.
 > every backend honors (per-element on the WinUI root, palette on Qt ≤6.7, color-scheme
 > elsewhere). An app-wide token module remains possible later; no real app has needed one.
 
+> [!NOTE]
+> **Update (2026-11): app colors became values that follow the appearance.** Apps that drew
+> their own surfaces kept a palette of functions reading `day::dark_mode()`, wrapped every use in
+> a closure, and lost the switch wherever a parameter took a plain `Color`. Every color parameter
+> now takes `impl Into<Ink>`: a fixed `Color`, `Ink::adaptive(light, dark)`, or a `SystemColor`
+> role (sixteen of them, from `Separator` and `ControlFill` to `Destructive` and `Selection`).
+> The ink crosses the spec unresolved and the toolkit follows the appearance natively (dynamic
+> `NSColor`/`UIColor`, CSS custom properties and `light-dark()`, re-application on GTK, Qt,
+> WinUI, ArkUI and Android); Day keeps `Palette::current` for the toolkits that resolve as they
+> apply. `day::resolve(ink)` is the tracked read for code that needs numbers. `Color` stays the
+> concrete sRGB value. Normative reference: [docs/color.md](docs/color.md).
+
 ### §6.4 Typography
 
 > [!NOTE]
-> **Status: shipped as written** (as an enum rather than constructor fns; no `env::font_scale`
-> signal — scaling is applied inside the backends).
+> **Status: shipped as written** (as an enum rather than constructor fns). Scaling is applied
+> inside the backends. Since 2026-11 the factor is also readable: `day::text_scale()` is a
+> tracked read of `Toolkit::text_scale`, re-read after `note_text_size_changed`, and
+> `Label::max_text_scale(cap)` holds one label under a cap by scaling its `FontSpec` in
+> day-pieces ([docs/text.md](docs/text.md) "Text scale").
 
 `Font` is **semantic-first**: an enum of the platform text styles — `LargeTitle`, `Title`,
 `Title2`, `Title3`, `Headline`, `Subheadline`, `Body` (default), `Callout`, `Footnote`,
@@ -1607,6 +1699,14 @@ platform's accessibility text factor (UIFontMetrics / `sp` / GTK text-scaling-fa
 `Font::Custom(family, pt)` selects a bundled font by family name ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)). `FontWeight` and
 italic ride the same spec ([docs/text.md](docs/text.md)). A points-first API would have made Dynamic Type
 unfixable later; this one has been semantic-first from the start.
+
+A label's paragraph attributes travel beside its font: `LabelProps::{max_lines, truncation,
+letter_spacing, line_height}` at realize and one `LabelPatch::Paragraph(LabelParagraph)` when a
+reactive one changes. Letter spacing (ems) and line height (a multiple) are both relative to
+the resolved font size, so they follow Dynamic Type with the font. `FontSpec` carries the
+font features (`tabular`, `small_caps`, `oldstyle_figures`), and a run's underline and
+strikethrough are each an `Option<Decoration { style, color }>`. `TextAlign` (with
+`Justified`) is the one alignment enum for labels, canvas anchors and styled documents.
 
 Android whole-label `.monospace()` resolves to `Typeface.MONOSPACE` before bundled-font
 lookup, preserving the system fixed-pitch face for selectable protocol text as well as ordinary
@@ -1670,7 +1770,14 @@ pub trait Layout: 'static {
   ([docs/grid.md](docs/grid.md)) — and a `yields_h` flag: a column sizes such a child after
   its rigid siblings, against the height they leave, without itself filling its proposal
   (what `.max_height()` sets, so a capped scroll gives way to the button under it on a short
-  screen). Numeric `priority()` remains unimplemented.
+  screen). Numeric `priority()` remains unimplemented. Since 2026-11 `Flex` also carries
+  `grow_weight`: growing siblings divide a stack's spare space in proportion to it
+  (`.grow(Dimension::Width.weight(2.0))`; unset counts as 1), and `FlowLayout` hands each
+  wrapped line's leftover width to that line's growing children the same way, where growing
+  in a wrapping row was inert before. `LanesLayout` (the `lanes` piece) is the masonry case:
+  it solves the lane count from the proposed width in `measure`/`place` and deals the same
+  child nodes into lanes, so a width change is a relayout and never a rebuild
+  ([docs/size-classes.md](docs/size-classes.md#lanes)).
 - **The `Layout` trait is public and open** — a custom container (flow layout, masonry) is a piece
   whose node carries a user `Layout` impl. Built-ins use the same trait (no private privileges).
   This satisfies "flexible and extensible" without adopting Taffy; the web-flexbox model fights
@@ -1761,7 +1868,7 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
   `NSScrollView` horizontal/vertical scrollers, `GtkScrolledWindow` per-axis policy, `QScrollArea`
   bar policy, Android `HorizontalScrollView` vs `ScrollView`, WinUI `ScrollViewer` scroll modes,
   ArkUI `Scroll` direction. Content is measured unconstrained on the chosen axis.
-- The native side owns the viewport, physics, indicators, and emits `Event::ScrollChanged(Point)`.
+- The native side owns the viewport, physics and indicators.
   `Toolkit::scroll_to(handle, target_rect, animated)` and `scroll_offset(handle)` complete the
   surface. Shipped riders (2026-07, [docs/scroll.md](docs/scroll.md)): the app-side
   `scroll(child).scroll_target(signal)` builder (a `Signal<Option<ScrollTarget>>` of
@@ -1775,6 +1882,19 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
   revealing the title and search bar at the top and collapsing them at the bottom.
   Selection and route stay unchanged. Other toolkits return unsupported. Dayscript addresses
   the menu as `nav_menu`, with platform gates; see [docs/scroll.md](docs/scroll.md).
+- **Preferences and observation (2026-11, [docs/scroll.md](docs/scroll.md)).** `ScrollProps`
+  carries the scroll view's behavior beside its axis: `indicators`, `bounce`, `snap`
+  (`ScrollSnap::{None, Page, Interval}`), `keyboard_dismiss`, `keyboard_taps`, `zoom`
+  (`ZoomRange`), and the two opt-in observers `track_offset` and `track_phase`. Every field
+  past the axis is a preference a backend applies where its scroll view has it; the caps
+  `ScrollSnap`, `ScrollZoom`, `ScrollKeyboardDismiss`, `ScrollOffset` and `ScrollPhases` say
+  which. A tracking scroll sends `Event::ScrollChanged(Point)` at most once per display frame
+  and once more at rest, whatever moved the content, and `Event::ScrollPhase` for user-driven
+  scrolling; `ScrollPatch::Zoom` and `Event::ScrollZoomed` carry the zoom scale both ways.
+  Two things are done once in the shared layers: content padding is `ScrollLayout` arithmetic
+  (the padding is part of the content size), and where a toolkit reports offsets but no
+  phases, the `scroll` piece derives `Dragging` and `Idle` from the offset reports and, for
+  `Cap::ScrollKeyboardDismiss` `Emulated`, resigns focus when a drag begins.
 - On content relayout the offset is preserved, clamped to the new extent.
 - **v1 restrictions, linted:** same-axis nested scrolls and `list`-inside-`scroll` are
   unsupported (`day lint` rule); cross-axis gesture arbitration is documented post-MVP work.
@@ -1857,6 +1977,11 @@ adjusts scroll insets behind frameworks' backs — so inset policy is v1, not po
 > showcase ships a real Arabic locale instead, and the walkthrough + an `rtl-check` dayscript
 > run against it (`en-XA` expansion pseudolocalization did ship, [§12.2](#122-api)). `layout_direction()` /
 > `set_layout_direction` live in day-core; backends set per-widget native direction at realize.
+> The per-subtree override of item 1 shipped in 2026-11 as `Decorate::layout_direction`: the
+> tree keeps the overrides by node, the place pass mirrors with the direction in force at each
+> node (`EngineCx::direction`), and `Toolkit::set_layout_direction` tells each widget in an
+> overridden subtree ([docs/localization.md](docs/localization.md) "Direction of a subtree").
+> The app-wide direction is still fixed at launch.
 
 Day owns absolute placement, so **no native mirroring applies automatically** — RTL is the
 engine's job:
@@ -1955,6 +2080,18 @@ website-check failure to fail the gate and require API coverage to follow Rustdo
 > surface froze, and every later subsystem arrived as a defaulted duty. The listing below is
 > the **current** surface (crates/day-spec/src/lib.rs is normative — read the trait there for
 > exact signatures and doc comments).
+>
+> The 2026-11 duties arrived the same way, each with a default: `gesture_support`,
+> `set_hit_slop`, `set_drag_axis`, `set_subtree_enabled` and `primary_pointer` for input,
+> `text_scale` and `set_layout_direction` for text, `list_scroll` for lists, and
+> `read_displayed` for motion, beside the caps `ListViewport`, `ListScrollAlign`,
+> `ScrollOffset`, `ScrollPhases`, `ScrollSnap`, `ScrollZoom`, `ScrollKeyboardDismiss`,
+> `PagerProgress`, `Focusable`, `KeyPhases`, `HitSlop`, `LabelSelection` and `ListReaderScroll`. The
+> [duty matrix](docs/duty-matrix.md) shows which backend overrides which (ArkUI alone keeps the
+> default `read_displayed`), and the "Toolkit support" tables of
+> [docs/gestures.md](docs/gestures.md), [docs/text.md](docs/text.md),
+> [docs/list.md](docs/list.md), [docs/scroll.md](docs/scroll.md) and
+> [docs/tween.md](docs/tween.md) say what each does natively and what it emulates.
 
 Evolution of pane's `Backend` (proven across six toolkits), extended for Day's pillars:
 
@@ -1962,7 +2099,9 @@ Evolution of pane's `Backend` (proven across six toolkits), extended for Day's p
 pub trait Toolkit: Sized + 'static {
     type Handle: Clone + 'static;
 
-    // capabilities — feature detection for pieces (§10; Cap: ListRecycling, ListSections, Lottie,
+    // capabilities — feature detection for pieces (§10; Cap: ListRecycling, ListSections,
+    // ListViewport, ListReaderScroll, ListScrollAlign, ScrollOffset, ScrollPhases, ScrollSnap, ScrollZoom,
+    // ScrollKeyboardDismiss, PagerProgress, Lottie,
     // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
     // Dialogs, FileDialogs, FolderDialog, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
     // …, Cursor, FontList, Announce, ReduceMotion, CanvasBitmap, CanvasPdf)
@@ -1987,12 +2126,26 @@ pub trait Toolkit: Sized + 'static {
     fn set_scroll_content(&mut self, h, content: Size) {}
     fn scroll_to(&mut self, h, target: Rect, animated: bool) {}
     fn scroll_offset(&mut self, h) -> Point { … }
+    fn list_scroll(&mut self, h, to: ListScroll) -> bool { false } // a row scroll with its
+                                   // alignment and animation; false falls back to the plain
+                                   // ListPatch::ScrollToRow/ScrollToEnd (docs/list.md, 2026-11)
 
     // events: one enqueue-only trampoline, node-id keyed (contract below)
     fn set_event_sink(&mut self, sink: EventSink);
 
     // gestures + focus (docs/shapes.md, docs/focus.md)
     fn enable_gesture(&mut self, h, node: NodeId, kind: GestureKind) {}
+    fn gesture_support(&self, kind: GestureKind) -> Support;         // Unsupported for LongPress /
+                                   // DoubleTap / Press / Touches ⇒ day-core derives the gesture
+                                   // from taps and drags and never asks for it (docs/gestures.md)
+    fn set_hit_slop(&mut self, h, node: NodeId, slop: Insets) {}     // Decorate::hit_slop —
+                                   // grow the view's input area, not its frame (Cap::HitSlop)
+    fn set_drag_axis(&mut self, h, node: NodeId, axis: Option<DragAxis>) {} // on_drag_along —
+                                   // a cross-axis pointer sequence goes to the scroll view
+    fn set_subtree_enabled(&mut self, h, node: NodeId, enabled: bool) {} // Decorate::enabled —
+                                   // the native half of a disabled group (docs/forms.md)
+    fn primary_pointer(&self) -> PointerKind;                        // the opening input kind;
+                                   // changes arrive as Event::PointerKindChanged
     fn focus(&mut self, h, node: NodeId, focused: bool) {}
     fn set_input_traits(&mut self, h, traits: &InputTraits) -> Option<Handle>; // text_field's
                                                                       // secure / read-only /
@@ -2002,6 +2155,11 @@ pub trait Toolkit: Sized + 'static {
                                                                       // as its secure class and
                                                                       // day-core re-points the
                                                                       // node (docs/textfield.md)
+    fn set_layout_direction(&mut self, h, kind, direction: LayoutDirection) {} // one widget's
+                                                                      // reading direction in a
+                                                                      // `.layout_direction()`
+                                                                      // subtree; never moves a
+                                                                      // placed child (§7.8)
     fn set_cursor(&mut self, h, cursor: Cursor) {}                    // Decorate::cursor — the
                                                                       // pointer's shape over the
                                                                       // node; idempotent, called
@@ -2137,6 +2295,9 @@ pub trait Toolkit: Sized + 'static {
     // callback-scoped ambient collection, so reactive palettes follow system changes.
     fn reduce_motion(&mut self) -> bool { false } // the user's reduce-motion setting; a flip calls
                                                   // day_core::note_motion_changed (Cap::ReduceMotion, §8.4)
+    fn text_scale(&mut self, style: Font) -> f64 { 1.0 } // the system text-size factor for a style;
+                                                  // a change calls day_core::note_text_size_changed
+                                                  // (day::text_scale(), Label::max_text_scale, §6.4)
     fn set_appearance(&mut self, dark: Option<bool>) {}  // runtime light/dark/system override (Cap::Appearance)
 
     // pillars
@@ -2150,6 +2311,11 @@ pub trait Toolkit: Sized + 'static {
                                                                       // value, checked, enabled,
                                                                       // visible, frame) for
                                                                       // a11y_audit + assert_native
+    fn read_displayed(&self, h) -> Displayed { … }                    // what the widget shows NOW,
+                                                                      // mid-animation included
+                                                                      // (opacity, frame, translation,
+                                                                      // background) for
+                                                                      // assert_displayed (§8.4)
     fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11 — `DrawOp::Stamp`
                                                                       // is ONE op for many copies
                                                                       // of a shape (docs/canvas.md
@@ -2487,18 +2653,29 @@ pub enum Event {
     SelectionSet(Vec<i64>),                   // multi-select lists (docs/list.md)
     ListActivated(usize),                     // invoke a row independently of selection
     FocusChanged(bool),                       // docs/focus.md
-    Tap(Point), LongPress(Point),
+    Tap(Point), LongPress(Point), DoubleTap(Point),
+    Press { pressed, location },              // press-in / press-out (docs/gestures.md)
+    Touches(Vec<Touch>),                      // raw contacts: id, phase, location, pressure, kind
+    GestureVelocity { kind, velocity },       // a recognizer's own release velocity, sent
+                                              //   before the drag's or pan's `Ended`
+    PointerKindChanged(PointerKind),          // on WINDOW_NODE → day::primary_pointer()
     ContextMenu { local, window },            // a reported summon — the composed menu
                                               // presents at `window` (docs/menus.md)
     Drag { phase, location, translation },    // docs/shapes.md gestures
     Pinch { phase, scale, location },         // trackpad/touch zoom (docs/canvas.md)
     Rotate { phase, rotation, location },     // trackpad/touch turn, radians (docs/canvas.md)
     Pan { phase, delta, location },           // two-finger scroll/pan (docs/canvas.md)
-    ScrollChanged(Point),                     // §7.6
+    ScrollChanged(Point),                     // §7.6: a tracking scroll's content offset
+    ScrollPhase(ScrollPhase),                 // §7.6: Idle/Dragging/Coasting, user-driven only
+    ScrollZoomed(f64),                        // §7.6: a zooming scroll's scale
+    ListViewport { rows, end_distance },      // raised by day-core from ListSource::viewport:
+                                              // the visible items and the distance to the end
+    ListReaderScrolled,                       // raised by day-core from ListSource::reader_scroll:
+                                              // the reader took the list (ends follow_end)
     FrameChanged(Size),                       // canvas re-record; nav pane size reports
     NavBack { already_popped: bool },         // native back (docs/navigation.md); on
                                               //   WINDOW_NODE, the app handlers' system back
-    Key(KeyEvent), Pointer(PointerEvent),
+    Key(KeyEvent),                            // typed Key + Modifiers + KeyPhase (docs/menus.md)
     WindowResized(Size),
     PresentResult { req, result },            // modal answers (docs/dialogs.md)
     ImageDecoded { req, result },             // a decode answered (docs/images.md); in-process
@@ -2519,6 +2696,8 @@ pub enum Event {
     TreeSelection(Vec<u64>),                  // tree selection, full token set (docs/tree.md)
     CoverHidden,                              // cover hide transition finished (docs/cover.md)
     LinkActivated(String),                    // a styled run's link (docs/text-runs.md)
+    TextSelected { start, end },              // a selectable label's selection, bytes into the
+                                              // displayed text (Cap::LabelSelection, docs/text.md)
     InspectorChanged(bool),                   // native pane show/hide (docs/inspector.md)
     Custom { tag: &'static str, num: f64, text: String },  // open piece-defined channel (§8.2)
 }
@@ -2534,6 +2713,21 @@ pub enum Event {
 > `GestureKind::Rotate`, `Decorate::on_rotate` and the dayscript `rotate` step; every backend
 > runs it alongside the pinch rather than competing with it ([docs/canvas.md](docs/canvas.md) "Zoom and pan").
 
+> [!NOTE]
+> The input events grew in 2026-11 ([docs/gestures.md](docs/gestures.md), [docs/menus.md](docs/menus.md) "Keys").
+> `KeyEvent` is `{ key: Key, modifiers: Modifiers, text, phase: KeyPhase }`: a typed key in
+> place of the web-name string, a modifier set in place of the `u8` mask, and a phase so a
+> release and an auto-repeat are told from a press (`Cap::KeyPhases`). The names stay text at
+> the wire (`BridgeKind::Key`), in a menu `Shortcut` and in a dayscript `key:` step, and convert
+> there. `DoubleTap`, `Press`, `Touches`, `GestureVelocity` and `PointerKindChanged` are new;
+> the unused `Pointer(PointerEvent)` is gone. Every event passes through
+> `day_core::gesture::route` before its handlers run: it measures drag and pan velocity,
+> derives press, long press, double tap and a one-contact touch list where
+> `Toolkit::gesture_support` answers `Unsupported`, withholds the cross-axis drags of
+> `on_drag_along`, and drops the input of a subtree under `.enabled(false)`. The numeric wire
+> carries the new gestures as further `BridgeKind::Gesture` codes (`bridge::gesture`), so no
+> kind number was added.
+
 The single sink keeps the backend ignorant of closures/lifetimes (day-core owns the `NodeId →
 handlers` table) — this is the shape that made pane's six backends small. The sink contract is
 enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registration scope ([§4.3](#43-scopes-and-disposal)).
@@ -2543,7 +2737,8 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 ### §8.4 Animation and display frames
 
 > [!NOTE]
-> **Status: partly shipped (2026-07; XAML 2026-08).** `with_animation(spec, || …)` exists
+> **Status: shipped (2026-07; XAML 2026-08; the whole `AnimSpec` contract on every toolkit
+> 2026-11), except the `.transition` enter/exit surface.** `with_animation(spec, || …)` exists
 > (day-core `anim.rs`) and threads `AnimSpec` through
 > `set_frame`/`set_opacity`/`set_transform`/`update`; the backends execute opacity and
 > transform changes natively (the showcase Animation page drives every channel at once).
@@ -2556,6 +2751,24 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > — and per §0.3 Day does not tick its own animations for native widgets — so there, and on
 > the remaining backends, the color applies at commit. The `.transition` enter/exit surface
 > remains unimplemented.
+>
+> **The `AnimSpec` contract and `day::motion` (2026-11).** The spec's fields were carried to
+> every toolkit but read by few: delay, repeat and autoreverse only by ArkUI (and delay by the
+> web), and a spring was a fixed-duration overshoot curve everywhere. The contract is now
+> written down (below, and on `day_spec::AnimSpec`), a spring is its closed-form response with
+> its settle time as the cycle's duration (`AnimSpec::spring(0.4, 0.8)` lasts about 0.59 s where
+> it lasted 0.4 s), `AnimSpec::sample`/`keyframes` and `Curve::spring_constants` give every
+> toolkit the same timeline to play, and `Toolkit::read_displayed` with the `assert_displayed`
+> step lets the `animation-*` conformance cases read a property mid-flight. An animated
+> background color is part of the contract on every toolkit, which supersedes the paragraph
+> above about UIKit and XAML being the only two. All eight toolkits play the contract: Core
+> Animation layer animations on AppKit and UIKit, `ValueAnimator` on Android, Qt's animation
+> framework, XAML storyboards, ArkUI's `animateTo`, Web Animations in the browser, and on GTK,
+> which has no property animator, Day stepping each property on the frame clock. Every toolkit
+> but ArkUI reads a value mid-flight. The per-toolkit detail is the "Toolkit support" table of
+> [docs/tween.md](docs/tween.md). On the frame-driven side `day::motion` gained
+> `Animated`, `Animation` and `Playing`, which replaced `day::tween`'s `Tweened`, `animate` and
+> `Timing`; the legacy `frame_clock` piece and `add_frame_consumer` were removed.
 >
 > **AppKit transforms (2026-10).** The transform channel wrote the view's layer
 > `affineTransform`, which AppKit re-syncs from the view for layer-backed views, so on current
@@ -2600,14 +2813,50 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > platform plugin lacks vsync; Harmony uses a system source without an OS window-ID association.
 > Hidden-window behavior follows native scheduling; retained offscreen pages must pause explicitly.
 > Raw timestamps and unclamped per-client deltas are exposed, with zero delta at first/resumed
-> delivery and optional presentation targets. The existing `frame_clock` piece retains its legacy
-> first-step/100 ms clamp while sharing the driver. See [docs/frames.md](docs/frames.md), core
+> delivery and optional presentation targets. (The `frame_clock` piece, which kept a legacy
+> first-step/100 ms clamp over this driver, was removed in 2026-11: subscribe to the
+> `FrameClock`.) See [docs/frames.md](docs/frames.md), core
 > `frame.rs` regression tests, and the Showcase rainbow ball's fixed-step simulation and dayscript.
 
 Native-widget animation stays **backend-executed**: Day passes intent through `AnimSpec` on
-`set_frame` and `update` ([§8.1](#81-the-toolkit-trait)); the toolkit performs supported tweens.
-General display scheduling is independent: clients can animate canvas state today, and future
-custom tween/timeline support can share the same native frame service. `.transition(anim)` for
+`set_frame`, `set_opacity`, `set_transform` and `update` ([§8.1](#81-the-toolkit-trait)), and the
+toolkit plays it on its own animator.
+
+**The `AnimSpec` contract** ([docs/tween.md](docs/tween.md) "The animation contract"; the
+normative text is the doc comment on `day_spec::AnimSpec`). Every field means the same thing on
+every toolkit: `delay_ms` holds the start value once before the first cycle; one cycle lasts
+`duration_ms` and follows `curve`; the cycle plays `repeat + 1` times (`u32::MAX`: until the
+property is next changed); `autoreverse` plays every second cycle backwards; a finite run rests
+on the target whatever its last cycle did; a change to a property in flight starts from the value
+on screen, and a change with no animation cancels the run. `Curve::Spring { response, damping }`
+is a physical spring, the closed-form unit-step response `Curve::fraction` evaluates
+(`response` = the period of the undamped oscillation, `damping` = the damping ratio), and
+`AnimSpec::spring` sets `duration_ms` to its settle time (`Curve::settle_secs`), so a repeat or
+an autoreverse of a spring has a definite length. `AnimSpec::sample(elapsed)` is the whole
+timeline as a function. A toolkit with a spring animator takes `Curve::spring_constants`; every
+other toolkit plays `AnimSpec::keyframes()`, the cycle sampled sixty times a second, so all of
+them draw one curve. A container's solid fill (`ContainerPatch::Fill`) animates
+like the other channels. `Toolkit::read_displayed` reports what a widget shows mid-flight and
+the `assert_displayed` step ([§14](#14-scripting-dayscript), Appendix C) checks it;
+the `animation-*` conformance cases compare it with `AnimSpec::sample` at the time really
+elapsed, and a day-script test proves on the mock (whose animator is the contract, with an
+`AnimFlaw` switch for each shortfall) that each case fails an animator that ignores the delay,
+the repeat, the autoreverse, flattens a spring, or snaps a background.
+
+**Frame-driven motion** ([docs/tween.md](docs/tween.md)) is the other path: `day::motion` steps
+`Animated` values on the window's `FrameClock` and views or a canvas read them. `Animation`
+composes timing, `AnimSpec` tweens, springs and decays that carry a value's velocity, delays,
+sequences, parallels, staggers, repeats and loops; `start()` answers a `Playing` handle with
+`stop`, `reset`, `on_end`, and an awaitable `Outcome`. The driver handles reduced motion and
+scope disposal once, gives the unused part of a frame to the next step so sequences and loops
+keep exact time, and resolves contention by ownership (the latest step or `set` to touch a value
+owns it). All of a window's animations advance inside the frame clock's one batch per frame, so
+a view bound to several animated values receives one `set_transform` per frame. It replaced the
+earlier `Tweened`/`animate`/`Timing` trio of `day::tween`, which keeps `Lerp`, `stagger` and
+`Pairs`. Handing a finite frame-driven animation of opacity or transform to the platform's
+animator (so no per-frame signal write happens at all) is not done; measure before adding it.
+
+General display scheduling is independent of both and shares the same native frame service. `.transition(anim)` for
 `when`/`each` enter/exit remains a design sketch, not an implemented API.
 
 **Reduced motion** ([docs/accessibility.md](docs/accessibility.md)): one gate in day-core,
@@ -2616,10 +2865,11 @@ custom tween/timeline support can share the same native frame service. `.transit
 reports a flip; `Cap::ReduceMotion`) OR a launch that forced it: `DAY_REDUCE_MOTION=1`, and
 `DAY_TEST_FAST=1` (`day launch --fast`), whose fast mode is nothing but this setting forced on.
 Under it `resolve_anim` answers `None` so every property and frame transition lands at its
-destination, `Tweened::animate_to` sets its target and `animate` finishes a finite tween on
-its first frame (also mid-flight), and programmatic scrolls stop animating; an endless tween
-(`repeat == u32::MAX`, a spinner) keeps going, since indeterminate motion is the only sign of
-work. App-driven `day::frame` motion is the app's own; `day::reduce_motion()` is the reactive
+destination, a finite `day::motion` animation puts every value on its end state when it is
+started (and on its next frame when the setting flips mid-flight), and programmatic scrolls
+stop animating; an animation that never ends by itself (`repeat == u32::MAX`, `.looped()`: a
+spinner) keeps going, since indeterminate motion is the only sign of work. Motion an app steps
+by hand from `day::frame` is the app's own; `day::reduce_motion()` is the reactive
 read it opts down with.
 
 ### §8.5 Panics and crashes
@@ -2965,6 +3215,23 @@ process is not supported.
 > **Programmatic row scrolling** followed
 > (`ListPatch::ScrollToRow` + `.scroll_to_row(Signal<Option<usize>>)`, all backends), and a
 > same-set/new-order Reload animates as native row moves on AppKit ([docs/list.md](docs/list.md)).
+> **Keyed updates, the viewport, and supplementary rows (2026-11).** A source that reports no
+> row events no longer reloads on every change: the piece hands day-core the old and new key
+> tokens and `list_sync` diffs them (`diff_rows`: removals, then inserts and the fewest moves,
+> at most 512 deltas) into the `ListPatch::Splice` the hosts already apply, sectioned lists
+> included, since header rows are diffed with the items. It then rebinds the bound rows by
+> token (`list_refresh_rows`), which is how a changed value reaches a plain-data row without a
+> native reload. `ListSource::viewport` reports the first and last visible rows and the
+> distance to the end (`Cap::ListViewport`); `.visible_rows`, `.follow_end(threshold)` (which
+> replaced `.stick_to_bottom()`) and `.on_end_reached` are derived from it in day-pieces.
+> `ListSource::reader_scroll` (`Cap::ListReaderScroll`) tells a scroll the reader starts from
+> one the app asked for, so `.follow_end` stops the moment the reader takes the list.
+> `.header`, `.footer`, `.empty` and `.content_padding` are display rows day-core adds around
+> the items through the same map that serves section headers; `ListSource::is_supplement`
+> tells a host which rows to size to their content and leave unselected. A row scroll is the
+> duty `Toolkit::list_scroll(ListScroll { row, align, animated })`, and `.scroll_to_row` is a
+> consumed command like `scroll_target`. The `first_visible` report and the plain scroll
+> patches remain in day-spec until every toolkit answers the new report and duty.
 > Native AppKit drops also schedule a table reload and retile after the drop callback,
 > because the matching app-data echo deliberately skips Reload. This reconciles the document
 > scroll extent while retaining the viewport and selection; cell realization runs outside the
@@ -3356,6 +3623,10 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   it is not a gesture simulation. See `crates/day-pieces/tests/pager_paging.rs` for commit,
 >   stale-callback and retained-child contracts. Native gesture tests live in Day-News;
 >   Harmony is compile-checked locally and requires CI runtime acceptance.
+>   Since 2026-11 `.progress(binding)` follows the position in reading-order pages: a native
+>   pager realized with `PagerProps::track_progress` reports it continuously on the custom
+>   channel (`progress <epoch> <position>`, `Cap::PagerProgress`), and everywhere the
+>   binding rests on the selected page's position ([docs/pager.md](docs/pager.md#progress)).
 > - **`nav_stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
 >   (iOS swipe/button, Android system + predictive back) arrives as
 >   `Event::NavBack { already_popped }` so the path signal reconciles without double-popping. A
@@ -3410,12 +3681,12 @@ made native nav containers possible without a scaffold migration.
 > **Status: shipped** ([docs/shapes.md](docs/shapes.md) is normative), and extended beyond the sketch: the
 > unified **shape pieces** (`rectangle()`, `rounded_rectangle(r)`, `circle()`, `capsule()`,
 > `ellipse()`, `arc(start, sweep)`) record through the same display list with path-precise
-> hit-testing for gestures, and fills take a **`Paint`** — solid color, `LinearGradient`
-> (unit-space start/end points), or `RadialGradient` (unit-space center + radius, stretched
-> elliptically to non-square bounds) — replayed as native gradient primitives on every backend
-> (NSGradient / CGGradient / cairo / QGradient / android Shader / XAML brushes / ArkUI shader
-> effects). Live transforms (`.rotate`/`.inset`/`.offset` taking closures) re-record just the
-> node. Later additions, still with zero backend work: `line(a, b)` / `polygon(points)` shape
+> hit-testing for gestures, and fills take a **`Paint`** (a solid ink, `LinearGradient` with
+> unit-space start/end points, `RadialGradient` with a unit-space center and radius, stretched
+> elliptically to non-square bounds, or, since 2026-11, `ConicGradient`), replayed as native
+> gradient primitives on every backend (NSGradient / CGGradient / cairo / QGradient / android
+> Shader / XAML brushes / ArkUI shader effects). Live transforms (`.rotation`/`.scale`/
+> `.translation`/`.inset` taking closures) re-record just the node. Later additions, still with zero backend work: `line(a, b)` / `polygon(points)` shape
 > kinds (unit-point geometry over the already-replayed `Shape::Line`/`Shape::Polygon` ops),
 > fractional placement via `.at(fx, fy, fw, fh)`, and `shape_group` / `shape_group_fn` — many
 > shape descriptions flattened into ONE canvas leaf ([docs/shapes.md](docs/shapes.md) §3.6; Day Skies' weather
@@ -3470,6 +3741,16 @@ made native nav containers possible without a scaffold migration.
 > `DrawImage(bitmap, dest, source)`, arkui `DrawPixelMapRect`, the web's 9-argument
 > `drawImage` — and UIKit and GTK clip to the rect and draw the whole image scaled, which is
 > exact and keeps a `UIImage`'s orientation.
+>
+> **2026-11: conic gradients, shadows, blend modes and inks.** `ConicGradient`,
+> `Draw::shadowed` and `Draw::blended` (with `OpCode::SetShadow` and `OpCode::SetBlend` on the
+> wire) draw on all eight backends, and every canvas color is an `Ink` resolved as the drawing
+> records, so a drawing that reads a role or a light/dark pair records again when the
+> appearance changes ([docs/canvas.md](docs/canvas.md) "Colors"). Where a backend draws one of
+> them differently (a wedge fan for a conic gradient, an offscreen pass for a shadow, a blend
+> mode drawn as `Normal` in PDF export) is the "Toolkit support" table of
+> [docs/canvas.md](docs/canvas.md). The ArkUI arm now runs too: the conformance suite passes on
+> an OpenHarmony emulator.
 
 ```rust
 pub fn gauge(value: Signal<f64>) -> impl Piece {
@@ -8310,12 +8591,18 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `memory_watch` | `interval_ms` | transport reporting control; 100–60000 ms starts background samples, zero sends a final sample and stops; not an in-process playback operation |
 | `memory_usage` | `fail_if_above?` | log current app memory; optional limit accepts integer bytes or strings such as `500MB`, `1G`, `512MiB`; strictly above fails immediately (no retry); use `only_on`/`skip_on` for per-target budgets |
 | `tap` | `id`, `repeat?`, `at?`, `modifiers?`, `if_present?` | waits for native settling, a nonzero frame, and enabled state; then delivers `Pressed` AND a gesture `Tap` at `at` (default the node's center); `modifiers: [shift]`/`[primary]`/`[alt]` stand held keys in through `day::modifiers()` while dispatching; `if_present: true` skips an absent node after settling (for fixture cleanup; wait for its containing screen first) |
-| `drag` | `id`, `from`, `to`, `steps?`, `modifiers?` | a whole gesture in the element's own coordinates: `Began` at `from`, `steps` (default 4) `Changed` samples along the way, `Ended` at `to`. `modifiers` are held for every phase — a drag reads them once, when it starts |
+| `drag` | `id`, `from`, `to`, `steps?`, `modifiers?`, `velocity?` | a whole gesture in the element's own coordinates: `Began` at `from`, `steps` (default 4) `Changed` samples along the way, `Ended` at `to`. `modifiers` are held for every phase — a drag reads them once, when it starts. `velocity: [vx, vy]` is the release velocity a platform recognizer would report (points per second); without it an injected drag measures zero |
 | `hover` | `id`, `at?` \| `leave?` | the pointer entering the element at `at` (its center when omitted), or leaving it (`.on_hover`) |
+| `press` | `id`, `at?`, `release?` | the pointer going down on the element, or with `release: true` the press ending (`.on_pressed`, `.interaction`) |
+| `long_press` | `id`, `at?` | a long press at `at` (`.on_long_press`) |
+| `double_tap` | `id`, `at?` | a double tap at `at` (`.on_double_tap`) |
+| `touches` | `id`, `points`, `phase?` | one touch event carrying a contact per point, ids from 0, all in `phase` (`began` by default, `moved`, `ended`, `cancelled`) (`.on_touches`) |
+| `pointer` | `kind` | the input kind changing to `touch`, `mouse` or `stylus` (`day::primary_pointer()`) |
+| `drop` | `id`, `files?`, `text?`, `at?`, `phase?` | a drag session over the element's drop target carrying files (as `text/uri-list`) and/or text: `drop` (the default: hover, then deliver), `enter` (hover only) or `leave`; calls the target the app declared, not the platform's drag session |
 | `pan` | `id`, `by`, `steps?` | a two-finger pan: `Began`, `steps` (default 4) `Changed` samples whose incremental deltas add up to `by`, `Ended` (`.on_pan`) |
 | `pinch` | `id`, `scale`, `steps?` | a pinch centered on the element: `Began` at 1, `Changed` samples toward `scale`, `Ended` at `scale`, cumulative as the platforms report it (`.on_pinch`) |
 | `rotate` | `id`, `rotation`, `steps?` | a two-finger turn centered on the element: `Began` at 0, `Changed` samples toward `rotation` (radians, clockwise positive), `Ended` at `rotation`, cumulative as the platforms report it (`.on_rotate`) |
-| `key` | `key`, `id?`, `modifiers?` | a non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …) delivered the way the platform delivers one: to the named piece, or to whatever holds FOCUS. Pair it with `focus:` to drive the whole route; with nothing focused and no `id` the step fails rather than dropping the key — [docs/menus.md](docs/menus.md) |
+| `key` | `key`, `id?`, `modifiers?`, `phase?` | a non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …; `phase` is `down` by default, `repeat` for auto-repeat, `up` for the release that `.on_key_up` hears) delivered the way the platform delivers one: to the named piece, or to whatever holds FOCUS. Pair it with `focus:` to drive the whole route; with nothing focused and no `id` the step fails rather than dropping the key — [docs/menus.md](docs/menus.md) |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |
 | `set_value` | `id`, `value` | sliders et al. |
@@ -8333,7 +8620,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?`, `submit?` | drive a toolbar item by its id (`day::search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one) and `submit: true` then submits it as its Return key does, `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)); then waits up to about a second for the toolkit's own focus report, which XAML delivers as a queued routed event, so the app's reaction to the focus lands before the next step types |
-| `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll ([docs/scroll.md](docs/scroll.md)); unanimated |
+| `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece, and `top\|bottom` a `list` through `list_scroll`; bare `id` reveals that element in its nearest scroll, or the list row it sits in ([docs/scroll.md](docs/scroll.md), [docs/list.md](docs/list.md)); unanimated |
 | `navigate` | `route` | reset-to semantics; `""` = root ([docs/navigation.md](docs/navigation.md)) |
 | `deep_link` | `url` | deliver a deep-link URL in-process: the URL maps to its route through the same `day_spec::route_of_url` every platform intake uses, then navigates — a warm OS delivery minus the OS (which is the launch runner's tier; [docs/deep-links.md](docs/deep-links.md)) |
 | `nav_back` | `native?` | pop one level through Day's rail, or run the app's `on_system_back` handler when nothing pops; `native: true` presses the platform's own back (`Toolkit::native_back`) so the backend's user-back path runs, the handler's included — mobile only, tolerated where the width class never pushed ([docs/navigation.md](docs/navigation.md)) |
@@ -8350,6 +8637,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_frame` | `id`, `width?`, `height?`, `x?`, `y?`, `relative_to?`, `tolerance?` | check an element's frame in points (origin relative to `relative_to`'s, or the window content's), in Day's layout and, where the toolkit reads it back, natively; an unread native frame is listed in the reply's `data` ([docs/testing.md](docs/testing.md)) |
+| `assert_displayed` | `id`, `opacity?`, `tx?`, `ty?`, `width?`, `height?`, `background?` (`#rrggbb`), `tolerance?` | what the element shows at this moment, an animation's in-between state included (`Toolkit::read_displayed`): opacity (the element's times its ancestors'), translation (the element's plus its ancestors'), frame size, and the nearest background color, each within `tolerance` in its own unit (opacity and color channels 0.05, points 1); read once, never retried; a field the toolkit cannot observe is listed as unread in the reply's `data` ([docs/testing.md](docs/testing.md), [§8.4](#84-animation-and-display-frames)) |
 | `sample_pixel` | `id`, `x`, `y` (fractions of its frame), `color` (`#rrggbb`), `tolerance?` (default 64) | the color at that point of an in-process capture, decoded by the engine's own PNG reader; unread where the toolkit has no capture ([docs/testing.md](docs/testing.md)) |
 | `assert_opened_url` | `url` | the app asked to open `url` during the run; while `run_tests` runs, `open_url` records instead of opening ([docs/testing.md](docs/testing.md)) |
 | `assert_announced` | `text` | the app announced `text` to the screen reader during the run (`day::announce`); the announcement still reaches the toolkit ([docs/testing.md](docs/testing.md)) |
@@ -8557,7 +8845,10 @@ is reflected visually as well as preserved in the model.
 General transfer implementation is underway; the full delivery plan remains in
 [docs/drag-and-drop-plan.md](docs/drag-and-drop-plan.md). `day::transfer` now defines ordered
 items with alternative MIME byte representations, a frozen source offer, target-local
-hover policy, and owned drop receipt. `.drag_source(...)` and `.drop_target(...)` attach
+hover policy, and owned drop receipt. A drop target is one builder value (`DropTarget::new(types)`
+with `.accept`, `.on_enter`, `.on_leave`, `.on_drop`); the enter and leave callbacks are derived
+in day-spec from the backend's `proposal`, `leave` and `deliver` calls, and every enter is paired
+with one leave. `.on_files_dropped(f)` is the short form for files. `.drag_source(...)` and `.drop_target(...)` attach
 native hosts; scoped guards reject callbacks after disposal and enter the owning reactive
 scope for source, policy, and receipt callbacks, preserving per-window ambient state. Hover and drop both consult
 the guard, and a guard cannot select an operation absent from the native allowed mask.
@@ -8774,13 +9065,18 @@ Plain labels support `.max_lines(n)` with zero meaning unlimited; `.single_line(
 takes precedence. AppKit, UIKit and Android enforce the limit and truncate the last line
 natively, including during measurement. Other backends and selectable/link-backed text retain their
 existing wrapping behavior. The limit is set at construction; a keyed subtree can rebuild
-when a display preference changes.
+when a display preference changes. Outcome (2026-11): every toolkit now enforces the limit in measurement and drawing, and
+`.max_lines` takes a signal ([docs/text.md](docs/text.md)).
 
 Plain labels expose `.font_scale(factor)` to scale their base `FontSpec` after native semantic
 font resolution, including accessibility sizing. Invalid or nonpositive factors use 1.0.
 Explicit styled runs retain their own font descriptors. Day-News uses this for its saved
 article-list size, rebuilding the keyed list with matching row geometry while preserving
 article selection. Its reader-style persistence scripts cover reset and cold-launch restore.
+
+> Outcome (2026-11): both are reactive now, and the line limit is a duty of every toolkit with
+> a truncation mode beside it; a keyed rebuild is no longer needed to change either
+> ([docs/text.md](docs/text.md) "Line limits and truncation", "Font scale").
 
 AppKit's initial list attachment uses the same deferred visible-row realization as reloads.
 It runs outside the core tree borrow even for covered windows. If AppKit cached an empty
@@ -8846,6 +9142,14 @@ viewport regression in crates/day-pieces/tests/mock_e2e.rs.
 > [docs/list.md](docs/list.md#sections)), and Day-News moved its feed headers from a
 > first-visible overlay to it. `first_visible_row` remains for other viewport-driven UI and now
 > reports rows only, never a header.
+
+> [!NOTE]
+> **Outcome (2026-11):** `.first_visible_row(Signal<usize>)` became
+> `.visible_rows(binding)`, a `Range<usize>` of the visible items, fed by the fuller
+> `ListSource::viewport` report (first row, last row, distance to the end) that also drives
+> `.follow_end` and `.on_end_reached`. The private custom event became
+> `Event::ListViewport`. A host that still reports only its first visible row yields a
+> one-row range ([§10](#10-native-list-integration), [docs/list.md](docs/list.md#visible-rows)).
 
 ### Reorderable navigation sidebars
 

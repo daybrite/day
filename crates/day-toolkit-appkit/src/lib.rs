@@ -13,6 +13,7 @@
 mod controls;
 
 mod applications;
+mod color;
 mod nav_progress;
 
 use std::any::Any;
@@ -36,7 +37,8 @@ use objc2_app_kit::NSTextInputClient;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
     NSAffineTransformNSAppKitAdditions, NSClickGestureRecognizer, NSGestureRecognizer,
-    NSGestureRecognizerState, NSPanGestureRecognizer, NSPasteboard,
+    NSGestureRecognizerDelegate, NSGestureRecognizerState, NSPanGestureRecognizer, NSPasteboard,
+    NSPressGestureRecognizer,
 };
 use objc2_app_kit::{
     NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
@@ -62,11 +64,7 @@ use objc2_foundation::{
     NSAffineTransform, NSAffineTransformStruct, NSArray, NSData, NSDictionary, NSNotification,
     NSNumber, NSObject, NSPoint, NSRange, NSRect, NSSize, NSString,
 };
-use objc2_quartz_core::{
-    CAMediaTimingFunction, CATransaction, kCAMediaTimingFunctionEaseIn,
-    kCAMediaTimingFunctionEaseInEaseOut, kCAMediaTimingFunctionEaseOut,
-    kCAMediaTimingFunctionLinear,
-};
+use objc2_quartz_core::CATransaction;
 
 use day_spec::ffi_guard;
 use day_spec::present;
@@ -88,7 +86,10 @@ pub use toolbar::image_for as toolbar_image;
 mod dock;
 mod documents;
 mod frame;
+mod input;
+mod motion;
 mod picker;
+mod scroll;
 mod status_item;
 mod textarea;
 mod toolbar;
@@ -97,6 +98,7 @@ mod window_chrome;
 use objc2_app_kit::NSDraggingSource;
 
 pub mod ext;
+pub use color::nsink;
 pub use ext::*;
 
 // ---------------------------------------------------------------------------
@@ -177,7 +179,7 @@ day_core::tls_group! {
     static MARKED: SideTable<String> = SideTable::new();
     /// The key press the text input system is interpreting right now: its unmodified name and
     /// the modifier mask, so the text it commits is named by the key that typed it.
-    static INTERPRETING: RefCell<Option<(String, u8)>> = const { RefCell::new(None) };
+    static INTERPRETING: RefCell<Option<Interpreting>> = const { RefCell::new(None) };
 
     /// Keeps each view's gesture targets alive + records which gestures are attached (idempotent).
     static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
@@ -436,21 +438,388 @@ fn encode_bitmap(
 /// Replay a display list into the current graphics context. The one painter both the on-screen
 /// `DayCanvas` (its `drawRect:`) and the canvas exports run, so the two cannot drift apart
 /// (docs/canvas.md "Exporting").
-fn paint_ops(ops: &[DrawOp]) {
+///
+/// `base_scale` is how many of the context's base units make a canvas point: `1` in a view
+/// and on a PDF page, the pixel scale in a bitmap export. A Core Graphics shadow is measured
+/// in that base space and not in the transformed one, so it is what turns a shadow's points
+/// into the numbers the context wants.
+fn paint_ops(ops: &[DrawOp], base_scale: f64) {
+    use objc2_core_graphics::CGContext;
     // SAFETY: reading the current graphics context on the thread that set it.
     let cg = unsafe { NSGraphicsContext::currentContext().map(|c| c.CGContext()) };
+    let mut replay = Replay::new(base_scale);
     let Some(cg) = cg else {
         for op in ops {
-            draw_op(op);
+            draw_op(op, &mut replay);
         }
         return;
     };
     cg_begin_replay(&cg);
+    // A canvas is its own compositing group (docs/canvas.md "Blend modes"): a list that blends
+    // is painted into a transparency layer, so a mode reads only what this canvas drew, and
+    // `Erase` leaves a hole in the canvas through which whatever the context already held (the
+    // views behind it, when they share a backing store) shows unchanged.
+    let grouped = ops
+        .iter()
+        .any(|op| matches!(op, DrawOp::Blend(mode) if *mode != day_spec::BlendMode::Normal));
+    if grouped {
+        CGContext::save_g_state(Some(&cg));
+        // SAFETY: no auxiliary dictionary, which the function documents as allowed.
+        unsafe { CGContext::begin_transparency_layer(Some(&cg), None) };
+    }
     for op in ops {
         if !cg_fast_op(&cg, op) {
-            draw_op(op);
+            draw_op(op, &mut replay);
         }
     }
+    // A list that saves more than it restores must not leave its states on the context (the
+    // layer above has to end in the state it began in).
+    while replay.restore() {
+        NSGraphicsContext::restoreGraphicsState_class();
+    }
+    if grouped {
+        CGContext::end_transparency_layer(Some(&cg));
+        CGContext::restore_g_state(Some(&cg));
+    }
+}
+
+/// The part of the canvas graphics state a replay has to know and Core Graphics will not
+/// report back: whether a shadow is set, and the blend mode (docs/canvas.md "Shadows", "Blend
+/// modes"). The context saves and restores the real state itself; this mirrors it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Ink {
+    shadow: bool,
+    blend: day_spec::BlendMode,
+}
+
+/// One replay of a display list: the [`Ink`] in force and the ones `DrawOp::Save` put aside.
+struct Replay {
+    base_scale: f64,
+    ink: Ink,
+    saved: Vec<Ink>,
+}
+
+impl Replay {
+    fn new(base_scale: f64) -> Self {
+        Replay {
+            base_scale,
+            ink: Ink::default(),
+            saved: Vec::new(),
+        }
+    }
+
+    fn save(&mut self) {
+        self.saved.push(self.ink);
+    }
+
+    /// Put back the ink of the matching save, and say whether there was one. A restore with no
+    /// save is ignored: popping the context then would take away the state the view or the
+    /// export set up around the replay.
+    fn restore(&mut self) -> bool {
+        match self.saved.pop() {
+            Some(ink) => {
+                self.ink = ink;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// A display list as a PDF page can take it (docs/canvas.md "Exporting"). PDF has the
+/// separable blend modes and no Porter-Duff operators: Core Graphics writes `Add` as a normal
+/// paint, which is the nearest a page gets, but it writes `Erase` as a normal paint too, and
+/// that puts the eraser's own color where a hole was asked for. So what is drawn under `Erase`
+/// is left out of the page.
+fn pdf_ops(ops: &[DrawOp]) -> std::borrow::Cow<'_, [DrawOp]> {
+    use day_spec::BlendMode;
+    if !ops
+        .iter()
+        .any(|op| matches!(op, DrawOp::Blend(BlendMode::Erase)))
+    {
+        return std::borrow::Cow::Borrowed(ops);
+    }
+    let (mut blend, mut saved) = (BlendMode::Normal, Vec::new());
+    let mut kept = Vec::with_capacity(ops.len());
+    for op in ops {
+        match op {
+            DrawOp::Blend(mode) => blend = *mode,
+            DrawOp::Save => saved.push(blend),
+            DrawOp::Restore => blend = saved.pop().unwrap_or(blend),
+            DrawOp::Fill(..)
+            | DrawOp::Stroke(..)
+            | DrawOp::Text { .. }
+            | DrawOp::Stamp(_)
+            | DrawOp::Image { .. }
+                if blend == BlendMode::Erase =>
+            {
+                continue;
+            }
+            _ => {}
+        }
+        kept.push(op.clone());
+    }
+    std::borrow::Cow::Owned(kept)
+}
+
+/// The Core Graphics blend mode for a canvas [`day_spec::BlendMode`].
+fn cg_blend_mode(mode: day_spec::BlendMode) -> objc2_core_graphics::CGBlendMode {
+    use day_spec::BlendMode as B;
+    use objc2_core_graphics::CGBlendMode as M;
+    match mode {
+        B::Normal => M::Normal,
+        B::Multiply => M::Multiply,
+        B::Screen => M::Screen,
+        B::Overlay => M::Overlay,
+        B::Darken => M::Darken,
+        B::Lighten => M::Lighten,
+        B::Add => M::PlusLighter,
+        B::Erase => M::DestinationOut,
+    }
+}
+
+/// The same mode as AppKit's compositing operation, for the drawing that takes one per call.
+fn ns_compositing(mode: day_spec::BlendMode) -> objc2_app_kit::NSCompositingOperation {
+    use day_spec::BlendMode as B;
+    use objc2_app_kit::NSCompositingOperation as O;
+    match mode {
+        B::Normal => O::SourceOver,
+        B::Multiply => O::Multiply,
+        B::Screen => O::Screen,
+        B::Overlay => O::Overlay,
+        B::Darken => O::Darken,
+        B::Lighten => O::Lighten,
+        B::Add => O::PlusLighter,
+        B::Erase => O::DestinationOut,
+    }
+}
+
+/// Set or clear the context's shadow (docs/canvas.md "Shadows"). Core Graphics measures the
+/// offset and the blur in the context's base space, which no transform scales or rotates (the
+/// rule the spec states) and whose y axis points up whichever way the canvas is flipped: hence
+/// the negated `dy`, and `base_scale` for a bitmap whose base unit is a pixel. Its blur is the
+/// width of the soft edge, the spec's own measure.
+fn cg_set_shadow(
+    cg: &objc2_core_graphics::CGContext,
+    shadow: Option<&day_spec::Shadow>,
+    base_scale: f64,
+) {
+    use objc2_core_graphics::{CGColor, CGContext};
+    match shadow {
+        Some(s) => {
+            let c = s.color.resolved();
+            let color = CGColor::new_srgb(c.r, c.g, c.b, c.a);
+            CGContext::set_shadow_with_color(
+                Some(cg),
+                NSSize::new(s.dx * base_scale, -s.dy * base_scale),
+                s.blur.max(0.0) * base_scale,
+                Some(&color),
+            );
+        }
+        None => CGContext::set_shadow_with_color(Some(cg), NSSize::new(0.0, 0.0), 0.0, None),
+    }
+}
+
+/// Run `draw`, which shapes a gradient with a clip, inside a saved state, and so that a shadow
+/// in force is cast by the result: the clip that shapes the gradient would cut its shadow off
+/// with it. A transparency layer does that: it starts with no shadow, and is composited, shadow
+/// and blend mode and all, in the state it was begun in, outside the clip made within it.
+fn draw_grouped(replay: &Replay, draw: impl FnOnce()) {
+    use objc2_core_graphics::CGContext;
+    // SAFETY: reading the current graphics context on the thread that set it.
+    let cg = unsafe { NSGraphicsContext::currentContext().map(|c| c.CGContext()) };
+    let layer = cg.filter(|_| replay.ink.shadow);
+    NSGraphicsContext::saveGraphicsState_class();
+    if let Some(cg) = &layer {
+        // SAFETY: no auxiliary dictionary, which the function documents as allowed.
+        unsafe { CGContext::begin_transparency_layer(Some(cg), None) };
+    }
+    draw();
+    if let Some(cg) = &layer {
+        CGContext::end_transparency_layer(Some(cg));
+    }
+    NSGraphicsContext::restoreGraphicsState_class();
+}
+
+/// `CGContextDrawConicGradient`, where the running OS has it (macOS 14). Looked up by name
+/// rather than linked: Day deploys to macOS 11, and a linked symbol the OS lacks stops the
+/// app at launch.
+fn native_conic() -> Option<ConicFn> {
+    unsafe extern "C" {
+        fn dlsym(
+            handle: *mut std::ffi::c_void,
+            symbol: *const std::ffi::c_char,
+        ) -> *mut std::ffi::c_void;
+    }
+    static FOUND: std::sync::OnceLock<Option<ConicFn>> = std::sync::OnceLock::new();
+    *FOUND.get_or_init(|| {
+        // `RTLD_DEFAULT`: search every image the process has loaded.
+        let default = -2isize as *mut std::ffi::c_void;
+        // SAFETY: a NUL-terminated name and the documented pseudo-handle.
+        let symbol = unsafe { dlsym(default, c"CGContextDrawConicGradient".as_ptr()) };
+        // SAFETY: a non-null result is the address of the function of that name, whose C
+        // signature `ConicFn` spells out.
+        (!symbol.is_null())
+            .then(|| unsafe { std::mem::transmute::<*mut std::ffi::c_void, ConicFn>(symbol) })
+    })
+}
+
+/// `void CGContextDrawConicGradient(CGContextRef, CGGradientRef, CGPoint center, CGFloat angle)`.
+type ConicFn = unsafe extern "C-unwind" fn(
+    &objc2_core_graphics::CGContext,
+    Option<&objc2_core_graphics::CGGradient>,
+    NSPoint,
+    objc2_core_foundation::CGFloat,
+);
+
+/// A conic gradient as pixels, for an OS with no conic primitive: `width` by `height`
+/// premultiplied RGBA, row 0 at the top, where pixel (`i`, `j`) is the gradient's color
+/// ([`day_spec::ConicGradient::color_at`]) at the canvas point `origin + (i + ½, j + ½) × step`,
+/// by the angle of that point about `center`. Every pixel is computed from the gradient
+/// itself, so there is no fan of wedges to leave seams or bands.
+fn conic_pixels(
+    gradient: &day_spec::ConicGradient,
+    center: Point,
+    origin: Point,
+    step: f64,
+    width: usize,
+    height: usize,
+) -> Vec<u8> {
+    let mut pixels = Vec::with_capacity(width * height * 4);
+    let byte = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    for j in 0..height {
+        let dy = origin.y + (j as f64 + 0.5) * step - center.y;
+        for i in 0..width {
+            let dx = origin.x + (i as f64 + 0.5) * step - center.x;
+            // Canvas angles: 0 is +x and y points down, so `atan2` already turns clockwise.
+            let c = gradient.color_at(day_spec::Angle::rad(dy.atan2(dx)));
+            pixels.extend_from_slice(&[
+                byte(c.r * c.a),
+                byte(c.g * c.a),
+                byte(c.b * c.a),
+                byte(c.a),
+            ]);
+        }
+    }
+    pixels
+}
+
+/// The most pixels an emulated conic gradient is computed at; a larger area is computed more
+/// coarsely and scaled up, which a gradient takes well.
+const CONIC_PIXEL_BUDGET: f64 = 4_000_000.0;
+
+/// Draw a conic gradient through the clip that is installed: the OS's own conic gradient
+/// where it has one, computed pixels otherwise.
+fn draw_conic(
+    cg: &objc2_core_graphics::CGContext,
+    gradient: &day_spec::ConicGradient,
+    bounds: day_spec::Rect,
+) {
+    use objc2_core_graphics::{CGColorSpace, CGGradient};
+    if gradient.stops.is_empty() {
+        return;
+    }
+    let center = gradient.center.resolve(bounds);
+    if let Some(draw) = native_conic() {
+        let components: Vec<objc2_core_foundation::CGFloat> = stops_now(&gradient.stops)
+            .into_iter()
+            .flat_map(|(_, c)| [c.r, c.g, c.b, c.a])
+            .collect();
+        let locations: Vec<objc2_core_foundation::CGFloat> =
+            gradient.stops.iter().map(|(at, _)| *at).collect();
+        // SAFETY: `kCGColorSpaceSRGB` is an immutable CFString constant.
+        let srgb = CGColorSpace::with_name(Some(unsafe { objc2_core_graphics::kCGColorSpaceSRGB }));
+        // SAFETY: four components per stop and one location per stop, both alive for the call.
+        let native = unsafe {
+            CGGradient::with_color_components(
+                srgb.as_deref(),
+                components.as_ptr(),
+                locations.as_ptr(),
+                locations.len(),
+            )
+        };
+        if let Some(native) = native {
+            // SAFETY: the function `native_conic` found, called with its own signature. The
+            // canvas is y-down, where the function's growing angle turns clockwise.
+            unsafe {
+                draw(
+                    cg,
+                    Some(&native),
+                    NSPoint::new(center.x, center.y),
+                    gradient.start.radians(),
+                );
+            };
+            return;
+        }
+    }
+    draw_conic_pixels(cg, gradient, center);
+}
+
+/// The conic gradient of an OS with no conic primitive: [`conic_pixels`] over the area the
+/// installed clip lets through, at the context's own pixel density (and no less than two per
+/// point, which is what softens a hard stop's edge and gives a PDF page something to print),
+/// drawn through that clip as an image.
+fn draw_conic_pixels(
+    cg: &objc2_core_graphics::CGContext,
+    gradient: &day_spec::ConicGradient,
+    center: Point,
+) {
+    use objc2_core_graphics::{
+        CGBitmapContextCreate, CGBitmapContextCreateImage, CGColorSpace, CGContext,
+        CGImageAlphaInfo,
+    };
+    let clip = CGContext::clip_bounding_box(Some(cg));
+    let (w, h) = (clip.size.width, clip.size.height);
+    if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+        return;
+    }
+    let device = CGContext::user_space_to_device_space_transform(Some(cg));
+    let density = device
+        .a
+        .hypot(device.b)
+        .max(device.c.hypot(device.d))
+        .clamp(2.0, 16.0)
+        .min((CONIC_PIXEL_BUDGET / (w * h)).sqrt());
+    let (pw, ph) = (
+        ((w * density).ceil() as usize).max(1),
+        ((h * density).ceil() as usize).max(1),
+    );
+    let origin = Point::new(clip.origin.x, clip.origin.y);
+    let mut pixels = conic_pixels(gradient, center, origin, 1.0 / density, pw, ph);
+    // SAFETY: `kCGColorSpaceSRGB` is an immutable CFString constant.
+    let srgb = CGColorSpace::with_name(Some(unsafe { objc2_core_graphics::kCGColorSpaceSRGB }));
+    // SAFETY: `pixels` holds `ph` rows of `pw` RGBA pixels, the layout the arguments describe,
+    // and outlives the context, which is dropped at the end of this statement. The image is
+    // a copy of the buffer.
+    let image = unsafe {
+        CGBitmapContextCreate(
+            pixels.as_mut_ptr().cast(),
+            pw,
+            ph,
+            8,
+            pw * 4,
+            srgb.as_deref(),
+            CGImageAlphaInfo::PremultipliedLast.0,
+        )
+    }
+    .and_then(|bitmap| CGBitmapContextCreateImage(Some(&bitmap)));
+    let Some(image) = image else {
+        return;
+    };
+    // The canvas is y-down and `CGContextDrawImage` puts an image's first row at the top only
+    // in a y-up space, so the image is drawn through a local flip, as `DrawOp::Image` is.
+    CGContext::save_g_state(Some(cg));
+    CGContext::translate_ctm(Some(cg), origin.x, origin.y + ph as f64 / density);
+    CGContext::scale_ctm(Some(cg), 1.0, -1.0);
+    CGContext::draw_image(
+        Some(cg),
+        NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(pw as f64 / density, ph as f64 / density),
+        ),
+        Some(&image),
+    );
+    CGContext::restore_g_state(Some(cg));
 }
 
 /// Paint one op straight into the Core Graphics context when it is a solid fill, a solid
@@ -468,7 +837,8 @@ fn cg_fast_op(cg: &objc2_core_graphics::CGContext, op: &DrawOp) -> bool {
             let Some(even_odd) = cg_add_shape(cg, shape) else {
                 return false;
             };
-            let c = [color.r, color.g, color.b, color.a];
+            let c = color.resolved();
+            let c = [c.r, c.g, c.b, c.a];
             // SAFETY: four components for the sRGB fill space set at the start of the replay.
             unsafe { CGContext::set_fill_color(Some(cg), c.as_ptr()) };
             if even_odd {
@@ -482,7 +852,8 @@ fn cg_fast_op(cg: &objc2_core_graphics::CGContext, op: &DrawOp) -> bool {
             if cg_add_shape(cg, shape).is_none() {
                 return false;
             }
-            let c = [color.r, color.g, color.b, color.a];
+            let c = color.resolved();
+            let c = [c.r, c.g, c.b, c.a];
             // SAFETY: four components for the sRGB stroke space set at the start of the replay.
             unsafe { CGContext::set_stroke_color(Some(cg), c.as_ptr()) };
             cg_stroke_style(cg, style);
@@ -672,7 +1043,7 @@ fn paint_flipped(cg: &objc2_core_graphics::CGContext, height: f64, scale: f64, o
     let ns = NSGraphicsContext::graphicsContextWithCGContext_flipped(cg, true);
     NSGraphicsContext::saveGraphicsState_class();
     NSGraphicsContext::setCurrentContext(Some(&ns));
-    paint_ops(ops);
+    paint_ops(ops, scale);
     NSGraphicsContext::restoreGraphicsState_class();
     CGContext::restore_g_state(Some(cg));
 }
@@ -891,7 +1262,7 @@ fn render_pdf_bytes(
         let page_box = media(page.size);
         // SAFETY: `page_box` outlives the call; in a PDF context it becomes the page's MediaBox.
         unsafe { CGContext::begin_page(Some(&pdf), &raw const page_box) };
-        paint_flipped(&pdf, page.size.height, 1.0, &page.ops);
+        paint_flipped(&pdf, page.size.height, 1.0, &pdf_ops(&page.ops));
         CGContext::end_page(Some(&pdf));
     }
     // Closing flushes the trailer into the consumer; the bytes are complete only after it.
@@ -1031,7 +1402,7 @@ fn dress_list_item(view: &NSView, p: &day_spec::props::ListItemProps, mtm: MainT
             .and_then(|i| toolbar::image_for(i, &p.title, mtm));
         unsafe {
             iv.setImage(image.as_deref());
-            iv.setContentTintColor(p.icon_tint.map(nscolor).as_deref());
+            iv.setContentTintColor(p.icon_tint.map(color::nsink).as_deref());
         }
     }
     icon.setHidden(p.icon.is_none());
@@ -1100,6 +1471,25 @@ fn appkit_image_for(source: &day_spec::ImageSource) -> Option<Retained<objc2_app
             BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.image.clone()))
         }
     }
+}
+
+/// `image` set to render as a template or as authored, for an image view to show
+/// (docs/vectors.md "Tint", docs/images.md "Tinting"). Template rendering is a property of
+/// the `NSImage`: it draws the image's alpha filled with the view's content tint, whether the
+/// pixels came from a vector, a staged raster, encoded bytes or a decoded bitmap. An image that
+/// already renders the right way comes back as it is; otherwise a copy is changed, because the
+/// image may be the one a decoded bitmap shares with every other view and canvas drawing it.
+fn image_rendered(
+    image: Retained<objc2_app_kit::NSImage>,
+    template: bool,
+) -> Retained<objc2_app_kit::NSImage> {
+    use objc2_foundation::NSCopying as _;
+    if image.isTemplate() == template {
+        return image;
+    }
+    let image = image.copy();
+    image.setTemplate(template);
+    image
 }
 
 /// Day `Role` → the `NSAccessibilityRole` constant to apply (§13). `None` for `Role::None`:
@@ -1300,10 +1690,34 @@ define_class!(
                 } else {
                     return objc2::runtime::Bool::NO;
                 };
+                // The key press behind the command, for its phase (docs/menus.md "Keys"): a
+                // repeat continues a press this field claimed, and a claimed press owes its
+                // release, which the input monitor reports.
+                let press = NSApplication::sharedApplication(self.mtm())
+                    .currentEvent()
+                    .filter(|e| e.r#type() == NSEventType::KeyDown);
+                if let Some(press) = press.as_deref()
+                    && press.isARepeat()
+                {
+                    if !input::owns_repeat(press) {
+                        return objc2::runtime::Bool::NO;
+                    }
+                    emit(
+                        node,
+                        Event::Key(
+                            day_spec::KeyEvent::named(key, 0)
+                                .with_phase(day_spec::KeyPhase::Repeat),
+                        ),
+                    );
+                    return objc2::runtime::Bool::YES;
+                }
                 if !day_spec::keys::field_claims(node, key, 0) {
                     return objc2::runtime::Bool::NO;
                 }
                 emit(node, Event::Key(day_spec::KeyEvent::named(key, 0)));
+                if let Some(press) = press.as_deref() {
+                    input::claim_key(press, node, key.to_string());
+                }
                 objc2::runtime::Bool::YES
             })
         }
@@ -1322,6 +1736,7 @@ define_class!(
                 if movement == NSTextMovement::Return {
                     emit(node, Event::Submitted);
                 } else {
+                    input::forget_keys(node);
                     emit(node, Event::FocusChanged(false));
                 }
             });
@@ -1711,6 +2126,24 @@ struct LabelIvars {
     has_links: Cell<bool>,
     has_runs: Cell<bool>,
     selectable: Cell<bool>,
+    /// `LabelProps::wraps`: `false` holds the label to one line whatever the limit says.
+    wraps: Cell<bool>,
+    /// The paragraph attributes in force (`LabelProps::paragraph`, `LabelPatch::Paragraph`),
+    /// kept so a text, font or color patch can stamp them again.
+    paragraph: Cell<day_spec::props::LabelParagraph>,
+    align: Cell<day_spec::props::TextAlign>,
+    /// The reading direction `set_layout_direction` gave this label; `None` follows the app.
+    direction: Cell<Option<day_spec::LayoutDirection>>,
+    /// The label shows an attributed string Day stamped for letter spacing or line height
+    /// although it has no runs; every later text, font or color change stamps it again.
+    stamped: Cell<bool>,
+    /// `LabelProps::reports_selection`, and the last nonempty byte range reported.
+    reports_selection: Cell<bool>,
+    selection: Cell<Option<(usize, usize)>>,
+    /// The label's own color and role (`LabelProps::color`, `role`, `LabelPatch::Color`):
+    /// what a `LabelPatch::Runs` rebuild lays under the runs, as the plain label shows it.
+    color: Cell<Option<day_spec::Ink>>,
+    role: Cell<TextRole>,
 }
 
 define_class!(
@@ -1721,6 +2154,50 @@ define_class!(
     struct DayLabel;
 
     impl DayLabel {
+        /// Pass-through (docs/gestures.md): a label takes the pointer only when it is
+        /// selectable (links make it so) or has something attached; otherwise a press goes to
+        /// whatever is behind it.
+        #[unsafe(method_id(hitTest:))]
+        fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
+            let hit: Option<Retained<NSView>> = unsafe { msg_send![super(self), hitTest: point] };
+            ffi_guard::contain(None, || {
+                let takes = self.isSelectable() || input::takes_pointer(self);
+                input::leaf_hit_test(self, hit, takes)
+            })
+        }
+
+        /// Hover, as on a container (`input::report_hover`); the field's own tracking (a
+        /// link's cursor) still runs.
+        #[unsafe(method(mouseEntered:))]
+        fn mouse_entered(&self, event: &NSEvent) {
+            ffi_guard::contain(false, || {
+                input::report_hover(self, event, day_spec::DragPhase::Began)
+            });
+            let _: () = unsafe { msg_send![super(self), mouseEntered: event] };
+        }
+
+        #[unsafe(method(mouseMoved:))]
+        fn mouse_moved(&self, event: &NSEvent) {
+            ffi_guard::contain(false, || {
+                input::report_hover(self, event, day_spec::DragPhase::Changed)
+            });
+            let _: () = unsafe { msg_send![super(self), mouseMoved: event] };
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, event: &NSEvent) {
+            ffi_guard::contain(false, || {
+                input::report_hover(self, event, day_spec::DragPhase::Ended)
+            });
+            let _: () = unsafe { msg_send![super(self), mouseExited: event] };
+        }
+
+        #[unsafe(method(updateTrackingAreas))]
+        fn update_tracking_areas(&self) {
+            let _: () = unsafe { msg_send![super(self), updateTrackingAreas] };
+            ffi_guard::contain((), || input::refresh_hover_area(self));
+        }
+
         #[unsafe(method_id(menuForEvent:))]
         fn menu_for_event(&self, event: &objc2_app_kit::NSEvent) -> Option<Retained<NSMenu>> {
             ffi_guard::contain(None, || {
@@ -1775,9 +2252,34 @@ define_class!(
     }
 
     unsafe impl NSObjectProtocol for DayLabel {}
-    unsafe impl NSTextDelegate for DayLabel {}
+    unsafe impl NSTextDelegate for DayLabel {
+        /// The field editor left the label: the reader's selection is gone with it
+        /// (`Event::TextSelected` with `start == end`). `NSTextField` ends its editing session
+        /// here, so the call goes to it first.
+        #[unsafe(method(textDidEndEditing:))]
+        fn text_did_end_editing(&self, notification: &NSNotification) {
+            let _: () = unsafe { msg_send![super(self), textDidEndEditing: notification] };
+            ffi_guard::contain((), || self.clear_selection());
+        }
+    }
 
     unsafe impl NSTextViewDelegate for DayLabel {
+        /// The field editor's selection moved while the reader selects in this label
+        /// (`NSTextViewDidChangeSelectionNotification`, docs/text.md "Hearing about the
+        /// selection"). The editor holds the label's whole string, so its UTF-16 range maps
+        /// straight onto the displayed text.
+        #[unsafe(method(textViewDidChangeSelection:))]
+        fn text_view_did_change_selection(&self, notification: &NSNotification) {
+            if <NSTextField as objc2::ClassType>::class()
+                .instance_method(sel!(textViewDidChangeSelection:))
+                .is_some()
+            {
+                let _: () =
+                    unsafe { msg_send![super(self), textViewDidChangeSelection: notification] };
+            }
+            ffi_guard::contain((), || self.report_selection(notification));
+        }
+
         #[unsafe(method(textView:clickedOnLink:atIndex:))]
         fn clicked_on_link(
             &self,
@@ -1802,6 +2304,15 @@ impl DayLabel {
             has_links: Cell::new(false),
             has_runs: Cell::new(false),
             selectable: Cell::new(false),
+            wraps: Cell::new(true),
+            paragraph: Cell::new(day_spec::props::LabelParagraph::default()),
+            align: Cell::new(day_spec::props::TextAlign::Leading),
+            direction: Cell::new(None),
+            stamped: Cell::new(false),
+            reports_selection: Cell::new(false),
+            selection: Cell::new(None),
+            color: Cell::new(None),
+            role: Cell::new(TextRole::default()),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
         unsafe {
@@ -1821,6 +2332,172 @@ impl DayLabel {
             self.setSelectable(has_links || self.ivars().selectable.get());
             self.setAllowsEditingTextAttributes(has_links);
         }
+    }
+
+    /// Report the field editor's selection as byte offsets into the displayed text, once per
+    /// change (`LabelProps::reports_selection`).
+    fn report_selection(&self, notification: &NSNotification) {
+        if !self.ivars().reports_selection.get() {
+            return;
+        }
+        let Some(editor) = notification
+            .object()
+            .and_then(|o| o.downcast::<NSTextView>().ok())
+        else {
+            return;
+        };
+        let range = unsafe { editor.selectedRange() };
+        let text = self.stringValue().to_string();
+        let now = utf16_span_to_bytes(&text, range.location, range.location + range.length);
+        if let Some((last, (start, end))) = selection_change(self.ivars().selection.get(), now) {
+            self.ivars().selection.set(last);
+            emit(self.ivars().node, Event::TextSelected { start, end });
+        }
+    }
+
+    /// The selection is gone (editing ended, or a text patch replaced the string): report it
+    /// cleared if a range was showing.
+    fn clear_selection(&self) {
+        if let Some((_, end)) = self.ivars().selection.take()
+            && self.ivars().reports_selection.get()
+        {
+            let at = end.min(self.stringValue().len());
+            emit(
+                self.ivars().node,
+                Event::TextSelected { start: at, end: at },
+            );
+        }
+    }
+}
+
+/// A UTF-16 span of `text` as byte offsets, each on a character boundary: a start inside a
+/// surrogate pair moves back to the character's start, an end inside one forward to its end,
+/// and offsets past the end clamp to the text's length.
+fn utf16_span_to_bytes(text: &str, start16: usize, end16: usize) -> ByteSpan {
+    let (start16, end16) = (start16.min(end16), start16.max(end16));
+    let mut start = text.len();
+    let mut end = text.len();
+    let mut at16 = 0;
+    let mut found_start = false;
+    for (byte, ch) in text.char_indices() {
+        let next16 = at16 + ch.len_utf16();
+        if !found_start && next16 > start16 {
+            start = byte;
+            found_start = true;
+        }
+        if next16 > end16 {
+            end = if at16 >= end16 {
+                byte
+            } else {
+                byte + ch.len_utf8()
+            };
+            break;
+        }
+        at16 = next16;
+    }
+    (start.min(end), end)
+}
+
+/// A byte range in a label's text, `(start, end)`.
+type ByteSpan = (usize, usize);
+
+/// The next selection report, if any: `last` is the nonempty range last reported (`None`
+/// when nothing is selected) and `now` the range the editor holds. A collapsed range is "no
+/// selection", so moving the caret alone reports nothing; clearing a shown range reports
+/// `start == end` at the caret. Returns the new `last` and the range to emit.
+fn selection_change(last: Option<ByteSpan>, now: ByteSpan) -> Option<(Option<ByteSpan>, ByteSpan)> {
+    let now_set = (now.0 != now.1).then_some(now);
+    if now_set == last {
+        return None;
+    }
+    match now_set {
+        Some(range) => Some((Some(range), range)),
+        None => Some((None, (now.0, now.0))),
+    }
+}
+
+#[cfg(test)]
+mod label_text_tests {
+    use super::{
+        label_line_break, label_line_limit, label_line_points, nstextalign, selection_change,
+        utf16_span_to_bytes,
+    };
+    use day_spec::props::{TextAlign, Truncation};
+    use objc2_app_kit::{NSLineBreakMode, NSTextAlignment};
+
+    #[test]
+    fn utf16_spans_land_on_character_boundaries() {
+        let text = "Say déjà vu 🌅 now";
+        let deja = text.find("déjà").unwrap();
+        assert_eq!(utf16_span_to_bytes(text, 4, 8), (deja, deja + "déjà".len()));
+        let sun = text.find('🌅').unwrap();
+        assert_eq!(utf16_span_to_bytes(text, 12, 14), (sun, sun + 4));
+        // Half a surrogate pair widens to the whole character, from either side.
+        assert_eq!(utf16_span_to_bytes(text, 13, 14), (sun, sun + 4));
+        assert_eq!(utf16_span_to_bytes(text, 12, 13), (sun, sun + 4));
+        // Reversed, collapsed and out-of-range spans.
+        assert_eq!(utf16_span_to_bytes(text, 8, 4), (deja, deja + "déjà".len()));
+        assert_eq!(utf16_span_to_bytes(text, 2, 2), (2, 2));
+        assert_eq!(utf16_span_to_bytes(text, 99, 120), (text.len(), text.len()));
+        assert_eq!(utf16_span_to_bytes("", 0, 0), (0, 0));
+    }
+
+    #[test]
+    fn selection_reports_once_per_change() {
+        // Caret moves with nothing selected report nothing.
+        assert_eq!(selection_change(None, (3, 3)), None);
+        // A range appears, stays, changes, then clears at the caret.
+        assert_eq!(selection_change(None, (2, 5)), Some((Some((2, 5)), (2, 5))));
+        assert_eq!(selection_change(Some((2, 5)), (2, 5)), None);
+        assert_eq!(
+            selection_change(Some((2, 5)), (2, 6)),
+            Some((Some((2, 6)), (2, 6)))
+        );
+        assert_eq!(selection_change(Some((2, 6)), (4, 4)), Some((None, (4, 4))));
+    }
+
+    #[test]
+    fn paragraph_rules() {
+        assert_eq!(label_line_limit(false, 3), 1);
+        assert_eq!(label_line_limit(true, 3), 3);
+        assert_eq!(label_line_limit(true, 0), 0);
+        assert_eq!(
+            label_line_break(1, Truncation::Middle),
+            NSLineBreakMode::ByTruncatingMiddle
+        );
+        assert_eq!(
+            label_line_break(1, Truncation::Head),
+            NSLineBreakMode::ByTruncatingHead
+        );
+        // Several lines wrap (the last one ends at the tail), unlimited wraps.
+        assert_eq!(
+            label_line_break(2, Truncation::Head),
+            NSLineBreakMode::ByWordWrapping
+        );
+        assert_eq!(
+            label_line_break(0, Truncation::Tail),
+            NSLineBreakMode::ByWordWrapping
+        );
+        assert_eq!(label_line_points(2.0, 20.0), Some(40.0));
+        assert_eq!(label_line_points(0.0, 20.0), None);
+        assert_eq!(label_line_points(-1.0, 20.0), None);
+        assert_eq!(label_line_points(f64::NAN, 20.0), None);
+        assert_eq!(
+            nstextalign(TextAlign::Trailing, false),
+            NSTextAlignment::Right
+        );
+        assert_eq!(
+            nstextalign(TextAlign::Trailing, true),
+            NSTextAlignment::Left
+        );
+        assert_eq!(
+            nstextalign(TextAlign::Leading, true),
+            NSTextAlignment::Natural
+        );
+        assert_eq!(
+            nstextalign(TextAlign::Justified, false),
+            NSTextAlignment::Justified
+        );
     }
 }
 
@@ -1952,12 +2629,74 @@ fn install_container_pan_monitor() {
 // DayFlipped: top-left-origin container view
 // ---------------------------------------------------------------------------
 
-/// A `background(..)` fill: `(r, g, b, a, corner_radius)`, painted in `drawRect` with `NSColor`.
-type Surface = (f64, f64, f64, f64, f64);
+/// A decorated container's surface (docs/surfaces.md). The fill (a solid ink or a linear,
+/// radial or conic gradient) is painted in `drawRect` with `NSColor`, `NSGradient` and Core
+/// Graphics' conic gradient, clipped to the outline the radius and corners give, so it is
+/// redrawn at whatever size the view has and resolves its inks for the appearance it is drawn
+/// in. The border is the layer's own (`borderWidth`, `borderColor`), which Core Animation draws
+/// over the layer's sublayers, the children, as the rules ask. The shadow is the view's own
+/// `NSShadow`, cast by this outline.
+#[derive(Clone, Default)]
+struct SurfaceStyle {
+    fill: Option<day_spec::Paint>,
+    radius: f64,
+    corners: day_spec::Corners,
+    border: Option<day_spec::Border>,
+    shadow: Option<day_spec::Shadow>,
+    clips: bool,
+}
+
+impl SurfaceStyle {
+    /// The solid ink of the fill; `None` for a gradient or no fill.
+    fn solid(&self) -> Option<day_spec::Ink> {
+        match self.fill {
+            Some(day_spec::Paint::Solid(ink)) => Some(ink),
+            _ => None,
+        }
+    }
+
+    /// Whether the layer cuts the children to the outline. A shadow lies outside the bounds a
+    /// mask would cut to, so a shadowed surface never masks (it arrives with `clips: false`).
+    fn masks(&self) -> bool {
+        (self.clips || self.radius > 0.0) && self.shadow.is_none()
+    }
+
+    /// The surface's outline in `rect`, inset by `inset` on every side with the corner radius
+    /// shrunk to match (a border's center line, half its width in). All four corners is
+    /// AppKit's own rounded rectangle, as it was before corners could be picked.
+    fn outline(&self, rect: NSRect, inset: f64) -> Retained<objc2_app_kit::NSBezierPath> {
+        use objc2_app_kit::NSBezierPath;
+        let rect = NSRect::new(
+            NSPoint::new(rect.origin.x + inset, rect.origin.y + inset),
+            NSSize::new(
+                (rect.size.width - 2.0 * inset).max(0.0),
+                (rect.size.height - 2.0 * inset).max(0.0),
+            ),
+        );
+        let radius = (self.radius - inset).max(0.0);
+        if radius <= 0.0 || self.corners == day_spec::Corners::NONE {
+            return NSBezierPath::bezierPathWithRect(rect);
+        }
+        if self.corners == day_spec::Corners::ALL {
+            return NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, radius, radius);
+        }
+        // The view is flipped, so the top-left of the spec's radii is the top-left here.
+        let shape = day_spec::Shape::rounded_rect(
+            day_spec::Rect::new(
+                rect.origin.x,
+                rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+            ),
+            self.corners.radii(radius),
+        );
+        bezier(&shape).unwrap_or_else(|| NSBezierPath::bezierPathWithRect(rect))
+    }
+}
 
 #[derive(Default)]
 struct FlippedIvars {
-    surface: Cell<Option<Surface>>,
+    surface: RefCell<Option<SurfaceStyle>>,
     /// `SurfaceRole::SectionCard`: `(radius,)`, drawn with a dynamic system fill resolved at
     /// draw time, so the card tracks light/dark appearance changes automatically.
     section_card: Cell<Option<f64>>,
@@ -1968,6 +2707,15 @@ struct FlippedIvars {
     /// the sidebar-screenshot rule, docs/navigation.md). An opaque appearance-resolved
     /// backdrop gives the cards the same ground System Settings draws them on.
     pane_backdrop: Cell<bool>,
+    /// A focusable container holds focus that came from the keyboard (Tab): the one case the
+    /// focus ring shows (docs/focus.md). A press or a programmatic focus draws none.
+    keyboard_focus: Cell<bool>,
+    /// An animated fill change is playing on the layer's `backgroundColor`, so `drawRect`
+    /// leaves the plain fill out (see `motion`).
+    layer_fill: Cell<bool>,
+    /// The latest fill run, so the completion of one that was replaced or stopped does not
+    /// hand the fill back while another plays.
+    fill_run: Cell<u64>,
 }
 
 define_class!(
@@ -1998,6 +2746,79 @@ define_class!(
         fn accepts_first_responder(&self) -> bool {
             let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
             FOCUSABLE_NODES.with(|t| t.get(ptr)).is_some()
+                && !ffi_guard::contain(true, || input::subtree_disabled(self))
+        }
+
+        /// The key view loop (Tab, Shift-Tab; the window recalculates it): a focusable
+        /// container joins it at its place in the tree, unless a disabled group holds it.
+        #[unsafe(method(canBecomeKeyView))]
+        fn can_become_key_view(&self) -> bool {
+            self.acceptsFirstResponder() && !self.isHiddenOrHasHiddenAncestor()
+        }
+
+        /// Pass-through and hit slop (docs/gestures.md): the children answer front to back,
+        /// each inside its slop, and the container itself takes a press only when something
+        /// is attached to it. A plain stack, a background or a decoration lets the press
+        /// through to whatever is behind it.
+        #[unsafe(method_id(hitTest:))]
+        fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
+            ffi_guard::contain(None, || input::container_hit_test(self, point))
+        }
+
+        /// Hover (docs/gestures.md "State styling"): the tracking area `enable_gesture`
+        /// installs reports here, as on a canvas.
+        #[unsafe(method(mouseEntered:))]
+        fn mouse_entered(&self, event: &NSEvent) {
+            if !ffi_guard::contain(true, || {
+                input::report_hover(self, event, day_spec::DragPhase::Began)
+            }) {
+                let _: () = unsafe { msg_send![super(self), mouseEntered: event] };
+            }
+        }
+
+        #[unsafe(method(mouseMoved:))]
+        fn mouse_moved(&self, event: &NSEvent) {
+            if !ffi_guard::contain(true, || {
+                input::report_hover(self, event, day_spec::DragPhase::Changed)
+            }) {
+                let _: () = unsafe { msg_send![super(self), mouseMoved: event] };
+            }
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, event: &NSEvent) {
+            if !ffi_guard::contain(true, || {
+                input::report_hover(self, event, day_spec::DragPhase::Ended)
+            }) {
+                let _: () = unsafe { msg_send![super(self), mouseExited: event] };
+            }
+        }
+
+        #[unsafe(method(updateTrackingAreas))]
+        fn update_tracking_areas(&self) {
+            let _: () = unsafe { msg_send![super(self), updateTrackingAreas] };
+            ffi_guard::contain((), || input::refresh_hover_area(self));
+        }
+
+        /// The focus ring's shape: the surface's outline, only while focus came from the
+        /// keyboard (`focusRingMaskBounds` is empty otherwise, which draws no ring).
+        #[unsafe(method(drawFocusRingMask))]
+        fn draw_focus_ring_mask(&self) {
+            let bounds = self.bounds();
+            let outline = match self.ivars().surface.borrow().as_ref() {
+                Some(surface) => surface.outline(bounds, 0.0),
+                None => objc2_app_kit::NSBezierPath::bezierPathWithRect(bounds),
+            };
+            outline.fill();
+        }
+
+        #[unsafe(method(focusRingMaskBounds))]
+        fn focus_ring_mask_bounds(&self) -> NSRect {
+            if self.ivars().keyboard_focus.get() {
+                self.bounds()
+            } else {
+                NSRect::ZERO
+            }
         }
 
         // Clicking a focusable container focuses it, the way clicking a table does. The
@@ -2019,6 +2840,12 @@ define_class!(
         fn become_first_responder(&self) -> bool {
             let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
             if let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) {
+                // Focus that arrived by Tab shows the ring; a press or a request does not.
+                let by_key = NSApplication::sharedApplication(self.mtm())
+                    .currentEvent()
+                    .is_some_and(|e| e.r#type() == NSEventType::KeyDown);
+                self.ivars().keyboard_focus.set(by_key);
+                self.noteFocusRingMaskChanged();
                 ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
             }
             true
@@ -2027,15 +2854,23 @@ define_class!(
         #[unsafe(method(resignFirstResponder))]
         fn resign_first_responder(&self) -> bool {
             let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
+            if self.ivars().keyboard_focus.replace(false) {
+                self.noteFocusRingMaskChanged();
+            }
             if let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) {
-                ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+                ffi_guard::contain((), || {
+                    input::forget_keys(node);
+                    emit(node, Event::FocusChanged(false));
+                });
             }
             true
         }
 
-        /// The arrows, delivered here while this container is the first responder. Anything
-        /// else (and every arrow when the app registered no key handler for the node) goes
-        /// to `super`, which walks the responder chain exactly as it would have without us.
+        /// The arrows and digits, delivered here while this container is the first
+        /// responder, with their repeats (docs/menus.md "Keys"); the input monitor reports
+        /// the release. Anything else (and every key when the app registered no key handler
+        /// for the node) goes to `super`, which walks the responder chain exactly as it would
+        /// have without us.
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &objc2_app_kit::NSEvent) {
             let ptr = std::ptr::from_ref::<DayFlipped>(self).cast::<NSView>() as usize;
@@ -2043,20 +2878,7 @@ define_class!(
                 let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) else {
                     return false;
                 };
-                let Some(key) = key_name(event) else {
-                    return false;
-                };
-                if !day_spec::keys::handled(node) {
-                    return false;
-                }
-                emit(
-                    node,
-                    Event::Key(day_spec::KeyEvent::named(
-                        key,
-                        key_modifiers(event.modifierFlags()),
-                    )),
-                );
-                true
+                short_route_key_down(node, event)
             });
             if !handled {
                 let _: () = unsafe { msg_send![super(self), keyDown: event] };
@@ -2108,18 +2930,32 @@ define_class!(
                         path.fill();
                     }
                 }
-                if let Some((r, g, b, a, radius)) = self.ivars().surface.get() {
+                if let Some(surface) = self.ivars().surface.borrow().as_ref() {
                     let bounds = self.bounds();
-                    unsafe {
-                        NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, a).setFill();
-                        let path = if radius > 0.0 {
-                            objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
-                                bounds, radius, radius,
-                            )
-                        } else {
-                            objc2_app_kit::NSBezierPath::bezierPathWithRect(bounds)
-                        };
-                        path.fill();
+                    let outline = surface.outline(bounds, 0.0);
+                    match &surface.fill {
+                        // The dynamic color resolves for the appearance performed below.
+                        Some(day_spec::Paint::Solid(ink)) => {
+                            if !self.ivars().layer_fill.get() {
+                                color::nsink(*ink).setFill();
+                                outline.fill();
+                            }
+                        }
+                        Some(paint) => {
+                            // The unit points resolve against the bounds of this draw, which
+                            // is how the gradient follows the frame.
+                            let area = day_spec::Rect::new(
+                                bounds.origin.x,
+                                bounds.origin.y,
+                                bounds.size.width,
+                                bounds.size.height,
+                            );
+                            NSGraphicsContext::saveGraphicsState_class();
+                            outline.addClip();
+                            draw_gradient_in(paint, area);
+                            NSGraphicsContext::restoreGraphicsState_class();
+                        }
+                        None => {}
                     }
                 }
             };
@@ -2131,23 +2967,25 @@ define_class!(
             // near-black instead of lightening. Resolving under aqua/darkAqua gives exactly
             // the fills System Settings draws with, and re-resolves on every theme change
             // (this runs per draw, and appearance flips redraw).
-            unsafe {
-                let names = objc2_foundation::NSArray::from_slice(&[
-                    objc2_app_kit::NSAppearanceNameAqua,
-                    objc2_app_kit::NSAppearanceNameDarkAqua,
-                ]);
-                let standard = self
-                    .effectiveAppearance()
-                    .bestMatchFromAppearancesWithNames(&names)
-                    .and_then(|n| objc2_app_kit::NSAppearance::appearanceNamed(&n));
-                match standard {
-                    Some(appearance) => {
-                        let block = block2::StackBlock::new(paint);
-                        appearance.performAsCurrentDrawingAppearance(&block);
-                    }
-                    None => paint(),
+            match color::standard_appearance(&self.effectiveAppearance()) {
+                Some(appearance) => {
+                    let block = block2::StackBlock::new(paint);
+                    appearance.performAsCurrentDrawingAppearance(&block);
                 }
+                None => paint(),
             }
+        }
+
+        /// A light/dark switch (the app's, the window's or the system's): `drawRect` resolves
+        /// the fill again by itself, and the colors the layer holds (the border, the shadow)
+        /// are set again for the new appearance.
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            let _: () = unsafe { msg_send![super(self), viewDidChangeEffectiveAppearance] };
+            ffi_guard::contain((), || {
+                self.sync_layer();
+                NSView::setNeedsDisplay(self, true);
+            });
         }
     }
     unsafe impl NSObjectProtocol for DayFlipped {}
@@ -2166,6 +3004,36 @@ define_class!(
         fn transfer_updated(&self, info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>) -> objc2_app_kit::NSDragOperation { transfer::proposal(self, info) }
         #[unsafe(method(performDragOperation:))]
         fn transfer_drop(&self, info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>) -> bool { transfer::receive(self, info) }
+        /// The session left this view without dropping: the target's hover ends.
+        #[unsafe(method(draggingExited:))]
+        fn transfer_exited(&self, _info: Option<&ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>>) {
+            ffi_guard::contain((), || transfer::leave(self));
+        }
+        /// The session ended (a drop, Escape, a drop elsewhere) while this view was its
+        /// destination: idempotent after a drop, which already ended the hover.
+        #[unsafe(method(draggingEnded:))]
+        fn transfer_ended(&self, _info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>) {
+            ffi_guard::contain((), || transfer::leave(self));
+        }
+
+        /// A surface is drawn for the size it has: repaint it, and move its shadow's outline,
+        /// when that changes (docs/surfaces.md). An undecorated container does neither.
+        #[unsafe(method(setFrameSize:))]
+        fn set_frame_size(&self, size: NSSize) {
+            let _: () = unsafe { msg_send![super(self), setFrameSize: size] };
+            if self.ivars().surface.borrow().is_some() {
+                NSView::setNeedsDisplay(self, true);
+                self.sync_layer();
+            }
+        }
+
+        /// A scaled view keeps its laid-out size as its bounds (`apply_geometry`), and the
+        /// shadow's outline is in bounds.
+        #[unsafe(method(setBoundsSize:))]
+        fn set_bounds_size(&self, size: NSSize) {
+            let _: () = unsafe { msg_send![super(self), setBoundsSize: size] };
+            self.sync_layer();
+        }
     }
 
 );
@@ -2176,10 +3044,6 @@ impl DayFlipped {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// Apply a `background`/`corner_radius` surface. The fill (rounded by `corner_radius`) is
-    /// drawn in `drawRect` with `NSColor`, not via the layer's `backgroundColor`, whose `CGColorRef`
-    /// argument objc2's `msg_send` cannot type-check. A rounded child clip does use the `CALayer`
-    /// (`cornerRadius` + `masksToBounds` are a `CGFloat` + `BOOL`, which are fine).
     /// `SurfaceRole::SectionCard`: the fill resolves dynamically in drawRect (theme-adaptive).
     fn set_section_card(&self, corner_radius: f64) {
         self.ivars().section_card.set(Some(corner_radius));
@@ -2196,22 +3060,131 @@ impl DayFlipped {
         }
     }
 
-    fn set_surface(&self, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
-        self.ivars()
-            .surface
-            .set(bg.map(|c| (c.r, c.g, c.b, c.a, corner_radius)));
-        unsafe {
-            let _: () = msg_send![self, setNeedsDisplay: true];
-            if clips || corner_radius > 0.0 {
-                let _: () = msg_send![self, setWantsLayer: true];
-                let layer: *mut objc2::runtime::AnyObject = msg_send![self, layer];
-                if !layer.is_null() {
-                    let _: () = msg_send![layer, setCornerRadius: corner_radius];
-                    let _: () = msg_send![layer, setMasksToBounds: true];
+    /// Apply a decorated container's surface (docs/surfaces.md), at realize and again for
+    /// every `ContainerPatch::Surface`: the whole style is replaced, so a radius, a border, a
+    /// shadow or the clip can come and go. The fill is `drawRect` content; the child clip
+    /// (`cornerRadius`, `maskedCorners`, `masksToBounds`), the border and the shadow are the
+    /// layer's (`sync_layer`).
+    fn set_surface(&self, p: &ContainerProps) {
+        // A shadow that cannot show casts nothing (and so does not stop the clip).
+        let shadow = p
+            .shadow
+            .filter(|s| !matches!(s.color, day_spec::Ink::Fixed(c) if c.a <= 0.0));
+        *self.ivars().surface.borrow_mut() = Some(SurfaceStyle {
+            fill: p.fill.clone(),
+            radius: p.corner_radius,
+            corners: p.corners,
+            border: p.border,
+            shadow,
+            clips: p.clips,
+        });
+        NSView::setNeedsDisplay(self, true);
+        self.sync_layer();
+    }
+
+    /// Put the layer half of the surface on the layer, for the size and the appearance the
+    /// view has now: the child clip, the border and the shadow. Runs on every surface change,
+    /// resize and appearance change. A view with no layer gets one only when the surface needs
+    /// it.
+    ///
+    /// The border is the layer's: inside the frame, following the corners, and drawn by Core
+    /// Animation over the sublayers, which are the children's layers, so a child that reaches
+    /// the edge never covers it. A border wider than half the surface fills it, as a radius
+    /// larger than half rounds it fully. Its color is a `CGColor`, resolved here for the
+    /// view's appearance.
+    ///
+    /// The shadow is the view's `NSShadow`, which AppKit carries to the layer as they are: the
+    /// blur radius becomes `shadowRadius`, the Gaussian's standard deviation, which is half the
+    /// spec's blur; the offset is in the flipped layer's space, so positive y is down. It is
+    /// cast by an explicit `shadowPath` (the surface's outline) whatever the fill and the
+    /// children are.
+    fn sync_layer(&self) {
+        let Some(s) = self.ivars().surface.borrow().clone() else {
+            return;
+        };
+        let border = s.border.filter(|b| b.width > 0.0);
+        let masks = s.masks();
+        if self.layer().is_none() {
+            if !masks && border.is_none() && s.shadow.is_none() {
+                return;
+            }
+            self.setWantsLayer(true);
+        }
+        let Some(layer) = self.layer() else {
+            return;
+        };
+        let size = layer.bounds().size;
+        let half = (size.width.min(size.height) / 2.0).max(0.0);
+        layer.setCornerRadius(s.radius.min(half));
+        layer.setMaskedCorners(corner_mask(s.corners));
+        layer.setMasksToBounds(masks);
+        if let Some(b) = border {
+            layer.setBorderWidth(b.width.min(half));
+            layer.setBorderColor(Some(&color::cg_for(self, b.color)));
+        } else {
+            layer.setBorderWidth(0.0);
+            layer.setBorderColor(None);
+        }
+        match s.shadow {
+            Some(sh) => {
+                let native = objc2_app_kit::NSShadow::new();
+                native.setShadowColor(Some(&nscolor(color::color_for(self, sh.color))));
+                native.setShadowOffset(NSSize::new(sh.dx, sh.dy));
+                native.setShadowBlurRadius(sh.blur.max(0.0) / 2.0);
+                self.setShadow(Some(&native));
+                let outline = s.outline(self.bounds(), 0.0);
+                // SAFETY: an immutable snapshot of the path's geometry.
+                layer.setShadowPath(Some(&*unsafe { outline.CGPath() }));
+            }
+            None => {
+                if self.shadow().is_some() {
+                    self.setShadow(None);
+                    layer.setShadowPath(None);
                 }
             }
         }
     }
+
+    /// A `background(..)` bound to a signal: the fill changes and everything else the surface
+    /// was realized with (corners, border, shadow) stays.
+    fn set_background(&self, fill: Option<day_spec::Paint>) {
+        self.ivars()
+            .surface
+            .borrow_mut()
+            .get_or_insert_default()
+            .fill = fill;
+        NSView::setNeedsDisplay(self, true);
+    }
+}
+
+/// The layer corners a surface's `corners` round. The layer of a flipped view counts y downward
+/// like the view, so the layer's "min Y" corners are the top ones.
+fn corner_mask(corners: day_spec::Corners) -> objc2_quartz_core::CACornerMask {
+    use objc2_quartz_core::CACornerMask;
+    let mut mask = CACornerMask::empty();
+    for (corner, layer_corner) in [
+        (
+            day_spec::Corners::TOP_LEFT,
+            CACornerMask::LayerMinXMinYCorner,
+        ),
+        (
+            day_spec::Corners::TOP_RIGHT,
+            CACornerMask::LayerMaxXMinYCorner,
+        ),
+        (
+            day_spec::Corners::BOTTOM_RIGHT,
+            CACornerMask::LayerMaxXMaxYCorner,
+        ),
+        (
+            day_spec::Corners::BOTTOM_LEFT,
+            CACornerMask::LayerMinXMaxYCorner,
+        ),
+    ] {
+        if corners.contains(corner) {
+            mask |= layer_corner;
+        }
+    }
+    mask
 }
 
 // ---------------------------------------------------------------------------
@@ -2262,7 +3235,30 @@ define_class!(
         // be caught by watching the whole app.
         #[unsafe(method(acceptsFirstResponder))]
         fn accepts_first_responder(&self) -> bool {
-            true
+            !ffi_guard::contain(true, || input::subtree_disabled(self))
+        }
+
+        /// Pass-through (docs/gestures.md): a canvas with nothing attached (no gesture, menu,
+        /// drag, drop, focus or key handler) is decoration, and a press on it reaches whatever
+        /// is behind it. One with a key handler keeps the canvas contract: a press focuses it.
+        #[unsafe(method_id(hitTest:))]
+        fn hit_test(&self, point: NSPoint) -> Option<Retained<NSView>> {
+            let hit: Option<Retained<NSView>> = unsafe { msg_send![super(self), hitTest: point] };
+            ffi_guard::contain(None, || {
+                let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
+                let keys = KEY_NODES
+                    .with(|t| t.get(ptr))
+                    .is_some_and(day_spec::keys::handled);
+                input::leaf_hit_test(self, hit, keys || input::takes_pointer(self))
+            })
+        }
+
+        /// A hover area grown by a hit slop follows the view's bounds by hand (an area over
+        /// the visible rect follows them on its own).
+        #[unsafe(method(updateTrackingAreas))]
+        fn update_tracking_areas(&self) {
+            let _: () = unsafe { msg_send![super(self), updateTrackingAreas] };
+            ffi_guard::contain((), || input::refresh_hover_area(self));
         }
 
         // Clicking a canvas focuses it, the way clicking a table or a text field does. The
@@ -2298,7 +3294,10 @@ define_class!(
                 context.discardMarkedText();
             }
             if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
-                ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+                ffi_guard::contain((), || {
+                    input::forget_keys(node);
+                    emit(node, Event::FocusChanged(false));
+                });
             }
             true
         }
@@ -2324,17 +3323,7 @@ define_class!(
                 if day_spec::keys::text(node) {
                     return full_route_key_down(self, node, event);
                 }
-                let Some(key) = key_name(event) else {
-                    return false;
-                };
-                emit(
-                    node,
-                    Event::Key(day_spec::KeyEvent::named(
-                        key,
-                        key_modifiers(event.modifierFlags()),
-                    )),
-                );
-                true
+                short_route_key_down(node, event)
             });
             if !handled {
                 let _: () = unsafe { msg_send![super(self), keyDown: event] };
@@ -2362,7 +3351,7 @@ define_class!(
         fn draw_rect(&self, _dirty: NSRect) {
             let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
             let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
-            paint_ops(&ops);
+            paint_ops(&ops, 1.0);
         }
 
         /// Hover entry/motion/exit (docs/canvas.md "Interaction"). The tracking area is installed
@@ -2485,13 +3474,22 @@ define_class!(
                 return;
             }
             ffi_guard::contain((), || {
-                let interpreting = INTERPRETING.with(|i| i.borrow().clone());
+                let interpreting = INTERPRETING.with(|i| {
+                    i.borrow()
+                        .as_ref()
+                        .map(|i| (i.key.clone(), i.mods, i.phase, i.event.clone()))
+                });
                 let event = match interpreting {
-                    // One character typed by the key being interpreted: named by that key.
-                    Some((key, mods)) if text.chars().count() == 1 => {
-                        day_spec::KeyEvent::typed_by(key, text, mods)
+                    // One character typed by the key being interpreted: named by that key, and
+                    // that key's release is owed here.
+                    Some((key, mods, phase, press)) if text.chars().count() == 1 => {
+                        if phase == day_spec::KeyPhase::Down {
+                            input::claim_key(&press, node, key.clone());
+                        }
+                        day_spec::KeyEvent::typed_by(key, text, mods).with_phase(phase)
                     }
-                    Some((_, mods)) => day_spec::KeyEvent::typed_text(text, mods),
+                    // An input method's commit: no single key is behind it, so no phases.
+                    Some((_, mods, _, _)) => day_spec::KeyEvent::typed_text(text, mods),
                     // Committed outside any key press (the Character Viewer, dictation).
                     None => day_spec::KeyEvent::typed_text(text, 0),
                 };
@@ -2590,53 +3588,8 @@ impl DayCanvas {
     /// reports a hover for a pointer that is nowhere near it (measured: a pointer parked outside
     /// the window entirely still produced hover positions).
     fn report_hover(&self, event: &objc2_app_kit::NSEvent, phase: day_spec::DragPhase) {
-        let ptr = std::ptr::from_ref::<DayCanvas>(self).cast::<NSView>() as usize;
-        let Some(node) = HOVER_NODES.with(|t| t.get(ptr)) else {
-            return;
-        };
-        ffi_guard::contain((), || {
-            let win = unsafe { event.locationInWindow() };
-            let loc = self.convertPoint_fromView(win, None);
-            let b = self.bounds();
-            let inside = loc.x >= b.origin.x
-                && loc.x <= b.origin.x + b.size.width
-                && loc.y >= b.origin.y
-                && loc.y <= b.origin.y + b.size.height;
-            // An exit is reported wherever it happens — that is the point of it — but a move
-            // outside the view is not this view's hover.
-            if !inside && phase != day_spec::DragPhase::Ended {
-                return;
-            }
-            emit(
-                node,
-                Event::Hover {
-                    phase,
-                    location: Point::new(loc.x, loc.y),
-                },
-            );
-        });
+        ffi_guard::contain(false, || input::report_hover(self, event, phase));
     }
-}
-
-/// The tracking area a hovering canvas needs. `InVisibleRect` makes it follow the view's bounds,
-/// so there is no rect to keep in step with layout; `ActiveInKeyWindow` matches the cursor areas
-/// already installed here — a background window does not report hovers.
-fn install_tracking_area(h: &NSView) {
-    let opts = NSTrackingAreaOptions::MouseEnteredAndExited
-        | NSTrackingAreaOptions::MouseMoved
-        | NSTrackingAreaOptions::ActiveInKeyWindow
-        | NSTrackingAreaOptions::InVisibleRect;
-    let any: &objc2::runtime::AnyObject = h;
-    let area = unsafe {
-        NSTrackingArea::initWithRect_options_owner_userInfo(
-            NSTrackingArea::alloc(),
-            NSRect::ZERO,
-            opts,
-            Some(any),
-            None,
-        )
-    };
-    unsafe { h.addTrackingArea(&area) };
 }
 
 // ---------------------------------------------------------------------------
@@ -2657,6 +3610,32 @@ define_class!(
 
     unsafe impl NSObjectProtocol for DayGesture {}
 
+    /// The arbitration AppKit's recognizers lack a property for (docs/gestures.md
+    /// "Recognizers"). Set on the tap, double-tap and long-press recognizers only.
+    unsafe impl NSGestureRecognizerDelegate for DayGesture {
+        /// A Control-click is the context-menu click: the menu keeps it, so a long press
+        /// does not start under it.
+        #[unsafe(method(gestureRecognizer:shouldAttemptToRecognizeWithEvent:))]
+        fn should_attempt(&self, _g: &NSGestureRecognizer, event: &NSEvent) -> bool {
+            !(self.ivars().kind == day_spec::GestureKind::LongPress
+                && event.modifierFlags().contains(NSEventModifierFlags::Control))
+        }
+
+        /// A view's single and double click run side by side: the second click of a double
+        /// must reach the double recognizer whichever of the two AppKit asks first. Which
+        /// one reports is decided in `fire:` (`input::tap_disposition`).
+        #[unsafe(method(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:))]
+        fn simultaneous(&self, _g: &NSGestureRecognizer, other: &NSGestureRecognizer) -> bool {
+            use day_spec::GestureKind::{DoubleTap, Tap};
+            let mine = self.ivars().kind;
+            let theirs = unsafe { other.delegate() }.and_then(|d| {
+                let obj: &AnyObject = d.as_ref();
+                obj.downcast_ref::<DayGesture>().map(|g| g.ivars().kind)
+            });
+            matches!((mine, theirs), (Tap, Some(DoubleTap)) | (DoubleTap, Some(Tap)))
+        }
+    }
+
     impl DayGesture {
         #[unsafe(method(fire:))]
         fn fire(&self, g: &NSGestureRecognizer) {
@@ -2664,7 +3643,12 @@ define_class!(
                 let node = self.ivars().node;
                 let view = g.view();
                 let loc = g.locationInView(view.as_deref());
-                let at = Point::new(loc.x, loc.y);
+                // Node-local, origin top left, on a flipped view or not.
+                let at = match view.as_deref() {
+                    Some(v) => input::top_left(v, loc),
+                    None => Point::new(loc.x, loc.y),
+                };
+                let up = view.as_deref().is_some_and(|v| !v.isFlipped());
                 let phase = match g.state() {
                     NSGestureRecognizerState::Began => day_spec::DragPhase::Began,
                     NSGestureRecognizerState::Ended
@@ -2675,13 +3659,53 @@ define_class!(
                 let obj: &objc2::runtime::AnyObject = g.as_ref();
                 match self.ivars().kind {
                     day_spec::GestureKind::Drag => {
-                        let translation = if let Some(pan) = obj.downcast_ref::<NSPanGestureRecognizer>() {
-                            let t = unsafe { pan.translationInView(view.as_deref()) };
-                            Point::new(t.x, t.y)
-                        } else {
-                            Point::ZERO
-                        };
+                        let pan = obj.downcast_ref::<NSPanGestureRecognizer>();
+                        let flip = |p: NSPoint| Point::new(p.x, if up { -p.y } else { p.y });
+                        let translation = pan.map_or(Point::ZERO, |pan| {
+                            flip(unsafe { pan.translationInView(view.as_deref()) })
+                        });
+                        // The recognizer's own release velocity (docs/gestures.md "Velocity"),
+                        // just before the release, and only for a gesture that ended rather
+                        // than being cancelled.
+                        if g.state() == NSGestureRecognizerState::Ended
+                            && let Some(pan) = pan
+                        {
+                            let velocity = flip(unsafe { pan.velocityInView(view.as_deref()) });
+                            emit(
+                                node,
+                                Event::GestureVelocity {
+                                    kind: day_spec::GestureKind::Drag,
+                                    velocity,
+                                },
+                            );
+                        }
                         emit(node, Event::Drag { phase, location: at, translation });
+                    }
+                    day_spec::GestureKind::LongPress => {
+                        // Fires once, while the button is still down; the click that ends
+                        // this sequence is not a tap.
+                        let key = view.as_deref().map_or(0, ptr_of);
+                        match g.state() {
+                            NSGestureRecognizerState::Began => {
+                                input::LONG_HELD.with(|t| t.insert(key, ()));
+                                emit(node, Event::LongPress(at));
+                            }
+                            NSGestureRecognizerState::Ended
+                            | NSGestureRecognizerState::Cancelled
+                            | NSGestureRecognizerState::Failed => {
+                                // After the click recognizers had their say on this release.
+                                <AppKit as Platform>::post(Box::new(move || {
+                                    input::LONG_HELD.with(|t| t.take(key));
+                                }));
+                            }
+                            _ => {}
+                        }
+                    }
+                    day_spec::GestureKind::DoubleTap => {
+                        if let Some(v) = view.as_deref() {
+                            input::cancel_held_tap(v);
+                        }
+                        emit(node, Event::DoubleTap(at));
                     }
                     day_spec::GestureKind::Pinch => {
                         // Cumulative since Began: `magnification` is the total delta (0 =
@@ -2695,7 +3719,39 @@ define_class!(
                         };
                         emit(node, Event::Pinch { phase, scale, location: at });
                     }
-                    _ => emit(node, Event::Tap(at)),
+                    _ => {
+                        let Some(v) = view.as_deref() else {
+                            emit(node, Event::Tap(at));
+                            return;
+                        };
+                        if input::LONG_HELD.with(|t| t.take(ptr_of(v))).is_some() {
+                            return;
+                        }
+                        let double = GESTURES.with(|m| {
+                            m.borrow().get(&ptr_of(v)).is_some_and(|targets| {
+                                targets
+                                    .iter()
+                                    .any(|t| t.ivars().kind == day_spec::GestureKind::DoubleTap)
+                            })
+                        });
+                        let clicks = NSApplication::sharedApplication(self.mtm())
+                            .currentEvent()
+                            .map_or(1, |e| {
+                                if matches!(
+                                    e.r#type(),
+                                    NSEventType::LeftMouseUp | NSEventType::LeftMouseDown
+                                ) {
+                                    e.clickCount()
+                                } else {
+                                    1
+                                }
+                            });
+                        match input::tap_disposition(double, clicks) {
+                            input::TapDisposition::Immediate => emit(node, Event::Tap(at)),
+                            input::TapDisposition::Pending => input::hold_tap(v, node, at),
+                            input::TapDisposition::Drop => {}
+                        }
+                    }
                 }
             });
         }
@@ -3275,6 +4331,8 @@ struct NavPageIvars {
     /// A large sheet (docs/cover.md "Large sheet"): the window sheet grows to
     /// `LARGE_SHEET_MAX`.
     large: Cell<bool>,
+    /// A presented cover's opaque fill on the layer, set again for each appearance.
+    fill: Cell<Option<day_spec::Ink>>,
 }
 
 define_class!(
@@ -3303,6 +4361,13 @@ define_class!(
                 );
             });
         }
+
+        /// A cover's fill is a layer color, which holds one appearance: set it again.
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            let _: () = unsafe { msg_send![super(self), viewDidChangeEffectiveAppearance] };
+            ffi_guard::contain((), || self.paint_fill());
+        }
     }
 );
 
@@ -3314,8 +4379,23 @@ impl DayNavPage {
             sheet: Cell::new(false),
             half: Cell::new(false),
             large: Cell::new(false),
+            fill: Cell::new(None),
         });
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// Fill a presented cover with `ink` (docs/cover.md): the page's layer background, opaque
+    /// over the window, resolved for the appearance the page is shown in.
+    fn set_fill(&self, ink: day_spec::Ink) {
+        self.ivars().fill.set(Some(ink));
+        self.setWantsLayer(true);
+        self.paint_fill();
+    }
+
+    fn paint_fill(&self) {
+        if let (Some(ink), Some(layer)) = (self.ivars().fill.get(), self.layer()) {
+            layer.setBackgroundColor(Some(&color::cg_for(self, ink)));
+        }
     }
 }
 
@@ -3485,7 +4565,7 @@ struct NavMenuIvars {
     icon_fills: RefCell<Vec<f64>>,
     /// Per-row icon tint (docs/vectors.md): recolors the template glyph via contentTintColor;
     /// `None` keeps the source-list's neutral template tint.
-    tints: RefCell<Vec<Option<day_spec::Color>>>,
+    tints: RefCell<Vec<Option<day_spec::Ink>>>,
     /// Trailing accessory per item row (an unread count), `None` where a row has none.
     badges: RefCell<Vec<Option<Retained<NSString>>>>,
     /// Trailing accessory GLYPH per row, in the same slot as `badges` and drawn after it —
@@ -3493,7 +4573,7 @@ struct NavMenuIvars {
     icon_progress: RefCell<Vec<(usize, Option<f64>)>>,
     badge_icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
     /// Tint for `badge_icons`; `None` keeps the neutral template tint.
-    badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
+    badge_tints: RefCell<Vec<Option<day_spec::Ink>>>,
     /// Per-row context menu (docs/menus.md), empty = none. Built into an `NSMenu` and attached
     /// to the row's cell view, so a secondary click pops it like any native sidebar menu.
     menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
@@ -3995,7 +5075,7 @@ define_class!(
                         iv.setImage(Some(img));
                         iv.setTranslatesAutoresizingMaskIntoConstraints(false);
                         if let Some(c) = badge_tint {
-                            iv.setContentTintColor(Some(&nscolor(c)));
+                            iv.setContentTintColor(Some(&color::nsink(c)));
                         }
                         iv.setContentCompressionResistancePriority_forOrientation(
                             objc2_app_kit::NSLayoutPriorityRequired,
@@ -4029,7 +5109,7 @@ define_class!(
                         // Per-row tint (docs/vectors.md): the icons are template images, so
                         // contentTintColor recolors the alpha mask; None keeps the neutral look.
                         if let Some(t) = tint {
-                            iv.setContentTintColor(Some(&nscolor(t)));
+                            iv.setContentTintColor(Some(&color::nsink(t)));
                         }
                         iv.setImageScaling(
                             objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,
@@ -4179,9 +5259,9 @@ impl DayNavMenuData {
         icons: &[Option<String>],
         badges: &[Option<String>],
         badge_icons: &[Option<String>],
-        badge_tints: &[Option<day_spec::Color>],
+        badge_tints: &[Option<day_spec::Ink>],
         sections: &[Option<String>],
-        tints: &[Option<day_spec::Color>],
+        tints: &[Option<day_spec::Ink>],
         menus: &[Vec<day_spec::MenuItem>],
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(NavMenuIvars {
@@ -4218,9 +5298,9 @@ impl DayNavMenuData {
         icons: &[Option<String>],
         badges: &[Option<String>],
         badge_icons: &[Option<String>],
-        badge_tints: &[Option<day_spec::Color>],
+        badge_tints: &[Option<day_spec::Ink>],
         sections: &[Option<String>],
-        tints: &[Option<day_spec::Color>],
+        tints: &[Option<day_spec::Ink>],
         menus: &[Vec<day_spec::MenuItem>],
     ) {
         *self.ivars().items.borrow_mut() = items.iter().map(|s| NSString::from_str(s)).collect();
@@ -4619,27 +5699,38 @@ fn ns_badges(badges: &[Option<String>]) -> Vec<Option<Retained<NSString>>> {
 fn post_realize_visible_rows(key: usize) {
     <AppKit as Platform>::post(Box::new(move || {
         if let Some((table, data)) = list_entry(key) {
-            unsafe { table.layoutSubtreeIfNeeded() };
-            let range = unsafe { table.rowsInRect(table.visibleRect()) };
-            if let Some(source) = data.ivars().source.borrow().clone()
-                && let Some(report) = &source.first_visible
+            // A change held through a pass lands first: the rows below are the source's.
+            data.apply_held(&table);
             {
-                report(range.location.min((source.len)().saturating_sub(1)));
-            }
-            for row in range.location..range.location + range.length {
-                let cell = unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
-                // A snapshot/layout can have requested this cell while day-core held its
-                // tree borrow. The delegate then returned an empty container; AppKit caches
-                // it and will not ask viewForRow again. Complete that skipped bind here.
-                if let Some(cell) = cell
-                    && cell.subviews().is_empty()
-                {
-                    let source = data.ivars().source.borrow().clone();
-                    if let Some(source) = source {
-                        (source.bind_row)(row, Retained::as_ptr(&cell) as RawHandle);
+                // The binds below flush Day's pending work, as a pass's do: hold what it
+                // changes, so the rows walked stay the rows shown.
+                let _pass = RowPass::enter();
+                unsafe { table.layoutSubtreeIfNeeded() };
+                let range = unsafe { table.rowsInRect(table.visibleRect()) };
+                for row in range.location..range.location + range.length {
+                    let cell =
+                        unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
+                    // A snapshot, a splice or a layout can have requested this cell while
+                    // day-core held its tree borrow. The bind was skipped then: the delegate
+                    // returned an empty container, or a pooled cell still showing the row it
+                    // held before (an inserted row reusing a removed one's cell). AppKit caches
+                    // either and will not ask viewForRow again. Complete that skipped bind here,
+                    // for the source row the table's row stands for (a change held by an
+                    // earlier bind of this pass maps them).
+                    if let Some(cell) = cell {
+                        let raw = Retained::as_ptr(&cell) as RawHandle;
+                        let skipped = data.ivars().unbound.borrow_mut().remove(&(raw as usize));
+                        if (skipped || cell.subviews().is_empty())
+                            && let Some(source) = data.ivars().source.borrow().clone()
+                            && let Some(index) = data.source_row(row as isize)
+                        {
+                            (source.bind_row)(index, raw);
+                            data.note_row_height(&table, &source, row as isize, raw);
+                        }
                     }
                 }
             }
+            data.report_viewport(&table);
         }
         // The builds above queued their styling effects; drain them now — outside the pump, no
         // event may arrive for a while (idle app), and a snapshot would capture bare rows.
@@ -4659,6 +5750,7 @@ fn post_settle_list_drop(key: usize) {
         let Some((table, data)) = list_entry(key) else {
             return;
         };
+        data.apply_held(&table);
         let Some(scroll) = table.enclosingScrollView() else {
             return;
         };
@@ -4733,6 +5825,38 @@ define_class!(
             })
         }
 
+        /// Host-drawn separators (`ListProps::separators`) skip supplementary rows: no line
+        /// above or below a list's header, footer, empty state or padding (docs/list.md).
+        #[unsafe(method(drawGridInClipRect:))]
+        fn draw_grid_in_clip_rect(&self, clip: NSRect) {
+            ffi_guard::contain((), || {
+                let data = unsafe { self.target() }
+                    .and_then(|t| t.downcast::<DayListData>().ok())
+                    .filter(|d| d.ivars().supplements.get());
+                let Some(data) = data else {
+                    let _: () = unsafe { msg_send![super(self), drawGridInClipRect: clip] };
+                    return;
+                };
+                if unsafe { self.gridStyleMask() }.is_empty() {
+                    return;
+                }
+                let rows = unsafe { self.numberOfRows() };
+                let shown = unsafe { self.rowsInRect(clip) };
+                unsafe { self.gridColor() }.setFill();
+                for row in shown.location..shown.location + shown.length {
+                    let row = row as isize;
+                    if data.is_supplement(row) || (row + 1 < rows && data.is_supplement(row + 1)) {
+                        continue;
+                    }
+                    let rect = unsafe { self.rectOfRow(row) };
+                    objc2_app_kit::NSBezierPath::fillRect(NSRect::new(
+                        NSPoint::new(clip.origin.x, rect.origin.y + rect.size.height - 1.0),
+                        NSSize::new(clip.size.width, 1.0),
+                    ));
+                }
+            });
+        }
+
         #[unsafe(method(becomeFirstResponder))]
         fn become_first_responder(&self) -> bool {
             let accepted: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
@@ -4762,7 +5886,89 @@ define_class!(
                         return;
                     }
                 }
+                // What a key scrolls is the reader's scroll (docs/list.md "Following the
+                // end"); a page key or Home/End also stops a scroll the app asked for.
+                let data = unsafe { self.target() }
+                    .and_then(|t| t.downcast::<DayListData>().ok());
+                if let Some(data) = &data {
+                    if PAGE_KEYS.contains(&key)
+                        && let Some(scroll) = self.enclosingScrollView()
+                    {
+                        scroll::stop_clip_animation(&scroll);
+                    }
+                    data.ivars().input.set(true);
+                }
                 let _: () = unsafe { msg_send![super(self), keyDown: event] };
+                if let Some(data) = &data {
+                    data.ivars().input.set(false);
+                }
+            });
+        }
+
+        /// AppKit updates the visible rows here (`NSTableRowData updateVisibleRowViews`): a
+        /// change of rows that arrives meanwhile, from a bind or an event pumped from inside
+        /// the pass, is held until it is over (`RowPass`).
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            let _pass = RowPass::enter();
+            let _: () = unsafe { msg_send![super(self), layout] };
+        }
+
+        /// A scroll updates the visible rows here, before the next layout (see `layout`).
+        #[unsafe(method(prepareContentInRect:))]
+        fn prepare_content_in_rect(&self, rect: NSRect) {
+            let _pass = RowPass::enter();
+            let _: () = unsafe { msg_send![super(self), prepareContentInRect: rect] };
+        }
+    }
+);
+
+/// The key codes of Home, Page Up, End and Page Down: keys that only scroll a list.
+const PAGE_KEYS: [u16; 4] = [115, 116, 119, 121];
+
+define_class!(
+    /// A list's scroll view (docs/list.md "Following the end"): what a wheel event scrolls is
+    /// the reader's scroll, and a notch or the start of a gesture stops a scroll the app asked
+    /// for. It only watches the events go by, so it asks to keep AppKit's responsive scrolling,
+    /// which overriding `scrollWheel:` would otherwise turn off.
+    #[unsafe(super(NSScrollView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayListScrollView"]
+    struct DayListScrollView;
+    unsafe impl NSObjectProtocol for DayListScrollView {}
+    impl DayListScrollView {
+        #[unsafe(method(isCompatibleWithResponsiveScrolling))]
+        fn compatible_with_responsive_scrolling() -> bool {
+            true
+        }
+
+        #[unsafe(method(scrollWheel:))]
+        fn scroll_wheel(&self, event: &NSEvent) {
+            ffi_guard::contain((), || {
+                let entry = list_entry(ptr_of(self));
+                if let Some((table, data)) = &entry {
+                    let phase = unsafe { event.phase() };
+                    let notch = phase.is_empty() && unsafe { event.momentumPhase() }.is_empty();
+                    if notch || phase.contains(objc2_app_kit::NSEventPhase::Began) {
+                        scroll::stop_clip_animation(self);
+                    }
+                    // A notch or a gesture toward the top takes the list from its end, whenever
+                    // AppKit moves it: responsive scrolling can land a notch on a later turn,
+                    // after this call, where the move would no longer read as the reader's.
+                    // Said first, so the viewport report of a move made now comes after it.
+                    if unsafe { event.scrollingDeltaY() } > 0.0
+                        && unsafe { self.contentView() }.bounds().origin.y > 0.0
+                    {
+                        data.report_reader_leaving(table);
+                    }
+                    data.ivars().input.set(true);
+                    data.ivars().wheel.set(true);
+                }
+                let _: () = unsafe { msg_send![super(self), scrollWheel: event] };
+                if let Some((_, data)) = &entry {
+                    data.ivars().input.set(false);
+                    data.ivars().wheel.set(false);
+                }
             });
         }
     }
@@ -4849,6 +6055,151 @@ struct ListIvars {
     estimate: std::cell::Cell<f64>,
     /// A height pass is posted and not yet run (`post_row_heights` coalesces).
     heights_pending: std::cell::Cell<bool>,
+    /// The list has supplementary rows (docs/list.md "Header, footer and empty state"), which
+    /// size to their content in any list, so a uniform list with them answers
+    /// `tableView:heightOfRow:` too. Known once `attach_list` brings the source.
+    supplements: std::cell::Cell<bool>,
+    /// Cells AppKit asked for while day-core held its tree borrow, whose bind was skipped;
+    /// `post_realize_visible_rows` binds them.
+    unbound: RefCell<std::collections::HashSet<usize>>,
+    /// A `ListPatch::Splice` being applied: the source row behind each row the table shows
+    /// between two deltas ([`SpliceRows`]).
+    splice: RefCell<Option<SpliceRows>>,
+    /// The reader is scrolling the list live (docs/list.md "Following the end"): between the
+    /// scroll view's will-start and did-end live scroll notifications for a trackpad or Magic
+    /// Mouse gesture (its momentum included) or a drag of the scroller. AppKit also starts a
+    /// live scroll for an animated `pageUp:`/`pageDown:`, but never ends that one, so it is
+    /// reported once and not held.
+    live: std::cell::Cell<bool>,
+    /// A wheel or key event of the reader's is being handled: what it scrolls is theirs.
+    input: std::cell::Cell<bool>,
+    /// The scroll view's `scrollWheel:` is handling an event: a live scroll AppKit starts
+    /// now is a gesture's.
+    wheel: std::cell::Cell<bool>,
+    /// A change of rows that arrived while a table was updating its visible rows, held until
+    /// that pass is over ([`HeldRows`], `DayListData::change_rows`).
+    held: RefCell<Option<HeldRows>>,
+    /// The apply of a held change is posted and has not run yet.
+    held_posted: std::cell::Cell<bool>,
+    /// A splice or a reload is being applied to the table: a change arriving now is held, and
+    /// the rows keep the in-flight splice's mapping until it is done.
+    applying: std::cell::Cell<bool>,
+}
+
+thread_local! {
+    /// How deep this thread is inside a pass of a list's `NSTableView` over its visible rows:
+    /// its `layout` or `prepareContentInRect:` (both run `NSTableRowData`'s
+    /// `updateVisibleRowViews`), a row bind from `tableView:viewForTableColumn:row:`, or the
+    /// realize pass. A bind flushes Day's pending reactive work, which can change any list's
+    /// rows; AppKit throws ("can not happen while updating visible rows!") if a row is
+    /// inserted, removed or moved then, so a change arriving inside a pass is held
+    /// ([`HeldRows`]).
+    static LIST_ROW_PASS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// One level of [`LIST_ROW_PASS`], left when dropped (a contained panic's unwind included).
+struct RowPass;
+
+impl RowPass {
+    fn enter() -> Self {
+        LIST_ROW_PASS.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+
+    /// Whether a list is updating its visible rows on this thread now.
+    fn active() -> bool {
+        LIST_ROW_PASS.with(|depth| depth.get() > 0)
+    }
+}
+
+impl Drop for RowPass {
+    fn drop(&mut self) {
+        LIST_ROW_PASS.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
+/// The changes of a list's rows that arrived during a pass over its visible rows ([`RowPass`]),
+/// applied together on the next main-loop turn, or as soon as another patch for the list
+/// arrives outside a pass, whichever is first. Until then the table shows the rows it had, and
+/// the delegate answers for each through the held splice's [`SpliceRows`], as it does part way
+/// through an applied one.
+struct HeldRows {
+    /// The sequential deltas of every splice held, in the order they arrived, which apply to the
+    /// rows the table shows as one splice. `None` once a reload is held: it covers every change
+    /// before and after it.
+    deltas: Option<Vec<day_spec::props::RowDelta>>,
+    /// The tokens of the rows selected last while the change was held, selected after it.
+    selected: Option<Vec<u64>>,
+}
+
+/// The rows of a table part way through a `ListPatch::Splice`. The source already answers in
+/// the final state, but `NSTableView` asks about rows as each delta lands (an inserted row's
+/// height, whether it is a group row, its view), by the index the row has at that moment. A
+/// sectioned list answered from the final state then sizes and styles a row as whatever row
+/// ends up at that index: an item row gets a header's height and clips its content.
+///
+/// Each row shown is an entry: the rows shown before the splice are entries `0..shown`, and
+/// each insert adds the next one. Replaying the deltas once up front gives every entry its
+/// final index, so `source_row` maps a row of any in-between state to the source's row.
+struct SpliceRows {
+    /// The entry of each row the table shows now.
+    entries: Vec<usize>,
+    /// The source row each entry ends at; `None` for an entry a later delta removes.
+    finals: Vec<Option<usize>>,
+    /// The entry the next insert adds.
+    next: usize,
+}
+
+impl SpliceRows {
+    /// The rows of a table showing `shown` rows that is about to apply `deltas`, which must
+    /// fit it ([`splice_fits`]).
+    fn new(shown: usize, deltas: &[day_spec::props::RowDelta]) -> Self {
+        let mut replay = Self {
+            entries: (0..shown).collect(),
+            finals: Vec::new(),
+            next: shown,
+        };
+        for delta in deltas {
+            replay.apply(*delta);
+        }
+        let mut finals = vec![None; replay.next];
+        for (row, entry) in replay.entries.iter().enumerate() {
+            finals[*entry] = Some(row);
+        }
+        Self {
+            entries: (0..shown).collect(),
+            finals,
+            next: shown,
+        }
+    }
+
+    /// Apply one delta, as the table is about to. A delta that does not fit is ignored
+    /// ([`splice_fits`] has already turned such a splice into a reload).
+    fn apply(&mut self, delta: day_spec::props::RowDelta) {
+        use day_spec::props::RowDelta;
+        let len = self.entries.len();
+        match delta {
+            RowDelta::Insert(i) if i <= len => {
+                self.entries.insert(i, self.next);
+                self.next += 1;
+            }
+            RowDelta::Remove(i) if i < len => {
+                self.entries.remove(i);
+            }
+            RowDelta::Move(from, to) if from < len && to < len => {
+                let entry = self.entries.remove(from);
+                self.entries.insert(to, entry);
+            }
+            _ => {}
+        }
+    }
+
+    /// The source row behind the table's row `row` now, `None` for a row the splice removes.
+    fn source_row(&self, row: usize) -> Option<usize> {
+        self.entries
+            .get(row)
+            .and_then(|entry| self.finals.get(*entry).copied().flatten())
+    }
 }
 
 define_class!(
@@ -4870,6 +6221,7 @@ define_class!(
             if selector == objc2::sel!(tableView:heightOfRow:)
                 && !self.ivars().automatic
                 && !self.ivars().sections
+                && !self.ivars().supplements.get()
             {
                 false
             } else {
@@ -4877,19 +6229,62 @@ define_class!(
             }
         }
 
+        /// The clip view scrolled (the user's scroll or a programmatic one, each step of an
+        /// animated one) or was resized. A scroll the reader is making is reported as theirs
+        /// first, so the viewport report that follows tells where they took the list.
         #[unsafe(method(listViewportChanged:))]
         fn list_viewport_changed(&self, notification: &NSNotification) {
             ffi_guard::contain((), || {
-                let source = self.ivars().source.borrow().clone();
-                if let Some(source) = source && let Some(report) = &source.first_visible
-                    && let Some(object) = notification.object()
+                if let Some(object) = notification.object()
                     && let Some(clip) = object.downcast_ref::<objc2_app_kit::NSClipView>()
                     && let Some(document) = clip.documentView()
                     && let Some(table) = document.downcast_ref::<NSTableView>() {
-                    let visible = unsafe { table.rowsInRect(table.visibleRect()) };
-                    report(visible.location.min((source.len)().saturating_sub(1)));
+                    if &*notification.name()
+                        == unsafe { objc2_app_kit::NSViewBoundsDidChangeNotification }
+                    {
+                        self.note_reader_scroll(table);
+                    }
+                    self.report_viewport(table);
                 }
             });
+        }
+
+        /// The reader started a live scroll. A scroll the app asked for that is still on its
+        /// way stops where it is. A gesture or a drag of the scroller (the event AppKit is
+        /// handling is a gesture's wheel event or a mouse event) holds the list until AppKit
+        /// ends it; any other live scroll (`pageUp:`, the animation AppKit sometimes runs for a
+        /// wheel notch on a later turn, neither of which it ever ends) is the reader's from
+        /// where it starts.
+        #[unsafe(method(listLiveScrollStarted:))]
+        fn list_live_scroll_started(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || {
+                let Some(object) = notification.object() else { return };
+                let Some(scroll) = object.downcast_ref::<NSScrollView>() else { return };
+                scroll::stop_clip_animation(scroll);
+                let app = NSApplication::sharedApplication(self.mtm());
+                let held = self.ivars().wheel.get()
+                    || app.currentEvent().is_some_and(|event| match unsafe { event.r#type() } {
+                        NSEventType::ScrollWheel => {
+                            !unsafe { event.phase() }.is_empty()
+                                || !unsafe { event.momentumPhase() }.is_empty()
+                        }
+                        NSEventType::LeftMouseDown | NSEventType::LeftMouseDragged => true,
+                        _ => false,
+                    });
+                if held {
+                    self.ivars().live.set(true);
+                } else if let Some(document) = unsafe { scroll.documentView() }
+                    && let Some(table) = document.downcast_ref::<NSTableView>()
+                {
+                    self.report_reader_scroll(table);
+                }
+            });
+        }
+
+        /// The live scroll is over, momentum included.
+        #[unsafe(method(listLiveScrollEnded:))]
+        fn list_live_scroll_ended(&self, _notification: &NSNotification) {
+            ffi_guard::contain((), || self.ivars().live.set(false));
         }
 
         #[unsafe(method(activateRow:))]
@@ -4915,6 +6310,10 @@ define_class!(
             // synchronously from reloadData inside a with_tree borrow. Guarded because
             // `len` is a day-core closure.
             ffi_guard::contain(0, || {
+                // Part way through a splice the table shows the rows the deltas so far left.
+                if let Some(splice) = self.ivars().splice.borrow().as_ref() {
+                    return splice.entries.len() as isize;
+                }
                 self.ivars()
                     .source
                     .borrow()
@@ -4945,7 +6344,7 @@ define_class!(
                     .as_ref()
                     .is_some_and(|s| s.reorder.is_some());
                 // A group row (a section header) never lifts (docs/list.md "Sections").
-                if !reorderable || row < 0 || self.is_header(row) {
+                if !reorderable || row < 0 || self.is_header(row) || self.is_supplement(row) {
                     return None;
                 }
                 let item = objc2_app_kit::NSPasteboardItem::new();
@@ -5059,21 +6458,27 @@ define_class!(
             ffi_guard::contain(44.0, || {
                 let ivars = self.ivars();
                 let header = self.is_header(row);
-                // A uniform sectioned list: rows keep the fixed pitch, headers size themselves.
-                if !header && !ivars.automatic {
+                let supplement = self.is_supplement(row);
+                // A uniform list: rows keep the fixed pitch, headers and supplementary rows
+                // size themselves.
+                if !header && !supplement && !ivars.automatic {
                     return unsafe { tv.rowHeight() };
                 }
-                let token = ivars
-                    .source
-                    .borrow()
-                    .as_ref()
-                    .filter(|s| row >= 0 && (row as usize) < (s.len)())
-                    .map(|s| (s.token_at)(row as usize));
+                let token = self.source_row(row).and_then(|row| {
+                    ivars
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .filter(|s| row < (s.len)())
+                        .map(|s| (s.token_at)(row))
+                });
                 token
                     .and_then(|t| ivars.heights.borrow().get(&t).copied())
                     .unwrap_or_else(|| {
                         if header {
                             ivars.header_estimate.get()
+                        } else if supplement && !ivars.automatic {
+                            unsafe { tv.rowHeight() }
                         } else {
                             ivars.estimate.get()
                         }
@@ -5089,10 +6494,11 @@ define_class!(
             ffi_guard::contain(false, || self.is_header(row))
         }
 
-        /// A header is not an item: clicks and arrow keys pass over it.
+        /// A header or a supplementary row is not an item: clicks and arrow keys pass over it,
+        /// and it never shows a selection.
         #[unsafe(method(tableView:shouldSelectRow:))]
         fn should_select_row(&self, _tv: &NSTableView, row: isize) -> bool {
-            ffi_guard::contain(true, || !self.is_header(row))
+            ffi_guard::contain(true, || !self.is_header(row) && !self.is_supplement(row))
         }
 
         #[unsafe(method_id(tableView:viewForTableColumn:row:))]
@@ -5104,10 +6510,19 @@ define_class!(
         ) -> Option<Retained<NSView>> {
             // Guarded: `bind_row` builds the app's row content.
             ffi_guard::contain(None, || {
+                // The table is updating its visible rows, and the bind below flushes Day's
+                // pending reactive work: a change of rows it makes is held (`RowPass`).
+                let _pass = RowPass::enter();
                 let mtm = self.mtm();
-                // Headers pool apart from rows, so a recycled cell keeps its kind and rebinds.
-                let header = self.is_header(row);
-                let ident = NSString::from_str(if header { DAY_HEADER_CELL } else { DAY_ROW_CELL });
+                // Headers and supplementary rows pool apart from rows, so a recycled cell keeps
+                // its kind and rebinds.
+                let ident = NSString::from_str(if self.is_header(row) {
+                    DAY_HEADER_CELL
+                } else if self.is_supplement(row) {
+                    DAY_EXTRA_CELL
+                } else {
+                    DAY_ROW_CELL
+                });
                 // Recycle a cell view if one is free; else make a fresh flipped container.
                 let cell: Retained<NSView> =
                     unsafe { tv.makeViewWithIdentifier_owner(&ident, None) }.unwrap_or_else(|| {
@@ -5119,11 +6534,20 @@ define_class!(
                 // (slot-write) when the cell is recycled. NSTableView calls this outside
                 // reloadData's stack, so the re-entry into with_tree is safe.
                 let source = self.ivars().source.borrow().clone();
-                if let Some(source) = source {
+                // A row a splice in flight is about to remove keeps the cell it has.
+                if let Some(source) = source
+                    && let Some(index) = self.source_row(row)
+                {
                     let raw = Retained::as_ptr(&cell) as RawHandle;
-                    (source.bind_row)(row as usize, raw);
-                    if self.ivars().automatic || header {
-                        self.note_row_height(tv, &source, row, raw, header);
+                    // Under day-core's borrow (a splice's insert, a snapshot) the bind is
+                    // skipped; remember the cell so the realize pass binds it.
+                    let busy = day_core::try_with_tree(|_| ()).is_none();
+                    (source.bind_row)(index, raw);
+                    if busy {
+                        self.ivars().unbound.borrow_mut().insert(raw as usize);
+                    } else {
+                        self.ivars().unbound.borrow_mut().remove(&(raw as usize));
+                        self.note_row_height(tv, &source, row, raw);
                     }
                 }
                 Some(cell)
@@ -5147,7 +6571,7 @@ define_class!(
                     sub.identifier()
                         .is_some_and(|i| {
                             let i = i.to_string();
-                            i == DAY_ROW_CELL || i == DAY_HEADER_CELL
+                            i == DAY_ROW_CELL || i == DAY_HEADER_CELL || i == DAY_EXTRA_CELL
                         })
                 }) else {
                     return;
@@ -5290,7 +6714,7 @@ define_class!(
                                 &handler,
                             );
                         if let Some(t) = a.tint {
-                            unsafe { action.setBackgroundColor(Some(&nscolor(t))) };
+                            unsafe { action.setBackgroundColor(Some(&color::nsink(t))) };
                         }
                         // Glyph above the label — the Mail row-action look. The SF symbol
                         // resolves per OS release; an unknown name yields no image and the
@@ -5336,34 +6760,49 @@ impl DayListData {
             cell_tokens: RefCell::new(std::collections::HashMap::new()),
             estimate: std::cell::Cell::new(44.0),
             heights_pending: std::cell::Cell::new(false),
+            supplements: std::cell::Cell::new(false),
+            unbound: RefCell::new(std::collections::HashSet::new()),
+            splice: RefCell::new(None),
+            live: std::cell::Cell::new(false),
+            input: std::cell::Cell::new(false),
+            wheel: std::cell::Cell::new(false),
+            held: RefCell::new(None),
+            held_posted: std::cell::Cell::new(false),
+            applying: std::cell::Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
     }
 
-    /// A self-sizing row was just bound to `cell`: record the height Day laid it at, and if
-    /// the table drew the row at another height (the estimate, or the row's old content),
-    /// correct it on the next turn. Not here: this runs inside `NSTableView`'s own tiling.
+    /// A row was just bound to `cell`: when it sizes itself (a self-sizing list's row, a
+    /// header, a supplementary row), record the height Day laid it at, and if the table drew
+    /// the row at another height (the estimate, or the row's old content), correct it on the
+    /// next turn. Not here: this runs inside `NSTableView`'s own tiling.
     fn note_row_height(
         &self,
         table: &NSTableView,
         source: &ListSource,
         row: isize,
         cell: RawHandle,
-        header: bool,
     ) {
-        let height = (source.cell_height)(cell);
-        if height <= 0.0 || row < 0 {
+        let header = self.is_header(row);
+        let supplement = self.is_supplement(row);
+        if !self.ivars().automatic && !header && !supplement {
             return;
         }
-        let token = (source.token_at)(row as usize);
+        let height = (source.cell_height)(cell);
+        let Some(index) = self.source_row(row).filter(|_| height > 0.0) else {
+            return;
+        };
+        let token = (source.token_at)(index);
         self.ivars()
             .cell_tokens
             .borrow_mut()
             .insert(cell as usize, token);
         self.ivars().heights.borrow_mut().insert(token, height);
+        // A supplementary row is one of a kind: its height says nothing about the rows'.
         if header {
             self.ivars().header_estimate.set(height);
-        } else {
+        } else if !supplement {
             self.ivars().estimate.set(height);
         }
         let drawn = unsafe { table.rectOfRow(row) }.size.height;
@@ -5372,16 +6811,456 @@ impl DayListData {
         }
     }
 
+    /// The source's row behind the table's row `row`: the same index, except part way through a
+    /// splice ([`SpliceRows`]). `None` for no row, or one the splice in flight removes.
+    fn source_row(&self, row: isize) -> Option<usize> {
+        let row = usize::try_from(row).ok()?;
+        match self.ivars().splice.borrow().as_ref() {
+            Some(splice) => splice.source_row(row),
+            None => Some(row),
+        }
+    }
+
     /// Whether display row `row` is a section header (docs/list.md "Sections").
     fn is_header(&self, row: isize) -> bool {
-        row >= 0
-            && self
-                .ivars()
+        self.source_row(row).is_some_and(|row| {
+            self.ivars()
                 .source
                 .borrow()
                 .as_ref()
                 .and_then(|s| s.is_header.clone())
-                .is_some_and(|is_header| is_header(row as usize))
+                .is_some_and(|is_header| is_header(row))
+        })
+    }
+
+    /// Whether `deltas` apply to the rows `table` shows and leave the source's row count
+    /// ([`splice_fits`]).
+    fn splice_fits(&self, table: &NSTableView, deltas: &[day_spec::props::RowDelta]) -> bool {
+        let shown = unsafe { table.numberOfRows() }.max(0) as usize;
+        let now = self
+            .ivars()
+            .source
+            .borrow()
+            .as_ref()
+            .map_or(0, |s| (s.len)());
+        splice_fits(shown, deltas, now)
+    }
+
+    /// Reload every row in place of a splice that cannot apply: the selection follows its rows
+    /// by token and the viewport stays where it was (clamped to the new content).
+    fn reload_keeping_offset(&self, table: &NSTableView) {
+        let selected = unsafe { table.selectedRowIndexes() };
+        let tokens: Vec<u64> = self
+            .ivars()
+            .tokens
+            .borrow()
+            .iter()
+            .enumerate()
+            .filter(|(row, _)| selected.containsIndex(*row))
+            .map(|(_, token)| *token)
+            .collect();
+        let scroll = table.enclosingScrollView();
+        let origin = scroll
+            .as_ref()
+            .map(|s| unsafe { s.contentView() }.bounds().origin);
+        self.ivars().suppress.set(true);
+        unsafe { table.reloadData() };
+        if let Some(source) = self.ivars().source.borrow().as_ref() {
+            let n = (source.len)();
+            *self.ivars().tokens.borrow_mut() = (0..n).map(|i| (source.token_at)(i)).collect();
+        }
+        let restored = objc2_foundation::NSMutableIndexSet::new();
+        for (row, token) in self.ivars().tokens.borrow().iter().enumerate() {
+            if tokens.contains(token) {
+                restored.addIndex(row);
+            }
+        }
+        unsafe { table.selectRowIndexes_byExtendingSelection(&restored, false) };
+        self.ivars().suppress.set(false);
+        if let (Some(scroll), Some(origin)) = (scroll, origin) {
+            let clip = unsafe { scroll.contentView() };
+            if clip.bounds().origin != origin {
+                scroll::scroll_clip_to(&scroll, origin, false, None);
+            }
+        }
+    }
+
+    /// Apply a change the source made to its rows: `deltas` for a `ListPatch::Splice`, `None`
+    /// for a `Reload`. Held instead ([`HeldRows`]) while a list is updating its visible rows
+    /// ([`RowPass`]), where AppKit throws on a row inserted, removed or moved, or while this
+    /// table is applying another change, whose row indexes the new one would shift. Held
+    /// changes apply on the next main-loop turn (`key` is the list's handle), in order.
+    fn change_rows(
+        &self,
+        key: usize,
+        table: &NSTableView,
+        deltas: Option<&[day_spec::props::RowDelta]>,
+    ) {
+        let applying = self.ivars().applying.get();
+        if !RowPass::active() && !applying {
+            match deltas {
+                Some(deltas) => self.splice_rows(table, deltas),
+                None => self.reload_rows(table),
+            }
+            return;
+        }
+        {
+            let mut held = self.ivars().held.borrow_mut();
+            let held = held.get_or_insert_with(|| HeldRows {
+                deltas: Some(Vec::new()),
+                selected: None,
+            });
+            // Sequential deltas compose by concatenation; a reload covers everything.
+            match (deltas, held.deltas.as_mut()) {
+                (Some(deltas), Some(all)) => all.extend_from_slice(deltas),
+                _ => held.deltas = None,
+            }
+        }
+        // Part way through a splice its own mapping answers; the held one is mapped once the
+        // splice is done.
+        if !applying {
+            self.map_held(table);
+        }
+        self.post_held(key);
+    }
+
+    /// `ListPatch::Selected`: select `rows` now, or, while a change of rows is held, once it
+    /// has landed. A held selection is kept by row token, since the rows it names may move
+    /// with a change held after it.
+    fn select(&self, table: &NSTableView, rows: &[usize]) {
+        if self.ivars().held.borrow().is_none() {
+            self.select_rows(table, rows);
+            return;
+        }
+        let tokens: Vec<u64> =
+            self.ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .map_or_else(Vec::new, |source| {
+                    let n = (source.len)();
+                    rows.iter()
+                        .filter(|row| **row < n)
+                        .map(|row| (source.token_at)(*row))
+                        .collect()
+                });
+        if let Some(held) = self.ivars().held.borrow_mut().as_mut() {
+            held.selected = Some(tokens);
+        }
+    }
+
+    /// Point the rows the table shows at the source's while a change is held: through the held
+    /// splice ([`SpliceRows`], as part way through an applied one), or each at its own index
+    /// while a reload is held.
+    fn map_held(&self, table: &NSTableView) {
+        let shown = unsafe { table.numberOfRows() }.max(0) as usize;
+        let map = self
+            .ivars()
+            .held
+            .borrow()
+            .as_ref()
+            .and_then(|held| held.deltas.as_ref())
+            .map(|deltas| SpliceRows::new(shown, deltas));
+        *self.ivars().splice.borrow_mut() = map;
+    }
+
+    /// Apply the held change on the next main-loop turn, once (coalesced).
+    fn post_held(&self, key: usize) {
+        if self.ivars().held_posted.replace(true) {
+            return;
+        }
+        <AppKit as Platform>::post(Box::new(move || {
+            let Some((table, data)) = list_entry(key) else {
+                return;
+            };
+            data.ivars().held_posted.set(false);
+            if RowPass::active() || data.ivars().applying.get() {
+                // A main loop run from inside a pass: come back once it is over.
+                data.post_held(key);
+            } else {
+                data.apply_held(&table);
+            }
+        }));
+    }
+
+    /// Apply the change held through a pass over the rows ([`HeldRows`]), then the selection
+    /// asked for meanwhile. Nothing while a pass or another change is under way: the posted
+    /// apply comes back for it.
+    fn apply_held(&self, table: &NSTableView) {
+        if RowPass::active() || self.ivars().applying.get() {
+            return;
+        }
+        let Some(held) = self.ivars().held.borrow_mut().take() else {
+            return;
+        };
+        // The table answers for its own rows again, then takes the change.
+        self.ivars().splice.borrow_mut().take();
+        match &held.deltas {
+            Some(deltas) => self.splice_rows(table, deltas),
+            None => self.reload_rows(table),
+        }
+        if let Some(tokens) = held.selected {
+            let rows: Vec<usize> =
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .map_or_else(Vec::new, |source| {
+                        (0..(source.len)())
+                            .filter(|row| tokens.contains(&(source.token_at)(*row)))
+                            .collect()
+                    });
+            self.select_rows(table, &rows);
+        }
+        if let Some(scroll) = table.enclosingScrollView() {
+            post_realize_visible_rows(ptr_of(&scroll));
+        }
+    }
+
+    /// `ListPatch::Splice`: the set changed by exactly these deltas, so animate each row in,
+    /// out, or across, the thing a reload cannot express. Indexes are sequential, so each delta
+    /// gets its own begin/endUpdates batch (`NSTableView`'s combined batch semantics
+    /// re-interpret indexes; one-at-a-time stays literal).
+    fn splice_rows(&self, table: &NSTableView, deltas: &[day_spec::props::RowDelta]) {
+        use objc2_app_kit::NSTableViewAnimationOptions;
+        if !self.splice_fits(table, deltas) {
+            // The deltas do not start from the rows the table shows (a change the table
+            // missed): a batch would index rows that are not there. Reload, keeping the
+            // viewport where it is.
+            log::warn!(
+                "day-toolkit-appkit: a list splice of {} rows does not fit the {} rows shown; reloading",
+                deltas.len(),
+                unsafe { table.numberOfRows() }
+            );
+            let applying = self.ivars().applying.replace(true);
+            self.reload_keeping_offset(table);
+            self.ivars().applying.set(applying);
+            self.map_held(table);
+            return;
+        }
+        // Past a few dozen rows a splice is a bulk change (an append of a page, a filter):
+        // applied without animation, in one zero-length group.
+        let quiet = deltas.len() > SPLICE_ANIMATED_MAX;
+        let (insert, remove) = if quiet {
+            (
+                NSTableViewAnimationOptions::EffectNone,
+                NSTableViewAnimationOptions::EffectNone,
+            )
+        } else {
+            (
+                NSTableViewAnimationOptions::SlideDown,
+                NSTableViewAnimationOptions::SlideUp,
+            )
+        };
+        if quiet {
+            NSAnimationContext::beginGrouping();
+            NSAnimationContext::currentContext().setDuration(0.0);
+        }
+        // While the deltas land, the delegate answers for the rows each one leaves, not the
+        // source's final rows (`SpliceRows`), and a change arriving meanwhile is held.
+        let shown = unsafe { table.numberOfRows() }.max(0) as usize;
+        *self.ivars().splice.borrow_mut() = Some(SpliceRows::new(shown, deltas));
+        {
+            let applying = self.ivars().applying.replace(true);
+            let _done = std::mem::DropGuard::new((), |()| {
+                self.ivars().applying.set(applying);
+            });
+            for d in deltas {
+                if let Some(splice) = self.ivars().splice.borrow_mut().as_mut() {
+                    splice.apply(*d);
+                }
+                unsafe {
+                    table.beginUpdates();
+                    match d {
+                        day_spec::props::RowDelta::Insert(i) => table
+                            .insertRowsAtIndexes_withAnimation(
+                                &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                                insert,
+                            ),
+                        day_spec::props::RowDelta::Remove(i) => table
+                            .removeRowsAtIndexes_withAnimation(
+                                &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                                remove,
+                            ),
+                        day_spec::props::RowDelta::Move(from, to) => {
+                            table.moveRowAtIndex_toIndex(*from as isize, *to as isize);
+                        }
+                    }
+                    table.endUpdates();
+                }
+            }
+        }
+        self.ivars().splice.borrow_mut().take();
+        if quiet {
+            NSAnimationContext::endGrouping();
+        }
+        // The displayed order matches the source again: refresh the cache a committed drag
+        // keeps in step and `permutation_moves` compares, or the next Reload finds a stale
+        // length and reloads flat instead of animating.
+        if let Some(source) = self.ivars().source.borrow().as_ref() {
+            let n = (source.len)();
+            *self.ivars().tokens.borrow_mut() = (0..n).map(|i| (source.token_at)(i)).collect();
+        }
+        // A change that arrived while the deltas landed now maps the rows shown.
+        self.map_held(table);
+    }
+
+    /// `ListPatch::Reload`. `NSTableView`'s `reloadData` clears the selection of this view-based
+    /// source, so the selection is kept by identity, not index, across refreshes and reorders;
+    /// removed items leave it without selecting their successor.
+    fn reload_rows(&self, table: &NSTableView) {
+        let selected = unsafe { table.selectedRowIndexes() };
+        let tokens: Vec<u64> = self
+            .ivars()
+            .tokens
+            .borrow()
+            .iter()
+            .enumerate()
+            .filter(|(row, _)| selected.containsIndex(*row))
+            .map(|(_, token)| *token)
+            .collect();
+        self.ivars().suppress.set(true);
+        {
+            let applying = self.ivars().applying.replace(true);
+            let _done = std::mem::DropGuard::new((), |()| {
+                self.ivars().applying.set(applying);
+            });
+            // A reload whose rows are the same set in a new order (a shuffle, a programmatic
+            // sort) animates as native row moves instead of a blink: a `moveRowAtIndex` batch,
+            // the same animation a drag commit gets. Anything else (insert/remove/content
+            // change) reloads flat. reloadData queries numberOfRows synchronously (snapshot
+            // only, no tree) and defers viewForRow, so both paths are safe in with_tree.
+            if let Some(moves) = self.permutation_moves(table) {
+                unsafe {
+                    table.beginUpdates();
+                    for (from, to) in moves {
+                        table.moveRowAtIndex_toIndex(from as isize, to as isize);
+                    }
+                    table.endUpdates();
+                }
+            } else {
+                unsafe { table.reloadData() };
+            }
+        }
+        let restored = objc2_foundation::NSMutableIndexSet::new();
+        for (row, token) in self.ivars().tokens.borrow().iter().enumerate() {
+            if tokens.contains(token) {
+                restored.addIndex(row);
+            }
+        }
+        unsafe { table.selectRowIndexes_byExtendingSelection(&restored, false) };
+        self.ivars().suppress.set(false);
+        self.map_held(table);
+    }
+
+    /// Select `rows` (empty clears the selection) without reporting it back as the reader's
+    /// selection (`ListPatch::Selected`).
+    fn select_rows(&self, table: &NSTableView, rows: &[usize]) {
+        self.ivars().suppress.set(true);
+        unsafe {
+            if rows.is_empty() {
+                table.deselectAll(None);
+            } else {
+                let set = objc2_foundation::NSMutableIndexSet::new();
+                let count = table.numberOfRows().max(0) as usize;
+                for r in rows.iter().copied().filter(|r| *r < count) {
+                    set.addIndex(r);
+                }
+                table.selectRowIndexes_byExtendingSelection(&set, false);
+            }
+        }
+        self.ivars().suppress.set(false);
+    }
+
+    /// Whether display row `row` is a supplementary row: the list's header, footer, empty state
+    /// or content padding (docs/list.md "Header, footer and empty state").
+    fn is_supplement(&self, row: isize) -> bool {
+        self.source_row(row).is_some_and(|row| {
+            self.ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .and_then(|s| s.is_supplement.clone())
+                .is_some_and(|is_supplement| is_supplement(row))
+        })
+    }
+
+    /// Tell the source what the list shows (docs/list.md "Visible rows"): the first and last
+    /// rows with any part in the viewport and the distance from its end to the content's end,
+    /// where the piece asked for that; the first visible row where it asked for that alone.
+    /// Nothing while the table and the source disagree on the row count (mid-update) or no row
+    /// shows. Enqueue-only: safe from inside day-core's borrow.
+    fn report_viewport(&self, table: &NSTableView) {
+        let Some(source) = self.ivars().source.borrow().clone() else {
+            return;
+        };
+        let n = (source.len)();
+        if n == 0 || unsafe { table.numberOfRows() } != n as isize {
+            return;
+        }
+        let visible = table.visibleRect();
+        let shown = unsafe { table.rowsInRect(visible) };
+        if let Some(report) = &source.viewport {
+            let top = visible.origin.y;
+            let bottom = top + visible.size.height;
+            let count = shown.length.min(n.saturating_sub(shown.location));
+            let span = scroll::visible_span(top, bottom, shown.location, count, |row| {
+                let rect = unsafe { table.rectOfRow(row as isize) };
+                (rect.origin.y, rect.origin.y + rect.size.height)
+            });
+            let Some((first, last)) = span else {
+                return;
+            };
+            let end = unsafe { table.rectOfRow(n as isize - 1) };
+            report(day_spec::ListViewport {
+                first,
+                last,
+                end_distance: (end.origin.y + end.size.height - bottom).max(0.0),
+            });
+        } else if let Some(report) = &source.first_visible {
+            report(shown.location.min(n - 1));
+        }
+    }
+
+    /// The clip view moved: when the reader is moving it (a live scroll, or a wheel or key
+    /// event of theirs being handled), tell the source the scroll is theirs (docs/list.md
+    /// "Following the end"), before the viewport report that says where it went. Not while
+    /// the list is at or past its end (the rubber band of a reader pushing at the end): the
+    /// reader is still at the end, and the report that would say so is the one already sent.
+    fn note_reader_scroll(&self, table: &NSTableView) {
+        let ivars = self.ivars();
+        if ivars.live.get() || ivars.input.get() {
+            self.report_reader_scroll(table);
+        }
+    }
+
+    /// Tell the source the reader is moving the list, unless it is at or past its end.
+    fn report_reader_scroll(&self, table: &NSTableView) {
+        let rows = unsafe { table.numberOfRows() };
+        if rows <= 0 {
+            return;
+        }
+        let end = unsafe { table.rectOfRow(rows - 1) };
+        let visible = table.visibleRect();
+        if end.origin.y + end.size.height - (visible.origin.y + visible.size.height) > 0.0 {
+            self.report_reader_leaving(table);
+        }
+    }
+
+    /// Tell the source the reader is moving the list away from its end, wherever it is now: an
+    /// event of theirs that will move it there.
+    fn report_reader_leaving(&self, table: &NSTableView) {
+        let report = self
+            .ivars()
+            .source
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.reader_scroll.clone());
+        if let Some(report) = report
+            && unsafe { table.numberOfRows() } > 0
+        {
+            report();
+        }
     }
 
     /// `ListPatch::RowSizeInvalidated`: the row in `cell` was re-laid at `height`. Arrives under
@@ -5422,6 +7301,8 @@ impl DayListData {
     }
 
     fn apply_row_heights(&self, table: &NSTableView) {
+        // The rows below are the source's: a held change lands first.
+        self.apply_held(table);
         let Some(source) = self.ivars().source.borrow().clone() else {
             return;
         };
@@ -5452,6 +7333,8 @@ impl DayListData {
         NSAnimationContext::currentContext().setDuration(0.0);
         unsafe { table.noteHeightOfRowsWithIndexesChanged(&changed) };
         NSAnimationContext::endGrouping();
+        // The content's height changed, and with it the distance to the end.
+        self.report_viewport(table);
     }
 
     /// If this Reload is the same row set in a new order, the incremental `moveRowAtIndex`
@@ -5538,15 +7421,39 @@ impl DayListData {
 /// The reuse identifiers of a list's row cells and its section-header cells.
 const DAY_ROW_CELL: &str = "day.cell";
 const DAY_HEADER_CELL: &str = "day.header";
+/// The reuse identifier of a list's supplementary-row cells (header, footer, empty state,
+/// content padding), pooled apart so an item row never reuses one.
+const DAY_EXTRA_CELL: &str = "day.extra";
 
 /// The private pasteboard type carrying a dragged day list row's index (local reorder only).
 const DAY_ROW_PASTEBOARD_TYPE: &str = "dev.daybrite.day.row";
+
+/// The most row deltas a `ListPatch::Splice` animates; a larger one applies without animation.
+const SPLICE_ANIMATED_MAX: usize = 64;
 
 /// An `NSTableView` drop lands at an INSERTION point (`row` with `.Above` semantics, 0..=len);
 /// day's seam speaks post-removal target indices. Dropping `from` at insertion `ins`:
 fn insertion_to_target(from: usize, ins: usize, len: usize) -> usize {
     let to = if ins > from { ins - 1 } else { ins };
     to.min(len.saturating_sub(1))
+}
+
+/// Whether sequential row `deltas` (`ListPatch::Splice`) apply to a table showing `shown` rows
+/// and leave it with `now`, the source's count: every index exists when its delta runs (an
+/// insert may land one past the end) and the count comes out right. A splice that fails this
+/// would make `NSTableView` index rows that are not there.
+fn splice_fits(shown: usize, deltas: &[day_spec::props::RowDelta], now: usize) -> bool {
+    use day_spec::props::RowDelta;
+    let mut count = shown;
+    for delta in deltas {
+        match *delta {
+            RowDelta::Insert(i) if i <= count => count += 1,
+            RowDelta::Remove(i) if i < count => count -= 1,
+            RowDelta::Move(from, to) if from < count && to < count => {}
+            _ => return false,
+        }
+    }
+    count == now
 }
 
 /// The inverse, for retargeting the drop gap: where the gap sits for a post-removal target.
@@ -6258,7 +8165,7 @@ fn ns_rect(r: day_spec::Rect) -> NSRect {
     )
 }
 
-fn draw_op(op: &DrawOp) {
+fn draw_op(op: &DrawOp, replay: &mut Replay) {
     unsafe {
         match op {
             // One path for the whole batch, then one fill or stroke: the template is appended
@@ -6273,19 +8180,28 @@ fn draw_op(op: &DrawOp) {
                         unsafe { batch.appendBezierPath(&copy) };
                     }
                 }
-                let color = match &st.paint {
-                    day_spec::Paint::Solid(c) => *c,
-                    // A gradient over a stamped batch clips to the whole batch path; the solid
-                    // fallback below keeps the marks visible on a backend path that cannot.
-                    _ => day_spec::Color::WHITE,
+                let day_spec::Paint::Solid(color) = &st.paint else {
+                    // A gradient shades across the whole batch: clip to every copy at once
+                    // (or to the region their strokes cover) and draw it through that.
+                    let Some(bounds) = stamp_bounds(st) else {
+                        return;
+                    };
+                    draw_grouped(replay, || {
+                        match &st.stroke {
+                            None => unsafe { batch.addClip() },
+                            Some(style) => clip_to_stroke(&batch, style),
+                        }
+                        draw_gradient_in(&st.paint, bounds);
+                    });
+                    return;
                 };
                 match &st.stroke {
                     None => {
-                        nscolor(color).setFill();
+                        nscolor((*color).resolved()).setFill();
                         unsafe { batch.fill() };
                     }
                     Some(style) => {
-                        nscolor(color).setStroke();
+                        nscolor((*color).resolved()).setStroke();
                         apply_stroke_style(&batch, style);
                         unsafe { batch.stroke() };
                     }
@@ -6293,46 +8209,19 @@ fn draw_op(op: &DrawOp) {
             }
             DrawOp::Fill(shape, paint) => match paint {
                 day_spec::Paint::Solid(color) => {
-                    nscolor(*color).setFill();
+                    nscolor((*color).resolved()).setFill();
                     if let Some(p) = bezier(shape) {
                         p.fill();
                     }
                 }
-                day_spec::Paint::Linear(g) => {
-                    // Native linear gradient: clip to the shape's path, then NSGradient along
-                    // the line resolved from the gradient's unit points in the shape's bounds.
-                    if let (Some(p), Some(grad)) = (bezier(shape), nsgradient(&g.stops)) {
-                        let b = shape.bounds();
-                        let (s, e) = (g.start.resolve(b), g.end.resolve(b));
-                        NSGraphicsContext::saveGraphicsState_class();
-                        p.addClip();
-                        grad.drawFromPoint_toPoint_options(
-                            NSPoint::new(s.x, s.y),
-                            NSPoint::new(e.x, e.y),
-                            objc2_app_kit::NSGradientDrawingOptions::DrawsBeforeStartingLocation
-                                | objc2_app_kit::NSGradientDrawingOptions::DrawsAfterEndingLocation,
-                        );
-                        NSGraphicsContext::restoreGraphicsState_class();
-                    }
-                }
-                day_spec::Paint::Radial(g) => {
-                    // Native radial gradient: clip to the path, map unit space onto the bounds
-                    // (elliptical in non-square bounds), draw circular in unit coordinates.
-                    if let (Some(p), Some(grad)) = (bezier(shape), nsgradient(&g.stops)) {
-                        let b = shape.bounds();
-                        NSGraphicsContext::saveGraphicsState_class();
-                        p.addClip();
-                        concat_unit_to_bounds(b);
-                        let c = NSPoint::new(g.center.x, g.center.y);
-                        grad.drawFromCenter_radius_toCenter_radius_options(
-                            c,
-                            0.0,
-                            c,
-                            g.radius,
-                            objc2_app_kit::NSGradientDrawingOptions::DrawsBeforeStartingLocation
-                                | objc2_app_kit::NSGradientDrawingOptions::DrawsAfterEndingLocation,
-                        );
-                        NSGraphicsContext::restoreGraphicsState_class();
+                // A gradient: clip to the shape's path, then draw it through the clip, resolved
+                // against the shape's bounds.
+                gradient => {
+                    if let Some(p) = bezier(shape) {
+                        draw_grouped(replay, || {
+                            p.addClip();
+                            draw_gradient_in(gradient, shape.bounds());
+                        });
                     }
                 }
             },
@@ -6340,24 +8229,15 @@ fn draw_op(op: &DrawOp) {
                 if let Some(p) = bezier(shape) {
                     apply_stroke_style(&p, style);
                     if let day_spec::Paint::Solid(color) = paint {
-                        nscolor(*color).setStroke();
+                        nscolor((*color).resolved()).setStroke();
                         p.stroke();
                     } else {
-                        // No gradient-stroke primitive here either: turn the stroke into the
-                        // region it covers and draw the gradient through that clip.
                         // No gradient-stroke primitive: convert the stroke into the REGION it
-                        // covers (CoreGraphics can, and NSGraphicsContext hands us its context),
-                        // clip to that, then draw the gradient through it.
-                        let Some(ctx) = NSGraphicsContext::currentContext() else {
-                            return;
-                        };
-                        let cg = ctx.CGContext();
-                        NSGraphicsContext::saveGraphicsState_class();
-                        objc2_core_graphics::CGContext::add_path(Some(&cg), Some(&p.CGPath()));
-                        objc2_core_graphics::CGContext::replace_path_with_stroked_path(Some(&cg));
-                        objc2_core_graphics::CGContext::clip(Some(&cg));
-                        draw_gradient_in(paint, shape.bounds());
-                        NSGraphicsContext::restoreGraphicsState_class();
+                        // covers, clip to that, then draw the gradient through it.
+                        draw_grouped(replay, || {
+                            clip_to_stroke(&p, style);
+                            draw_gradient_in(paint, shape.bounds());
+                        });
                     }
                 }
             }
@@ -6439,7 +8319,7 @@ fn draw_op(op: &DrawOp) {
                         img.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
                             dest,
                             from,
-                            objc2_app_kit::NSCompositingOperation::SourceOver,
+                            ns_compositing(replay.ink.blend),
                             *opacity,
                             true,
                             None,
@@ -6447,8 +8327,33 @@ fn draw_op(op: &DrawOp) {
                     }
                 }
             }
-            DrawOp::Save => NSGraphicsContext::saveGraphicsState_class(),
-            DrawOp::Restore => NSGraphicsContext::restoreGraphicsState_class(),
+            // Both are graphics state: the context saves and restores them with the clip and
+            // the transform, and `replay` mirrors them for the arms that ask.
+            DrawOp::Shadow(shadow) => {
+                let shadow = shadow.as_ref().filter(|s| s.color.resolved().a > 0.0);
+                replay.ink.shadow = shadow.is_some();
+                if let Some(ctx) = NSGraphicsContext::currentContext() {
+                    cg_set_shadow(&ctx.CGContext(), shadow, replay.base_scale);
+                }
+            }
+            DrawOp::Blend(mode) => {
+                replay.ink.blend = *mode;
+                if let Some(ctx) = NSGraphicsContext::currentContext() {
+                    objc2_core_graphics::CGContext::set_blend_mode(
+                        Some(&ctx.CGContext()),
+                        cg_blend_mode(*mode),
+                    );
+                }
+            }
+            DrawOp::Save => {
+                replay.save();
+                NSGraphicsContext::saveGraphicsState_class();
+            }
+            DrawOp::Restore => {
+                if replay.restore() {
+                    NSGraphicsContext::restoreGraphicsState_class();
+                }
+            }
             DrawOp::Concat(m) => {
                 let t = NSAffineTransform::new();
                 t.setTransformStruct(NSAffineTransformStruct {
@@ -6463,6 +8368,42 @@ fn draw_op(op: &DrawOp) {
             }
         }
     }
+}
+
+/// Intersect the clip with the region a stroke of `path` in `style` covers: Core Graphics can
+/// turn a stroke into its outline, and `NSGraphicsContext` hands over its context. The style
+/// goes on the context, whose line state is what the conversion reads.
+fn clip_to_stroke(path: &objc2_app_kit::NSBezierPath, style: &day_spec::StrokeStyle) {
+    use objc2_core_graphics::CGContext;
+    // SAFETY: reading the current graphics context on the thread that set it.
+    let Some(ctx) = (unsafe { NSGraphicsContext::currentContext() }) else {
+        return;
+    };
+    let cg = ctx.CGContext();
+    cg_stroke_style(&cg, style);
+    CGContext::begin_path(Some(&cg));
+    // SAFETY: an immutable snapshot of the path's geometry.
+    CGContext::add_path(Some(&cg), Some(&*unsafe { path.CGPath() }));
+    CGContext::replace_path_with_stroked_path(Some(&cg));
+    CGContext::clip(Some(&cg));
+}
+
+/// The box a stamped batch's gradient resolves against: the template's bounds at every
+/// position, joined. `None` for a batch with no positions.
+fn stamp_bounds(stamp: &day_spec::Stamp) -> Option<day_spec::Rect> {
+    let (first, rest) = stamp.at.split_first()?;
+    let (mut min, mut max) = (*first, *first);
+    for p in rest {
+        min = Point::new(min.x.min(p.x), min.y.min(p.y));
+        max = Point::new(max.x.max(p.x), max.y.max(p.y));
+    }
+    let b = stamp.shape.bounds();
+    Some(day_spec::Rect::new(
+        b.origin.x + min.x,
+        b.origin.y + min.y,
+        b.size.width + (max.x - min.x),
+        b.size.height + (max.y - min.y),
+    ))
 }
 
 /// An `NSGradient` from a display-list gradient's stops (sRGB, like every canvas color).
@@ -6531,6 +8472,15 @@ fn apply_stroke_style(p: &objc2_app_kit::NSBezierPath, style: &day_spec::StrokeS
     }
 }
 
+/// A gradient's stops in the current drawing appearance (`color::ink_now`): a canvas's fixed
+/// inks as they are, a surface's pairs and roles for the appearance its `drawRect` runs in.
+fn stops_now(stops: &[(f64, day_spec::Ink)]) -> Vec<(f64, day_spec::Color)> {
+    stops
+        .iter()
+        .map(|(at, ink)| (*at, color::ink_now(*ink)))
+        .collect()
+}
+
 /// Draw a gradient through whatever clip is installed, in AppKit's own `NSGradient` terms.
 /// Shared by the gradient FILL arms and the gradient STROKE arm, which differ only in what they
 /// clipped to first.
@@ -6539,7 +8489,7 @@ fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
         | objc2_app_kit::NSGradientDrawingOptions::DrawsAfterEndingLocation;
     match paint {
         day_spec::Paint::Linear(g) => {
-            if let Some(grad) = nsgradient(&g.stops) {
+            if let Some(grad) = nsgradient(&stops_now(&g.stops)) {
                 let (s, e) = (g.start.resolve(bounds), g.end.resolve(bounds));
                 unsafe {
                     grad.drawFromPoint_toPoint_options(
@@ -6551,7 +8501,7 @@ fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
             }
         }
         day_spec::Paint::Radial(g) => {
-            if let Some(grad) = nsgradient(&g.stops) {
+            if let Some(grad) = nsgradient(&stops_now(&g.stops)) {
                 NSGraphicsContext::saveGraphicsState_class();
                 concat_unit_to_bounds(bounds);
                 let c = NSPoint::new(g.center.x, g.center.y);
@@ -6559,6 +8509,12 @@ fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
                     grad.drawFromCenter_radius_toCenter_radius_options(c, 0.0, c, g.radius, opts);
                 };
                 NSGraphicsContext::restoreGraphicsState_class();
+            }
+        }
+        day_spec::Paint::Conic(g) => {
+            // SAFETY: reading the current graphics context on the thread that set it.
+            if let Some(ctx) = unsafe { NSGraphicsContext::currentContext() } {
+                draw_conic(&ctx.CGContext(), g, bounds);
             }
         }
         day_spec::Paint::Solid(_) => {}
@@ -6626,7 +8582,8 @@ fn set_button_image(btn: &NSButton, style: day_spec::props::ButtonStyleSpec) {
             return source;
         };
         let size = source.size();
-        let ink = nscolor(S::on_tint(fill));
+        // Dynamic: the drawing handler runs per appearance, and so resolves it.
+        let ink = color::nsink(color::map_ink(fill, S::on_tint));
         let draw = block2::RcBlock::new(move |rect: NSRect| {
             source.drawInRect_fromRect_operation_fraction(
                 rect,
@@ -6722,7 +8679,7 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
         btn.setBordered(!matches!(style, S::Plain));
         match style {
             S::Prominent => btn.setKeyEquivalent(&NSString::from_str("\r")),
-            S::Tinted(c) => btn.setBezelColor(Some(&nscolor(c))),
+            S::Tinted(c) => btn.setBezelColor(Some(&color::nsink(c))),
             // Bordered is the stock NSButton look already; Automatic asks for nothing, and an
             // NSButton hugs a one-glyph title already, so Compact asks for nothing either.
             S::Bordered | S::Automatic | S::Compact | S::Plain => {}
@@ -6731,8 +8688,13 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
         if let Some(layer) = btn.layer() {
             match style {
                 S::Tinted(c) => {
-                    layer.setBackgroundColor(Some(&nscolor(c).CGColor()));
+                    // A layer color holds one appearance: `color::refresh_layers` sets a
+                    // pair or a role again when the appearance changes.
+                    layer.setBackgroundColor(Some(&color::cg_for(btn, c)));
                     layer.setCornerRadius(TINT_CORNER_RADIUS);
+                    if c.is_dynamic() {
+                        color::track_tinted(btn);
+                    }
                 }
                 _ => layer.setBackgroundColor(None),
             }
@@ -6740,7 +8702,7 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
     }
     BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));
     let ink = match style {
-        S::Tinted(c) => Some(nscolor(S::on_tint(c))),
+        S::Tinted(c) => Some(color::nsink(color::map_ink(c, S::on_tint))),
         _ => None,
     };
     unsafe {
@@ -6777,7 +8739,7 @@ fn set_button_title(
         return;
     };
     unsafe {
-        let col = nscolor(S::on_tint(fill));
+        let col = color::nsink(color::map_ink(fill, S::on_tint));
         let font = btn
             .font()
             .unwrap_or_else(|| NSFont::systemFontOfSize(NSFont::systemFontSize()));
@@ -6860,11 +8822,8 @@ fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(ns_rect(*r), *rad, *rad)
             }
             Shape::Ellipse(r) => NSBezierPath::bezierPathWithOvalInRect(ns_rect(*r)),
-            Shape::Arc {
-                rect,
-                start_deg,
-                sweep_deg,
-            } => {
+            Shape::Arc { rect, start, sweep } => {
+                let (start_deg, sweep_deg) = (&start.degrees(), &sweep.degrees());
                 let p = NSBezierPath::new();
                 let center = NSPoint::new(
                     rect.origin.x + rect.size.width / 2.0,
@@ -7293,6 +9252,34 @@ fn key_name(event: &objc2_app_kit::NSEvent) -> Option<&'static str> {
     }
 }
 
+/// A key press on the short route (docs/menus.md "Keys"): an arrow or a digit, for a node with
+/// a key handler, with its phase. A press is claimed, so the input monitor reports its release
+/// to `node`; a repeat is reported only while it continues a press Day delivered to whatever
+/// holds focus now (a key held down into a newly focused view is not that view's until it is
+/// pressed again, and gets no release either). Answers whether the key was claimed.
+fn short_route_key_down(node: NodeId, event: &objc2_app_kit::NSEvent) -> bool {
+    let Some(key) = key_name(event) else {
+        return false;
+    };
+    if !day_spec::keys::handled(node) {
+        return false;
+    }
+    let mods = key_modifiers(event.modifierFlags());
+    if event.isARepeat() {
+        if !input::owns_repeat(event) {
+            return false;
+        }
+        emit(
+            node,
+            Event::Key(day_spec::KeyEvent::named(key, mods).with_phase(day_spec::KeyPhase::Repeat)),
+        );
+        return true;
+    }
+    emit(node, Event::Key(day_spec::KeyEvent::named(key, mods)));
+    input::claim_key(event, node, key.to_string());
+    true
+}
+
 /// The web name for a key that types nothing, by its virtual key code, or `None` for a key
 /// that types (docs/menus.md "The full route").
 fn named_key(event: &objc2_app_kit::NSEvent) -> Option<&'static str> {
@@ -7336,7 +9323,12 @@ fn named_key(event: &objc2_app_kit::NSEvent) -> Option<&'static str> {
 /// everything else is handed to the text input system, which turns a dead key into marked
 /// text, an input method's keys into a composition, and a plain or ⌥ key into `insertText:`
 /// with what it typed (⌥ types on a Mac: ⌥8 is "{" on a German layout; the piece still sees
-/// [`day_spec::KeyEvent::ALT`] and decides).
+/// [`day_spec::Modifiers::ALT.bits()`] and decides).
+///
+/// Phases (docs/menus.md "Keys"): a press is claimed for its release, which the input monitor
+/// reports; a repeat continues only a press Day delivered here, and one that types still types
+/// (holding `a` gives `aaaa`). A repeat of a press this canvas never heard is swallowed: the
+/// canvas holds the whole keyboard, but the key is not its press.
 fn full_route_key_down(view: &DayCanvas, node: NodeId, event: &objc2_app_kit::NSEvent) -> bool {
     let ptr = std::ptr::from_ref::<DayCanvas>(view).cast::<NSView>() as usize;
     let flags = event.modifierFlags();
@@ -7345,8 +9337,27 @@ fn full_route_key_down(view: &DayCanvas, node: NodeId, event: &objc2_app_kit::NS
         return false;
     }
     let composing = MARKED.with(|t| t.contains(ptr));
+    let phase = if event.isARepeat() {
+        if !composing && !input::owns_repeat(event) {
+            return true;
+        }
+        day_spec::KeyPhase::Repeat
+    } else {
+        day_spec::KeyPhase::Down
+    };
+    // The press is this canvas's: its release is owed here (a composition's keys are the
+    // input method's, and report no phases).
+    let claim = |key: String| {
+        if phase == day_spec::KeyPhase::Down {
+            input::claim_key(event, node, key);
+        }
+    };
     if !composing && let Some(named) = named_key(event) {
-        emit(node, Event::Key(day_spec::KeyEvent::named(named, mods)));
+        emit(
+            node,
+            Event::Key(day_spec::KeyEvent::named(named, mods).with_phase(phase)),
+        );
+        claim(named.to_string());
         return true;
     }
     let unmodified =
@@ -7360,18 +9371,36 @@ fn full_route_key_down(view: &DayCanvas, node: NodeId, event: &objc2_app_kit::NS
         if typeable {
             emit(
                 node,
-                Event::Key(day_spec::KeyEvent::named(unmodified, mods)),
+                Event::Key(day_spec::KeyEvent::named(unmodified.clone(), mods).with_phase(phase)),
             );
+            claim(unmodified);
         }
         return true;
     }
     if !composing && !typeable {
         return true;
     }
-    INTERPRETING.with(|i| *i.borrow_mut() = Some((unmodified, mods)));
+    INTERPRETING.with(|i| {
+        *i.borrow_mut() = Some(Interpreting {
+            key: unmodified,
+            mods,
+            phase,
+            event: event.retain(),
+        });
+    });
     view.interpretKeyEvents(&NSArray::from_slice(&[event]));
     INTERPRETING.with(|i| *i.borrow_mut() = None);
     true
+}
+
+/// The key press the text input system is interpreting (`full_route_key_down`): its unmodified
+/// name, the modifier mask and the phase, so the text it commits is named by the key that typed
+/// it; and the event, so a press that types is claimed for its release.
+struct Interpreting {
+    key: String,
+    mods: u8,
+    phase: day_spec::KeyPhase,
+    event: Retained<NSEvent>,
 }
 
 /// The text of an `NSString` or `NSAttributedString` the text input system hands over.
@@ -7389,16 +9418,16 @@ fn text_of_input_string(string: &AnyObject) -> String {
 fn key_modifiers(f: NSEventModifierFlags) -> u8 {
     let mut modifiers = 0u8;
     if f.contains(NSEventModifierFlags::Shift) {
-        modifiers |= day_spec::KeyEvent::SHIFT;
+        modifiers |= day_spec::Modifiers::SHIFT.bits();
     }
     if f.contains(NSEventModifierFlags::Command) {
-        modifiers |= day_spec::KeyEvent::PRIMARY;
+        modifiers |= day_spec::Modifiers::PRIMARY.bits();
     }
     if f.contains(NSEventModifierFlags::Option) {
-        modifiers |= day_spec::KeyEvent::ALT;
+        modifiers |= day_spec::Modifiers::ALT.bits();
     }
     if f.contains(NSEventModifierFlags::Control) {
-        modifiers |= day_spec::KeyEvent::CONTROL;
+        modifiers |= day_spec::Modifiers::CONTROL.bits();
     }
     modifiers
 }
@@ -8064,7 +10093,7 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
         let pts = spec.resolved_points(base.pointSize());
         unsafe { NSFontManager::sharedFontManager(mtm).convertFont_toSize(&base, pts) }
     };
-    if spec.italic {
+    let base = if spec.italic {
         let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
         unsafe {
             NSFontManager::sharedFontManager(mtm)
@@ -8072,6 +10101,209 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
         }
     } else {
         base
+    };
+    with_font_features(base, spec.small_caps, spec.oldstyle_figures)
+}
+
+/// Small capitals (`smcp`) and oldstyle figures (`onum`) as the font descriptor's AAT
+/// feature settings: `kLowerCaseType`/`kLowerCaseSmallCapsSelector` (37/1) and
+/// `kNumberCaseType`/`kLowerCaseNumbersSelector` (21/0). Last of the font steps, because the
+/// font manager's trait conversions above re-pick the face and would drop them. A face without
+/// the feature draws its ordinary glyphs; nothing is synthesized.
+fn with_font_features(
+    font: Retained<NSFont>,
+    small_caps: bool,
+    oldstyle: bool,
+) -> Retained<NSFont> {
+    use objc2_app_kit::{
+        NSFontFeatureSelectorIdentifierKey, NSFontFeatureSettingsAttribute,
+        NSFontFeatureTypeIdentifierKey,
+    };
+    let mut pairs: Vec<(i64, i64)> = Vec::new();
+    if small_caps {
+        pairs.push((37, 1));
+    }
+    if oldstyle {
+        pairs.push((21, 0));
+    }
+    if pairs.is_empty() {
+        return font;
+    }
+    let settings: Vec<Retained<NSDictionary<NSString, AnyObject>>> = pairs
+        .into_iter()
+        .map(|(kind, selector)| {
+            let kind: Retained<AnyObject> = NSNumber::new_i64(kind).into();
+            let selector: Retained<AnyObject> = NSNumber::new_i64(selector).into();
+            unsafe {
+                NSDictionary::from_retained_objects(
+                    &[
+                        NSFontFeatureTypeIdentifierKey,
+                        NSFontFeatureSelectorIdentifierKey,
+                    ],
+                    &[kind, selector],
+                )
+            }
+        })
+        .collect();
+    let settings: Retained<AnyObject> = NSArray::from_retained_slice(&settings).into();
+    let attrs = NSDictionary::from_retained_objects(
+        &[unsafe { NSFontFeatureSettingsAttribute }],
+        &[settings],
+    );
+    let descriptor = unsafe {
+        font.fontDescriptor()
+            .fontDescriptorByAddingAttributes(&attrs)
+    };
+    NSFont::fontWithDescriptor_size(&descriptor, font.pointSize()).unwrap_or(font)
+}
+
+/// How many lines a label may draw: one when it does not wrap, else its limit (0 = no limit).
+fn label_line_limit(wraps: bool, max_lines: u32) -> u32 {
+    if wraps { max_lines } else { 1 }
+}
+
+/// The line break mode for a label held to `lines` lines (0 = no limit). One line takes the
+/// truncation mode itself. More lines must word-wrap: a truncating mode makes the text system lay the
+/// whole paragraph on one line (and `NSCell` turns `wraps` off with it), so a multi-line limit
+/// wraps and lets `truncatesLastVisibleLine` end the last line, which AppKit does at the tail
+/// only (docs/text.md "Line limits and truncation").
+fn label_line_break(lines: u32, mode: day_spec::props::Truncation) -> NSLineBreakMode {
+    use day_spec::props::Truncation;
+    if lines != 1 {
+        return NSLineBreakMode::ByWordWrapping;
+    }
+    match mode {
+        Truncation::Tail => NSLineBreakMode::ByTruncatingTail,
+        Truncation::Head => NSLineBreakMode::ByTruncatingHead,
+        Truncation::Middle => NSLineBreakMode::ByTruncatingMiddle,
+    }
+}
+
+/// A line height multiple as points, or `None` for the font's natural height (`0.0`,
+/// negative or nonfinite: `LabelProps::line_height`).
+fn label_line_points(multiple: f64, font_points: f64) -> Option<f64> {
+    (multiple.is_finite() && multiple > 0.0).then_some(multiple * font_points)
+}
+
+/// The font's natural line height (ascender + descender + leading), as the text system lays a
+/// line.
+fn natural_line_height(font: &NSFont) -> f64 {
+    thread_local! {
+        static METRICS: Retained<objc2_app_kit::NSLayoutManager> =
+            objc2_app_kit::NSLayoutManager::new();
+    }
+    METRICS.with(|metrics| metrics.defaultLineHeightForFont(font))
+}
+
+/// Apply a label's paragraph attributes (docs/text.md "Line limits and truncation", "Letter
+/// spacing and line height", "Alignment") from its ivars: the field's line limit and break
+/// mode, its alignment and writing direction, and, where the text is attributed, the same
+/// across the string. Idempotent; called at realize and after every label patch.
+///
+/// Letter spacing (`NSKernAttributeName`) and line height (`minimumLineHeight` =
+/// `maximumLineHeight`) exist only as string attributes, so a plain label that asks for
+/// either becomes attributed and stays so ("stamped"), its font and color copied from the
+/// field.
+fn apply_label_paragraph(label: &DayLabel) {
+    let iv = label.ivars();
+    let p = iv.paragraph.get();
+    let lines = label_line_limit(iv.wraps.get(), p.max_lines);
+    let mode = label_line_break(lines, p.truncation);
+    let rtl = match iv.direction.get() {
+        Some(d) => d == day_spec::LayoutDirection::Rtl,
+        None => {
+            label.userInterfaceLayoutDirection()
+                == objc2_app_kit::NSUserInterfaceLayoutDirection::RightToLeft
+        }
+    };
+    let writing = match iv.direction.get() {
+        None => objc2_app_kit::NSWritingDirection::Natural,
+        Some(_) if rtl => objc2_app_kit::NSWritingDirection::RightToLeft,
+        Some(_) => objc2_app_kit::NSWritingDirection::LeftToRight,
+    };
+    let align = nstextalign(iv.align.get(), rtl);
+    unsafe {
+        label.setMaximumNumberOfLines(lines as isize);
+        // `setLineBreakMode:` last: on `NSCell` it also decides `wraps` (a truncating mode
+        // turns wrapping off, word wrapping turns it on).
+        if let Some(cell) = label.cell() {
+            cell.setWraps(lines != 1);
+            cell.setUsesSingleLineMode(lines == 1);
+            cell.setTruncatesLastVisibleLine(lines > 0);
+        }
+        label.setLineBreakMode(mode);
+        label.setAlignment(align);
+        label.setBaseWritingDirection(writing);
+    }
+    let needs_string = p.letter_spacing != 0.0 || label_line_points(p.line_height, 1.0).is_some();
+    if !iv.has_runs.get() && !needs_string && !iv.stamped.get() {
+        return;
+    }
+    if !iv.has_runs.get() {
+        iv.stamped.set(true);
+    }
+    stamp_paragraph(label, &p, mode, align, writing);
+}
+
+/// Stamp the paragraph attributes across a label's whole attributed string. The cell's
+/// settings alone do not reach an attributed string: the string carries its own paragraph
+/// style, and the string's wins.
+fn stamp_paragraph(
+    label: &DayLabel,
+    p: &day_spec::props::LabelParagraph,
+    mode: NSLineBreakMode,
+    align: objc2_app_kit::NSTextAlignment,
+    writing: objc2_app_kit::NSWritingDirection,
+) {
+    use objc2_foundation::{NSMutableAttributedString, NSRange};
+    let font = unsafe { label.font() }.unwrap_or_else(|| nsfont(day_spec::FontSpec::default()));
+    let points = font.pointSize();
+    unsafe {
+        let cur = label.attributedStringValue();
+        let m = NSMutableAttributedString::initWithAttributedString(
+            NSMutableAttributedString::alloc(),
+            &cur,
+        );
+        let whole = NSRange::new(0, cur.length());
+        if !label.ivars().has_runs.get() {
+            // A stamped plain label: the field's font and color are the truth, the string a
+            // copy of them (a font or color patch sets the field, then stamps again).
+            let fg = label
+                .textColor()
+                .unwrap_or_else(objc2_app_kit::NSColor::labelColor);
+            m.addAttribute_value_range(objc2_app_kit::NSFontAttributeName, &font, whole);
+            m.addAttribute_value_range(objc2_app_kit::NSForegroundColorAttributeName, &fg, whole);
+        }
+        let style = objc2_app_kit::NSMutableParagraphStyle::new();
+        style.setAlignment(align);
+        style.setLineBreakMode(mode);
+        style.setBaseWritingDirection(writing);
+        let line = label_line_points(p.line_height, points);
+        if let Some(h) = line {
+            style.setMinimumLineHeight(h);
+            style.setMaximumLineHeight(h);
+        }
+        m.addAttribute_value_range(objc2_app_kit::NSParagraphStyleAttributeName, &style, whole);
+        if p.letter_spacing == 0.0 {
+            m.removeAttribute_range(objc2_app_kit::NSKernAttributeName, whole);
+        } else {
+            let kern = NSNumber::new_f64(p.letter_spacing * points);
+            m.addAttribute_value_range(objc2_app_kit::NSKernAttributeName, &kern, whole);
+        }
+        // TextKit puts a fixed line's extra height above the glyphs; raising the baseline by
+        // half of it centers them in the line box, the CSS model the spec asks for.
+        match line {
+            Some(h) => {
+                let offset = NSNumber::new_f64((h - natural_line_height(&font)) / 2.0);
+                m.addAttribute_value_range(
+                    objc2_app_kit::NSBaselineOffsetAttributeName,
+                    &offset,
+                    whole,
+                );
+            }
+            None => m.removeAttribute_range(objc2_app_kit::NSBaselineOffsetAttributeName, whole),
+        }
+        label.setAttributedStringValue(&m);
     }
 }
 
@@ -8080,36 +10312,10 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
 /// Ranges arrive as BYTE offsets into a Rust `str`; `NSAttributedString` indexes UTF-16. The
 /// conversion is per-run rather than a blanket assumption: any text with an emoji or a CJK
 /// character makes the two disagree, and an off-by-N range there styles the wrong words.
-/// Stamp a paragraph alignment across a label's whole attributed string.
-///
-/// Separate from `setAlignment:` because the two live in different places: the cell has a
-/// paragraph style, the attributed string carries its own, and the string's wins.
-fn set_paragraph_alignment(tf: &NSTextField, align: objc2_app_kit::NSTextAlignment) {
-    use objc2_foundation::{NSMutableAttributedString, NSRange};
-    unsafe {
-        let cur = tf.attributedStringValue();
-        let m = NSMutableAttributedString::initWithAttributedString(
-            NSMutableAttributedString::alloc(),
-            &cur,
-        );
-        let style = objc2_app_kit::NSMutableParagraphStyle::new();
-        style.setAlignment(align);
-        // Wrapping is what makes alignment observable at all, and the default paragraph style a
-        // fresh NSMutableParagraphStyle carries would otherwise reset it to clipping.
-        style.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByWordWrapping);
-        m.addAttribute_value_range(
-            objc2_app_kit::NSParagraphStyleAttributeName,
-            &style,
-            NSRange::new(0, cur.length()),
-        );
-        tf.setAttributedStringValue(&m);
-    }
-}
-
 fn attributed_label(
     text: &str,
     base_font: &NSFont,
-    color: Option<day_spec::Color>,
+    color: Option<day_spec::Ink>,
     role: day_spec::props::TextRole,
     runs: &[day_spec::TextRun],
 ) -> Retained<objc2_foundation::NSAttributedString> {
@@ -8135,7 +10341,7 @@ fn attributed_label(
                 }
                 day_spec::props::TextRole::Primary => objc2_app_kit::NSColor::labelColor(),
             },
-            nscolor,
+            color::nsink,
         );
         s.addAttribute_value_range(objc2_app_kit::NSForegroundColorAttributeName, &fg, whole);
     }
@@ -8148,32 +10354,37 @@ fn attributed_label(
             if let Some(c) = r.color {
                 s.addAttribute_value_range(
                     objc2_app_kit::NSForegroundColorAttributeName,
-                    &nscolor(c),
+                    &color::nsink(c),
                     range,
                 );
             }
             if let Some(c) = r.background {
                 s.addAttribute_value_range(
                     objc2_app_kit::NSBackgroundColorAttributeName,
-                    &nscolor(c),
+                    &color::nsink(c),
                     range,
                 );
             }
-            if r.underline.is_on() {
-                let style = objc2_foundation::NSNumber::new_i64(ns_underline(r.underline));
-                s.addAttribute_value_range(
+            // A decoration's color rides beside its style; `None` leaves the attribute out,
+            // which AppKit draws in the run's foreground color.
+            for (line, style_key, color_key) in [
+                (
+                    r.underline,
                     objc2_app_kit::NSUnderlineStyleAttributeName,
-                    &style,
-                    range,
-                );
-            }
-            if r.strikethrough {
-                let one = objc2_foundation::NSNumber::new_i64(1);
-                s.addAttribute_value_range(
+                    objc2_app_kit::NSUnderlineColorAttributeName,
+                ),
+                (
+                    r.strikethrough,
                     objc2_app_kit::NSStrikethroughStyleAttributeName,
-                    &one,
-                    range,
-                );
+                    objc2_app_kit::NSStrikethroughColorAttributeName,
+                ),
+            ] {
+                let Some(d) = line else { continue };
+                let style = objc2_foundation::NSNumber::new_i64(ns_underline(Some(d)));
+                s.addAttribute_value_range(style_key, &style, range);
+                if let Some(c) = d.color {
+                    s.addAttribute_value_range(color_key, &color::nsink(c), range);
+                }
             }
             if let Some(url) = r.link.as_deref() {
                 // The native field editor hit-tests this attribute; DayLabel handles its
@@ -8186,17 +10397,19 @@ fn attributed_label(
     s.into_super()
 }
 
-/// [`Underline`](day_spec::Underline) as an `NSUnderlineStyle` bitmask: the line style in the low
+/// [`Decoration`](day_spec::Decoration) as an `NSUnderlineStyle` bitmask: the line style in the low
 /// byte, the pattern in the second. `Dotted`/`Wavy` are patterns over a single line, which is
-/// exactly how AppKit spells them.
-fn ns_underline(u: day_spec::Underline) -> i64 {
-    use day_spec::Underline as U;
-    match u {
-        U::None => 0,
-        U::Single => 0x01,
-        U::Double => 0x09,
-        U::Dotted => 0x01 | 0x0100,
-        U::Wavy => 0x01 | 0x0400,
+/// exactly how AppKit spells them. AppKit has no wavy pattern; `Wavy` draws the dash-dot-dot
+/// pattern. The same mask serves `NSStrikethroughStyleAttributeName`; the color goes in
+/// `NSUnderlineColorAttributeName`/`NSStrikethroughColorAttributeName` beside it.
+fn ns_underline(u: Option<day_spec::Decoration>) -> i64 {
+    use day_spec::DecorationStyle as U;
+    match u.map(|d| d.style) {
+        None => 0,
+        Some(U::Single) => 0x01,
+        Some(U::Double) => 0x09,
+        Some(U::Dotted) => 0x01 | 0x0100,
+        Some(U::Wavy) => 0x01 | 0x0400,
     }
 }
 
@@ -8240,21 +10453,15 @@ fn register_bundled_fonts() {
 
 /// `TextAlign` → AppKit. `Natural` rather than `Left` for the leading case: it follows the
 /// writing direction, so an RTL locale aligns right without the app asking (docs/localization.md).
-fn nstextalign(a: day_spec::props::TextAlign) -> objc2_app_kit::NSTextAlignment {
+/// `Trailing` has no natural form, so it takes the edge opposite the label's direction (`rtl`).
+/// `Justified` is AppKit's own: the last line follows the writing direction.
+fn nstextalign(a: day_spec::props::TextAlign, rtl: bool) -> objc2_app_kit::NSTextAlignment {
     match a {
         day_spec::props::TextAlign::Leading => objc2_app_kit::NSTextAlignment::Natural,
+        day_spec::props::TextAlign::Justified => objc2_app_kit::NSTextAlignment::Justified,
         day_spec::props::TextAlign::Center => objc2_app_kit::NSTextAlignment::Center,
+        day_spec::props::TextAlign::Trailing if rtl => objc2_app_kit::NSTextAlignment::Left,
         day_spec::props::TextAlign::Trailing => objc2_app_kit::NSTextAlignment::Right,
-    }
-}
-
-fn configure_label_cell(tf: &NSTextField) {
-    if let Some(cell) = unsafe { tf.cell() } {
-        unsafe {
-            cell.setWraps(true);
-            cell.setUsesSingleLineMode(false);
-            cell.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
-        }
     }
 }
 
@@ -8266,55 +10473,6 @@ fn content_of(parent: &Handle) -> Retained<NSView> {
         return doc;
     }
     parent.clone()
-}
-
-/// Run `body` (which sets animatable properties on a layer-backed view) inside an
-/// `NSAnimationContext` group so AppKit interpolates the change on the render server with the
-/// curve's timing function, or immediately when `anim` is `None` (§8.4). `allowsImplicitAnimation`
-/// makes direct property changes on layer-backed views animate. A spring maps to an overshooting
-/// cubic-bezier timing function (a visible bounce without an explicit `CASpringAnimation`).
-fn with_appkit_anim(anim: Option<&AnimSpec>, body: impl FnOnce()) {
-    let Some(a) = anim else {
-        body();
-        return;
-    };
-    let (dur, timing) = appkit_timing(a);
-    unsafe {
-        NSAnimationContext::beginGrouping();
-        let ctx = NSAnimationContext::currentContext();
-        ctx.setDuration(dur);
-        ctx.setTimingFunction(Some(&timing));
-        ctx.setAllowsImplicitAnimation(true);
-        body();
-        NSAnimationContext::endGrouping();
-    }
-}
-
-/// The `(duration_secs, timing function)` for a curve. Springs render as an overshooting bezier
-/// (control point y > 1) whose overshoot grows as damping falls, over a response-derived duration.
-fn appkit_timing(a: &AnimSpec) -> (f64, Retained<CAMediaTimingFunction>) {
-    unsafe {
-        let named = |n| {
-            (
-                a.duration_secs().max(0.01),
-                CAMediaTimingFunction::functionWithName(n),
-            )
-        };
-        match a.curve {
-            Curve::Linear => named(kCAMediaTimingFunctionLinear),
-            Curve::EaseIn => named(kCAMediaTimingFunctionEaseIn),
-            Curve::EaseOut => named(kCAMediaTimingFunctionEaseOut),
-            Curve::EaseInOut => named(kCAMediaTimingFunctionEaseInEaseOut),
-            Curve::Spring { damping, .. } => {
-                // Overshoot bezier over exactly the specified duration (authoritative timing).
-                let overshoot = 1.0 + (1.0 - damping.clamp(0.0, 1.0)) as f32 * 0.55;
-                (
-                    a.duration_secs().max(0.05),
-                    CAMediaTimingFunction::functionWithControlPoints(0.34, overshoot, 0.5, 1.0),
-                )
-            }
-        }
-    }
 }
 
 /// Warn once per kind that this backend has no registered renderer for `kind`, before falling back to
@@ -8343,26 +10501,13 @@ impl Toolkit for AppKit {
 
     type Handle = Handle;
 
+    /// Every role's AppKit color (`color::role_color`), resolved in sRGB for the app's
+    /// effective appearance: what `Palette::current` holds and `day::resolve` answers.
     fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
-        use day_spec::SystemColor;
         let result = std::cell::Cell::new(role.fallback(self.dark_mode()));
         let block = block2::StackBlock::new(|| {
-            let color = match role {
-                SystemColor::Accent => NSColor::controlAccentColor(),
-                SystemColor::Text => NSColor::labelColor(),
-                SystemColor::SecondaryText => NSColor::secondaryLabelColor(),
-                SystemColor::Background => NSColor::windowBackgroundColor(),
-                SystemColor::Surface => NSColor::controlBackgroundColor(),
-            };
-            if let Some(rgb) =
-                color.colorUsingColorSpace(&objc2_app_kit::NSColorSpace::sRGBColorSpace())
-            {
-                result.set(day_spec::Color::rgba(
-                    rgb.redComponent(),
-                    rgb.greenComponent(),
-                    rgb.blueComponent(),
-                    rgb.alphaComponent(),
-                ));
+            if let Some(rgb) = color::srgb(&color::role_color(role)) {
+                result.set(rgb);
             }
         });
         NSApplication::sharedApplication(self.mtm())
@@ -8420,6 +10565,9 @@ impl Toolkit for AppKit {
         });
         // `None` clears the override — back to the system appearance.
         unsafe { app.setAppearance(appearance.as_deref()) };
+        // Day's views re-resolve their inks themselves; the tinted buttons' layers are set
+        // again here.
+        color::refresh_layers_soon();
     }
 
     fn attach_refresh(&mut self, handle: &Self::Handle, host: NodeId) {
@@ -8579,6 +10727,43 @@ impl Toolkit for AppKit {
             Cap::Cover => Support::Emulated,
             // `.sheet()` is a window sheet on the primary window (docs/cover.md "Modal sheet").
             Cap::CoverSheet => Support::Native,
+            // A focusable container joins the key view loop, takes focus on a press, reports
+            // both directions, hears the arrows and digits, and draws the focus ring when Tab
+            // brought focus (docs/focus.md).
+            Cap::Focusable => Support::Native,
+            // `isARepeat` on the press; the release from the input monitor's key-up, for the
+            // node that heard the press (docs/menus.md "Keys").
+            Cap::KeyPhases => Support::Native,
+            // `hitTest:` on Day's containers answers inside each child's grown rect
+            // (docs/gestures.md "Hit slop").
+            Cap::HitSlop => Support::Native,
+            // The field editor's selection changes, through the label's
+            // `textViewDidChangeSelection:` (docs/text.md "Hearing about the selection").
+            Cap::LabelSelection => Support::Native,
+            // The clip view's bounds-changed notification, coalesced to changes
+            // (docs/scroll.md "Offset and phase").
+            Cap::ScrollOffset => Support::Native,
+            // `NSScrollViewWillStartLiveScroll`/`DidEndLiveScroll` and each wheel event's
+            // `phase`/`momentumPhase`; a classic mouse wheel, which has no phases, ends after
+            // 150 ms without a tick.
+            Cap::ScrollPhases => Support::Native,
+            // AppKit has no snapping scroll view: the clip view animates to the nearest stop
+            // once a live scroll (momentum included) or a wheel burst ends.
+            Cap::ScrollSnap => Support::Emulated,
+            // `allowsMagnification` with the range as min/max magnification.
+            Cap::ScrollZoom => Support::Native,
+            // The clip view's bounds and frame notifications report rows and the distance to
+            // the end; `list_scroll` places rows itself with `rectOfRow:` (docs/list.md).
+            Cap::ListViewport | Cap::ListScrollAlign => Support::Native,
+            // The scroll view's live scroll notifications (a gesture with its momentum, the
+            // scroller) and its own `scrollWheel:` (a mouse wheel), plus the keys the table
+            // handles, mark what moves the clip view as the reader's (docs/list.md
+            // "Following the end").
+            Cap::ListReaderScroll => Support::Native,
+            // No software keyboard on a Mac (docs/scroll.md "Keyboard"); and the pager is the
+            // composed fallback (`Cap::Pager` is Emulated), whose progress rests on the selected
+            // page in the shared layer (docs/pager.md "Progress").
+            Cap::ScrollKeyboardDismiss | Cap::PagerProgress => Support::Unsupported,
             _ => Support::Unsupported,
         }
     }
@@ -8591,31 +10776,23 @@ impl Toolkit for AppKit {
                 if let Some(p) = props.downcast_ref::<ContainerProps>() {
                     if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                         v.set_section_card(p.corner_radius);
-                    } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
-                        v.set_surface(p.background, p.corner_radius, p.clips);
+                    } else if p.fill.is_some()
+                        || p.border.is_some()
+                        || p.shadow.is_some()
+                        || p.corner_radius > 0.0
+                        || p.clips
+                    {
+                        v.set_surface(p);
                     }
                 }
                 view_of(&v)
             }
             Some(Builtin::Scroll) => {
-                let horizontal = props
+                let p = props
                     .downcast_ref::<day_spec::props::ScrollProps>()
-                    .is_some_and(|p| p.horizontal);
-                let sv = unsafe { NSScrollView::new(mtm) };
-                unsafe {
-                    sv.setHasVerticalScroller(!horizontal);
-                    sv.setHasHorizontalScroller(horizontal);
-                    sv.setDrawsBackground(false);
-                    // Overlay scrollers ALWAYS: day lays content out at the scroll's full frame
-                    // width, and a legacy scroller (the "always show scroll bars" system
-                    // setting, or a mouse attached) would reserve ~15pt and clip trailing
-                    // content. Overlay floats above content instead — and matches the GTK/Qt
-                    // backends.
-                    sv.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
-                }
-                let doc = DayFlipped::new(mtm);
-                unsafe { sv.setDocumentView(Some(doc.as_ref())) };
-                view_of(&sv)
+                    .cloned()
+                    .unwrap_or_default();
+                scroll::realize(mtm, id, &p)
             }
             Some(Builtin::Label) => {
                 // `props_of`, not a panicking downcast, for every typed-props arm: a mismatch
@@ -8626,22 +10803,18 @@ impl Toolkit for AppKit {
                     return placeholder_view(mtm, kind);
                 };
                 let tf = DayLabel::new(mtm, id, &p.text);
-                configure_label_cell(&tf);
-                if !p.wraps || p.max_lines > 0 {
-                    unsafe {
-                        tf.setMaximumNumberOfLines(if p.wraps { p.max_lines as isize } else { 1 });
-                        if !p.wraps || p.max_lines == 1 {
-                            tf.setUsesSingleLineMode(true);
-                            tf.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
-                        }
-                    }
-                }
+                tf.ivars().wraps.set(p.wraps);
+                tf.ivars().paragraph.set(p.paragraph());
+                tf.ivars().align.set(p.align);
+                tf.ivars().reports_selection.set(p.reports_selection);
+                tf.ivars().color.set(p.color);
+                tf.ivars().role.set(p.role);
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
                 // The PLAIN path needs the role as much as the attributed one below: a label
                 // with no runs never reaches `attributed_label`, and reading the role only there
                 // left every ordinary `.secondary()` label rendering in the primary color.
                 match (p.color, p.role) {
-                    (Some(c), _) => unsafe { tf.setTextColor(Some(&nscolor(c))) },
+                    (Some(c), _) => unsafe { tf.setTextColor(Some(&color::nsink(c))) },
                     (None, day_spec::props::TextRole::Secondary) => unsafe {
                         tf.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
                     },
@@ -8653,16 +10826,11 @@ impl Toolkit for AppKit {
                 }
                 tf.ivars().has_runs.set(!p.runs.is_empty());
                 tf.set_links(p.runs.iter().any(|r| r.link.is_some()));
-                // Alignment goes on last and, for a runs label, has to reach inside the
+                // The paragraph goes on last and, for a runs label, has to reach inside the
                 // attributed string. `setAlignment:` writes the cell's paragraph style, which an
                 // attributed string then overrides wholesale with its own — so a markdown label
                 // set only through the cell comes out leading-aligned no matter what was asked.
-                if p.align != day_spec::props::TextAlign::Leading {
-                    unsafe { tf.setAlignment(nstextalign(p.align)) };
-                    if !p.runs.is_empty() {
-                        set_paragraph_alignment(&tf, nstextalign(p.align));
-                    }
-                }
+                apply_label_paragraph(&tf);
                 view_of(&Retained::into_super(tf))
             }
             Some(Builtin::Button) => {
@@ -9373,7 +11541,9 @@ impl Toolkit for AppKit {
                         );
                     }
                 }
-                let scroll = unsafe { NSScrollView::new(mtm) };
+                let scroll: Retained<DayListScrollView> =
+                    unsafe { msg_send![DayListScrollView::alloc(mtm), init] };
+                let scroll = Retained::into_super(scroll);
                 unsafe {
                     scroll.setDrawsBackground(false);
                     scroll.setHasVerticalScroller(true);
@@ -9384,13 +11554,38 @@ impl Toolkit for AppKit {
                     scroll.setDocumentView(Some(&table));
                     let clip = scroll.contentView();
                     clip.setPostsBoundsChangedNotifications(true);
-                    objc2_foundation::NSNotificationCenter::defaultCenter()
-                        .addObserver_selector_name_object(
+                    clip.setPostsFrameChangedNotifications(true);
+                    let center = objc2_foundation::NSNotificationCenter::defaultCenter();
+                    // Scrolled, or resized (docs/list.md "Visible rows").
+                    for name in [
+                        objc2_app_kit::NSViewBoundsDidChangeNotification,
+                        objc2_app_kit::NSViewFrameDidChangeNotification,
+                    ] {
+                        center.addObserver_selector_name_object(
                             &data,
                             sel!(listViewportChanged:),
-                            Some(objc2_app_kit::NSViewBoundsDidChangeNotification),
+                            Some(name),
                             Some(&clip),
                         );
+                    }
+                    // The reader's live scrolls (docs/list.md "Following the end").
+                    for (name, selector) in [
+                        (
+                            objc2_app_kit::NSScrollViewWillStartLiveScrollNotification,
+                            sel!(listLiveScrollStarted:),
+                        ),
+                        (
+                            objc2_app_kit::NSScrollViewDidEndLiveScrollNotification,
+                            sel!(listLiveScrollEnded:),
+                        ),
+                    ] {
+                        center.addObserver_selector_name_object(
+                            &data,
+                            selector,
+                            Some(name),
+                            Some(&scroll),
+                        );
+                    }
                 }
                 let view = view_of(&scroll);
                 LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
@@ -9508,17 +11703,16 @@ impl Toolkit for AppKit {
                 };
                 unsafe { iv.setImageScaling(scaling) };
                 if let Some(img) = appkit_image_for(&p.source) {
-                    // Vector-glyph tint (docs/vectors.md): template rendering + the view's
-                    // content tint — AppKit recolors the alpha mask natively. A template with
-                    // no tint keeps the view's nil tint: the neutral template color the nav
-                    // menu's own rows draw with, light in dark mode, dark in light.
-                    if p.tint.is_some() || p.template {
-                        unsafe { img.setTemplate(true) };
-                    }
+                    // Tint (docs/vectors.md, docs/images.md): template rendering + the view's
+                    // content tint — AppKit recolors the alpha mask natively, for a raster as
+                    // for a vector glyph. A template with no tint keeps the view's nil tint:
+                    // the neutral template color the nav menu's own rows draw with, light in
+                    // dark mode, dark in light.
+                    let img = image_rendered(img, p.tint.is_some() || p.template);
                     unsafe { iv.setImage(Some(&img)) };
                 }
                 if let Some(t) = p.tint {
-                    unsafe { iv.setContentTintColor(Some(&nscolor(t))) };
+                    unsafe { iv.setContentTintColor(Some(&color::nsink(t))) };
                 }
                 IMAGE_MODES.with(|t| {
                     t.insert(
@@ -9553,7 +11747,7 @@ impl Toolkit for AppKit {
         }
     }
 
-    fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
+    fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, anim: Option<&AnimSpec>) {
         match kind {
             kinds::LIST_ITEM => {
                 let Some(p) = patch.downcast_ref::<day_spec::props::ListItemPatch>() else {
@@ -9595,9 +11789,11 @@ impl Toolkit for AppKit {
                                     })
                                     .unwrap_or(c.is_some());
                                 if let Some(img) = unsafe { iv.image() } {
-                                    unsafe { img.setTemplate(template) };
+                                    let img = image_rendered(img, template);
+                                    unsafe { iv.setImage(Some(&img)) };
                                 }
-                                unsafe { iv.setContentTintColor(c.map(nscolor).as_deref()) };
+                                let tint = c.map(color::nsink);
+                                unsafe { iv.setContentTintColor(tint.as_deref()) };
                             }
                         }
                         // A source swap repaints the same view (docs/images.md), so an `image()`
@@ -9614,10 +11810,8 @@ impl Toolkit for AppKit {
                                     let template = IMAGE_MODES
                                         .with(|t| t.get(ptr_of(&iv)))
                                         .is_some_and(ImageMode::renders_template);
-                                    unsafe {
-                                        img.setTemplate(template);
-                                        iv.setImage(Some(&img));
-                                    }
+                                    let img = image_rendered(img, template);
+                                    unsafe { iv.setImage(Some(&img)) };
                                 }
                             }
                         }
@@ -9625,18 +11819,33 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::CONTAINER => {
-                if let (Some(ContainerPatch::Background(c)), Ok(v)) = (
+                let (Some(patch), Ok(v)) = (
                     patch.downcast_ref::<ContainerPatch>(),
                     h.clone().downcast::<DayFlipped>(),
-                ) {
-                    // A background patch only targets a background container (corner radius 0).
-                    // The AnimSpec is not honored: the fill is drawRect content
-                    // (rasterized by our own drawing code so dynamic system colors re-resolve
-                    // per appearance), not a CALayer property, and Core Animation only
-                    // interpolates layer properties, so there is nothing for the render server
-                    // to tween. Day animates only what the toolkit's animator can execute
-                    // (§8.4), so an animated background change applies at commit here.
-                    v.set_surface(*c, 0.0, false);
+                ) else {
+                    return;
+                };
+                match patch {
+                    // The fill is drawRect content; an animated change plays on the layer's
+                    // backgroundColor for its length (see `motion`).
+                    ContainerPatch::Fill(fill) => motion::set_background(&v, fill.clone(), anim),
+                    // A reactive surface (or a radius Day re-resolved for a new frame): the
+                    // whole style again. The role is realize-time: a section card keeps its
+                    // own fill and takes the radius only. A changed solid fill animates as a
+                    // `Fill` does; the radius, the corners, the border and the shadow apply at
+                    // once, since the fill they shape is drawRect content Core Animation
+                    // cannot tween.
+                    ContainerPatch::Surface(p) => {
+                        if v.ivars().section_card.get().is_some() {
+                            v.set_section_card(p.corner_radius);
+                            return;
+                        }
+                        let fill = v.ivars().surface.borrow().as_ref().map(|s| s.fill.clone());
+                        if fill.as_ref() != Some(&p.fill) {
+                            motion::set_background(&v, p.fill.clone(), anim);
+                        }
+                        v.set_surface(p);
+                    }
                 }
             }
             kinds::LABEL => {
@@ -9644,44 +11853,62 @@ impl Toolkit for AppKit {
                     patch.downcast_ref::<LabelPatch>(),
                     h.clone().downcast::<NSTextField>(),
                 ) {
+                    let label = h.downcast_ref::<DayLabel>();
                     match p {
+                        LabelPatch::Paragraph(para) => {
+                            if let Some(label) = label {
+                                label.ivars().paragraph.set(*para);
+                            }
+                        }
                         LabelPatch::Text(t) => {
                             unsafe { tf.setStringValue(&NSString::from_str(t)) };
-                            if let Some(label) = h.downcast_ref::<DayLabel>() {
+                            if let Some(label) = label {
+                                label.clear_selection();
                                 label.ivars().has_runs.set(false);
                                 label.set_links(false);
                             }
                         }
-                        LabelPatch::Color(c) => unsafe {
-                            tf.setTextColor(c.map(nscolor).as_deref());
-                        },
+                        LabelPatch::Color(c) => {
+                            if let Some(label) = label {
+                                label.ivars().color.set(*c);
+                            }
+                            unsafe { tf.setTextColor(c.map(color::nsink).as_deref()) };
+                        }
                         LabelPatch::Font(f) => unsafe { tf.setFont(Some(&nsfont(*f))) },
                         LabelPatch::Runs(text, runs) => {
                             // The field's current font is the base the runs sit on, taken as the
                             // live object rather than rebuilt from a `FontSpec`, which would lose
                             // the semantic style behind the resolved size.
                             let base = unsafe { tf.font() };
+                            // The label's own color and role, under the runs.
+                            let (own, role) = label.map_or((None, TextRole::default()), |l| {
+                                (l.ivars().color.get(), l.ivars().role.get())
+                            });
                             let s = match base.as_deref() {
-                                Some(f) => {
-                                    attributed_label(text, f, None, TextRole::default(), runs)
-                                }
+                                Some(f) => attributed_label(text, f, own, role, runs),
                                 None => attributed_label(
                                     text,
                                     &nsfont(day_spec::FontSpec::default()),
-                                    None,
-                                    TextRole::default(),
+                                    own,
+                                    role,
                                     runs,
                                 ),
                             };
                             unsafe { tf.setAttributedStringValue(&s) };
-                            // Preserve paragraph alignment and activate links introduced by a
-                            // reactive markdown update without replacing the native label.
-                            set_paragraph_alignment(&tf, unsafe { tf.alignment() });
-                            if let Some(label) = h.downcast_ref::<DayLabel>() {
+                            // Activate links introduced by a reactive markdown update without
+                            // replacing the native label; the paragraph is stamped below.
+                            if let Some(label) = label {
+                                label.clear_selection();
                                 label.ivars().has_runs.set(!runs.is_empty());
                                 label.set_links(runs.iter().any(|r| r.link.is_some()));
                             }
                         }
+                    }
+                    // Every patch can move what the paragraph depends on: the string it is
+                    // stamped across, the font size letter spacing and line height scale with,
+                    // the color a stamped plain label copies.
+                    if let Some(label) = label {
+                        apply_label_paragraph(label);
                     }
                 }
             }
@@ -10168,16 +12395,9 @@ impl Toolkit for AppKit {
                             // A cover must occlude the window (the native tiers' modal surfaces
                             // are opaque): default to the window background when the app sets
                             // no explicit color.
-                            unsafe {
-                                page.setWantsLayer(true);
-                                if let Some(layer) = page.layer() {
-                                    let color = match background {
-                                        Some(bg) => nscolor(*bg),
-                                        None => NSColor::windowBackgroundColor(),
-                                    };
-                                    layer.setBackgroundColor(Some(&color.CGColor()));
-                                }
-                            }
+                            page.set_fill(
+                                background.unwrap_or(day_spec::SystemColor::Background.into()),
+                            );
                             // The primary window's content, specifically: firstObject()
                             // is arbitrary once secondary windows exist (docs/windows.md).
                             if let Some(content) = primary_content() {
@@ -10260,156 +12480,94 @@ impl Toolkit for AppKit {
                     }
                 }
             }
-            kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                Some(ListPatch::Splice(deltas)) => {
-                    // The set changed by exactly these deltas: animate each row in, out, or
-                    // across, the thing a reload cannot express. Indexes are sequential, so
-                    // each delta gets its own begin/endUpdates batch (NSTableView's combined
-                    // batch semantics re-interpret indexes; one-at-a-time stays literal).
-                    // Row realization stays deferred, as with Reload.
-                    if let Some((table, data)) = list_entry(ptr_of(h)) {
-                        use objc2_app_kit::NSTableViewAnimationOptions;
-                        for d in deltas {
-                            unsafe {
-                                table.beginUpdates();
-                                match d {
-                                    day_spec::props::RowDelta::Insert(i) => table
-                                        .insertRowsAtIndexes_withAnimation(
-                                            &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
-                                            NSTableViewAnimationOptions::SlideDown,
-                                        ),
-                                    day_spec::props::RowDelta::Remove(i) => table
-                                        .removeRowsAtIndexes_withAnimation(
-                                            &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
-                                            NSTableViewAnimationOptions::SlideUp,
-                                        ),
-                                    day_spec::props::RowDelta::Move(from, to) => {
-                                        table.moveRowAtIndex_toIndex(*from as isize, *to as isize);
-                                    }
+            kinds::SCROLL => {
+                if let Some(ScrollPatch::Zoom { scale, animated }) =
+                    patch.downcast_ref::<ScrollPatch>()
+                {
+                    scroll::zoom(h, *scale, *animated);
+                }
+            }
+            kinds::LIST => {
+                let key = ptr_of(h);
+                let entry = list_entry(key);
+                // A change held through a pass over the rows lands before anything newer
+                // (`DayListData::change_rows`); inside a pass it stays held.
+                if let Some((table, data)) = &entry {
+                    data.apply_held(table);
+                }
+                match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Splice(deltas)) => {
+                        // The set changed by exactly these deltas: animate each row in, out, or
+                        // across (`DayListData::splice_rows`). Row realization stays deferred,
+                        // as with Reload.
+                        if let Some((table, data)) = &entry {
+                            data.change_rows(key, table, Some(deltas));
+                        }
+                        post_realize_visible_rows(key);
+                    }
+                    Some(ListPatch::Reload) => {
+                        if let Some((table, data)) = &entry {
+                            data.change_rows(key, table, None);
+                        }
+                        // Realize the visible rows on the next main-loop turn, outside this
+                        // borrow. An occluded window (locked screen, covered, headless CI) gets
+                        // no normal draw pass; NSTableView would first realize these rows inside
+                        // a snapshot's `cacheDisplayInRect`, where `bind_row` must skip the held
+                        // borrow and the table would cache permanently blank cells.
+                        post_realize_visible_rows(key);
+                    }
+                    Some(ListPatch::ScrollToRow(row)) => {
+                        // Same deferral discipline as ScrollToEnd: the scroll tiles target rows
+                        // synchronously, which must happen outside this `with_tree` borrow.
+                        let row = *row;
+                        <AppKit as Platform>::post(Box::new(move || {
+                            if let Some((table, data)) = list_entry(key) {
+                                // The row is the source's: a held change lands first.
+                                data.apply_held(&table);
+                                let rows = unsafe { table.numberOfRows() };
+                                if rows > 0 {
+                                    unsafe {
+                                        table.scrollRowToVisible((row as isize).min(rows - 1));
+                                    };
                                 }
-                                table.endUpdates();
                             }
-                        }
-                        // The displayed order matches the source again: refresh the cache a
-                        // committed drag keeps in step and `permutation_moves` compares, or the
-                        // next Reload finds a stale length and reloads flat instead of animating.
-                        if let Some(source) = data.ivars().source.borrow().as_ref() {
-                            let n = (source.len)();
-                            *data.ivars().tokens.borrow_mut() =
-                                (0..n).map(|i| (source.token_at)(i)).collect();
-                        }
+                        }));
+                        post_realize_visible_rows(key);
                     }
-                    post_realize_visible_rows(ptr_of(h));
-                }
-                Some(ListPatch::Reload) => {
-                    if let Some((table, data)) = list_entry(ptr_of(h)) {
-                        // NSTableView reloadData clears selection for this view-based source.
-                        // Preserve identities, not indexes, across refreshes/reorders; removed
-                        // items disappear from the selection without selecting their successor.
-                        let selected = unsafe { table.selectedRowIndexes() };
-                        let tokens: Vec<u64> = data
-                            .ivars()
-                            .tokens
-                            .borrow()
-                            .iter()
-                            .enumerate()
-                            .filter(|(row, _)| selected.containsIndex(*row))
-                            .map(|(_, token)| *token)
-                            .collect();
-                        data.ivars().suppress.set(true);
-                        // A reload whose rows are the same set in a new order (a shuffle,
-                        // a programmatic sort) animates as native row moves instead of a
-                        // blink: a `moveRowAtIndex` batch, the same animation a drag commit
-                        // gets. Anything else (insert/remove/content change) reloads flat.
-                        // reloadData queries numberOfRows synchronously (snapshot only, no
-                        // tree) and defers viewForRow, so both paths are safe in with_tree.
-                        if let Some(moves) = data.permutation_moves(&table) {
-                            unsafe {
-                                table.beginUpdates();
-                                for (from, to) in moves {
-                                    table.moveRowAtIndex_toIndex(from as isize, to as isize);
+                    Some(ListPatch::ScrollToEnd) => {
+                        // Deferred to the next main-loop turn: an actual scroll forces
+                        // NSTableView to tile (realize) the target rows synchronously, and this
+                        // patch arrives inside a `with_tree` borrow where `bind_row` must skip;
+                        // the table would cache blank cells for every newly exposed row (see
+                        // Reload above).
+                        <AppKit as Platform>::post(Box::new(move || {
+                            if let Some((table, data)) = list_entry(key) {
+                                // The end is the source's: a held change lands first.
+                                data.apply_held(&table);
+                                let rows = unsafe { table.numberOfRows() };
+                                if rows > 0 {
+                                    unsafe { table.scrollRowToVisible(rows - 1) };
                                 }
-                                table.endUpdates();
                             }
-                        } else {
-                            unsafe { table.reloadData() };
-                        }
-                        let restored = objc2_foundation::NSMutableIndexSet::new();
-                        for (row, token) in data.ivars().tokens.borrow().iter().enumerate() {
-                            if tokens.contains(token) {
-                                restored.addIndex(row);
-                            }
-                        }
-                        unsafe { table.selectRowIndexes_byExtendingSelection(&restored, false) };
-                        data.ivars().suppress.set(false);
+                        }));
+                        // ...and realize whatever the scroll exposed, still outside the borrow.
+                        post_realize_visible_rows(key);
                     }
-                    // Realize the visible rows on the next main-loop turn, outside this borrow.
-                    // An occluded window (locked screen, covered, headless CI) gets no normal
-                    // draw pass; NSTableView would first realize these rows inside a snapshot's
-                    // `cacheDisplayInRect`, where `bind_row` must skip the held borrow and the
-                    // table would cache permanently blank cells.
-                    post_realize_visible_rows(ptr_of(h));
-                }
-                Some(ListPatch::ScrollToRow(row)) => {
-                    // Same deferral discipline as ScrollToEnd: the scroll tiles target rows
-                    // synchronously, which must happen outside this `with_tree` borrow.
-                    let (key, row) = (ptr_of(h), *row);
-                    <AppKit as Platform>::post(Box::new(move || {
-                        if let Some((table, _)) = list_entry(key) {
-                            let rows = unsafe { table.numberOfRows() };
-                            if rows > 0 {
-                                unsafe { table.scrollRowToVisible((row as isize).min(rows - 1)) };
-                            }
+                    Some(ListPatch::Selected(rows)) => {
+                        if let Some((table, data)) = &entry {
+                            data.select(table, rows);
                         }
-                    }));
-                    post_realize_visible_rows(ptr_of(h));
-                }
-                Some(ListPatch::ScrollToEnd) => {
-                    // Deferred to the next main-loop turn: an actual scroll forces NSTableView
-                    // to tile (realize) the target rows synchronously, and this patch arrives
-                    // inside a `with_tree` borrow where `bind_row` must skip; the table would
-                    // cache blank cells for every newly exposed row (see Reload above).
-                    let key = ptr_of(h);
-                    <AppKit as Platform>::post(Box::new(move || {
-                        if let Some((table, _)) = list_entry(key) {
-                            let rows = unsafe { table.numberOfRows() };
-                            if rows > 0 {
-                                unsafe { table.scrollRowToVisible(rows - 1) };
-                            }
-                        }
-                    }));
-                    // ...and realize whatever the scroll exposed, still outside the borrow.
-                    post_realize_visible_rows(ptr_of(h));
-                }
-                Some(ListPatch::Selected(rows)) => {
-                    // Programmatic selection sync (empty = clear), suppressed so the
-                    // delegate does not echo it back as a selection event.
-                    if let Some((table, data)) = list_entry(ptr_of(h)) {
-                        data.ivars().suppress.set(true);
-                        unsafe {
-                            if rows.is_empty() {
-                                table.deselectAll(None);
-                            } else {
-                                let set = objc2_foundation::NSMutableIndexSet::new();
-                                let count = table.numberOfRows().max(0) as usize;
-                                for r in rows.iter().copied().filter(|r| *r < count) {
-                                    set.addIndex(r);
-                                }
-                                table.selectRowIndexes_byExtendingSelection(&set, false);
-                            }
-                        }
-                        data.ivars().suppress.set(false);
                     }
-                }
-                Some(ListPatch::RowSizeInvalidated { cell, height }) => {
-                    if let Some((table, data)) = list_entry(ptr_of(h)) {
-                        data.row_resized(&table, *cell, *height);
+                    Some(ListPatch::RowSizeInvalidated { cell, height }) => {
+                        if let Some((table, data)) = &entry {
+                            data.row_resized(table, *cell, *height);
+                        }
                     }
+                    // `None` = a patch for another kind's enum. A desktop table has no editing
+                    // mode (Cap::ListEditing is Unsupported).
+                    Some(ListPatch::Editing(_)) | None => {}
                 }
-                // `None` = a patch for another kind's enum. A desktop table has no editing mode
-                // (Cap::ListEditing is Unsupported).
-                Some(ListPatch::Editing(_)) | None => {}
-            },
+            }
             kinds::TREE => match patch.downcast_ref::<TreePatch>() {
                 Some(TreePatch::Reload) => {
                     // Interned items keep their identity across reloadData, so NSOutlineView
@@ -10593,6 +12751,9 @@ impl Toolkit for AppKit {
         // table's teardown hook (day-spec sidetable). The explicit removals above are the
         // older per-map checklist; new per-view maps should be SideTables so this sweep covers
         // them without another line here.
+        // A group disabled with `set_subtree_enabled` that leaves the tree disabled gives back
+        // what it held (the ledger is keyed by the handle, not swept with the side tables).
+        input::forget_disabled_root(ptr_of(&h));
         day_spec::sidetable::sweep(ptr_of(&h));
         unsafe { h.removeFromSuperview() };
     }
@@ -10781,18 +12942,19 @@ impl Toolkit for AppKit {
                     let s = tf.sizeThatFits(NSSize::new(w, 1.0e6));
                     let mut height = s.height.ceil();
                     // AppKit's truncating single-line mode still measures explicit newlines
-                    // as multiple lines. Bound that case using AppKit's own font metrics.
-                    if tf.maximumNumberOfLines() == 1 {
-                        thread_local! {
-                            static METRICS: Retained<objc2_app_kit::NSLayoutManager> = objc2_app_kit::NSLayoutManager::new();
-                        }
-                        if let Some(font) = unsafe { tf.font() } {
-                            height = height.min(
-                                METRICS
-                                    .with(|metrics| metrics.defaultLineHeightForFont(&font))
-                                    .ceil(),
-                            );
-                        }
+                    // as multiple lines. Bound that case by one line box: the label's fixed
+                    // line height where it sets one, else AppKit's own font metrics.
+                    if tf.maximumNumberOfLines() == 1
+                        && let Some(font) = unsafe { tf.font() }
+                    {
+                        let fixed = h.downcast_ref::<DayLabel>().and_then(|l| {
+                            label_line_points(
+                                l.ivars().paragraph.get().line_height,
+                                font.pointSize(),
+                            )
+                        });
+                        let line = fixed.unwrap_or_else(|| natural_line_height(&font));
+                        height = height.min(line.ceil());
                     }
                     return Size::new(s.width.ceil().min(w), height);
                 }
@@ -10862,25 +13024,82 @@ impl Toolkit for AppKit {
         }
     }
 
+    /// The whole `AnimSpec` on the layer's `opacity` (docs/tween.md; see `motion`).
     fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
-        unsafe {
-            h.setWantsLayer(true);
-        }
-        let v = h.clone();
-        with_appkit_anim(anim, move || unsafe { v.setAlphaValue(opacity) });
+        motion::set_opacity(h, opacity, anim);
     }
 
     fn set_transform(&mut self, h: &Handle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
         // Expressed in the view's own geometry (see `TRANSFORMS`), so hit-testing follows the
-        // drawing, as UIKit's does. Without a laid-out frame yet, `set_frame` applies it.
+        // drawing, as UIKit's does. Without a laid-out frame yet, `set_frame` applies it. An
+        // animated change plays on the layer from the geometry shown (see `motion`).
+        let from = motion::shown_geometry(h);
         TRANSFORMS.with(|m| m.insert(ptr_of(h), t));
-        let base = BASE_FRAMES.with(|m| m.get(ptr_of(h)));
-        let v = h.clone();
-        with_appkit_anim(anim, move || {
-            if let Some(base) = base {
-                apply_geometry(&v, base, t);
+        if let Some(base) = BASE_FRAMES.with(|m| m.get(ptr_of(h))) {
+            motion::move_geometry(h, from, (base, t), anim, || apply_geometry(h, base, t));
+        }
+    }
+
+    /// What the layer shows mid-animation (docs/tween.md "Toolkit support"; see `motion`).
+    fn read_displayed(&self, h: &Handle) -> day_spec::Displayed {
+        motion::displayed(h)
+    }
+
+    /// macOS has no system text-size setting that `NSFont.preferredFont(forTextStyle:)`
+    /// follows, so every style is at its default size (docs/text.md "Text scale").
+    fn text_scale(&mut self, _style: Font) -> f64 {
+        1.0
+    }
+
+    /// A leaf control's reading direction (docs/localization.md "Direction of a subtree"):
+    /// `userInterfaceLayoutDirection` on the view and its cell (a slider's fill side, a
+    /// switch's on side, a pop-up's arrow), and for text the base writing direction, which
+    /// `NSTextAlignment.natural` and Day's `Trailing` follow. Containers, scroll views, lists
+    /// and other hosts are skipped: Day places their children and mirrors them itself.
+    fn set_layout_direction(
+        &mut self,
+        h: &Handle,
+        kind: PieceKind,
+        direction: day_spec::LayoutDirection,
+    ) {
+        use objc2_app_kit::{NSUserInterfaceLayoutDirection as Ui, NSWritingDirection as Writing};
+        let rtl = direction == day_spec::LayoutDirection::Rtl;
+        let (ui, writing) = if rtl {
+            (Ui::RightToLeft, Writing::RightToLeft)
+        } else {
+            (Ui::LeftToRight, Writing::LeftToRight)
+        };
+        if kind == kinds::TEXT_AREA {
+            textarea::set_direction(h, ui, writing);
+            return;
+        }
+        if !matches!(
+            kind,
+            kinds::LABEL
+                | kinds::BUTTON
+                | kinds::TOGGLE
+                | kinds::SLIDER
+                | kinds::TEXT_FIELD
+                | kinds::PICKER
+                | kinds::PROGRESS
+        ) {
+            return;
+        }
+        h.setUserInterfaceLayoutDirection(ui);
+        if let Some(label) = h.downcast_ref::<DayLabel>() {
+            label.ivars().direction.set(Some(direction));
+            apply_label_paragraph(label);
+            return;
+        }
+        if let Some(control) = h.downcast_ref::<NSControl>() {
+            if let Some(cell) = unsafe { control.cell() } {
+                cell.setUserInterfaceLayoutDirection(ui);
             }
-        });
+            // A text field's natural alignment follows its base writing direction.
+            if control.isKindOfClass(<NSTextField as objc2::ClassType>::class()) {
+                unsafe { control.setBaseWritingDirection(writing) };
+            }
+        }
     }
 
     fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {
@@ -11030,7 +13249,7 @@ impl Toolkit for AppKit {
         (offset > 0.0 && offset < size.height).then_some(offset)
     }
 
-    fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
+    fn set_frame(&mut self, h: &Handle, frame: Rect, anim: Option<&AnimSpec>) {
         // Nav pages: the splitter pane / nav container owns the frame (autoresized).
         if NAV_PAGES.with(|set| set.borrow().contains(&ptr_of(h))) {
             return;
@@ -11130,31 +13349,22 @@ impl Toolkit for AppKit {
                 }
             }
         } else {
-            BASE_FRAMES.with(|m| {
-                m.insert(
-                    ptr_of(h),
-                    [
-                        frame.origin.x,
-                        frame.origin.y,
-                        frame.size.width,
-                        frame.size.height,
-                    ],
-                )
+            let base = [
+                frame.origin.x,
+                frame.origin.y,
+                frame.size.width,
+                frame.size.height,
+            ];
+            let from = motion::shown_geometry(h);
+            BASE_FRAMES.with(|m| m.insert(ptr_of(h), base));
+            // A transform (`set_transform`) is applied to the frame Day laid out. An animated
+            // change plays on the layer from the geometry shown (see `motion`).
+            let t = TRANSFORMS.with(|m| m.get(ptr_of(h)));
+            let to = (base, t.unwrap_or(Transform::IDENTITY));
+            motion::move_geometry(h, from, to, anim, || match t {
+                Some(t) => apply_geometry(h, base, t),
+                None => h.setFrame(r),
             });
-            // A transform (`set_transform`) is applied to the frame Day laid out.
-            match TRANSFORMS.with(|m| m.get(ptr_of(h))) {
-                Some(t) => apply_geometry(
-                    h,
-                    [
-                        frame.origin.x,
-                        frame.origin.y,
-                        frame.size.width,
-                        frame.size.height,
-                    ],
-                    t,
-                ),
-                None => unsafe { h.setFrame(r) },
-            }
         }
     }
 
@@ -11179,17 +13389,86 @@ impl Toolkit for AppKit {
         }
     }
 
-    fn scroll_to(&mut self, h: &Handle, target: Rect, _animated: bool) {
+    /// The least scroll that shows `target` (`scrollRectToVisible:`'s rule), through the clip
+    /// view's animator when `animated`, else a jump that also stops a running animation.
+    fn scroll_to(&mut self, h: &Handle, target: Rect, animated: bool) {
         if let Some(sv) = h.downcast_ref::<NSScrollView>()
-            && let Some(doc) = unsafe { sv.documentView() }
+            && unsafe { sv.documentView() }.is_some()
         {
-            unsafe {
-                doc.scrollRectToVisible(NSRect::new(
-                    NSPoint::new(target.origin.x, target.origin.y),
-                    NSSize::new(target.size.width, target.size.height),
-                ))
-            };
+            let bounds = unsafe { sv.contentView() }.bounds();
+            let to = NSPoint::new(
+                scroll::reveal_origin(
+                    bounds.origin.x,
+                    bounds.size.width,
+                    target.origin.x,
+                    target.size.width,
+                ),
+                scroll::reveal_origin(
+                    bounds.origin.y,
+                    bounds.size.height,
+                    target.origin.y,
+                    target.size.height,
+                ),
+            );
+            scroll::scroll_clip_to(sv, to, animated, None);
         }
+    }
+
+    fn scroll_offset(&mut self, h: &Handle) -> Point {
+        scroll::offset(h)
+    }
+
+    /// Place the row where `to.align` says from its `rectOfRow:` and the clip view's bounds
+    /// (docs/list.md "Programmatic scrolling"), animated through the clip view's animator or a
+    /// jump; then realize the rows it exposed and report the viewport. Deferred one turn, as
+    /// the patches were: the scroll tiles rows synchronously, outside this borrow.
+    fn list_scroll(&mut self, h: &Handle, to: day_spec::ListScroll) -> bool {
+        let key = ptr_of(h);
+        if list_entry(key).is_none() {
+            return false;
+        }
+        <AppKit as Platform>::post(Box::new(move || {
+            let Some((table, data)) = list_entry(key) else {
+                return;
+            };
+            // The reader's live scroll holds the list (docs/list.md "Following the end"): the
+            // app's scroll would run against their gesture.
+            if data.ivars().live.get() {
+                return;
+            }
+            // The row is the source's: a held change lands first.
+            data.apply_held(&table);
+            let rows = unsafe { table.numberOfRows() };
+            let Some(scroll) = table.enclosingScrollView() else {
+                return;
+            };
+            if rows <= 0 {
+                return;
+            }
+            let bounds = unsafe { scroll.contentView() }.bounds();
+            let y = match to.row {
+                Some(row) => {
+                    let rect = unsafe { table.rectOfRow((row as isize).min(rows - 1)) };
+                    scroll::row_origin(
+                        bounds.origin.y,
+                        bounds.size.height,
+                        rect.origin.y,
+                        rect.origin.y + rect.size.height,
+                        to.align,
+                    )
+                }
+                // The very end: past a footer or bottom padding, which are rows too.
+                None => table.frame().size.height - bounds.size.height,
+            };
+            let done: Box<dyn FnOnce()> = Box::new(move || post_realize_visible_rows(key));
+            scroll::scroll_clip_to(
+                &scroll,
+                NSPoint::new(bounds.origin.x, y),
+                to.animated,
+                Some(done),
+            );
+        }));
+        true
     }
 
     fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
@@ -11228,6 +13507,8 @@ impl Toolkit for AppKit {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+        // Press, the input kind and key releases (docs/gestures.md, docs/menus.md "Keys").
+        input::install_monitor();
     }
 
     fn set_edit_state(&mut self, state: &day_spec::EditState) {
@@ -11236,11 +13517,19 @@ impl Toolkit for AppKit {
 
     fn modifiers(&mut self) -> day_spec::Modifiers {
         let f = NSEvent::modifierFlags_class();
-        day_spec::Modifiers {
-            shift: f.contains(NSEventModifierFlags::Shift),
-            primary: f.contains(NSEventModifierFlags::Command),
-            alt: f.contains(NSEventModifierFlags::Option),
-        }
+        day_spec::Modifiers::NONE
+            .with(
+                day_spec::Modifiers::SHIFT,
+                f.contains(NSEventModifierFlags::Shift),
+            )
+            .with(
+                day_spec::Modifiers::PRIMARY,
+                f.contains(NSEventModifierFlags::Command),
+            )
+            .with(
+                day_spec::Modifiers::ALT,
+                f.contains(NSEventModifierFlags::Option),
+            )
     }
 
     fn set_undo_state(&mut self, state: &day_spec::UndoState) {
@@ -11251,7 +13540,19 @@ impl Toolkit for AppKit {
     fn attach_list(&mut self, host: &Handle, source: ListSource) {
         let key = ptr_of(host);
         if let Some((table, data)) = list_entry(key) {
+            let supplements = source.is_supplement.is_some();
             data.ivars().source.replace(Some(source));
+            // A change held for the old source means nothing to the new one: it reloads.
+            data.ivars().held.replace(None);
+            data.ivars().splice.replace(None);
+            if data.ivars().supplements.replace(supplements) != supplements {
+                // NSTableView reads which optional delegate methods exist when its delegate is
+                // set: set it again so a uniform list starts answering `heightOfRow`.
+                unsafe {
+                    table.setDelegate(None);
+                    table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                }
+            }
             // Initial fill: numberOfRows reads the snapshot only; viewForRow is deferred.
             unsafe { table.reloadData() };
         }
@@ -11454,8 +13755,8 @@ impl Toolkit for AppKit {
             return;
         }
         // Nor is hover: it is a tracking area plus `mouseEntered:`/`mouseMoved:`/`mouseExited:`,
-        // which only `DayCanvas` overrides — a hover enabled on another view emits nothing, the
-        // same limitation Pan has.
+        // which Day's canvas, container and label views override (`input::report_hover`) — a
+        // hover enabled on another view (a native control, an image) emits nothing.
         if kind == day_spec::GestureKind::Hover {
             // Idempotent, and it has to be checked here rather than falling through to the
             // recognizer guard below: day-core re-enables a gesture on rebuild, and a second
@@ -11463,8 +13764,25 @@ impl Toolkit for AppKit {
             let first = HOVER_NODES.with(|t| t.get(key)).is_none();
             HOVER_NODES.with(|t| t.insert(key, node));
             if first {
-                install_tracking_area(h);
+                // `InVisibleRect` makes the area follow the view's bounds (or, with a hit
+                // slop, the grown bounds); `ActiveInKeyWindow` matches the cursor areas — a
+                // background window does not report hovers.
+                input::install_hover_area(h);
             }
+            return;
+        }
+        // Press is an observer, not a recognizer (docs/gestures.md "Press"): the input
+        // monitor reports it for the views registered here, before AppKit dispatches the
+        // mouse-down, and never consumes an event. A recognizer would have to claim the
+        // sequence to see it, and AppKit's recognizers report nothing at the down itself.
+        if kind == day_spec::GestureKind::Press {
+            input::PRESS_NODES.with(|t| t.insert(key, node));
+            input::install_monitor();
+            return;
+        }
+        // Raw contacts: a trackpad's touches are not contacts on the screen, so the kind
+        // stays `Unsupported` (`gesture_support`) and day-core derives one mouse contact.
+        if kind == day_spec::GestureKind::Touches {
             return;
         }
         // Idempotent: attach each kind at most once per view.
@@ -11494,15 +13812,76 @@ impl Toolkit for AppKit {
                         Some(sel!(fire:)),
                     ),
                 ),
-                _ => Retained::into_super(NSClickGestureRecognizer::initWithTarget_action(
-                    NSClickGestureRecognizer::alloc(mtm),
-                    Some(&target),
-                    Some(sel!(fire:)),
-                )),
+                // A held primary button (docs/gestures.md "Long press"): AppKit's own press
+                // recognizer, at its default delay (0.5 s) and allowable movement. It must not
+                // hold the mouse-down back from the view (a canvas focuses on it).
+                day_spec::GestureKind::LongPress => {
+                    let press = NSPressGestureRecognizer::initWithTarget_action(
+                        NSPressGestureRecognizer::alloc(mtm),
+                        Some(&target),
+                        Some(sel!(fire:)),
+                    );
+                    press.setDelaysPrimaryMouseButtonEvents(false);
+                    press.setDelegate(Some(ProtocolObject::from_ref(&*target)));
+                    Retained::into_super(press)
+                }
+                // Two clicks within the system's double-click interval and distance. The
+                // single-click recognizer beside it waits that interval out by hand
+                // (`input::hold_tap`); this one delays nothing.
+                day_spec::GestureKind::DoubleTap => {
+                    let double = NSClickGestureRecognizer::initWithTarget_action(
+                        NSClickGestureRecognizer::alloc(mtm),
+                        Some(&target),
+                        Some(sel!(fire:)),
+                    );
+                    double.setNumberOfClicksRequired(2);
+                    double.setDelaysPrimaryMouseButtonEvents(false);
+                    double.setDelegate(Some(ProtocolObject::from_ref(&*target)));
+                    Retained::into_super(double)
+                }
+                _ => {
+                    let click = NSClickGestureRecognizer::initWithTarget_action(
+                        NSClickGestureRecognizer::alloc(mtm),
+                        Some(&target),
+                        Some(sel!(fire:)),
+                    );
+                    click.setDelegate(Some(ProtocolObject::from_ref(&*target)));
+                    Retained::into_super(click)
+                }
             }
         };
         unsafe { h.addGestureRecognizer(&recognizer) };
         GESTURES.with(|m| m.borrow_mut().entry(key).or_default().push(target));
+    }
+
+    /// Press, long press and double tap are AppKit's own (see `enable_gesture`). Touches stay
+    /// derived: a Mac's pointer is one mouse, and a trackpad's touches are not contacts on the
+    /// screen.
+    fn gesture_support(&self, kind: day_spec::GestureKind) -> Support {
+        match kind {
+            day_spec::GestureKind::Touches => Support::Unsupported,
+            _ => Support::Native,
+        }
+    }
+
+    fn set_hit_slop(&mut self, h: &Handle, _node: NodeId, slop: day_spec::Insets) {
+        input::set_hit_slop(h, slop);
+    }
+
+    /// Nothing to do on a Mac (docs/gestures.md "Gestures inside a scroll view"): an
+    /// `NSScrollView` scrolls on the wheel and the trackpad's two-finger scroll
+    /// (`scrollWheel:`), never on a mouse drag, so a drag is never contested and a trackpad
+    /// scroll over the node still reaches the scroll view behind it. day-core withholds the
+    /// cross-axis drags from the handler.
+    fn set_drag_axis(&mut self, _h: &Handle, _node: NodeId, _axis: Option<day_spec::DragAxis>) {}
+
+    fn set_subtree_enabled(&mut self, h: &Handle, _node: NodeId, enabled: bool) {
+        input::set_subtree_enabled(h, enabled);
+    }
+
+    /// A Mac's pointer is a mouse or a trackpad until a pen says otherwise.
+    fn primary_pointer(&self) -> day_spec::PointerKind {
+        input::pointer_kind()
     }
 
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
@@ -12950,22 +15329,29 @@ fn apply_geometry(v: &NSView, base: [f64; 4], t: Transform) {
         v.setFrameCenterRotation(0.0);
         v.setFrame(frame);
         v.setBoundsSize(NSSize::new(w, h));
-        if t.rotate_deg != 0.0 {
-            v.setFrameCenterRotation(t.rotate_deg);
+        if t.rotation.degrees() != 0.0 {
+            v.setFrameCenterRotation(t.rotation.degrees());
         }
     }
 }
 
 fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
-    let modal = content
-        .window()
-        .and_then(|w| w.attachedSheet())
-        .and_then(|s| s.contentView());
-    let content = modal.as_deref().unwrap_or(content);
-    match snapshot_via_window_server(content, false) {
-        Ok(bytes) => Ok(bytes),
-        Err(_) => snapshot_view_cache(content),
-    }
+    // A capture's own pool. AppKit autoreleases the window image, its crop, the color-converted
+    // rep and CoreGraphics' rasterized copy of the image (about 32 MB at 2560×1600). Left to the
+    // main thread's outer pool, which a scripted run with no input events does not drain, a full
+    // macos-appkit `day test` (a few hundred `sample_pixel` steps) peaked at 2.6 GB; with this
+    // pool it stays under 150 MB.
+    objc2::rc::autoreleasepool(|_| {
+        let modal = content
+            .window()
+            .and_then(|w| w.attachedSheet())
+            .and_then(|s| s.contentView());
+        let content = modal.as_deref().unwrap_or(content);
+        match snapshot_via_window_server(content, false) {
+            Ok(bytes) => Ok(bytes),
+            Err(_) => snapshot_view_cache(content),
+        }
+    })
 }
 
 /// Capture a window *with* its chrome — the titlebar and toolbar the content capture crops away
@@ -12976,15 +15362,18 @@ fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
 /// the content capture stands in — a smaller image beats no image, and it is what the caller
 /// would have got from the plain duty.
 fn snapshot_view_chrome(content: &NSView) -> Result<Vec<u8>, String> {
-    let modal = content
-        .window()
-        .and_then(|w| w.attachedSheet())
-        .and_then(|s| s.contentView());
-    let content = modal.as_deref().unwrap_or(content);
-    match snapshot_via_window_server(content, true) {
-        Ok(bytes) => Ok(bytes),
-        Err(_) => snapshot_view_cache(content),
-    }
+    // Its own pool, for the reason `snapshot_view` gives.
+    objc2::rc::autoreleasepool(|_| {
+        let modal = content
+            .window()
+            .and_then(|w| w.attachedSheet())
+            .and_then(|s| s.contentView());
+        let content = modal.as_deref().unwrap_or(content);
+        match snapshot_via_window_server(content, true) {
+            Ok(bytes) => Ok(bytes),
+            Err(_) => snapshot_view_cache(content),
+        }
+    })
 }
 
 /// The offscreen fallback: `cacheDisplayInRect` over a window-background pre-fill resolved for
@@ -13073,8 +15462,12 @@ fn install_appearance_observer() {
     use objc2_foundation::{NSDistributedNotificationCenter, NSNotification, NSString};
     let center = unsafe { NSDistributedNotificationCenter::defaultCenter() };
     let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
-        dispatch2::DispatchQueue::main()
-            .exec_async(|| ffi_guard::contain((), day_core::note_appearance_changed));
+        dispatch2::DispatchQueue::main().exec_async(|| {
+            ffi_guard::contain((), || {
+                day_core::note_appearance_changed();
+                color::refresh_layers();
+            });
+        });
     });
     let name = NSString::from_str("AppleInterfaceThemeChangedNotification");
     let token = unsafe {
@@ -13771,6 +16164,68 @@ fn release_bitmap(id: day_spec::BitmapId) {
 }
 
 #[cfg(test)]
+mod splice_tests {
+    use super::{SpliceRows, splice_fits};
+    use day_spec::props::RowDelta::{Insert, Move, Remove};
+
+    #[test]
+    fn a_splice_fits_only_the_rows_it_was_made_for() {
+        // Three rows: insert at the top, move the last to the top, remove from the middle.
+        let deltas = [Insert(0), Move(3, 0), Remove(2)];
+        assert!(splice_fits(3, &deltas, 3));
+        // An append lands one past the end.
+        assert!(splice_fits(3, &[Insert(3), Insert(4)], 5));
+        assert!(splice_fits(0, &[], 0));
+        // The table missed a change: an index past its rows, or the wrong count after.
+        assert!(!splice_fits(2, &deltas, 2));
+        assert!(!splice_fits(3, &[Insert(5)], 4));
+        assert!(!splice_fits(3, &[Remove(3)], 2));
+        assert!(!splice_fits(3, &[Move(0, 3)], 3));
+        assert!(!splice_fits(3, &[Insert(0)], 3));
+    }
+
+    #[test]
+    fn a_splice_in_flight_maps_each_row_to_the_source_row_it_ends_at() {
+        // A sectioned list [A, a1, B, b1] grows to [A, a1, a2, a3, B, b1, b2, b3, C, c1, c2]:
+        // day-core inserts from the bottom up, each row above the one placed before it.
+        let deltas = [
+            Insert(4),
+            Insert(4),
+            Insert(4),
+            Insert(4),
+            Insert(4),
+            Insert(2),
+            Insert(2),
+        ];
+        let mut rows = SpliceRows::new(4, &deltas);
+        let shown = |rows: &SpliceRows| -> Vec<Option<usize>> {
+            (0..rows.entries.len())
+                .map(|r| rows.source_row(r))
+                .collect()
+        };
+        // Before any delta, the rows shown are where they end.
+        assert!(shown(&rows).into_iter().eq([0, 1, 4, 5].map(Some)));
+        // The first insert is the last row, c2, at index 4 — where header B ends up.
+        rows.apply(deltas[0]);
+        assert!(shown(&rows).into_iter().eq([0, 1, 4, 5, 10].map(Some)));
+        for delta in &deltas[1..] {
+            rows.apply(*delta);
+        }
+        assert!(shown(&rows).into_iter().eq((0..11).map(Some)));
+
+        // Removals first (highest first), then a move: removed rows map to nothing.
+        let deltas = [Remove(3), Remove(1), Move(1, 0)];
+        let mut rows = SpliceRows::new(4, &deltas);
+        assert!(shown(&rows).into_iter().eq([Some(1), None, Some(0), None]));
+        rows.apply(deltas[0]);
+        rows.apply(deltas[1]);
+        assert!(shown(&rows).into_iter().eq([1, 0].map(Some)));
+        rows.apply(deltas[2]);
+        assert!(shown(&rows).into_iter().eq([0, 1].map(Some)));
+    }
+}
+
+#[cfg(test)]
 mod bitmap_teardown_tests {
     use super::*;
 
@@ -13812,5 +16267,349 @@ mod bitmap_teardown_tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+#[cfg(test)]
+mod canvas_ink_tests {
+    use super::*;
+    use day_spec::{Affine, BlendMode, Color, ConicGradient, Shadow, Shape};
+
+    const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+    const GREEN: Color = Color::rgb(0.0, 1.0, 0.0);
+    const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+    const YELLOW: Color = Color::rgb(1.0, 1.0, 0.0);
+
+    fn rect(x: f64, y: f64, w: f64, h: f64) -> Shape {
+        Shape::Rect(day_spec::Rect::new(x, y, w, h))
+    }
+
+    /// Four hard-edged quarters, clockwise from +x: red, green, blue, yellow.
+    fn quarters() -> ConicGradient {
+        let stops = [RED, GREEN, BLUE, YELLOW]
+            .iter()
+            .enumerate()
+            .flat_map(|(i, c)| [(i as f64 * 0.25, *c), (i as f64 * 0.25 + 0.25, *c)])
+            .collect::<Vec<_>>();
+        ConicGradient::centered(day_spec::Angle::deg(0.0), stops)
+    }
+
+    /// Paint `ops` through the export painter and read back premultiplied RGBA at pixel
+    /// (`x`, `y`), counted from the top left.
+    fn painted(ops: &[DrawOp], size: Size, scale: f64, at: &[(usize, usize)]) -> Vec<[u8; 4]> {
+        let image = render_bitmap_cgimage(ops, size, scale).unwrap();
+        let rep = unsafe {
+            objc2_app_kit::NSBitmapImageRep::initWithCGImage(
+                objc2_app_kit::NSBitmapImageRep::alloc(),
+                &image,
+            )
+        };
+        let (data, stride) = (rep.bitmapData(), rep.bytesPerRow() as usize);
+        assert_eq!(rep.bitsPerPixel(), 32);
+        at.iter()
+            .map(|(x, y)| {
+                let mut px = [0u8; 4];
+                // SAFETY: the rep owns `stride` bytes per row for its pixel height, and every
+                // sample a test asks for lies inside the image it rendered.
+                unsafe {
+                    data.add(y * stride + x * 4)
+                        .copy_to_nonoverlapping(px.as_mut_ptr(), 4);
+                };
+                px
+            })
+            .collect()
+    }
+
+    fn near(px: [u8; 4], want: [u8; 4]) -> bool {
+        px.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 24)
+    }
+
+    #[test]
+    fn replay_mirrors_save_and_restore() {
+        let mut replay = Replay::new(1.0);
+        replay.save();
+        replay.ink.shadow = true;
+        replay.save();
+        replay.ink.blend = BlendMode::Erase;
+        assert!(replay.restore());
+        assert_eq!(
+            replay.ink,
+            Ink {
+                shadow: true,
+                blend: BlendMode::Normal
+            }
+        );
+        assert!(replay.restore());
+        assert_eq!(replay.ink, Ink::default());
+        // A restore with no save changes nothing and reports it.
+        assert!(!replay.restore());
+        assert_eq!(replay.ink, Ink::default());
+    }
+
+    #[test]
+    fn pdf_leaves_out_what_erase_draws() {
+        let plain = [DrawOp::Fill(rect(0.0, 0.0, 9.0, 9.0), RED.into())];
+        assert!(matches!(pdf_ops(&plain), std::borrow::Cow::Borrowed(_)));
+        let ops = [
+            DrawOp::Fill(rect(0.0, 0.0, 9.0, 9.0), RED.into()),
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Erase),
+            DrawOp::Fill(rect(1.0, 1.0, 2.0, 2.0), GREEN.into()),
+            DrawOp::Restore,
+            DrawOp::Fill(rect(3.0, 3.0, 2.0, 2.0), BLUE.into()),
+        ];
+        let kept = pdf_ops(&ops);
+        assert_eq!(kept.len(), 5);
+        assert!(!kept.contains(&ops[3]));
+        assert!(kept.contains(&ops[5]));
+    }
+
+    #[test]
+    fn conic_pixels_turn_clockwise_from_the_start() {
+        // A 4 by 4 grid about its own middle: one quarter per quadrant, bottom-right first.
+        let px = conic_pixels(
+            &quarters(),
+            Point::new(2.0, 2.0),
+            Point::new(0.0, 0.0),
+            1.0,
+            4,
+            4,
+        );
+        let at = |x: usize, y: usize| <[u8; 4]>::try_from(&px[(y * 4 + x) * 4..][..4]).unwrap();
+        assert_eq!(px.len(), 4 * 4 * 4);
+        assert_eq!(at(3, 3), [255, 0, 0, 255]);
+        assert_eq!(at(0, 3), [0, 255, 0, 255]);
+        assert_eq!(at(0, 0), [0, 0, 255, 255]);
+        assert_eq!(at(3, 0), [255, 255, 0, 255]);
+        // Alpha premultiplies the color.
+        let half = Color::rgba(1.0, 0.0, 0.0, 0.5);
+        let faint =
+            ConicGradient::centered(day_spec::Angle::deg(90.0), vec![(0.0, half), (1.0, half)]);
+        let px = conic_pixels(
+            &faint,
+            Point::new(0.5, 0.5),
+            Point::new(0.0, 0.0),
+            1.0,
+            1,
+            1,
+        );
+        assert_eq!(px, [128, 0, 0, 128]);
+        // The start angle turns the whole wheel: from 90°, the first quarter is bottom-left.
+        let turned = ConicGradient::centered(day_spec::Angle::deg(90.0), quarters().stops);
+        let px = conic_pixels(
+            &turned,
+            Point::new(1.0, 1.0),
+            Point::new(0.0, 0.0),
+            1.0,
+            2,
+            2,
+        );
+        assert_eq!(px[8..12], [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn stamp_bounds_join_every_copy() {
+        let mut stamp = day_spec::Stamp {
+            shape: Shape::Ellipse(day_spec::Rect::new(-3.0, -3.0, 6.0, 6.0)),
+            at: vec![Point::new(10.0, 50.0), Point::new(40.0, 20.0)],
+            paint: RED.into(),
+            stroke: None,
+        };
+        assert_eq!(
+            stamp_bounds(&stamp),
+            Some(day_spec::Rect::new(7.0, 17.0, 36.0, 36.0))
+        );
+        stamp.at.clear();
+        assert_eq!(stamp_bounds(&stamp), None);
+    }
+
+    #[test]
+    fn export_paints_conic_quadrants() {
+        let size = Size::new(100.0, 100.0);
+        let ops = [DrawOp::Fill(
+            rect(0.0, 0.0, 100.0, 100.0),
+            quarters().into(),
+        )];
+        let px = painted(&ops, size, 1.0, &[(75, 75), (25, 75), (25, 25), (75, 25)]);
+        assert!(near(px[0], [255, 0, 0, 255]), "{px:?}");
+        assert!(near(px[1], [0, 255, 0, 255]), "{px:?}");
+        assert!(near(px[2], [0, 0, 255, 255]), "{px:?}");
+        assert!(near(px[3], [255, 255, 0, 255]), "{px:?}");
+    }
+
+    /// Fill a 100-point disc with `gradient` through the pixel emulation, in the canvas's
+    /// y-down space, and read back premultiplied RGBA at the pixels asked for.
+    fn fanned(gradient: &ConicGradient, at: &[(usize, usize)]) -> Vec<[u8; 4]> {
+        use objc2_core_graphics::{
+            CGBitmapContextCreate, CGBitmapContextGetBytesPerRow, CGBitmapContextGetData,
+            CGColorSpace, CGContext, CGImageAlphaInfo,
+        };
+        let space =
+            CGColorSpace::with_name(Some(unsafe { objc2_core_graphics::kCGColorSpaceSRGB }));
+        let cg = unsafe {
+            CGBitmapContextCreate(
+                std::ptr::null_mut(),
+                100,
+                100,
+                8,
+                0,
+                space.as_deref(),
+                CGImageAlphaInfo::PremultipliedLast.0,
+            )
+        }
+        .unwrap();
+        CGContext::translate_ctm(Some(&cg), 0.0, 100.0);
+        CGContext::scale_ctm(Some(&cg), 1.0, -1.0);
+        CGContext::add_ellipse_in_rect(
+            Some(&cg),
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(100.0, 100.0)),
+        );
+        CGContext::clip(Some(&cg));
+        draw_conic_pixels(&cg, gradient, Point::new(50.0, 50.0));
+        let (data, stride) = (
+            CGBitmapContextGetData(Some(&cg)).cast::<u8>(),
+            CGBitmapContextGetBytesPerRow(Some(&cg)),
+        );
+        at.iter()
+            .map(|(x, y)| {
+                let mut px = [0u8; 4];
+                // SAFETY: inside the 100 by 100 buffer the context owns.
+                unsafe {
+                    data.add(y * stride + x * 4)
+                        .copy_to_nonoverlapping(px.as_mut_ptr(), 4);
+                };
+                px
+            })
+            .collect()
+    }
+
+    #[test]
+    fn emulated_conic_paints_the_same_quadrants() {
+        let px = fanned(
+            &quarters(),
+            &[(75, 75), (25, 75), (25, 25), (75, 25), (2, 2)],
+        );
+        assert_eq!(px[0], [255, 0, 0, 255]);
+        assert_eq!(px[1], [0, 255, 0, 255]);
+        assert_eq!(px[2], [0, 0, 255, 255]);
+        assert_eq!(px[3], [255, 255, 0, 255]);
+        // Outside the clip, nothing.
+        assert_eq!(px[4], [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn emulated_conic_is_one_even_coat() {
+        // Half-transparent, so a gap would read 0 and an overlap about 191: every pixel
+        // well inside the disc must read exactly one coat.
+        let half = Color::rgba(0.0, 0.0, 0.0, 0.5);
+        let gradient =
+            ConicGradient::centered(day_spec::Angle::deg(17.0), vec![(0.0, half), (1.0, half)]);
+        let inside: Vec<(usize, usize)> = (20..80)
+            .flat_map(|y| (20..80).map(move |x| (x, y)))
+            .collect();
+        for (px, at) in fanned(&gradient, &inside).iter().zip(&inside) {
+            assert!(
+                px[3].abs_diff(128) <= 1,
+                "uneven at {at:?}: alpha {}",
+                px[3]
+            );
+        }
+    }
+
+    #[test]
+    fn export_shadow_is_in_points_and_scoped() {
+        // The conformance drawing, at two pixels per point: the box lands on (30, 20) to
+        // (70, 50) points and its shadow 20 points lower, whatever the transform and the scale.
+        let ops = [
+            DrawOp::Fill(rect(0.0, 0.0, 200.0, 100.0), Color::WHITE.into()),
+            DrawOp::Save,
+            DrawOp::Concat(Affine::scale(2.0, 2.0)),
+            DrawOp::Save,
+            DrawOp::Shadow(Some(
+                Shadow::new(Color::rgb(0.0, 0.0, 0.0), 2.0).offset(0.0, 20.0),
+            )),
+            DrawOp::Fill(rect(15.0, 10.0, 20.0, 15.0), BLUE.into()),
+            DrawOp::Restore,
+            DrawOp::Restore,
+            DrawOp::Fill(rect(130.0, 20.0, 40.0, 30.0), BLUE.into()),
+        ];
+        let at = [(100, 70), (100, 120), (100, 170), (300, 70), (300, 120)];
+        let px = painted(&ops, Size::new(200.0, 100.0), 2.0, &at);
+        assert!(near(px[0], [0, 0, 255, 255]), "{px:?}");
+        assert!(near(px[1], [0, 0, 0, 255]), "{px:?}");
+        assert!(near(px[2], [255, 255, 255, 255]), "{px:?}");
+        assert!(near(px[3], [0, 0, 255, 255]), "{px:?}");
+        assert!(near(px[4], [255, 255, 255, 255]), "{px:?}");
+    }
+
+    #[test]
+    fn export_gradient_casts_a_whole_shadow() {
+        // A gradient is drawn through a clip, which would cut its shadow off too.
+        let ops = [
+            DrawOp::Shadow(Some(Shadow::new(BLUE, 0.0).offset(0.0, 30.0))),
+            DrawOp::Fill(rect(10.0, 10.0, 40.0, 20.0), quarters().into()),
+        ];
+        let px = painted(&ops, Size::new(60.0, 80.0), 1.0, &[(30, 50), (30, 70)]);
+        assert!(near(px[0], [0, 0, 255, 255]), "{px:?}");
+        assert_eq!(px[1], [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn export_blends_path_object_shapes_too() {
+        // A rounded rectangle takes the `NSBezierPath` route, not the direct context one.
+        let round = |x: f64| Shape::RoundedRect(day_spec::Rect::new(x, 0.0, 30.0, 30.0), 4.0);
+        let ops = [
+            DrawOp::Fill(rect(0.0, 0.0, 60.0, 60.0), YELLOW.into()),
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Multiply),
+            DrawOp::Fill(round(0.0), Color::rgb(0.0, 1.0, 1.0).into()),
+            DrawOp::Blend(BlendMode::Erase),
+            DrawOp::Fill(round(30.0), RED.into()),
+            DrawOp::Restore,
+            DrawOp::Shadow(Some(Shadow::new(BLUE, 0.0).offset(0.0, 30.0))),
+            DrawOp::Fill(round(0.0), RED.into()),
+        ];
+        let px = painted(
+            &ops,
+            Size::new(60.0, 60.0),
+            1.0,
+            &[(15, 15), (45, 15), (15, 45)],
+        );
+        assert!(near(px[0], [255, 0, 0, 255]), "{px:?}");
+        assert_eq!(px[1], [0, 0, 0, 0], "{px:?}");
+        assert!(near(px[2], [0, 0, 255, 255]), "{px:?}");
+    }
+
+    #[test]
+    fn export_blends_and_erases() {
+        let ops = [
+            DrawOp::Fill(rect(0.0, 0.0, 90.0, 30.0), Color::WHITE.into()),
+            DrawOp::Fill(rect(0.0, 0.0, 30.0, 30.0), YELLOW.into()),
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Multiply),
+            DrawOp::Fill(rect(0.0, 0.0, 30.0, 30.0), Color::rgb(0.0, 1.0, 1.0).into()),
+            DrawOp::Restore,
+            DrawOp::Fill(rect(30.0, 0.0, 30.0, 30.0), RED.into()),
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Add),
+            DrawOp::Fill(rect(30.0, 0.0, 30.0, 30.0), BLUE.into()),
+            DrawOp::Restore,
+            DrawOp::Save,
+            DrawOp::Blend(BlendMode::Erase),
+            DrawOp::Fill(rect(60.0, 0.0, 15.0, 30.0), GREEN.into()),
+            // A gradient erases by its alpha as one piece, like a solid.
+            DrawOp::Fill(rect(75.0, 0.0, 15.0, 15.0), quarters().into()),
+            DrawOp::Restore,
+            DrawOp::Fill(rect(80.0, 20.0, 10.0, 10.0), BLUE.into()),
+        ];
+        let at = [(15, 15), (45, 15), (67, 15), (82, 7), (78, 25), (85, 25)];
+        let px = painted(&ops, Size::new(90.0, 30.0), 1.0, &at);
+        assert!(near(px[0], [0, 255, 0, 255]), "{px:?}");
+        assert!(near(px[1], [255, 0, 255, 255]), "{px:?}");
+        assert_eq!(px[2], [0, 0, 0, 0], "{px:?}");
+        assert!(near(px[3], [0, 0, 0, 0]), "{px:?}");
+        assert!(near(px[4], [255, 255, 255, 255]), "{px:?}");
+        // The mode ended with its scope: this one simply covers.
+        assert!(near(px[5], [0, 0, 255, 255]), "{px:?}");
     }
 }

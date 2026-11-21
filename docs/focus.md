@@ -88,8 +88,25 @@ on iOS, Android and the Web, clearing its focus binding dismisses it, exactly as
 field, and a composition in progress is dropped with the focus ([docs/menus.md](menus.md) "The
 full route").
 
-[`.focusable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focusable) makes composed containers keyboard targets on AppKit, UIKit, GTK, Qt, Android,
-and DOM. On WinUI and ArkUI, bind focus to a native control or canvas inside the container.
+[`.focusable()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focusable) makes a composed container a keyboard target. A focusable piece:
+
+- joins the platform's focus order, at its position in the tree, and takes focus when
+  [`.focused(binding)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused) asks for it;
+- takes focus when pressed, before the press reaches its gesture handlers;
+- reports gaining and losing focus, so a [`.focused`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.focused) binding and an
+  [`InteractionState`](gestures.md#state-styling) follow it;
+- hears keys through [`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) and [`.on_key_up`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key_up) while it holds focus, and only then
+  ([menus](menus.md) "Keys");
+- shows the platform's focus indicator when focus arrived from the keyboard.
+
+[`capability(Cap::Focusable)`](https://docs.rs/day-core/latest/day_core/fn.capability.html) reports whether the toolkit honors it. Where it answers
+`Unsupported`, the piece renders and never takes the keyboard: bind focus to a native control
+or a canvas inside the container there, and offer the same commands through buttons or a menu.
+
+### Toolkit support
+
+| Toolkit | Limitation |
+|---|---|
 
 ## Mobile keyboards
 

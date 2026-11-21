@@ -1,0 +1,39 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import { res } from '../generated/strings.mjs';
+import { site, url } from '../lib/site';
+
+interface Props { labels?: boolean }
+const { labels = false } = Astro.props;
+const links = [
+  { href: site.repo, label: res.str.social_github(), icon: res.vectors.social_github },
+  { href: site.mastodon, label: res.str.social_mastodon(), title: res.str.social_mastodon_profile(), icon: res.vectors.social_mastodon, rel: 'me' },
+  { href: site.twitter, label: res.str.social_twitter(), icon: res.vectors.social_twitter },
+];
+---
+<div class:list={['social-links', { labels }]} role="group" aria-label={res.str.social_links()}>
+  {links.map((link) => (
+    <a href={link.href} rel={link.rel} aria-label={link.title ?? link.label} title={link.title ?? link.label}>
+      <span class="social-icon" style={{ '--social-icon': `url("${url(link.icon)}")` }} aria-hidden="true"></span>
+      {labels && <span>{link.label}</span>}
+    </a>
+  ))}
+</div>
+
+<style>
+  .social-links { display: flex; align-items: center; gap: 4px; }
+  a {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-width: 34px; min-height: 34px; border-radius: 8px; color: var(--muted);
+  }
+  a:hover { background: var(--surface-2); color: var(--text); }
+  a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .social-icon {
+    display: block; width: 18px; height: 18px; flex-shrink: 0; background: currentColor;
+    -webkit-mask: var(--social-icon) center / contain no-repeat;
+    mask: var(--social-icon) center / contain no-repeat;
+  }
+  .labels { flex-wrap: wrap; gap: 4px 12px; margin-top: 16px; }
+  .labels a { font-size: 0.875rem; padding-inline: 4px; }
+</style>

@@ -20,8 +20,45 @@
   --day-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
   --day-scrim: rgba(246, 246, 248, 0.4);
   --day-sheet-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 18px 50px rgba(0, 0, 0, 0.22);
+
+  /* The sixteen `SystemColor` roles (docs/color.md), which day-toolkit-dom writes as
+     `var(--day-<role>)` and `Toolkit::system_color` reads back: the five original ones above
+     (`--day-accent`, `--day-fg`, `--day-bg`), roles this stylesheet already draws with under
+     another name, and Day's own light/dark pair (`SystemColor::fallback`) for the rest. An alias
+     computes on this element, so redefining its source under `html.dark` switches it too. */
+  --day-fg-2: var(--day-fg-dim);
+  --day-fg-3: rgba(60, 60, 67, 0.3);
+  --day-placeholder: rgba(60, 60, 67, 0.3);
+  --day-link: #0066cc;
+  --day-separator: var(--day-divider);
+  --day-control: var(--day-control-bg);
+  --day-surface: var(--day-card-bg);
+  --day-grouped: #f2f2f7;
+  --day-elevated: #ffffff;
+  --day-selection: rgba(10, 102, 255, 0.25);
+  --day-destructive: #ff3b30;
+  --day-success: #34c759;
+  --day-warning: #ff9500;
+
+  /* Appearance toggles for an ink's light/dark pair on engines without `light-dark()`
+     (day-toolkit-dom `pair_css`): `var(--day-if-light, L) var(--day-if-dark, D)` takes the
+     fallback of the toggle that is `initial` (guaranteed invalid) and nothing from the empty one. */
+  --day-if-light: initial;
+  --day-if-dark: ;
 }
 html.dark {
+  --day-fg-3: rgba(235, 235, 245, 0.3);
+  --day-placeholder: rgba(235, 235, 245, 0.3);
+  --day-link: #4da3ff;
+  --day-grouped: #161618;
+  --day-elevated: #3a3a3c;
+  --day-selection: rgba(63, 131, 255, 0.35);
+  --day-destructive: #ff453a;
+  --day-success: #30d158;
+  --day-warning: #ff9f0a;
+  --day-if-light: ;
+  --day-if-dark: initial;
+
   --day-bg: #1e1e20;
   --day-fg: #f5f5f7;
   --day-fg-dim: #98989d;
@@ -108,12 +145,53 @@ body.day-has-toolbar #day-root {
 
 .day-container, .day-page, .day-cell { box-sizing: border-box; }
 
+/* Pass-through (docs/gestures.md "Pass-through"). A container, canvas, label, image or divider
+   with no handler takes no pointer input: a press, a hover or a wheel over it reaches whatever
+   is behind it, as on the native toolkits. A passive container's children are targets again
+   (each passive one says so itself), a passive leaf's link runs stay pressable, and the first
+   listener the shim attaches (takesPointer) drops the class for good. Early in the file, so a
+   later rule that switches a shim part off still wins over the children rule. */
+.day-passive-host > * { pointer-events: auto; }
+.day-passive-host, .day-passive-leaf { pointer-events: none; }
+.day-passive-leaf a { pointer-events: auto; }
+
+/* Hit slop (docs/gestures.md "Hit slop"): the element's own pseudo-element, grown past its edges
+   by the slop, is part of the element for hit testing and draws nothing. Elements that cannot
+   carry one get a `.day-slop` sibling instead (shim.js setHitSlop). */
+.day-hit-slop::before {
+  content: "";
+  position: absolute;
+  top: var(--day-slop-top, 0);
+  left: var(--day-slop-left, 0);
+  bottom: var(--day-slop-bottom, 0);
+  right: var(--day-slop-right, 0);
+}
+.day-slop { position: absolute; background: transparent; pointer-events: auto; }
+
+/* A focusable composed piece (docs/focus.md) shows the browser's focus ring when the keyboard
+   brought focus there, and none after a press. */
+.day-container[data-day-keynav]:focus { outline: none; }
+.day-container[data-day-keynav]:focus-visible { outline: 2px solid var(--day-accent); outline-offset: 2px; }
+
 /* A rounded, clipping surface (`.day-clip`) inside a transformed/animated ancestor (`.day-xform`)
    otherwise hits a WebKit compositing bug where the clip layer paints its sharp bounding box
    black behind the rounded content. Promoting the clip to its own layer makes WebKit apply the
    border-radius clip correctly. Scoped to the transformed subtree, so static rounded surfaces
    (cards, buttons, lists) are never promoted. */
 .day-xform .day-clip { -webkit-transform: translateZ(0); transform: translateZ(0); }
+
+/* A surface's border (docs/surfaces.md): a layer over the surface, inside its frame and in the
+   shape of its corners. Not a `border` on the element itself, which would move the children:
+   they are placed from the padding box. */
+.day-bordered::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: var(--day-border-width, 0) solid var(--day-border-color, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+}
 
 .day-label {
   overflow: hidden;
@@ -862,3 +940,19 @@ body.day-has-toolbar #day-root {
 
 /* DocumentTabs supplies the accessible closable strip; keep only resident content here. */
 .day-nav.document-tabs > .day-nav-tabbar { display: none; }
+
+/* Scroll views (docs/scroll.md): hidden indicators keep scrolling; a snap stop is a marker of
+   the scroller's own, a point at each resting offset (shim.js layoutSnap). */
+.day-scroll.day-no-indicators { scrollbar-width: none; }
+.day-scroll.day-no-indicators::-webkit-scrollbar { display: none; }
+.day-snap {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  scroll-snap-align: start;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* A list's header, footer, empty state and padding rows take no row highlight (docs/list.md). */
+.day-scroll.day-list .day-cell.day-supplement:not(.selected):hover { background: none; }

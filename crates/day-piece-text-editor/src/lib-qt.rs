@@ -18,8 +18,9 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
 use day_toolkit_qt::{Qt, QtHandle};
+use day_spec::props::TextAlign;
 use day_spec::sidetable::SideTable;
-use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size, Underline};
+use day_spec::{Decoration, DecorationStyle, ListStyle, NodeId, Proposal, Size};
 
 unsafe extern "C" {
     fn day_texteditor_new(
@@ -45,6 +46,8 @@ unsafe extern "C" {
         italic: c_int,
         mono: c_int,
         underline: c_int,
+        has_ul: c_int,
+        ul: u32,
         strike: c_int,
         has_fg: c_int,
         fg: u32,
@@ -70,6 +73,8 @@ unsafe extern "C" {
         italic: c_int,
         mono: c_int,
         underline: c_int,
+        has_ul: c_int,
+        ul: u32,
         strike: c_int,
         has_fg: c_int,
         fg: u32,
@@ -170,24 +175,31 @@ fn qt_weight(spec: day_spec::FontSpec) -> c_int {
         Some(W::UltraLight) => 100,
         Some(W::Thin) => 200,
         Some(W::Light) => 300,
-        Some(W::Regular) => 400,
+        // No weight is the regular face.
+        Some(W::Regular) | None => 400,
         Some(W::Medium) => 500,
         Some(W::Semibold) => 600,
         Some(W::Bold) => 700,
         Some(W::Heavy) => 800,
         Some(W::Black) => 900,
-        None => 400,
     }
 }
 
-fn underline_code(u: Underline) -> c_int {
-    match u {
-        Underline::None => 0,
-        Underline::Single => 1,
-        Underline::Double => 2,
-        Underline::Dotted => 3,
-        Underline::Wavy => 4,
+fn underline_code(u: Option<Decoration>) -> c_int {
+    match u.map(|d| d.style) {
+        None => 0,
+        Some(DecorationStyle::Single) => 1,
+        Some(DecorationStyle::Double) => 2,
+        Some(DecorationStyle::Dotted) => 3,
+        Some(DecorationStyle::Wavy) => 4,
     }
+}
+
+/// An underline's own color, packed for the shim (`QTextCharFormat::setUnderlineColor`); none
+/// draws the line in the text color. Qt's char format has no strikethrough color, so a
+/// strikethrough's color is not carried.
+fn underline_color(u: Option<Decoration>) -> (c_int, u32) {
+    u.and_then(|d| d.color).map_or((0, 0), |c| (1, pack(c.resolved())))
 }
 
 /// Push one run into the widget, in UTF-16 units.
@@ -195,8 +207,9 @@ fn apply_run(h: *mut c_void, text: &str, r: &TextRun, base_points: f64) {
     let Some((start, len)) = utf16_range(text, &r.range) else {
         return;
     };
-    let (has_fg, fg) = r.color.map(|c| (1, pack(c))).unwrap_or((0, 0));
-    let (has_bg, bg) = r.background.map(|c| (1, pack(c))).unwrap_or((0, 0));
+    let (has_fg, fg) = r.color.map_or((0, 0), |c| (1, pack(c.resolved())));
+    let (has_bg, bg) = r.background.map_or((0, 0), |c| (1, pack(c.resolved())));
+    let (has_ul, ul) = underline_color(r.underline);
     unsafe {
         day_texteditor_apply_run(
             h,
@@ -204,15 +217,17 @@ fn apply_run(h: *mut c_void, text: &str, r: &TextRun, base_points: f64) {
             len as c_int,
             r.font.resolved_points(base_points),
             qt_weight(r.font),
-            r.font.italic as c_int,
-            r.font.monospace as c_int,
+            c_int::from(r.font.italic),
+            c_int::from(r.font.monospace),
             underline_code(r.underline),
-            r.strikethrough as c_int,
+            has_ul,
+            ul,
+            c_int::from(r.strikethrough.is_some()),
             has_fg,
             fg,
             has_bg,
             bg,
-        )
+        );
     };
 }
 
@@ -235,16 +250,16 @@ fn apply_attributes(
                 start as c_int,
                 len as c_int,
                 match s.align {
-                    ParagraphAlign::Natural => 0,
-                    ParagraphAlign::Center => 1,
-                    ParagraphAlign::Trailing => 2,
-                    ParagraphAlign::Justified => 3,
+                    TextAlign::Leading => 0,
+                    TextAlign::Center => 1,
+                    TextAlign::Trailing => 2,
+                    TextAlign::Justified => 3,
                 },
                 s.indent + f64::from(s.list_level) * 24.0,
                 s.space_before,
                 s.space_after,
-                (s.list != ListStyle::None) as c_int,
-            )
+                c_int::from(s.list != ListStyle::None),
+            );
         };
     }
     for r in runs {
@@ -259,11 +274,11 @@ fn make(_backend: &mut Qt, p: &EditorProps, id: NodeId) -> QtHandle {
     let h = unsafe {
         day_texteditor_new(
             id.0,
-            p.editable as c_int,
+            c_int::from(p.editable),
             base_points,
             placeholder.as_ptr(),
-            p.single_line as c_int,
-            p.code as c_int,
+            c_int::from(p.single_line),
+            c_int::from(p.code),
             on_text,
             on_sel,
             on_key,
@@ -321,25 +336,30 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &EditorPatch) {
             }
         }
         EditorPatch::SetTypingStyle(s) => {
-            let (has_fg, fg) = s.color.map(|c| (1, pack(c))).unwrap_or((0, 0));
-            let (has_bg, bg) = s.background.map(|c| (1, pack(c))).unwrap_or((0, 0));
+            let (has_fg, fg) = s.color.map_or((0, 0), |c| (1, pack(c)));
+            let (has_bg, bg) = s.background.map_or((0, 0), |c| (1, pack(c)));
+            let (has_ul, ul) = underline_color(s.underline);
             unsafe {
                 day_texteditor_set_typing(
                     h.0,
                     s.font.resolved_points(base_points),
                     qt_weight(s.font),
-                    s.font.italic as c_int,
-                    s.font.monospace as c_int,
+                    c_int::from(s.font.italic),
+                    c_int::from(s.font.monospace),
                     underline_code(s.underline),
-                    s.strikethrough as c_int,
+                    has_ul,
+                    ul,
+                    c_int::from(s.strikethrough.is_some()),
                     has_fg,
                     fg,
                     has_bg,
                     bg,
-                )
+                );
             };
         }
-        EditorPatch::SetEditable(v) => unsafe { day_texteditor_set_editable(h.0, *v as c_int) },
+        EditorPatch::SetEditable(v) => unsafe {
+            day_texteditor_set_editable(h.0, c_int::from(*v));
+        },
         EditorPatch::Insert { at, text } => {
             let current = text_of(node);
             let Some((start, _)) = utf16_range(&current, &(*at..*at)) else {
@@ -358,7 +378,9 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     let floor = width_floor(max_lines);
     let avail_w = p.width.unwrap_or(320.0).max(floor);
     let (mut w, mut hh) = (0.0, 0.0);
-    unsafe { day_texteditor_measure(h.0, avail_w, min_lines, max_lines, &mut w, &mut hh) };
+    unsafe {
+        day_texteditor_measure(h.0, avail_w, min_lines, max_lines, &raw mut w, &raw mut hh);
+    };
     Size::new(w.max(floor), hh.max(24.0))
 }
 
@@ -369,7 +391,7 @@ fn release(_backend: &mut Qt, h: &QtHandle) {
                 m.borrow_mut().remove(&node);
             });
         }
-        t.remove(h.0 as usize);
+        let _ = t.remove(h.0 as usize);
     });
 }
 

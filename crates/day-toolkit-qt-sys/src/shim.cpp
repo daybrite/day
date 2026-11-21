@@ -17,6 +17,7 @@
 #include <QBuffer>
 #include <QByteArray>
 #include <QImage>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -38,7 +39,12 @@
 #include <QPdfWriter>
 #include <QStyledItemDelegate>
 #include <QPainterPath>
+#include <QHash>
+#include <QLinearGradient>
+#include <QConicalGradient>
+#include <QPaintEngine>
 #include <QPropertyAnimation>
+#include <QSequentialAnimationGroup>
 #include <QVariantAnimation>
 #include <functional>
 #include <QToolBar>
@@ -60,6 +66,11 @@
 #include <QTextEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QFocusFrame>
+#include <QPointingDevice>
+#include <QScroller>
+#include <QSet>
+#include <QStyleOption>
 #include <QNativeGestureEvent>
 #include <QWheelEvent>
 #include <QDrag>
@@ -74,6 +85,7 @@
 #include <QMetaObject>
 #include <QTimer>
 #include <cstdint>
+#include <memory>
 #include <map>
 #include <vector>
 #include <QIcon>
@@ -111,6 +123,8 @@
 #include <QAccessibleWidget>
 #include <QPlainTextEdit>
 #include <QTextDocument>
+#include <QTextBlock>
+#include <QTextLayout>
 
 #include <cstdint>
 
@@ -123,10 +137,33 @@ extern "C" void day_qt_open_file(const char *url);
 extern "C" {
 static void day_qt_install_a11y_factory();
 }
+// The appearance changed (docs/color.md "How a toolkit follows the appearance"): the system's
+// light/dark scheme, Day's override, the accent or any other palette change. day-toolkit-qt
+// reads the new palette and applies every appearance-dependent color again. Every source of a
+// change reaches `day_qt_appearance_due` (the application's palette change, the style hints'
+// scheme change), often several at once, so the callback runs once, on the next turn of the
+// event loop, after Qt has finished re-polishing.
+static void (*g_appearance_cb)(void) = nullptr;
+static bool g_appearance_due = false;
+static void day_qt_appearance_due() {
+    if (!g_appearance_cb || g_appearance_due || !qApp) return;
+    g_appearance_due = true;
+    // A queued call, as `day_qt_post` makes, rather than a zero timer: a busy event loop
+    // starves zero timers on macOS.
+    QMetaObject::invokeMethod(
+        qApp,
+        []() {
+            g_appearance_due = false;
+            if (g_appearance_cb) g_appearance_cb();
+        },
+        Qt::QueuedConnection);
+}
+
 class DayApplication : public QApplication {
 public:
     DayApplication(int &argc, char **argv) : QApplication(argc, argv) {}
     bool event(QEvent *event) override {
+        if (event->type() == QEvent::ApplicationPaletteChange) day_qt_appearance_due();
         if (event->type() == QEvent::FileOpen) {
             const auto url = static_cast<QFileOpenEvent *>(event)->url();
             day_qt_open_file((url.isLocalFile() ? url.toLocalFile() : url.toString(QUrl::FullyEncoded)).toUtf8().constData());
@@ -157,6 +194,132 @@ int day_qt_dark_mode(void) {
     return window.lightness() < 128 ? 1 : 0;
 }
 
+// Day's color for a platform role (docs/color.md "Roles"), `role` being the
+// day_spec::SystemColor wire number, read from the application palette's active group. Writes
+// r,g,b,a (0..1) and answers 1, or answers 0 for a role the palette has no color for (Day's
+// documented pair then stands in). An alpha below 1 is the role's documented alpha over the
+// palette color; the palette color's own alpha is replaced, never multiplied.
+int day_qt_system_color(int role, double *rgba) {
+    const QPalette pal = QApplication::palette();
+    auto take = [&](QPalette::ColorRole r, double alpha) {
+        const QColor c = pal.color(QPalette::Active, r);
+        rgba[0] = c.redF();
+        rgba[1] = c.greenF();
+        rgba[2] = c.blueF();
+        rgba[3] = alpha < 0 ? c.alphaF() : alpha;
+        return 1;
+    };
+    switch (role) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+        case 0: return take(QPalette::Accent, -1);
+#else
+        case 0: return take(QPalette::Highlight, -1);
+#endif
+        case 1: return take(QPalette::WindowText, -1);
+        case 2: return take(QPalette::WindowText, 0.6);
+        case 3: return take(QPalette::Window, -1);
+        case 4: return take(QPalette::Base, -1);
+        case 5: return take(QPalette::WindowText, 0.38);
+        case 6: return take(QPalette::PlaceholderText, -1);
+        case 7: return take(QPalette::Link, -1);
+        case 8: return take(QPalette::WindowText, 0.15);
+        case 9: return take(QPalette::Button, -1);
+        case 10: return take(QPalette::Window, -1);
+        // ToolTipBase is a pale yellow in several styles, never a raised panel: Base.
+        case 11: return take(QPalette::Base, -1);
+        case 12: return take(QPalette::Highlight, 0.35);
+        default: return 0; // Destructive, Success, Warning: no palette role
+    }
+}
+
+// The hand-built dark palette for a Qt that cannot switch scheme by itself: Qt before 6.8 (no
+// QStyleHints::setColorScheme), and a platform theme that ignores the request (X11 with no
+// desktop theme, as under CI's xvfb, where Fusion paints whatever palette it is given). The
+// literals are unavoidable on that path, since such a Qt exposes no symbolic dark scheme: they
+// are the Qt-wiki canonical "dark Fusion" palette.
+static QPalette day_qt_dark_palette() {
+    QPalette p;
+    const QColor window(0x2d, 0x2d, 0x2d);
+    const QColor base(0x1e, 0x1e, 0x1e);
+    const QColor text(0xf0, 0xf0, 0xf0);
+    const QColor disabled(0x7f, 0x7f, 0x7f);
+    const QColor accent(0x2a, 0x82, 0xda);
+    p.setColor(QPalette::Window, window);
+    p.setColor(QPalette::WindowText, text);
+    p.setColor(QPalette::Base, base);
+    p.setColor(QPalette::AlternateBase, window);
+    p.setColor(QPalette::ToolTipBase, base);
+    p.setColor(QPalette::ToolTipText, text);
+    p.setColor(QPalette::Text, text);
+    p.setColor(QPalette::Button, window);
+    p.setColor(QPalette::ButtonText, text);
+    p.setColor(QPalette::BrightText, Qt::red);
+    p.setColor(QPalette::Link, accent);
+    p.setColor(QPalette::Highlight, accent);
+    p.setColor(QPalette::HighlightedText, Qt::white);
+    p.setColor(QPalette::PlaceholderText, disabled);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    p.setColor(QPalette::Accent, accent);
+#endif
+    p.setColor(QPalette::Disabled, QPalette::Text, disabled);
+    p.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
+    p.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
+    p.setColor(QPalette::Disabled, QPalette::HighlightedText, disabled);
+    return p;
+}
+
+// Whether the hand-built dark palette is the application's (so a later light or system
+// request takes it back).
+static bool g_dark_palette = false;
+
+// The app's appearance override (docs/color.md "Appearance"): `mode` 1 dark, 0 light, -1 the
+// system's again. Qt 6.8's QStyleHints::setColorScheme asks the platform theme for the scheme
+// for this application only (on macOS, NSApp's appearance; the system setting is untouched),
+// and Qt re-polishes every widget with the matching palette. A platform theme with no notion
+// of a scheme (the scheme stays Unknown, the palette light) ignores the request: a dark request
+// then takes the hand-built dark palette, and a light or system one gives the theme's palette
+// back (a palette with no roles set is Qt's reset). A theme that answers later (a desktop
+// portal) is left to deliver its palette. Before 6.8 nothing can be requested: answers 0.
+int day_qt_set_appearance(int mode) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    QStyleHints *hints = QGuiApplication::styleHints();
+    if (g_dark_palette) {
+        g_dark_palette = false;
+        QApplication::setPalette(QPalette());
+    }
+    if (mode < 0) hints->unsetColorScheme();
+    else hints->setColorScheme(mode ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+    if (mode == 1 && hints->colorScheme() == Qt::ColorScheme::Unknown && !day_qt_dark_mode()) {
+        g_dark_palette = true;
+        QApplication::setPalette(day_qt_dark_palette());
+    }
+    day_qt_appearance_due();
+    return 1;
+#else
+    (void)mode;
+    return 0;
+#endif
+}
+
+// Whether `day_qt_set_appearance` can override the scheme (Qt 6.8+).
+int day_qt_appearance_settable(void) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+// Register the appearance callback (see `day_qt_appearance_due`).
+void day_qt_on_appearance(void (*cb)(void)) {
+    g_appearance_cb = cb;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    if (qApp)
+        QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, qApp,
+                         [](Qt::ColorScheme) { day_qt_appearance_due(); });
+#endif
+}
+
 void *day_qt_app_new(const char *app_name) {
     if (app_name && *app_name) {
         strncpy(s_arg0, app_name, sizeof(s_arg0) - 1);
@@ -177,46 +340,20 @@ void *day_qt_app_new(const char *app_name) {
     // must exit even while secondaries are open).
     QApplication::setQuitOnLastWindowClosed(false);
     // DAY_THEME=light|dark forces the color scheme (themed CI screenshot runs and local theme
-    // checks); unset => follow the system. QStyleHints::setColorScheme needs Qt 6.8+; on older
-    // Qt (e.g. Ubuntu 24.04's 6.4) fall back to a hand-built dark palette — Qt Widgets are
-    // palette-driven, so every control follows it (light needs nothing: the default palette is
-    // light). The literals below are unavoidable on that path: pre-6.8 Qt exposes NO symbolic
-    // dark scheme (no setColorScheme, no named dark QPalette, and the platform theme is
-    // whatever the desktop reports — nothing, under CI's offscreen/xvfb). They are the values
-    // of the Qt-wiki canonical "dark Fusion" palette, and are dead code on Qt 6.8+.
+    // checks); unset => follow the system. Qt 6.8+ takes it as Day's appearance override
+    // (`day_qt_set_appearance`, which falls back to the hand-built dark palette where the
+    // platform theme ignores the request). Older Qt (e.g. Ubuntu 24.04's 6.4) takes that dark
+    // palette under Fusion, since platform styles may ignore a custom palette and Qt Widgets
+    // are palette-driven; light needs nothing there, the default palette being light.
     {
         const QByteArray theme = qgetenv("DAY_THEME");
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
-        if (theme == "dark") app->styleHints()->setColorScheme(Qt::ColorScheme::Dark);
-        else if (theme == "light") app->styleHints()->setColorScheme(Qt::ColorScheme::Light);
+        if (theme == "dark") day_qt_set_appearance(1);
+        else if (theme == "light") day_qt_set_appearance(0);
 #else
         if (theme == "dark") {
-            QApplication::setStyle("Fusion"); // platform styles may ignore custom palettes
-            QPalette p;
-            const QColor window(0x2d, 0x2d, 0x2d);
-            const QColor base(0x1e, 0x1e, 0x1e);
-            const QColor text(0xf0, 0xf0, 0xf0);
-            const QColor disabled(0x7f, 0x7f, 0x7f);
-            const QColor accent(0x2a, 0x82, 0xda);
-            p.setColor(QPalette::Window, window);
-            p.setColor(QPalette::WindowText, text);
-            p.setColor(QPalette::Base, base);
-            p.setColor(QPalette::AlternateBase, window);
-            p.setColor(QPalette::ToolTipBase, base);
-            p.setColor(QPalette::ToolTipText, text);
-            p.setColor(QPalette::Text, text);
-            p.setColor(QPalette::Button, window);
-            p.setColor(QPalette::ButtonText, text);
-            p.setColor(QPalette::BrightText, Qt::red);
-            p.setColor(QPalette::Link, accent);
-            p.setColor(QPalette::Highlight, accent);
-            p.setColor(QPalette::HighlightedText, Qt::white);
-            p.setColor(QPalette::PlaceholderText, disabled);
-            p.setColor(QPalette::Disabled, QPalette::Text, disabled);
-            p.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
-            p.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
-            p.setColor(QPalette::Disabled, QPalette::HighlightedText, disabled);
-            app->setPalette(p);
+            QApplication::setStyle("Fusion");
+            app->setPalette(day_qt_dark_palette());
         }
 #endif
     }
@@ -799,11 +936,327 @@ void day_qt_open_url(const char *url) {
 // a drop shadow) instead of clipping to the widget rect. A rounded clip (matching the surface's
 // corner radius) is re-applied here because the grabbed pixmap has square corners. No Q_OBJECT/moc:
 // the overrides are plain virtuals and the tweens are QVariantAnimations driving a lambda.
+// ---- shadows, shared by surfaces and the canvas (docs/surfaces.md, docs/canvas.md) ----------
+
+// A drop shadow's parameters: the tint (alpha included), the CSS blur radius (twice the
+// Gaussian's standard deviation) and the offset, all in points.
+struct DayShadow {
+    QColor color = QColor(0, 0, 0, 0);
+    double blur = 0, dx = 0, dy = 0;
+    bool on() const { return color.alpha() > 0; }
+    bool operator==(const DayShadow &o) const {
+        return color == o.color && blur == o.blur && dx == o.dx && dy == o.dy;
+    }
+    // How far past the silhouette the blur can reach, in points.
+    double reach() const { return blur > 0 ? std::ceil(blur * 1.5) + 1.0 : 0.0; }
+};
+
+/// The three box filters whose composition approximates a Gaussian of standard deviation
+/// `sigma` pixels: `out` receives, for each pass, how many pixels the box reaches to the left
+/// and to the right of the one it writes. An even box width cannot be centered, so two passes
+/// lean half a pixel opposite ways and the third is one wider (the construction CSS filter
+/// effects specify). Returns 0 when the blur is too small to change anything.
+int day_qt_blur_boxes(double sigma, int out[6]) {
+    // d = sigma * 3 * sqrt(2 * pi) / 4, rounded.
+    const int d = sigma > 0 ? (int)std::floor(sigma * 1.8799712059732503 + 0.5) : 0;
+    if (d < 2) return 0;
+    if (d % 2 == 1) {
+        for (int i = 0; i < 6; i++) out[i] = (d - 1) / 2;
+    } else {
+        out[0] = d / 2; out[1] = d / 2 - 1;
+        out[2] = d / 2 - 1; out[3] = d / 2;
+        out[4] = d / 2; out[5] = d / 2;
+    }
+    return 1;
+}
+
+/// Blur a `w`×`h` coverage plane in place with three box passes per axis (see
+/// `day_qt_blur_boxes`). What lies outside the plane counts as empty, so the caller pads the
+/// plane by the blur's reach. QPainter has no blur of its own, and Qt's internal
+/// `qt_blurImage` is not public API, so this is hand-written.
+void day_qt_blur_alpha(float *plane, int w, int h, double sigma) {
+    int boxes[6];
+    if (!plane || w <= 0 || h <= 0 || !day_qt_blur_boxes(sigma, boxes)) return;
+    std::vector<float> line(std::max(w, h));
+    // One running-sum box pass over `n` samples `stride` apart.
+    auto pass = [&](float *v, int n, int stride, int left, int right) {
+        const float norm = 1.0f / float(left + right + 1);
+        float sum = 0;
+        for (int i = 0; i <= right && i < n; i++) sum += v[i * stride];
+        for (int i = 0; i < n; i++) {
+            line[i] = sum * norm;
+            const int out = i - left, in = i + right + 1;
+            if (out >= 0) sum -= v[out * stride];
+            if (in < n) sum += v[in * stride];
+        }
+        for (int i = 0; i < n; i++) v[i * stride] = line[i];
+    };
+    for (int k = 0; k < 3; k++) {
+        for (int y = 0; y < h; y++) pass(plane + (size_t)y * w, w, 1, boxes[k * 2], boxes[k * 2 + 1]);
+        for (int x = 0; x < w; x++) pass(plane + x, h, w, boxes[k * 2], boxes[k * 2 + 1]);
+    }
+}
+
+// The shadow of what `layer` (premultiplied ARGB) holds: its alpha blurred by `sigma` pixels
+// and tinted `color`, as a premultiplied image of the same size. The layer must already be
+// padded by the blur's reach.
+static QImage day_qt_shadow_image(const QImage &layer, const QColor &color, double sigma) {
+    const int w = layer.width(), h = layer.height();
+    QImage out(w, h, QImage::Format_ARGB32_Premultiplied);
+    if (out.isNull() || layer.format() != QImage::Format_ARGB32_Premultiplied) return QImage();
+    std::vector<float> plane((size_t)w * h);
+    for (int y = 0; y < h; y++) {
+        const QRgb *src = reinterpret_cast<const QRgb *>(layer.constScanLine(y));
+        float *dst = plane.data() + (size_t)y * w;
+        for (int x = 0; x < w; x++) dst[x] = float(qAlpha(src[x]));
+    }
+    day_qt_blur_alpha(plane.data(), w, h, sigma);
+    const float ca = float(color.alphaF());
+    const float cr = float(color.redF()), cg = float(color.greenF()), cb = float(color.blueF());
+    for (int y = 0; y < h; y++) {
+        QRgb *dst = reinterpret_cast<QRgb *>(out.scanLine(y));
+        const float *src = plane.data() + (size_t)y * w;
+        for (int x = 0; x < w; x++) {
+            const float a = std::min(255.0f, std::max(0.0f, src[x] * ca));
+            dst[x] = qRgba(int(cr * a + 0.5f), int(cg * a + 0.5f), int(cb * a + 0.5f), int(a + 0.5f));
+        }
+    }
+    return out;
+}
+
+// Gradient stops Qt will keep as given. `QGradient::setStops` REPLACES a stop that sits at the
+// offset of the one before it, which turns a hard edge (two colors at one offset) into a ramp
+// from the stop before; nudging the later one a hair keeps both. Input ascending.
+static QGradientStops day_qt_distinct_stops(QGradientStops stops) {
+    const qreal eps = 1e-6;
+    for (int i = 0; i < stops.size(); i++) {
+        qreal at = qBound<qreal>(0.0, stops[i].first, 1.0);
+        if (i > 0 && at <= stops[i - 1].first) at = stops[i - 1].first + eps;
+        stops[i].first = at;
+    }
+    // Pushed past the end: walk back from 1 instead.
+    for (int i = stops.size() - 1; i >= 0; i--) {
+        const qreal cap = i + 1 < stops.size() ? stops[i + 1].first - eps : 1.0;
+        if (stops[i].first <= cap) break;
+        stops[i].first = cap;
+    }
+    return stops;
+}
+
+// A rectangle rounded at the chosen corners only (day_spec::Corners bits: 1 top-left,
+// 2 top-right, 4 bottom-right, 8 bottom-left). Physical corners, in both layout directions.
+static QPainterPath day_qt_corner_path(const QRectF &r, double radius, int corners) {
+    QPainterPath path;
+    const double rad = qMax(0.0, qMin(radius, qMin(r.width(), r.height()) / 2.0));
+    corners &= 15;
+    if (rad <= 0.0 || corners == 0) { path.addRect(r); return path; }
+    if (corners == 15) { path.addRoundedRect(r, rad, rad); return path; }
+    const double tl = (corners & 1) ? rad : 0, tr = (corners & 2) ? rad : 0;
+    const double br = (corners & 4) ? rad : 0, bl = (corners & 8) ? rad : 0;
+    path.moveTo(r.left() + tl, r.top());
+    path.lineTo(r.right() - tr, r.top());
+    if (tr > 0) path.arcTo(QRectF(r.right() - 2 * tr, r.top(), 2 * tr, 2 * tr), 90, -90);
+    path.lineTo(r.right(), r.bottom() - br);
+    if (br > 0) path.arcTo(QRectF(r.right() - 2 * br, r.bottom() - 2 * br, 2 * br, 2 * br), 0, -90);
+    path.lineTo(r.left() + bl, r.bottom());
+    if (bl > 0) path.arcTo(QRectF(r.left(), r.bottom() - 2 * bl, 2 * bl, 2 * bl), 270, -90);
+    path.lineTo(r.left(), r.top() + tl);
+    if (tl > 0) path.arcTo(QRectF(r.left(), r.top(), 2 * tl, 2 * tl), 180, -90);
+    path.closeSubpath();
+    return path;
+}
+
+// A Day gradient as a Qt brush over `bounds` (docs/surfaces.md, docs/canvas.md). `kind` 0 is
+// linear (a,b to c,d, unit points of `bounds`), 1 radial (a,b center, c radius, unit space, so
+// a circle renders elliptically in a non-square box, the rule on every backend: ObjectMode maps
+// the unit square onto the drawn shape's bounding rect), 2 conic (a,b center, c the start
+// angle in degrees). Day's conic angle is clockwise from +x on screen and its stops run
+// clockwise; QConicalGradient's angle and stops both run COUNTER-clockwise. The same direction
+// is `-start`, and stop `t` of a clockwise turn is stop `1 - t` of the counter-clockwise one,
+// so the stops go in reversed. The conic center is resolved in the box, but the angle stays
+// an angle on screen, so no ObjectMode: a wide box must not shear the turn. Stops ascending.
+static QBrush day_qt_gradient_brush(int kind, double a, double b, double c, double d,
+                                    const QGradientStops &stops, const QRectF &bounds) {
+    if (kind == 2) {
+        double angle = std::fmod(-c, 360.0);
+        if (angle < 0) angle += 360.0;
+        QConicalGradient cg(QPointF(bounds.x() + a * bounds.width(), bounds.y() + b * bounds.height()),
+                            angle);
+        QGradientStops turned;
+        for (auto it = stops.crbegin(); it != stops.crend(); ++it)
+            turned << QGradientStop(1.0 - it->first, it->second);
+        cg.setStops(day_qt_distinct_stops(turned));
+        return QBrush(cg);
+    }
+    if (kind == 1) {
+        QRadialGradient rg(QPointF(a, b), c, QPointF(a, b));
+        rg.setCoordinateMode(QGradient::ObjectMode);
+        rg.setStops(day_qt_distinct_stops(stops));
+        return QBrush(rg);
+    }
+    QLinearGradient lg(bounds.x() + a * bounds.width(), bounds.y() + b * bounds.height(),
+                       bounds.x() + c * bounds.width(), bounds.y() + d * bounds.height());
+    lg.setStops(day_qt_distinct_stops(stops));
+    return QBrush(lg);
+}
+
+class DaySurfaceBorder;
+
+// A styled surface (docs/surfaces.md): the fill or gradient, the per-corner rounding and the
+// border of one container. The fill is painted in that widget's own paint event through an
+// event filter; the border by a child widget kept in front of the surface's content
+// (DaySurfaceBorder), so a child that reaches the edge never covers it. Not a stylesheet: a
+// stylesheet cascades into the children and cannot resolve a gradient's unit points against a
+// frame that changes. The gradient is resolved on every paint, so it follows the widget as it
+// resizes. The shadow and the rounded clip belong to DayEffect, which reads them from here. A
+// child of the widget, so it goes when the widget does.
+class DaySurface : public QObject {
+public:
+    QColor fill = QColor(0, 0, 0, 0);
+    // The gradient fill: -1 none, else day_qt_gradient_brush's kind and its four numbers.
+    int gradKind = -1;
+    double gradA = 0, gradB = 0, gradC = 0, gradD = 0;
+    QGradientStops gradStops;
+    double radius = 0;
+    int corners = 15;
+    bool clips = false;
+    QColor borderColor = QColor(0, 0, 0, 0);
+    double borderWidth = 0;
+    DayShadow shadow;
+    // The widget this paints, as the registry's key (never dereferenced).
+    QObject *const host;
+
+    explicit DaySurface(QWidget *w) : QObject(w), host(w) {
+        all().insert(host, this);
+        w->installEventFilter(this);
+    }
+    ~DaySurface() override { all().remove(host); }
+    static QHash<QObject *, DaySurface *> &all() {
+        static QHash<QObject *, DaySurface *> map;
+        return map;
+    }
+    static DaySurface *of(QObject *w) { return all().value(w, nullptr); }
+
+    bool hasGradient() const { return gradKind >= 0 && !gradStops.isEmpty(); }
+    bool hasBorder() const { return borderWidth > 0 && borderColor.alpha() > 0; }
+
+    void paint(QWidget *w) const {
+        const QRectF r(0, 0, w->width(), w->height());
+        if (r.isEmpty()) return;
+        QPainter p(w);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        const QPainterPath outline = day_qt_corner_path(r, radius, corners);
+        if (hasGradient())
+            p.fillPath(outline, day_qt_gradient_brush(gradKind, gradA, gradB, gradC, gradD, gradStops, r));
+        else if (fill.alpha() > 0)
+            p.fillPath(outline, fill);
+    }
+
+    // The border band, inside the frame: between the outline and the same outline inset by the
+    // width, whose corners keep the outer ones concentric. Painted on the border child.
+    void paintBorder(QWidget *on) const {
+        const QRectF r(0, 0, on->width(), on->height());
+        if (r.isEmpty() || !hasBorder()) return;
+        QPainter p(on);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        const QPainterPath outline = day_qt_corner_path(r, radius, corners);
+        const double bw = borderWidth;
+        const QRectF inner = r.adjusted(bw, bw, -bw, -bw);
+        QPainterPath band = outline;
+        if (inner.width() > 0 && inner.height() > 0) {
+            const double rad = qMin(radius, qMin(r.width(), r.height()) / 2.0);
+            band.setFillRule(Qt::OddEvenFill);
+            band.addPath(day_qt_corner_path(inner, qMax(0.0, rad - bw), corners));
+        }
+        p.fillPath(band, borderColor);
+    }
+
+    // Make, update or drop the border child for the current border.
+    void syncBorder(QWidget *w);
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override;
+
+private:
+    QPointer<QWidget> border;
+};
+
+// The border of a DaySurface, in front of every other child of the surface and transparent to
+// the pointer (hit testing, drops and `day_qt_pick_at` pass through it). The surface raises it
+// again whenever a child is added, since a new child goes to the front.
+class DaySurfaceBorder : public QWidget {
+public:
+    explicit DaySurfaceBorder(QWidget *host) : QWidget(host) {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_NoSystemBackground);
+        setFocusPolicy(Qt::NoFocus);
+        setObjectName(QStringLiteral("daySurfaceBorder"));
+        setGeometry(host->rect());
+        show();
+        raise();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        if (const DaySurface *s = DaySurface::of(parentWidget())) s->paintBorder(this);
+    }
+};
+
+void DaySurface::syncBorder(QWidget *w) {
+    if (!hasBorder()) {
+        if (border) border->deleteLater();
+        border = nullptr;
+        return;
+    }
+    if (!border) border = new DaySurfaceBorder(w);
+    border->setGeometry(w->rect());
+    border->raise();
+    border->update();
+}
+
+bool DaySurface::eventFilter(QObject *obj, QEvent *ev) {
+    switch (ev->type()) {
+        case QEvent::Paint:
+            if (auto *w = qobject_cast<QWidget *>(obj)) paint(w);
+            break;
+        case QEvent::Resize:
+            if (border) border->setGeometry(static_cast<QWidget *>(obj)->rect());
+            break;
+        case QEvent::ChildAdded: {
+            // A child mounted after the border goes in front of it: put the border back on
+            // top once the child is in place.
+            QObject *child = static_cast<QChildEvent *>(ev)->child();
+            if (border && child != border && child->isWidgetType()) {
+                QPointer<QWidget> b = border;
+                QTimer::singleShot(0, b, [b]() {
+                    if (b) b->raise();
+                });
+                border->raise();
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    return false;
+}
+
 class DayEffect : public QGraphicsEffect {
 public:
     double opacity = 1.0;
     double tx = 0, ty = 0, sx = 1, sy = 1, rot = 0;
     double radius = 0.0;
+    // Which corners `radius` cuts (day_spec::Corners bits).
+    int corners = 15;
+    // A surface's shadow (docs/surfaces.md): the blurred, tinted rounded rectangle drawn under
+    // the widget, outside its frame. Painted here rather than by a QGraphicsDropShadowEffect
+    // because a widget takes ONE graphics effect and this one already carries its opacity,
+    // transform and clip; so the shadow fades, moves and scales with the surface, follows it
+    // through every move and resize, and never takes part in hit testing.
+    DayShadow shadow;
+    double shadowRadius = 0.0;
     explicit DayEffect(QObject *parent) : QGraphicsEffect(parent) {}
     // Only a transform can spill outside the widget's frame; a plain rounded clip or an opacity
     // fade never does. The padding sets the size of the pixmap the effect renders the subtree
@@ -812,8 +1265,21 @@ public:
     bool spills() const { return tx != 0 || ty != 0 || sx != 1 || sy != 1 || rot != 0; }
     // `updateBoundingRect` is protected; the transform tween calls this when `spills()` flips.
     void boundsChanged() { updateBoundingRect(); }
+    void setShadow(const DayShadow &s, double shapeRadius) {
+        if (shadow == s && shadowRadius == shapeRadius) return;
+        shadow = s;
+        shadowRadius = shapeRadius;
+        shadowCache = QImage();
+        updateBoundingRect();
+        update();
+    }
     QRectF boundingRectFor(const QRectF &r) const override {
-        return spills() ? r.adjusted(-400, -400, 400, 400) : r;
+        QRectF out = spills() ? r.adjusted(-400, -400, 400, 400) : r;
+        if (shadow.on()) {
+            const double pad = shadow.reach();
+            out |= r.translated(shadow.dx, shadow.dy).adjusted(-pad, -pad, pad, pad);
+        }
+        return out;
     }
     void draw(QPainter *painter) override {
         // Capture the widget (and children) in logical coords; `offset` is where to blit it. Qt sets
@@ -836,15 +1302,52 @@ public:
         painter->rotate(rot);
         painter->scale(sx, sy);
         painter->translate(-c.x(), -c.y());
+        if (shadow.on()) {
+            const qreal dpr = pm.devicePixelRatio() > 0 ? pm.devicePixelRatio() : 1.0;
+            const QImage &img = shadowFor(src.size(), dpr);
+            const double pad = shadow.reach();
+            if (!img.isNull())
+                painter->drawImage(QPointF(src.x() + shadow.dx - pad, src.y() + shadow.dy - pad), img);
+        }
         if (radius > 0.0) {
             // Re-round the corners: a QWidget doesn't clip children to its CSS border-radius, and
             // the grabbed pixmap is square, so clip to the surface radius over the real rect.
-            QPainterPath rounded;
-            rounded.addRoundedRect(src, radius, radius);
-            painter->setClipPath(rounded);
+            painter->setClipPath(day_qt_corner_path(src, radius, corners));
         }
         painter->drawPixmap(offset, pm);
         painter->restore();
+    }
+
+private:
+    QImage shadowCache;
+    QSizeF shadowCacheSize;
+    qreal shadowCacheDpr = 0;
+    // The blurred silhouette for a surface of `size` points, rebuilt only when the size, the
+    // pixel ratio or the shadow changes: a resize re-blurs, a repaint does not.
+    const QImage &shadowFor(const QSizeF &size, qreal dpr) {
+        if (!shadowCache.isNull() && shadowCacheSize == size && shadowCacheDpr == dpr)
+            return shadowCache;
+        shadowCacheSize = size;
+        shadowCacheDpr = dpr;
+        const double pad = shadow.reach();
+        const int pw = (int)std::ceil((size.width() + 2 * pad) * dpr);
+        const int ph = (int)std::ceil((size.height() + 2 * pad) * dpr);
+        shadowCache = QImage();
+        if (pw <= 0 || ph <= 0) return shadowCache;
+        QImage layer(pw, ph, QImage::Format_ARGB32_Premultiplied);
+        if (layer.isNull()) return shadowCache;
+        layer.fill(Qt::transparent);
+        {
+            QPainter lp(&layer);
+            lp.setRenderHint(QPainter::Antialiasing, true);
+            lp.scale(dpr, dpr);
+            lp.translate(pad, pad);
+            lp.fillPath(day_qt_corner_path(QRectF(QPointF(0, 0), size), shadowRadius, corners),
+                        Qt::black);
+        }
+        shadowCache = day_qt_shadow_image(layer, shadow.color, shadow.blur / 2.0 * dpr);
+        shadowCache.setDevicePixelRatio(dpr);
+        return shadowCache;
     }
 };
 
@@ -856,7 +1359,134 @@ static DayEffect *day_qt_effect(QWidget *w) {
     }
     // Keep the rounded clip in sync with the widget's surface radius (set by set_surface).
     eff->radius = w->property("dayRadius").toDouble();
+    if (const DaySurface *s = DaySurface::of(w)) {
+        eff->corners = s->corners;
+        // A shadowed surface does not clip: the shadow lies outside what a clip would keep.
+        if (s->shadow.on()) eff->radius = 0.0;
+        if (s->shadow.on() || eff->shadow.on()) eff->setShadow(s->shadow, s->radius);
+    }
     return eff;
+}
+
+// ---- animation runs (docs/tween.md "The animation contract") ---------------------------------
+//
+// An animated change to a widget's opacity, transform, frame or fill plays on Qt's own
+// animation framework, one run per (widget, channel):
+//
+//   QSequentialAnimationGroup "run"
+//     QPauseAnimation               the delay, served once (rule 1)
+//     QVariantAnimation × cycles    one cycle, `setLoopCount(cycles)`, -1 for ever (rules 2, 3)
+//   or, with autoreverse (rule 4), Qt having no alternate direction of its own:
+//     QSequentialAnimationGroup     a forward and a backward cycle, `setLoopCount(cycles / 2)`
+//     QVariantAnimation             one more forward cycle when the count is odd
+//
+// A cycle's QVariantAnimation carries the curve as key values: AnimSpec::keyframes() sampled
+// by day-toolkit-qt, which Qt interpolates linearly between neighbors. That is a physical
+// spring's exact response, overshoot included (rule 6), and the exact easing curves (Qt's
+// InOutQuad is not Day's smoothstep). Each tick hands the progress to the channel's `step`,
+// which writes `start + (target - start) * progress`; the run's end writes the target exactly
+// (rule 5). The start is what the widget shows when the call arrives, so a retarget begins from
+// the value in flight; a set without an animation stops the run and lands at once (rule 7).
+
+// One AnimSpec as day-toolkit-qt lowers it (`QtAnim`): the delay and one cycle in milliseconds,
+// the number of cycles (-1 = until the property is next set), whether every second cycle plays
+// backwards, and one forward cycle's progress at `n_keys` evenly spaced points (first 0, last
+// 1, outside 0..1 where a spring overshoots).
+struct DayQtAnim {
+    int delay_ms;
+    int duration_ms;
+    int cycles;
+    int autoreverse;
+    const double *keys;
+    int n_keys;
+};
+
+// One cycle on Qt's animation clock: the samples as key values at even offsets, read in
+// reverse for a backward cycle (progress at `u` is the forward cycle's at `1 - u`). Each value
+// goes to `step`; the connection lives as long as `run`.
+static QVariantAnimation *day_qt_cycle(const DayQtAnim &a, bool backward,
+                                       const std::function<void(double)> &step, QObject *run) {
+    auto *cycle = new QVariantAnimation;
+    cycle->setDuration(a.duration_ms);
+    QVariantAnimation::KeyValues keys;
+    if (a.keys && a.n_keys >= 2) {
+        const int n = a.n_keys;
+        for (int i = 0; i < n; i++)
+            keys << QVariantAnimation::KeyValue(double(i) / double(n - 1),
+                                                QVariant(a.keys[backward ? n - 1 - i : i]));
+    } else {
+        keys << QVariantAnimation::KeyValue(0.0, QVariant(backward ? 1.0 : 0.0))
+             << QVariantAnimation::KeyValue(1.0, QVariant(backward ? 0.0 : 1.0));
+    }
+    cycle->setKeyValues(keys);
+    QObject::connect(cycle, &QVariantAnimation::valueChanged, run,
+                     [step](const QVariant &v) { step(v.toDouble()); });
+    return cycle;
+}
+
+// Stop `holder`'s run on `channel`, leaving the property where it shows now. The run's signals
+// are blocked first: Qt reports a stopped run of undetermined length as `finished`, which
+// would land the old target.
+static void day_qt_run_stop(QObject *holder, const char *channel) {
+    const auto runs = holder->findChildren<QAbstractAnimation *>(QString::fromLatin1(channel),
+                                                                 Qt::FindDirectChildrenOnly);
+    for (QAbstractAnimation *run : runs) {
+        run->setObjectName(QString());
+        run->blockSignals(true);
+        run->stop();
+        run->deleteLater();
+    }
+}
+
+// Play `a` on `holder`'s `channel`: `step(progress)` shows the in-between value, `land()` the
+// target. A null `a`, or one with nothing to play, stops the channel's run and lands at once.
+// The run is a child of `holder`, so it ends with it. (Not a template: this lives in
+// `extern "C"`.)
+static void day_qt_run(QObject *holder, const char *channel, const DayQtAnim *a,
+                       const std::function<void(double)> &step, const std::function<void()> &land) {
+    day_qt_run_stop(holder, channel);
+    if (!a || a->cycles == 0 || (a->delay_ms <= 0 && a->duration_ms <= 0)) {
+        land();
+        return;
+    }
+    auto *run = new QSequentialAnimationGroup(holder);
+    run->setObjectName(QString::fromLatin1(channel));
+    if (a->delay_ms > 0) run->addPause(a->delay_ms);
+    if (a->duration_ms > 0) {
+        if (!a->autoreverse) {
+            QVariantAnimation *cycle = day_qt_cycle(*a, false, step, run);
+            cycle->setLoopCount(a->cycles < 0 ? -1 : a->cycles);
+            run->addAnimation(cycle);
+        } else {
+            const int pairs = a->cycles < 0 ? -1 : a->cycles / 2;
+            if (pairs != 0) {
+                auto *pair = new QSequentialAnimationGroup;
+                pair->addAnimation(day_qt_cycle(*a, false, step, run));
+                pair->addAnimation(day_qt_cycle(*a, true, step, run));
+                pair->setLoopCount(pairs);
+                run->addAnimation(pair);
+            }
+            if (a->cycles > 0 && a->cycles % 2 == 1)
+                run->addAnimation(day_qt_cycle(*a, false, step, run));
+        }
+    }
+    QObject::connect(run, &QAbstractAnimation::finished, holder, [run, land]() {
+        run->setObjectName(QString());
+        land();
+        run->deleteLater();
+    });
+    run->start();
+}
+
+// The fill a container shows now (its stylesheet color, its painted surface's fill, or a
+// scroll area's viewport color), or an invalid color when it has none.
+static QColor day_qt_fill_shown(QWidget *widget) {
+    if (auto *sa = qobject_cast<QAbstractScrollArea *>(widget)) {
+        QWidget *vp = sa->viewport();
+        return vp->autoFillBackground() ? vp->palette().color(QPalette::Window) : QColor();
+    }
+    if (const DaySurface *s = DaySurface::of(widget)) return s->hasGradient() ? QColor() : s->fill;
+    return widget->property("dayFill").value<QColor>();
 }
 
 void day_qt_widget_set_section_card(void *w, double radius) {
@@ -918,6 +1548,9 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
     // reactive `.background`) can rebuild the stylesheet without dropping the rounded corners.
     widget->setProperty("dayRadius", radius);
     widget->setProperty("dayClips", clips);
+    // The fill shown, for an animated change to start from and `day_qt_read_displayed`.
+    widget->setProperty("dayFill", QColor::fromRgbF(qBound(0.0, r, 1.0), qBound(0.0, g, 1.0),
+                                                    qBound(0.0, b, 1.0), qBound(0.0, a, 1.0)));
     QString body;
     if (a > 0.0) {
         body += QString("background-color: rgba(%1,%2,%3,%4);")
@@ -943,103 +1576,657 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
     }
 }
 
+/// A styled surface (docs/surfaces.md): `spec` is 24 numbers — fill r,g,b,a · radius · corner
+/// bits · clips · border r,g,b,a · border width · shadow r,g,b,a · shadow blur, dx, dy ·
+/// gradient kind (0 none, else 1 + day_qt_gradient_brush's kind) · the gradient's four
+/// numbers (linear start x,y and end x,y; radial center x,y and radius; conic center x,y and
+/// start degrees) — and `stops` is `n_stops` groups of (offset, r, g, b, a), ascending. The
+/// widget paints the fill and the corners itself and the border on a child in front of its
+/// content (DaySurface); the shadow and a rounded clip ride its DayEffect. Idempotent: a
+/// reactive surface (`ContainerPatch::Surface`) and an appearance switch send it again.
+void day_qt_widget_set_styled_surface(void *w, const double *spec, const double *stops,
+                                      int n_stops) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    if (!widget || !spec) return;
+    DaySurface *s = DaySurface::of(widget);
+    if (!s) {
+        // A container that had a stylesheet fill (day_qt_widget_set_surface) paints from now
+        // on: drop the stylesheet so its color does not show under the painted surface.
+        if (widget->property("dayFill").isValid()) {
+            widget->setStyleSheet(QString());
+            widget->setProperty("dayFill", QVariant());
+        }
+        s = new DaySurface(widget);
+    }
+    day_qt_run_stop(widget, "dayFill");
+    s->fill = QColor::fromRgbF(spec[0], spec[1], spec[2], spec[3]);
+    s->radius = qMax(0.0, spec[4]);
+    s->corners = (int)spec[5] & 15;
+    s->clips = spec[6] != 0.0;
+    s->borderColor = QColor::fromRgbF(spec[7], spec[8], spec[9], spec[10]);
+    s->borderWidth = qMax(0.0, spec[11]);
+    s->shadow.color = QColor::fromRgbF(spec[12], spec[13], spec[14], spec[15]);
+    s->shadow.blur = qMax(0.0, spec[16]);
+    s->shadow.dx = spec[17];
+    s->shadow.dy = spec[18];
+    s->gradKind = spec[19] >= 1.0 && stops && n_stops > 0 ? qBound(0, (int)spec[19] - 1, 2) : -1;
+    s->gradA = spec[20];
+    s->gradB = spec[21];
+    s->gradC = spec[22];
+    s->gradD = spec[23];
+    QGradientStops gs;
+    for (int i = 0; s->gradKind >= 0 && i < n_stops; i++) {
+        const double *v = stops + i * 5;
+        gs << QGradientStop(v[0], QColor::fromRgbF(v[1], v[2], v[3], v[4]));
+    }
+    s->gradStops = gs;
+    // The rounding other entry points read (day_qt_effect, a later background patch).
+    widget->setProperty("dayRadius", s->corners == 0 ? 0.0 : s->radius);
+    widget->setProperty("dayClips", s->clips ? 1 : 0);
+    const bool rounded = s->radius > 0.0 && s->corners != 0;
+    if ((rounded && s->clips) || s->shadow.on() || widget->graphicsEffect()) {
+        day_qt_effect(widget);
+        widget->graphicsEffect()->update();
+    }
+    s->syncBorder(widget);
+    widget->update();
+}
+
+// Whether the container paints its own surface (DaySurface): from then on every change to its
+// surface goes through day_qt_widget_set_styled_surface.
+int day_qt_widget_has_styled_surface(void *w) {
+    return DaySurface::of(static_cast<QWidget *>(w)) ? 1 : 0;
+}
+
 // Update only the background color, preserving the radius/clips captured by the last
 // day_qt_widget_set_surface (so a reactive `.background` doesn't square off a rounded surface).
-void day_qt_widget_set_bg(void *w, double r, double g, double b, double a) {
-    QWidget *widget = static_cast<QWidget *>(w);
+static void day_qt_fill_set(QWidget *widget, double r, double g, double b, double a) {
+    // A styled surface keeps its corners, border and shadow; the color replaces its fill,
+    // a gradient included.
+    if (DaySurface *s = DaySurface::of(widget)) {
+        s->fill = QColor::fromRgbF(r, g, b, a);
+        s->gradKind = -1;
+        widget->update();
+        return;
+    }
     double radius = widget->property("dayRadius").toDouble();
     int clips = widget->property("dayClips").toInt();
-    day_qt_widget_set_surface(w, r, g, b, a, radius, clips);
+    day_qt_widget_set_surface(widget, r, g, b, a, radius, clips);
+}
+
+// An in-between fill of an animated background. A stylesheet fill would be re-parsed and its
+// subtree re-polished on every tick, so a stylesheet-filled container becomes a painted surface
+// (DaySurface: the same rounded fill, painted in its own paint event) for good on its first
+// animated change; a scroll area's viewport takes the color through its palette.
+static void day_qt_fill_show(QWidget *widget, const QColor &c) {
+    if (auto *sa = qobject_cast<QAbstractScrollArea *>(widget)) {
+        QWidget *vp = sa->viewport();
+        QPalette p = vp->palette();
+        p.setColor(QPalette::Window, c);
+        vp->setPalette(p);
+        return;
+    }
+    DaySurface *s = DaySurface::of(widget);
+    if (!s) {
+        const double radius = widget->property("dayRadius").toDouble();
+        const int clips = widget->property("dayClips").toInt();
+        // Keep the stylesheet's rounding (and the clip it routes through DayEffect), drop its fill.
+        day_qt_widget_set_surface(widget, 0, 0, 0, 0, radius, clips);
+        s = new DaySurface(widget);
+        s->radius = qMax(0.0, radius);
+        s->clips = clips != 0;
+    }
+    s->fill = c;
+    widget->update();
+}
+
+// A container's background, animated under `anim` (rule 8) from the fill it shows to `r,g,b,a`,
+// blending each sRGB channel (and the alpha) linearly. A fill appearing or going away, a
+// gradient surface, or a null `anim` applies at once and stops any run in flight.
+void day_qt_widget_set_bg(void *w, double r, double g, double b, double a, const DayQtAnim *anim) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    const QColor from = day_qt_fill_shown(widget);
+    const QColor to = QColor::fromRgbF(qBound(0.0, r, 1.0), qBound(0.0, g, 1.0),
+                                       qBound(0.0, b, 1.0), qBound(0.0, a, 1.0));
+    if (!from.isValid() || from.alpha() == 0 || to.alpha() == 0 || from == to) anim = nullptr;
+    const double fr = from.redF(), fg = from.greenF(), fb = from.blueF(), fa = from.alphaF();
+    day_qt_run(
+        widget, "dayFill", anim,
+        [=](double t) {
+            auto mix = [t](double x, double y) { return qBound(0.0, x + (y - x) * t, 1.0); };
+            day_qt_fill_show(widget, QColor::fromRgbF(mix(fr, r), mix(fg, g), mix(fb, b), mix(fa, a)));
+        },
+        [=]() { day_qt_fill_set(widget, r, g, b, a); });
 }
 
 // --- label ---
-// A label that honors `.single_line()` the way every other backend does: one line, truncated
-// with an ellipsis when Day grants it less width than the text needs. QLabel has no elide mode
-// (a non-wrapping QLabel just clips at its edge), so a plain, non-wrapping label that does not
-// fit draws the elided string itself. Wrapping and rich-text labels paint exactly as QLabel does,
-// and so does any label whose text fits; sizeHint() still reports the full text's width.
+// A Day label (docs/text.md, docs/text-runs.md). QLabel stays the renderer, so painting,
+// selection, link hit testing, keyboard link traversal and accessibility are Qt's own. What
+// QLabel lacks, DayLabel supplies by choosing WHAT QLabel shows:
+//
+// - The SOURCE is what Day gave: plain text, or Day's Qt rich text (runs). It is what
+//   `read_native`, accessibility and selection offsets refer to.
+// - The DISPLAY is what QLabel holds. It equals the source, except that a label held to
+//   `max_lines` lines (or to one, `.single_line()`) that does not fit its width shows the lines
+//   that fit, made hard breaks, and a last line elided where `truncation` says
+//   (`QFontMetricsF::elidedText` with ElideRight/Left/Middle; Tail only for rich text, whose
+//   runs a character-level elision would cut through). It is recomputed whenever the width,
+//   the font, the paragraph attributes or the text change.
+// - Line height, justification and a direction Day set on the label need Qt's rich-text
+//   engine, so such a label shows its text as rich text even when the source is plain:
+//   `<p style="white-space:pre-wrap; line-height:Lpx; -qt-line-height-type:fixed">`.
+//   Qt's FixedHeight puts each line's baseline at 4/5 of the line box, close to (not exactly)
+//   the CSS split of the extra space.
+// - Letter spacing is the font's own (`QFont::AbsoluteSpacing`, ems times the font's pixel
+//   size), so plain and rich text, QLabel's measuring and the elision all see it.
+//
+// Measuring goes through a hidden QLabel configured like the label and holding the display
+// content for the proposed width, so a measured height is exactly what QLabel then paints.
+struct DayLabelSeg {
+    int disp; // start in the display's plain text (UTF-16)
+    int src;  // start in the source's plain text (UTF-16)
+    int len;
+};
+
 class DayLabel : public QLabel {
 public:
-    using QLabel::QLabel;
+    explicit DayLabel(const QString &text) : src(text) {}
+
+    QString src;            // plain text, or Day's Qt rich text when `srcRich`
+    bool srcRich = false;
+    bool wraps = true;      // false for `.single_line()`
+    int maxLines = 0;       // 0 = unlimited
+    int trunc = 0;          // 0 tail, 1 head, 2 middle
+    double letterEm = 0.0;  // letter spacing in ems
+    double lineMul = 0.0;   // line height as a multiple of the font size; <= 0 natural
+    int align = 0;          // 0 leading, 1 center, 2 trailing, 3 justified
+    bool selectable = false;
+    bool dirSet = false;    // Day set this label's direction (`set_layout_direction`)
+    uint64_t selId = 0;
+    void (*selCb)(uint64_t, int, int) = nullptr;
+    int lastSelStart = 0, lastSelEnd = 0;
+
+    struct Display {
+        QString text;
+        bool rich = false;
+        bool clamped = false;
+        QList<DayLabelSeg> map; // empty = identity
+    };
+
+    bool usesRich() const { return srcRich || lineMul > 0 || align == 3 || dirSet; }
+    bool clamps() const { return !wraps || maxLines > 0; }
+    int lineLimit() const { return wraps ? maxLines : 1; }
+    bool hasLinks() const { return srcRich && src.contains(QLatin1String("<a "), Qt::CaseInsensitive); }
+
+    // The font's em in device-independent pixels: the unit of letter spacing and line height.
+    double emPx() const {
+        const QFont f = font();
+        if (f.pixelSize() > 0) return f.pixelSize();
+        return f.pointSizeF() * logicalDpiY() / 72.0;
+    }
+
+    static QString plainHtml(const QString &s) {
+        QString out = s.toHtmlEscaped();
+        out.replace(QLatin1Char('\n'), QLatin1String("<br>"));
+        return out;
+    }
+
+    // Rich-text content around an inner fragment: whitespace kept as written (the plain
+    // label's behavior), the fixed line height, and Day's direction for this label.
+    QString wrap(const QString &inner) const {
+        QString style = QStringLiteral("white-space:pre-wrap;");
+        if (lineMul > 0)
+            style += QStringLiteral("line-height:%1px;-qt-line-height-type:fixed;")
+                         .arg(lineMul * emPx(), 0, 'f', 2);
+        QString dir;
+        if (dirSet)
+            dir = layoutDirection() == Qt::RightToLeft ? QStringLiteral(" dir=\"rtl\"")
+                                                       : QStringLiteral(" dir=\"ltr\"");
+        return QStringLiteral("<p style=\"") + style + QLatin1Char('"') + dir + QLatin1Char('>') +
+               inner + QStringLiteral("</p>");
+    }
+
+    QString fullContent() const {
+        if (!usesRich()) return src;
+        return wrap(srcRich ? src : plainHtml(src));
+    }
+
+    // The source as plain text, the way Qt's document holds it (one unit per <br>).
+    QString rawPlain() const {
+        if (!srcRich) return src;
+        QTextDocument doc;
+        doc.setHtml(wrap(src));
+        QString t = doc.toRawText();
+        t.replace(QChar::LineSeparator, QLatin1Char('\n'));
+        t.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+        return t;
+    }
+
+    // A document laid out the way QLabel lays out its rich text (QLabelPrivate::
+    // ensureTextLayouted): the label's font, alignment and wrap mode, no frame margin.
+    void setupDoc(QTextDocument &doc, const QString &html, int width) const {
+        doc.setDefaultFont(font());
+        QTextOption opt = doc.defaultTextOption();
+        opt.setAlignment(alignment());
+        opt.setWrapMode(wraps ? QTextOption::WordWrap : QTextOption::ManualWrap);
+        if (layoutDirection() == Qt::RightToLeft) opt.setTextDirection(Qt::RightToLeft);
+        doc.setDefaultTextOption(opt);
+        doc.setDocumentMargin(0);
+        doc.setHtml(html);
+        doc.setTextWidth(wraps ? width : -1);
+    }
+
+    struct Line {
+        int start;
+        qreal width;
+    };
+    static QList<Line> docLines(QTextDocument &doc) {
+        QList<Line> lines;
+        (void)doc.size(); // lays the whole document out
+        for (QTextBlock b = doc.begin(); b.isValid(); b = b.next()) {
+            QTextLayout *l = b.layout();
+            if (!l) continue;
+            for (int i = 0; i < l->lineCount(); i++) {
+                const QTextLine line = l->lineAt(i);
+                lines.push_back({b.position() + line.textStart(), line.naturalTextWidth()});
+            }
+        }
+        return lines;
+    }
+
+    // `html` up to plain position `limit`, with a `<br>` inserted at plain position `breakAt`
+    // (-1 for none). Positions count what Qt's document counts: one per character (UTF-16
+    // unit), entity and `<br>`; tags count nothing. Unclosed tags are closed by Qt's parser.
+    static QString htmlPrefix(const QString &html, int limit, int breakAt) {
+        QString out;
+        int count = 0;
+        int i = 0;
+        const int n = int(html.size());
+        auto unit = [&]() {
+            if (count == breakAt) {
+                out += QStringLiteral("<br>");
+                breakAt = -1;
+            }
+        };
+        while (i < n && count < limit) {
+            const QChar c = html.at(i);
+            if (c == QLatin1Char('<')) {
+                int j = int(html.indexOf(QLatin1Char('>'), i));
+                if (j < 0) j = n - 1;
+                const QString tag = html.mid(i, j - i + 1);
+                const bool br = tag.startsWith(QLatin1String("<br"), Qt::CaseInsensitive) &&
+                                (tag.size() == 4 || !tag.at(3).isLetter());
+                if (br) {
+                    unit();
+                    count++;
+                }
+                out += tag;
+                i = j + 1;
+                continue;
+            }
+            if (c == QLatin1Char('&')) {
+                const int j = int(html.indexOf(QLatin1Char(';'), i));
+                if (j > i && j - i <= 10) {
+                    unit();
+                    out += html.mid(i, j - i + 1);
+                    count++;
+                    i = j + 1;
+                    continue;
+                }
+            }
+            unit();
+            out += c;
+            count++;
+            i++;
+        }
+        if (!out.isEmpty() && out.back().isHighSurrogate()) out.chop(1);
+        if (breakAt >= 0 && count == breakAt) out += QStringLiteral("<br>");
+        return out;
+    }
+
+    Display clampPlain(int width, int n, const Display &full) const {
+        const QFont f = font();
+        QList<Line> lines;
+        bool overflow = false;
+        int at = 0;
+        const QStringList paras = src.split(QLatin1Char('\n'));
+        for (const QString &para : paras) {
+            QTextLayout layout(para, f);
+            QTextOption opt;
+            opt.setWrapMode(wraps ? QTextOption::WordWrap : QTextOption::ManualWrap);
+            layout.setTextOption(opt);
+            layout.beginLayout();
+            bool any = false;
+            for (;;) {
+                QTextLine line = layout.createLine();
+                if (!line.isValid()) break;
+                line.setLineWidth(wraps ? qreal(width) : 1e6);
+                lines.push_back({at + line.textStart(), line.naturalTextWidth()});
+                if (!wraps && line.naturalTextWidth() > width) overflow = true;
+                any = true;
+            }
+            layout.endLayout();
+            if (!any) lines.push_back({at, 0});
+            at += int(para.size()) + 1;
+        }
+        if (lines.size() <= n && !overflow) return full;
+        const int last = int(std::min<qsizetype>(n, lines.size())) - 1;
+        const int cut = lines.at(last).start;
+        Display d;
+        d.clamped = true;
+        QString shown = src.left(cut);
+        d.map.push_back({0, 0, cut});
+        if (cut > 0 && src.at(cut - 1) != QLatin1Char('\n')) shown += QLatin1Char('\n');
+        const int base = int(shown.size());
+        QString rest = src.mid(cut);
+        rest.replace(QLatin1Char('\n'), QLatin1Char(' '));
+        const Qt::TextElideMode mode =
+            trunc == 1 ? Qt::ElideLeft : trunc == 2 ? Qt::ElideMiddle : Qt::ElideRight;
+        const QFontMetricsF fm(f);
+        QString tail = fm.elidedText(rest, mode, width);
+        if (tail == rest) {
+            // The remainder fits on one line only because hard breaks cut it up: end this
+            // line's own paragraph with the ellipsis instead of pulling the next one up.
+            const int end = int(src.indexOf(QLatin1Char('\n'), cut));
+            rest = src.mid(cut, end < 0 ? -1 : end - cut);
+            tail = fm.elidedText(rest + QChar(0x2026), Qt::ElideRight, width);
+        }
+        // What of `rest` the elided line kept: a head before the ellipsis, a tail after it.
+        int a = 0;
+        while (a < tail.size() && a < rest.size() && tail.at(a) == rest.at(a)) a++;
+        int b = 0;
+        while (b < int(tail.size()) - a - 1 && b < int(rest.size()) - a &&
+               tail.at(tail.size() - 1 - b) == rest.at(rest.size() - 1 - b))
+            b++;
+        d.map.push_back({base, cut, a});
+        if (b > 0) d.map.push_back({base + int(tail.size()) - b, cut + int(rest.size()) - b, b});
+        shown += tail;
+        d.rich = usesRich();
+        d.text = d.rich ? wrap(plainHtml(shown)) : shown;
+        return d;
+    }
+
+    Display clampRich(int width, int n, const Display &full) const {
+        QTextDocument doc;
+        setupDoc(doc, full.text, width);
+        const QList<Line> lines = docLines(doc);
+        if (lines.size() <= n && (wraps || doc.idealWidth() <= width)) return full;
+        const int last = int(std::min<qsizetype>(n, lines.size())) - 1;
+        const int cut = lines.at(last).start;
+        const int total = doc.characterCount() - 1;
+        const QChar before = cut > 0 ? doc.characterAt(cut - 1) : QChar();
+        const bool brk = cut > 0 && before != QChar::LineSeparator && before != QChar::ParagraphSeparator;
+        auto candidate = [&](int keep) {
+            return wrap(htmlPrefix(src, cut + keep, brk ? cut : -1) + QChar(0x2026));
+        };
+        auto fits = [&](int keep) {
+            QTextDocument probe;
+            setupDoc(probe, candidate(keep), width);
+            return docLines(probe).size() <= n && (wraps || probe.idealWidth() <= width);
+        };
+        int lo = 0, hi = std::max(0, total - cut - 1);
+        while (lo < hi) {
+            const int mid = (lo + hi + 1) / 2;
+            if (fits(mid))
+                lo = mid;
+            else
+                hi = mid - 1;
+        }
+        Display d;
+        d.clamped = true;
+        d.rich = true;
+        d.text = candidate(lo);
+        d.map.push_back({0, 0, cut});
+        d.map.push_back({cut + (brk ? 1 : 0), cut, lo});
+        return d;
+    }
+
+    Display displayFor(int width) const {
+        Display full;
+        full.text = fullContent();
+        full.rich = usesRich();
+        if (!clamps() || width <= 0) return full;
+        const int n = lineLimit();
+        return srcRich ? clampRich(width, n, full) : clampPlain(width, n, full);
+    }
+
+    // Display position → source position. A position inside an ellipsis belongs to the text
+    // it stands for: a start goes to its beginning, an end to its end.
+    int toSrc(int d, bool isEnd, int srcLen) const {
+        if (map.isEmpty()) return std::min(d, srcLen);
+        int prevEnd = 0;
+        for (const DayLabelSeg &s : map) {
+            if (d < s.disp) return isEnd ? s.src : prevEnd;
+            if (d <= s.disp + s.len) return s.src + d - s.disp;
+            prevEnd = s.src + s.len;
+        }
+        return isEnd ? srcLen : prevEnd;
+    }
+
+    QList<DayLabelSeg> map;
+    bool clamped = false;
+    QString shownKey;
+
+    // Show the display content for the label's current width.
+    void refresh(bool force = false) {
+        const int width = contentsRect().width();
+        const QString key = QString::number(width) + QLatin1Char('\x1f') + font().key() +
+                            QString::number(int(layoutDirection())) +
+                            QString::number(int(alignment()));
+        if (!force && key == shownKey) return;
+        shownKey = key;
+        const Display d = displayFor(width);
+        const Qt::TextFormat fmt = d.rich ? Qt::RichText : Qt::PlainText;
+        if (textFormat() != fmt || text() != d.text) {
+            setTextFormat(fmt);
+            QLabel::setText(d.text);
+            // QLabel carries a select-all over to the new text; the old selection means
+            // nothing in it, so the reader starts over (and hears it cleared).
+            if (hasSelectedText()) setSelection(0, 0);
+        }
+        map = d.map;
+        clamped = d.clamped;
+        if (!property("day_app_named").toBool()) {
+            const QString name = clamped ? rawPlain() : QString();
+            if (accessibleName() != name) setAccessibleName(name);
+        }
+        reportSelection();
+    }
+
+    // A selectable label takes the selection flags (and the link flags when it shows a link);
+    // any other label keeps the link flags it has always had, whatever it shows. Those make
+    // every label a Tab stop (QLabel gives LinksAccessibleByKeyboard StrongFocus), which also
+    // keeps Qt from focusing the first focusable Day view when a window activates with no
+    // focus widget (QApplicationPrivate::setActiveWindow); dropping them needs a window-level
+    // initial-focus policy first.
+    void applyFlags() {
+        Qt::TextInteractionFlags f = Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard;
+        if (selectable) {
+            f = Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard;
+            if (hasLinks()) f |= Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard;
+        }
+        if (textInteractionFlags() != f) setTextInteractionFlags(f);
+    }
+
+    // Leading and trailing are Qt's logical AlignLeft/AlignRight (no AlignAbsolute), which
+    // QStyle::visualAlignment and the text layout flip in a right-to-left label.
+    void applyAlign() {
+        Qt::Alignment h = Qt::AlignLeft;
+        if (align == 1) h = Qt::AlignHCenter;
+        else if (align == 2) h = Qt::AlignRight;
+        else if (align == 3) h = Qt::AlignJustify;
+        setAlignment(h | Qt::AlignTop);
+    }
+
+    // The letter spacing in pixels for the current font size. Called after every base font
+    // change (which copies the old spacing along).
+    void applyFontExtras() {
+        QFont f = font();
+        const double px = letterEm * emPx();
+        if (letterEm == 0.0 && f.letterSpacing() == 0.0) return;
+        if (f.letterSpacingType() == QFont::AbsoluteSpacing && std::abs(f.letterSpacing() - px) < 1.0 / 32) // QFont keeps 1/64 px
+            return;
+        f.setLetterSpacing(QFont::AbsoluteSpacing, px);
+        setFont(f);
+    }
+
+    // Byte offsets into the source's plain text (what Day displays), for `Event::TextSelected`.
+    void reportSelection() {
+        if (!selCb) return;
+        int start = 0, end = 0;
+        if (hasSelectedText()) {
+            const QString plain = rawPlain();
+            const int len = int(plain.size());
+            const int ds = selectionStart();
+            const int de = ds + int(selectedText().size());
+            const int s = std::clamp(toSrc(ds, false, len), 0, len);
+            const int e = std::clamp(toSrc(de, true, len), s, len);
+            start = int(plain.left(s).toUtf8().size());
+            end = int(plain.left(e).toUtf8().size());
+        }
+        if (start == end) start = end = 0;
+        if (start == lastSelStart && end == lastSelEnd) return;
+        lastSelStart = start;
+        lastSelEnd = end;
+        selCb(selId, start, end);
+    }
+
+    QString measureKey() const {
+        return src + QLatin1Char('\x1f') + font().key() + QLatin1Char('\x1f') +
+               QString::number(int(srcRich)) + QString::number(int(wraps)) +
+               QString::number(maxLines) + QString::number(trunc) +
+               QString::number(letterEm) + QString::number(lineMul) + QString::number(align) +
+               QString::number(int(layoutDirection())) + QString::number(int(dirSet)) +
+               QString::number(int(textInteractionFlags()));
+    }
 
 protected:
-    void paintEvent(QPaintEvent *e) override {
-        const bool rich = textFormat() == Qt::RichText
-                       || (textFormat() == Qt::AutoText && Qt::mightBeRichText(text()));
-        if (wordWrap() || rich || text().isEmpty()) {
-            QLabel::paintEvent(e);
-            return;
-        }
-        const QRect cr = contentsRect().adjusted(margin(), margin(), -margin(), -margin());
-        const QFontMetrics fm(font());
-        if (fm.horizontalAdvance(text()) <= cr.width()) {
-            QLabel::paintEvent(e);
-            return;
-        }
-        QPainter painter(this);
-        drawFrame(&painter);
-        const QString elided = fm.elidedText(text(), Qt::ElideRight, cr.width());
-        style()->drawItemText(&painter, cr, QStyle::visualAlignment(layoutDirection(), alignment()),
-                              palette(), isEnabled(), elided, foregroundRole());
+    void resizeEvent(QResizeEvent *e) override {
+        QLabel::resizeEvent(e);
+        refresh();
+    }
+    void changeEvent(QEvent *e) override {
+        QLabel::changeEvent(e);
+        if (e->type() == QEvent::FontChange || e->type() == QEvent::LayoutDirectionChange)
+            refresh(true);
+    }
+    // QLabel has no selection signal: compare after everything that can move the selection.
+    void mouseMoveEvent(QMouseEvent *e) override {
+        QLabel::mouseMoveEvent(e);
+        if (e->buttons() != Qt::NoButton) reportSelection();
+    }
+    void mouseReleaseEvent(QMouseEvent *e) override {
+        QLabel::mouseReleaseEvent(e);
+        reportSelection();
+    }
+    void mousePressEvent(QMouseEvent *e) override {
+        QLabel::mousePressEvent(e);
+        reportSelection();
+    }
+    void mouseDoubleClickEvent(QMouseEvent *e) override {
+        QLabel::mouseDoubleClickEvent(e);
+        reportSelection();
+    }
+    void keyPressEvent(QKeyEvent *e) override {
+        QLabel::keyPressEvent(e);
+        reportSelection();
+    }
+    void keyReleaseEvent(QKeyEvent *e) override {
+        QLabel::keyReleaseEvent(e);
+        reportSelection();
+    }
+    void focusOutEvent(QFocusEvent *e) override {
+        QLabel::focusOutEvent(e);
+        reportSelection();
+    }
+    void contextMenuEvent(QContextMenuEvent *e) override {
+        QLabel::contextMenuEvent(e);
+        reportSelection();
     }
 };
 
+static DayLabel *day_qt_day_label(void *w) {
+    return dynamic_cast<DayLabel *>(static_cast<QWidget *>(w));
+}
+
 void *day_qt_label_new(const char *text, int wraps) {
-    QLabel *l = new DayLabel(QString::fromUtf8(text));
-    l->setWordWrap(wraps != 0);
-    if (g_rtl) {
-        l->setAlignment(Qt::AlignRight | Qt::AlignTop);
-        l->setLayoutDirection(Qt::RightToLeft);
-    } else {
-        l->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    }
+    auto *l = new DayLabel(QString::fromUtf8(text));
+    l->wraps = wraps != 0;
+    l->setWordWrap(l->wraps);
+    l->applyFlags();
+    if (g_rtl) l->setLayoutDirection(Qt::RightToLeft);
+    l->applyAlign();
+    l->refresh(true);
     return l;
+}
+// Link runs (docs/text-runs.md). QLabel hit-tests the `<a href>` in its rich text itself and
+// emits linkActivated; external opening stays OFF so Day's own `.on_link()` decides. The
+// interaction flags are `DayLabel::applyFlags`'.
+void day_qt_label_on_link(void *w, uint64_t id, void (*cb)(uint64_t, const char *)) {
+    QLabel *l = static_cast<QLabel *>(w);
+    l->setOpenExternalLinks(false);
+    QObject::connect(l, &QLabel::linkActivated, [id, cb](const QString &url) {
+        QByteArray ba = url.toUtf8();
+        cb(id, ba.constData());
+    });
+}
+// A label's horizontal alignment (0 leading, 1 center, 2 trailing, 3 justified). Applies to
+// plain and rich text alike, and follows the label's own direction.
+void day_qt_label_set_align(void *w, int align) {
+    if (DayLabel *l = day_qt_day_label(w)) {
+        l->align = align;
+        l->applyAlign();
+        l->refresh(true);
+    }
 }
 /// Set a label's text as RICH text — day's markup serializer produced the HTML (docs/text-runs.md).
 ///
 /// `Qt::RichText` explicitly, never `AutoText`: auto-detection guesses from the content, so a
 /// PLAIN translated string that happens to contain `<` would silently start being parsed as
 /// markup. Day decides which it is, not a heuristic.
-// Link runs (docs/text-runs.md). QLabel hit-tests the `<a href>` in its rich text itself and
-// emits linkActivated; external opening stays OFF so Day's own `.on_link()` decides. Rich text
-// also needs the mouse-interaction flag, which a plain label does not carry.
-void day_qt_label_on_link(void *w, uint64_t id, void (*cb)(uint64_t, const char *)) {
-    QLabel *l = static_cast<QLabel *>(w);
-    l->setOpenExternalLinks(false);
-    l->setTextInteractionFlags(l->textInteractionFlags() | Qt::LinksAccessibleByMouse |
-                               Qt::LinksAccessibleByKeyboard);
-    QObject::connect(l, &QLabel::linkActivated, [id, cb](const QString &url) {
-        QByteArray ba = url.toUtf8();
-        cb(id, ba.constData());
-    });
-}
-// A label's horizontal alignment (0 leading, 1 center, 2 trailing). Applies to plain and rich
-// text alike — QLabel aligns its laid-out document either way — and keeps the RTL flip, where
-// "leading" is the right edge.
-void day_qt_label_set_align(void *w, int align) {
-    QLabel *l = static_cast<QLabel *>(w);
-    Qt::Alignment h;
-    if (align == 1) {
-        h = Qt::AlignHCenter;
-    } else if (align == 2) {
-        h = g_rtl ? Qt::AlignLeft : Qt::AlignRight;
-    } else {
-        h = g_rtl ? Qt::AlignRight : Qt::AlignLeft;
-    }
-    l->setAlignment(h | Qt::AlignTop);
-}
 void day_qt_label_set_rich_text(void *w, const char *html) {
-    QLabel *l = static_cast<QLabel *>(w);
-    l->setTextFormat(Qt::RichText);
-    l->setText(QString::fromUtf8(html));
+    if (DayLabel *l = day_qt_day_label(w)) {
+        l->src = QString::fromUtf8(html);
+        l->srcRich = true;
+        l->applyFlags();
+        l->refresh(true);
+    }
 }
 void day_qt_label_set_text(void *w, const char *text) {
-    QLabel *l = static_cast<QLabel *>(w);
     // Back to plain when a label loses its runs, or the previous markup would keep parsing.
-    l->setTextFormat(Qt::PlainText);
-    l->setText(QString::fromUtf8(text));
+    if (DayLabel *l = day_qt_day_label(w)) {
+        l->src = QString::fromUtf8(text);
+        l->srcRich = false;
+        l->applyFlags();
+        l->refresh(true);
+    }
 }
-void day_qt_label_set_font(void *w, double pt, int weight, int italic, int tabular) {
+// The paragraph attributes (docs/text.md "Line limits and truncation", "Letter spacing and
+// line height"), whole and idempotent: realize and `LabelPatch::Paragraph` both land here.
+void day_qt_label_set_paragraph(void *w, int max_lines, int truncation, double letter_em,
+                                double line_multiple) {
+    DayLabel *l = day_qt_day_label(w);
+    if (!l) return;
+    l->maxLines = std::max(0, max_lines);
+    l->trunc = truncation;
+    l->letterEm = std::isfinite(letter_em) ? letter_em : 0.0;
+    l->lineMul = std::isfinite(line_multiple) && line_multiple > 0 ? line_multiple : 0.0;
+    l->applyFontExtras();
+    l->refresh(true);
+}
+// Report the reader's selection (`Event::TextSelected`) as byte offsets into the text Day
+// displays.
+void day_qt_label_on_selection(void *w, uint64_t id, void (*cb)(uint64_t, int, int)) {
+    if (DayLabel *l = day_qt_day_label(w)) {
+        l->selId = id;
+        l->selCb = cb;
+    }
+}
+// `small_caps` and `oldstyle` are the OpenType `smcp` and `onum` features, asked of the face
+// rather than synthesized (never QFont::SmallCaps, which scales capitals). Qt before 6.7 has no
+// feature API; there the face draws its ordinary glyphs.
+void day_qt_label_set_font(void *w, double pt, int weight, int italic, int tabular,
+                           int small_caps, int oldstyle) {
     QLabel *l = static_cast<QLabel *>(w);
     QFont f = l->font();
     f.setPointSizeF(pt);
@@ -1047,16 +2234,25 @@ void day_qt_label_set_font(void *w, double pt, int weight, int italic, int tabul
     if (weight > 0)
         f.setWeight(static_cast<QFont::Weight>(weight));
     f.setItalic(italic != 0);
-    // Tabular figures through the OpenType feature, so the face is untouched and only the digits
-    // change metrics. QFont::setFeature arrived in Qt 6.7; on older Qt the request is dropped
-    // (proportional figures), which is the documented degradation for a backend that cannot
-    // express it.
+    // Font features, so the face is untouched and only the glyphs it offers change. An absent
+    // request leaves the feature at the face's default rather than switching it off.
 #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
-    f.setFeature(QFont::Tag("tnum"), tabular != 0 ? 1 : 0);
+    auto feature = [&f](QFont::Tag tag, int on) {
+        if (on != 0)
+            f.setFeature(tag, 1);
+        else
+            f.unsetFeature(tag);
+    };
+    feature(QFont::Tag("tnum"), tabular);
+    feature(QFont::Tag("smcp"), small_caps);
+    feature(QFont::Tag("onum"), oldstyle);
 #else
     (void)tabular;
+    (void)small_caps;
+    (void)oldstyle;
 #endif
     l->setFont(f);
+    if (DayLabel *d = day_qt_day_label(w)) d->applyFontExtras();
 }
 // Text color via the label's palette (WindowText is the role QLabel draws with). Palette, not a
 // stylesheet: it composes with the style engine and never fights day_qt_widget_set_surface.
@@ -1085,21 +2281,66 @@ void day_qt_label_set_monospace(void *w) {
     mono.setWeight(f.weight());
     mono.setItalic(f.italic());
     l->setFont(mono);
+    if (DayLabel *d = day_qt_day_label(w)) d->applyFontExtras();
 }
 void day_qt_label_set_font_family(void *w, const char *family) {
     QLabel *l = static_cast<QLabel *>(w);
     QFont f = l->font();
     f.setFamily(QString::fromUtf8(family));
     l->setFont(f);
+    if (DayLabel *d = day_qt_day_label(w)) d->applyFontExtras();
 }
 // Make a label's text user-selectable by mouse + keyboard (the `.selectable()` modifier,
-// docs/text.md). qobject_cast guards a non-label widget — a no-op rather than a bad cast.
+// docs/text.md). A non-label widget is a no-op rather than a bad cast.
 void day_qt_label_set_selectable(void *w, int on) {
+    if (DayLabel *l = day_qt_day_label(w)) {
+        l->selectable = on != 0;
+        l->applyFlags();
+        l->refresh(true);
+        return;
+    }
     QLabel *l = qobject_cast<QLabel *>(static_cast<QWidget *>(w));
     if (!l)
         return;
     l->setTextInteractionFlags(on ? (Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard)
                                   : Qt::NoTextInteraction);
+}
+// A widget's own reading direction (`Toolkit::set_layout_direction`, docs/localization.md
+// "Direction of a subtree"). Day's containers have no Qt layout, so nothing Day placed moves;
+// the widget mirrors its insides (a slider's fill, a label's leading edge and base direction).
+void day_qt_widget_set_direction(void *w, int rtl) {
+    QWidget *q = static_cast<QWidget *>(w);
+    const Qt::LayoutDirection dir = rtl != 0 ? Qt::RightToLeft : Qt::LeftToRight;
+    if (DayLabel *l = day_qt_day_label(w)) {
+        if (l->dirSet && l->layoutDirection() == dir) return;
+        l->dirSet = true;
+        l->setLayoutDirection(dir);
+        l->refresh(true);
+        return;
+    }
+    if (q->layoutDirection() != dir) q->setLayoutDirection(dir);
+}
+// The factor the desktop's text size applies to Day's point-sized text: the screen's logical
+// DPI against the platform plugin's reference (96 on xcb and Wayland, where GNOME's
+// text-scaling-factor and KDE's forced font DPI arrive through Xft.dpi; 72 on Cocoa, which has
+// no such setting and always answers 72).
+double day_qt_text_scale(void) {
+    const QScreen *s = QGuiApplication::primaryScreen();
+    if (!s) return 1.0;
+    const double reference = QGuiApplication::platformName() == QLatin1String("cocoa") ? 72.0 : 96.0;
+    const double v = s->logicalDotsPerInchY() / reference;
+    return std::isfinite(v) && v > 0 ? v : 1.0;
+}
+// Call `cb` when the primary screen's logical DPI (the text scale above) changes.
+void day_qt_on_text_scale(void (*cb)(void)) {
+    auto hook = [cb](QScreen *s) {
+        if (s) QObject::connect(s, &QScreen::logicalDotsPerInchChanged, qApp, [cb](qreal) { cb(); });
+    };
+    hook(QGuiApplication::primaryScreen());
+    QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, qApp, [cb, hook](QScreen *s) {
+        hook(s);
+        cb();
+    });
 }
 // The pointer's shape over a widget (the `.cursor()` modifier, docs/cursor.md): a
 // Qt::CursorShape value, or a negative one to hand the choice back to the widget's parent.
@@ -1115,47 +2356,71 @@ void day_qt_widget_set_cursor(void *w, int shape) {
 int day_qt_register_font(const char *path) {
     return QFontDatabase::addApplicationFont(QString::fromUtf8(path));
 }
-// The label's UNWRAPPED natural width. QLabel::sizeHint() with wordWrap on is not that: Qt
-// applies a "readable column" heuristic and suggests a narrow wrapped block — day's measure
-// contract wants the real single-line width, then asks heightForWidth at the width day grants.
-// Toggle wordWrap off around the query so QLabel's own text engine answers (shaping, margins,
-// indent — plain QFontMetrics::horizontalAdvance comes up a few px short of it and the last
-// word wraps). No event loop runs between the toggles, so nothing paints in the off state.
-// Both answers are remembered on the label against what they depend on — its text (the HTML,
-// for rich text), font, format and direction — because QLabel does not: a rich-text label lays
-// its whole QTextDocument out again for every sizeHint()/heightForWidth() call, and Day's layout
-// asks each label several times per pass (natural width, then height at one or two widths) on
-// every pass. The cache is what makes a pane drag re-measure in microseconds, not milliseconds.
-static QString day_qt_label_measure_key(QLabel *l) {
-    return l->text() + QLatin1Char('\x1f') + l->font().key() + QLatin1Char('\x1f')
-         + QString::number(int(l->textFormat())) + QString::number(int(l->layoutDirection()))
-         + QString::number(int(l->textInteractionFlags()));
+// Measuring (Day's `measure` for a label). A hidden QLabel set up like the label holds the
+// content in question, so the answer comes from QLabel's own text engine (shaping, the
+// rich-text document, the plain-text path) and agrees with what the label paints:
+// - the natural width is the FULL text unwrapped (QLabel::sizeHint() with wordWrap on applies a
+//   "readable column" heuristic instead, which is not Day's contract);
+// - the height at a width is the DISPLAY content for that width (clamped to the line limit)
+//   laid out at it.
+// Both answers are remembered on the label against what they depend on, because Day's layout
+// asks each label several times per pass and a rich-text label lays its whole document out
+// again on every ask. The cache is what makes a pane drag re-measure in microseconds.
+static std::unique_ptr<QLabel> day_qt_label_probe(const DayLabel *l, const QString &content,
+                                                  bool rich, bool wrap) {
+    // A fresh probe every time: a reused QLabel answered from layout state an earlier
+    // configuration left behind (a natural width 16 px off on Linux, which then wrapped).
+    auto probe = std::make_unique<QLabel>();
+    probe->setAttribute(Qt::WA_DontShowOnScreen);
+    probe->setFont(l->font());
+    probe->setLayoutDirection(l->layoutDirection());
+    probe->setAlignment(l->alignment());
+    probe->setTextInteractionFlags(l->textInteractionFlags());
+    probe->setWordWrap(wrap);
+    probe->setTextFormat(rich ? Qt::RichText : Qt::PlainText);
+    probe->setText(content);
+    return probe;
 }
 int day_qt_label_natural_width(void *w) {
-    QLabel *l = static_cast<QLabel *>(w);
-    const QString key = day_qt_label_measure_key(l);
+    QLabel *ql = static_cast<QLabel *>(w);
+    DayLabel *l = day_qt_day_label(w);
+    if (!l) return ql->sizeHint().width();
+    const QString key = l->measureKey();
     if (l->property("dayNatKey").toString() == key) return l->property("dayNatW").toInt();
-    // Restore the label's OWN wrap setting afterwards. Forcing it back on turned every
-    // `.single_line()` label into a wrapping one after its first measure, so a long sidebar title
-    // wrapped onto a second line its fixed-height row then clipped.
-    const bool wraps = l->wordWrap();
-    if (wraps) l->setWordWrap(false);
-    const int width = l->sizeHint().width();
-    if (wraps) l->setWordWrap(true);
+    const int width =
+        day_qt_label_probe(l, l->fullContent(), l->usesRich(), false)->sizeHint().width();
     l->setProperty("dayNatKey", key);
     l->setProperty("dayNatW", width);
     return width;
 }
 int day_qt_label_height_for_width(void *w, int width) {
-    QLabel *l = static_cast<QLabel *>(w);
-    const QString key = day_qt_label_measure_key(l);
+    QLabel *ql = static_cast<QLabel *>(w);
+    DayLabel *l = day_qt_day_label(w);
+    if (!l) return ql->heightForWidth(width);
+    const QString key = l->measureKey();
     if (l->property("dayHfwW").toInt() == width && l->property("dayHfwKey").toString() == key)
         return l->property("dayHfwH").toInt();
-    const int h = l->heightForWidth(width);
+    const DayLabel::Display d = l->displayFor(width);
+    const auto probe = day_qt_label_probe(l, d.text, d.rich, l->wraps);
+    const int h = l->wraps ? probe->heightForWidth(width) : probe->sizeHint().height();
     l->setProperty("dayHfwKey", key);
     l->setProperty("dayHfwW", width);
     l->setProperty("dayHfwH", h);
     return h;
+}
+// The label's full text (what Day displays, before any line limit), for `read_native`.
+static QString day_qt_label_full_text(const DayLabel *l) {
+    if (!l->srcRich) return l->src;
+    QTextDocument doc;
+    doc.setHtml(l->wrap(l->src));
+    return doc.toPlainText();
+}
+// The first baseline of a label with a fixed line height: Qt's FixedHeight puts it at 4/5 of
+// the line box. -1 for any other widget.
+static double day_qt_label_fixed_baseline(QWidget *w) {
+    const DayLabel *l = dynamic_cast<DayLabel *>(w);
+    if (!l || l->lineMul <= 0) return -1.0;
+    return 0.8 * l->lineMul * l->emPx();
 }
 
 // --- button ---
@@ -1380,9 +2645,205 @@ void day_qt_progress_set(void *w, int value) {
     if (b->value() != value) b->setValue(value);
 }
 
+// ---- scroll math and the scroll glide (docs/list.md "Programmatic scrolling", docs/scroll.md) --
+// Pure functions first (the C++ tests call them directly), then the animation both the list and
+// the scroll piece use.
+extern "C" {
+
+// Whether `count` sequential row deltas (`kind, a, b` triples: 0 = insert at `a`, 1 = remove
+// `a`, 2 = move `a` to `b`) fit a model of `n` rows, every index valid against the rows the
+// earlier deltas left, and leave exactly `final_len` rows. A splice that does not fit was built
+// against other rows than the view holds; telling the view about it anyway is the count
+// mismatch that crashes a table view, so the host reloads instead.
+int day_qt_splice_fits(int n, const int *triples, int count, int final_len) {
+    if (n < 0 || count < 0 || (count > 0 && !triples)) return 0;
+    for (int i = 0; i < count; ++i) {
+        const int kind = triples[3 * i], a = triples[3 * i + 1], b = triples[3 * i + 2];
+        switch (kind) {
+        case 0:
+            if (a < 0 || a > n || n == INT_MAX) return 0;
+            ++n;
+            break;
+        case 1:
+            if (a < 0 || a >= n) return 0;
+            --n;
+            break;
+        case 2:
+            if (a < 0 || a >= n || b < 0 || b >= n) return 0;
+            break;
+        default: return 0;
+        }
+    }
+    return n == final_len ? 1 : 0;
+}
+
+// The scroll value that shows a row `height` tall whose top is at `top` (content pixels) where
+// `align` says (`RowAlign`: 0 = Nearest, 1 = Start, 2 = Center, 3 = End), in a viewport `view`
+// tall now at `value`, clamped to 0..`max`. `inset` is how much of the viewport's top a pinned
+// section header covers: Start lands under it, Nearest counts it as out of view, Center centers
+// in what is left. Nearest moves the least that shows the whole row, nothing if it already
+// shows, and the row's top when it is taller than the viewport.
+int day_qt_aligned_offset(int top, int height, int view, int value, int max, int align, int inset) {
+    inset = std::clamp(inset, 0, std::max(0, view));
+    int to = value;
+    switch (align) {
+    case 1: to = top - inset; break;
+    case 2: to = top + static_cast<int>(std::floor((height - view - inset) / 2.0)); break;
+    case 3: to = top + height - view; break;
+    default:
+        if (top >= value + inset && top + height <= value + view) to = value;
+        else if (top < value + inset || height > view - inset) to = top - inset;
+        else to = top + height - view;
+        break;
+    }
+    return std::clamp(to, 0, std::max(0, max));
+}
+
+// Where a snapping scroll comes to rest (docs/scroll.md `ScrollSnap`): `kind` 1 = pages of
+// `interval` (the viewport's extent), 2 = multiples of `interval`. The resting points are the
+// multiples and the end of the range (`max`), so the last stretch of content is reachable; the
+// nearer of the two around `value` wins. A page snap moves at most one page from the resting
+// point the gesture started at (`start`).
+int day_qt_snap_target(int value, int start, int max, int kind, double interval) {
+    max = std::max(0, max);
+    value = std::clamp(value, 0, max);
+    if (kind == 0 || !(interval >= 1.0)) return value;
+    const double lo = std::floor(value / interval) * interval;
+    const double hi = std::min(lo + interval, static_cast<double>(max));
+    double stop = (value - lo) <= (hi - value) ? lo : hi;
+    if (kind == 1) {
+        const double s = std::clamp(start, 0, max);
+        double home = std::round(s / interval) * interval;
+        home = std::min(home, static_cast<double>(max));
+        stop = std::clamp(stop, home - interval, std::min(home + interval, static_cast<double>(max)));
+    }
+    return std::clamp(static_cast<int>(std::lround(stop)), 0, max);
+}
+
+} // extern "C"
+
+// A programmatic smooth scroll of one scroll bar (docs/scroll.md "Animated scroll_to"): the
+// `value` property animated over 250 ms with an ease-out cubic, the curve the platforms' own
+// smooth scrolls follow. Qt's scroll bars have none of their own. The owner stops it when a
+// newer scroll arrives or the user scrolls, and `finished` runs only for a glide that ran out.
+class DayScrollGlide {
+public:
+    QPointer<QPropertyAnimation> anim;
+    bool running() const { return anim && anim->state() == QAbstractAnimation::Running; }
+    void stop() {
+        if (!anim) return;
+        QPropertyAnimation *a = anim;
+        anim = nullptr;
+        a->stop();
+        a->deleteLater();
+    }
+    void start(QScrollBar *bar, int to, std::function<void()> finished) {
+        stop();
+        auto *a = new QPropertyAnimation(bar, "value", bar);
+        a->setDuration(250);
+        a->setEasingCurve(QEasingCurve::OutCubic);
+        a->setStartValue(bar->value());
+        a->setEndValue(to);
+        anim = a;
+        QObject::connect(a, &QAbstractAnimation::finished, bar, [this, a, bar, to, finished] {
+            if (anim != a) return; // stopped or replaced: not ours to finish
+            anim = nullptr;
+            a->deleteLater();
+            bar->setValue(to); // exactly the instant path's value
+            if (finished) finished();
+        });
+        a->start();
+    }
+};
+
 // --- scroll ---
+// Day's scroll piece (docs/scroll.md): a QScrollArea that also carries what Qt's lacks, the
+// animated `scroll_to` (a `DayScrollGlide` per axis), the offset report (`track_offset`) and
+// the emulated snap. Found as a QScrollArea everywhere else (`qobject_cast` sees the base).
+typedef void (*DayScrollOffsetCb)(uint64_t node, double x, double y);
+
+class DayScrollArea : public QScrollArea {
+public:
+    bool horizontalAxis = false;
+    DayScrollGlide glideX, glideY;
+    // `track_offset`: the node the offset reports go to, and the frame timer that coalesces
+    // them (at most one per frame, the last one carrying where the content came to rest).
+    uint64_t offsetNode = 0;
+    DayScrollOffsetCb onOffset = nullptr;
+    QTimer *offsetTimer = nullptr;
+    // The emulated snap (`ScrollSnap`): 1 = pages, 2 = every `snapInterval` points; the offset a
+    // user gesture started at, and the quiet timer that ends the gesture.
+    int snapKind = 0;
+    double snapInterval = 0.0;
+    bool inGesture = false;
+    int gestureStart = 0;
+    QTimer *snapTimer = nullptr;
+
+    explicit DayScrollArea(bool horizontal) : horizontalAxis(horizontal) {
+        // Every scroll the user drives through a bar (a wheel step, an arrow key, a thumb drag,
+        // a page click) is an action; a programmatic value change is not.
+        for (QScrollBar *bar : {verticalScrollBar(), horizontalScrollBar()})
+            QObject::connect(bar, &QAbstractSlider::actionTriggered, this, [this](int) { userScrolled(); });
+    }
+    QScrollBar *axisBar() const { return horizontalAxis ? horizontalScrollBar() : verticalScrollBar(); }
+    void stopGlides() {
+        glideX.stop();
+        glideY.stop();
+    }
+    // The user took over: a programmatic glide stops where it is, and a snap gesture starts
+    // (or goes on) from where the content was before this step.
+    void userScrolled() {
+        stopGlides();
+        if (snapKind == 0 || !snapTimer) return;
+        if (!inGesture) {
+            inGesture = true;
+            gestureStart = axisBar()->value();
+        }
+        snapTimer->start();
+    }
+    // The gesture went quiet: glide to the resting point (docs/scroll.md "Snap"), unless the
+    // thumb is still held.
+    void settleSnap() {
+        QScrollBar *bar = axisBar();
+        if (bar->isSliderDown()) {
+            snapTimer->start();
+            return;
+        }
+        inGesture = false;
+        const double interval =
+            snapKind == 1 ? (horizontalAxis ? viewport()->width() : viewport()->height()) : snapInterval;
+        const int to = day_qt_snap_target(bar->value(), gestureStart, bar->maximum(), snapKind, interval);
+        if (to == bar->value()) return;
+        (horizontalAxis ? glideX : glideY).start(bar, to, nullptr);
+    }
+    void reportOffset() {
+        if (onOffset) onOffset(offsetNode, horizontalScrollBar()->value(), verticalScrollBar()->value());
+    }
+    // Move to `x, y` (bar values), gliding when `animated` and there is somewhere to go. A newer
+    // move stops the running glides first, so the latest request always wins.
+    void moveTo(int x, int y, bool animated) {
+        stopGlides();
+        QScrollBar *h = horizontalScrollBar();
+        QScrollBar *v = verticalScrollBar();
+        x = std::clamp(x, h->minimum(), h->maximum());
+        y = std::clamp(y, v->minimum(), v->maximum());
+        if (animated && x != h->value()) glideX.start(h, x, nullptr);
+        else h->setValue(x);
+        if (animated && y != v->value()) glideY.start(v, y, nullptr);
+        else v->setValue(y);
+    }
+
+protected:
+    // A wheel step stops a programmatic glide before the step itself moves the bar (whether
+    // or not Qt counts the step as a bar action).
+    void wheelEvent(QWheelEvent *e) override {
+        userScrolled();
+        QScrollArea::wheelEvent(e);
+    }
+};
+
 void *day_qt_scroll_new(int horizontal) {
-    QScrollArea *sa = new QScrollArea();
+    DayScrollArea *sa = new DayScrollArea(horizontal != 0);
     sa->setWidgetResizable(false);
     sa->setFrameShape(QFrame::NoFrame);
     if (horizontal)
@@ -1403,6 +2864,56 @@ void *day_qt_scroll_new(int horizontal) {
     sa->setWidget(content);
     content->setAutoFillBackground(false);
     return sa;
+}
+// The scroll piece's preferences (docs/scroll.md "Preferences"), read at realize. `hidden`:
+// no scroll bars on either axis; the content still scrolls by wheel, keys and touch, since a
+// QAbstractScrollArea drives its hidden bars all the same. `snap`: 0 = none, 1 = pages, 2 =
+// every `interval` points along the scroll axis, emulated: Qt's scroll areas have no resting
+// points without a QScroller, so 150 ms after the user's last scroll step (with the thumb let
+// go) the content glides to the nearest one. Programmatic scrolls do not snap.
+void day_qt_scroll_configure(void *w, int hidden, int snap, double interval) {
+    auto *sa = dynamic_cast<DayScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return;
+    if (hidden) {
+        sa->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    }
+    sa->snapKind = (snap == 1 || (snap == 2 && interval >= 1.0)) ? snap : 0;
+    sa->snapInterval = interval;
+    if (sa->snapKind != 0 && !sa->snapTimer) {
+        sa->snapTimer = new QTimer(sa);
+        sa->snapTimer->setSingleShot(true);
+        sa->snapTimer->setInterval(150);
+        QObject::connect(sa->snapTimer, &QTimer::timeout, sa, [sa] { sa->settleSnap(); });
+    }
+}
+// `track_offset` (docs/scroll.md "Offset and phase"): report the content offset to `node`
+// whenever it moves, whatever moved it (the user, a glide, a jump, a relayout that clamps),
+// at most once per frame (16 ms) and always once more with the value it rests at. Not
+// installed at all for a scroll that does not track.
+void day_qt_scroll_track_offset(void *w, uint64_t node, DayScrollOffsetCb cb) {
+    auto *sa = dynamic_cast<DayScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa || sa->offsetTimer) return;
+    sa->offsetNode = node;
+    sa->onOffset = cb;
+    sa->offsetTimer = new QTimer(sa);
+    sa->offsetTimer->setSingleShot(true);
+    sa->offsetTimer->setInterval(16);
+    QObject::connect(sa->offsetTimer, &QTimer::timeout, sa, [sa] { sa->reportOffset(); });
+    for (QScrollBar *bar : {sa->verticalScrollBar(), sa->horizontalScrollBar()})
+        QObject::connect(bar, &QAbstractSlider::valueChanged, sa, [sa](int) {
+            if (!sa->offsetTimer->isActive()) sa->offsetTimer->start();
+        });
+}
+// The content offset of any Qt scroll area (the scroll piece, a list): the bars' values, which
+// grow toward the trailing edge in either direction (Qt mirrors the horizontal bar in RTL).
+void day_qt_scroll_offset(void *w, double *x, double *y) {
+    *x = 0.0;
+    *y = 0.0;
+    auto *sa = qobject_cast<QAbstractScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return;
+    *x = sa->horizontalScrollBar()->value();
+    *y = sa->verticalScrollBar()->value();
 }
 void *day_qt_scroll_content(void *w) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
@@ -1427,24 +2938,24 @@ void day_qt_scroll_set_content_size(void *w, int cw, int ch) {
     if (sa && sa->widget()) sa->widget()->resize(cw, ch);
 }
 // Minimal scroll so [x,y,w,h] (content px) is visible — scrollRectToVisible semantics on both
-// axes; the scroll bars clamp to their own range.
-void day_qt_scroll_to_rect(void *w, int x, int y, int rw, int rh) {
+// axes, clamped to the bars' ranges. `animated` glides there (250 ms, ease-out cubic; a newer
+// scroll or a wheel step stops it) and lands on exactly the value the jump would set.
+void day_qt_scroll_to_rect(void *w, int x, int y, int rw, int rh, int animated) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
     if (!sa) return;
-    if (QScrollBar *sb = sa->verticalScrollBar()) {
-        int v = sb->value();
-        int page = sa->viewport()->height();
-        if (y + rh > v + page) v = y + rh - page;
-        if (y < v) v = y;
-        sb->setValue(v);
+    auto reveal = [](int v, int lo, int extent, int page) {
+        if (lo + extent > v + page) v = lo + extent - page;
+        if (lo < v) v = lo;
+        return v;
+    };
+    const int vy = reveal(sa->verticalScrollBar()->value(), y, rh, sa->viewport()->height());
+    const int vx = reveal(sa->horizontalScrollBar()->value(), x, rw, sa->viewport()->width());
+    if (auto *day = dynamic_cast<DayScrollArea *>(sa)) {
+        day->moveTo(vx, vy, animated != 0);
+        return;
     }
-    if (QScrollBar *sb = sa->horizontalScrollBar()) {
-        int v = sb->value();
-        int page = sa->viewport()->width();
-        if (x + rw > v + page) v = x + rw - page;
-        if (x < v) v = x;
-        sb->setValue(v);
-    }
+    sa->verticalScrollBar()->setValue(vy);
+    sa->horizontalScrollBar()->setValue(vx);
 }
 // --- tree / geometry ---
 // Emulated fullscreen cover (docs/cover.md): bring the re-homed cover to the front, and give it
@@ -1502,6 +3013,7 @@ double day_qt_baseline(void *w, double h) {
                        qobject_cast<QDateTimeEdit *>(widget) ||
                        qobject_cast<QAbstractSpinBox *>(widget);
     if (!texty) return -1.0;
+    if (const double fixed = day_qt_label_fixed_baseline(widget); fixed >= 0) return fixed;
     QFontMetricsF fm(widget->font());
     const double line = fm.height();
     const double top = h > line ? (h - line) / 2.0 : 0.0;
@@ -1756,6 +3268,18 @@ static QString day_qt_strip_mnemonic(const QString &s) {
     return out;
 }
 
+// A widget's origin against its window's content widget (below any in-window menu bar and the
+// toolbar strip), where Day's own coordinates start. A widget re-homed outside it maps through
+// global coordinates instead. False for a window's own top widget.
+static bool day_qt_content_origin(QWidget *widget, QPoint *origin) {
+    QWidget *top = widget->window();
+    if (auto *dw = dynamic_cast<DayWindow *>(top); dw && dw->content) top = dw->content;
+    if (!top || top == widget) return false;
+    *origin = top->isAncestorOf(widget) ? widget->mapTo(top, QPoint(0, 0))
+                                        : top->mapFromGlobal(widget->mapToGlobal(QPoint(0, 0)));
+    return true;
+}
+
 void day_qt_read_native(void *w, DayQtNative *out) {
     *out = DayQtNative{};
     out->checked = -1;
@@ -1789,7 +3313,10 @@ void day_qt_read_native(void *w, DayQtNative *out) {
 
     // The displayed text, per class. A label in rich text shows its document's plain text; a
     // label holding only a picture shows none.
-    if (auto *l = qobject_cast<QLabel *>(widget)) {
+    if (auto *dl = dynamic_cast<DayLabel *>(widget)) {
+        // The whole text Day gave the label, also when a line limit shows less of it.
+        out->text = strdup(day_qt_label_full_text(dl).toUtf8().constData());
+    } else if (auto *l = qobject_cast<QLabel *>(widget)) {
         const bool rich = l->textFormat() == Qt::RichText ||
                           (l->textFormat() == Qt::AutoText && Qt::mightBeRichText(l->text()));
         if (rich) {
@@ -1835,20 +3362,51 @@ void day_qt_read_native(void *w, DayQtNative *out) {
     out->enabled = widget->isEnabled() ? 1 : 0;
     out->visible = widget->isVisible() ? 1 : 0;
 
-    // The frame against the window's content widget (below any in-window menu bar and the
-    // toolbar strip), where Day's own coordinates start. A widget re-homed outside it maps
-    // through global coordinates instead.
-    QWidget *top = widget->window();
-    if (auto *dw = dynamic_cast<DayWindow *>(top); dw && dw->content) top = dw->content;
-    if (top && top != widget) {
-        const QPoint origin = top->isAncestorOf(widget)
-                                  ? widget->mapTo(top, QPoint(0, 0))
-                                  : top->mapFromGlobal(widget->mapToGlobal(QPoint(0, 0)));
+    QPoint origin;
+    if (day_qt_content_origin(widget, &origin)) {
         out->frame_ok = 1;
         out->x = origin.x();
         out->y = origin.y();
         out->w = widget->width();
         out->h = widget->height();
+    }
+}
+
+// What a widget shows now, mid-animation included (`Toolkit::read_displayed`): its DayEffect's
+// opacity and translation (1 and 0,0 without one), its geometry against the window content,
+// and the fill it paints. A run writes these on every tick, so they are the values on screen.
+struct DayQtDisplayed {
+    double opacity, tx, ty;
+    int frame_ok;
+    double x, y, w, h;
+    int fill_ok;
+    double r, g, b, a;
+};
+
+void day_qt_read_displayed(void *w, DayQtDisplayed *out) {
+    *out = DayQtDisplayed{1.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0};
+    auto *widget = static_cast<QWidget *>(w);
+    if (!widget) return;
+    if (const auto *eff = dynamic_cast<DayEffect *>(widget->graphicsEffect())) {
+        out->opacity = eff->opacity;
+        out->tx = eff->tx;
+        out->ty = eff->ty;
+    }
+    QPoint origin;
+    if (day_qt_content_origin(widget, &origin)) {
+        out->frame_ok = 1;
+        out->x = origin.x();
+        out->y = origin.y();
+        out->w = widget->width();
+        out->h = widget->height();
+    }
+    const QColor fill = day_qt_fill_shown(widget);
+    if (fill.isValid() && fill.alpha() > 0) {
+        out->fill_ok = 1;
+        out->r = fill.redF();
+        out->g = fill.greenF();
+        out->b = fill.blueF();
+        out->a = fill.alphaF();
     }
 }
 
@@ -2107,74 +3665,64 @@ void day_qt_set_visible(void *w, int visible) {
     static_cast<QWidget *>(w)->setVisible(visible != 0);
 }
 
-// Day curve code (§8.4) → QEasingCurve. Spring approximates as OutBack (overshoot).
-static QEasingCurve day_qt_easing(int curve) {
-    switch (curve) {
-    case 0:
-        return QEasingCurve(QEasingCurve::Linear);
-    case 1:
-        return QEasingCurve(QEasingCurve::InQuad);
-    case 2:
-        return QEasingCurve(QEasingCurve::OutQuad);
-    case 4:
-        return QEasingCurve(QEasingCurve::OutBack);
-    default:
-        return QEasingCurve(QEasingCurve::InOutQuad);
-    }
-}
-
-// Drive one field-group of the effect (tagged, so an opacity retrigger and a transform retrigger
-// don't stop each other). `set(t)` writes the interpolated fields for progress `t` in 0..1, then
-// requests a repaint. The final value is applied immediately so it holds even when the animation
-// never ticks (headless / unmapped); the tween then runs over it. (Not a template — this lives in
-// `extern "C"`, which forbids templates.)
-static void day_qt_animate(DayEffect *eff, const char *tag, int durMs, int curve,
-                           std::function<void(double)> set) {
-    for (QVariantAnimation *old : eff->findChildren<QVariantAnimation *>()) {
-        if (old->objectName() == QLatin1String(tag)) {
-            old->stop();
-        }
-    }
-    set(1.0);
-    eff->update();
-    if (durMs <= 0) {
-        return;
-    }
-    QVariantAnimation *anim = new QVariantAnimation(eff);
-    anim->setObjectName(QLatin1String(tag));
-    anim->setDuration(durMs);
-    anim->setStartValue(0.0);
-    anim->setEndValue(1.0);
-    anim->setEasingCurve(day_qt_easing(curve));
-    QObject::connect(anim, &QVariantAnimation::valueChanged, eff,
-                     [eff, set](const QVariant &v) {
-                         set(v.toDouble());
-                         eff->update();
-                     });
-    anim->start(QAbstractAnimation::DeleteWhenStopped);
-}
-
-void day_qt_set_opacity(void *w, double opacity, int durMs, int curve) {
+// Opacity and transform ride the widget's DayEffect, which holds the values shown; each has its
+// own run (channel), so a fade and a move never stop each other.
+void day_qt_set_opacity(void *w, double opacity, const DayQtAnim *anim) {
     DayEffect *eff = day_qt_effect(static_cast<QWidget *>(w));
-    double from = eff->opacity;
-    day_qt_animate(eff, "op", durMs, curve,
-                   [eff, from, opacity](double t) { eff->opacity = from + (opacity - from) * t; });
+    const double from = eff->opacity;
+    day_qt_run(
+        eff, "dayOpacity", from == opacity ? nullptr : anim,
+        [eff, from, opacity](double t) {
+            eff->opacity = qBound(0.0, from + (opacity - from) * t, 1.0);
+            eff->update();
+        },
+        [eff, opacity]() {
+            eff->opacity = opacity;
+            eff->update();
+        });
 }
 
 void day_qt_set_transform(void *w, double tx, double ty, double sx, double sy, double rot,
-                          int durMs, int curve) {
+                          const DayQtAnim *anim) {
     DayEffect *eff = day_qt_effect(static_cast<QWidget *>(w));
-    double fx = eff->tx, fy = eff->ty, fsx = eff->sx, fsy = eff->sy, fr = eff->rot;
-    day_qt_animate(eff, "tf", durMs, curve, [=](double t) {
+    const double fx = eff->tx, fy = eff->ty, fsx = eff->sx, fsy = eff->sy, fr = eff->rot;
+    const bool same = fx == tx && fy == ty && fsx == sx && fsy == sy && fr == rot;
+    // The padding follows the transform (boundingRectFor), so tell Qt when it changes.
+    auto write = [eff](double x, double y, double scaleX, double scaleY, double r) {
         const bool spilled = eff->spills();
-        eff->tx = fx + (tx - fx) * t;
-        eff->ty = fy + (ty - fy) * t;
-        eff->sx = fsx + (sx - fsx) * t;
-        eff->sy = fsy + (sy - fsy) * t;
-        eff->rot = fr + (rot - fr) * t;
-        // The padding follows the transform (boundingRectFor), so tell Qt when it changes.
+        eff->tx = x;
+        eff->ty = y;
+        eff->sx = scaleX;
+        eff->sy = scaleY;
+        eff->rot = r;
         if (spilled != eff->spills()) eff->boundsChanged();
-    });
+        eff->update();
+    };
+    day_qt_run(
+        eff, "dayTransform", same ? nullptr : anim,
+        [=](double t) {
+            auto mix = [t](double a, double b) { return a + (b - a) * t; };
+            write(mix(fx, tx), mix(fy, ty), mix(fsx, sx), mix(fsy, sy), mix(fr, rot));
+        },
+        [=]() { write(tx, ty, sx, sy, rot); });
+}
+
+// A widget's frame in its parent, animated under `anim` from the geometry it shows (rounded to
+// whole points on each tick, never below zero size). A null `anim` stops a run in flight and
+// places the widget at once.
+void day_qt_set_frame(void *w, int x, int y, int width, int height, const DayQtAnim *anim) {
+    auto *widget = static_cast<QWidget *>(w);
+    const QRect from = widget->geometry();
+    const QRect to(x, y, width, height);
+    day_qt_run(
+        widget, "dayFrame", from == to ? nullptr : anim,
+        [widget, from, to](double t) {
+            auto mix = [t](int a, int b) { return int(std::lround(a + (b - a) * t)); };
+            widget->setGeometry(mix(from.x(), to.x()), mix(from.y(), to.y()),
+                                qMax(0, mix(from.width(), to.width())),
+                                qMax(0, mix(from.height(), to.height())));
+        },
+        [widget, to]() { widget->setGeometry(to); });
 }
 
 // --- navigation menu (docs/navigation.md): QListWidget with a sidebar treatment ---
@@ -2951,12 +4499,31 @@ struct DayCanvasCaches {
 /// function, so an export matches the screen. `fontScale` multiplies canvas text point sizes:
 /// 1 wherever the device resolves points at the screen's DPI, and screen DPI / 72 on a PDF page,
 /// where one unit is one PDF point.
+///
+/// `logical` is the canvas's size in points, and `layerScale` how many pixels a point gets in
+/// the offscreen layers shadows are built in: the device's pixel ratio on a raster device, a
+/// chosen density on a PDF page.
 static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStringList &texts,
-                          DayCanvasCaches &caches, double fontScale) {
+                          DayCanvasCaches &caches, double fontScale, const QSizeF &logical,
+                          double layerScale) {
     QHash<qint64, QPainterPath> &pathCache = caches.pathCache;
     QHash<qint64, QPolygonF> &polyCache = caches.polyCache;
     int ti = 0;
-    // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
+    // Shadow and blend are graphics STATE (kinds 24 and 25), scoped by save and restore.
+    // QPainter saves its composition mode itself; it has no shadow, so that rides a stack kept
+    // in step with the painter's.
+    DayShadow shadow;
+    // Set while the mode is Erase on a device that cannot erase (a PDF page): the records are
+    // skipped, since drawing them normally would paint the eraser's own color.
+    bool muted = false;
+    QVector<QPair<DayShadow, bool>> shadowStack;
+    // Which composition modes the device takes: a raster device takes all of them, a PDF page
+    // only some (see kind 25).
+    const QPaintEngine *engine = p.paintEngine();
+    const bool canBlend = engine && engine->hasFeature(QPaintEngine::BlendModes);
+    const bool canPorterDuff = engine && engine->hasFeature(QPaintEngine::PorterDuff);
+    const bool canConic = engine && engine->hasFeature(QPaintEngine::ConicalGradientFill);
+    // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial, 2 conic) + unit geometry +
     // stops, applied as the brush of the next fill-shape record (resolved against that
     // shape's bounding rect).
     bool gradPending = false;
@@ -3023,21 +4590,27 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
         }
         return poly;
     };
+    // The current gradient over a shape's box (day_qt_gradient_brush: a,b,c = gsx, gsy, gex
+    // for radial and conic).
     auto gradBrush = [&](const QRectF &bounds) {
-        gradPending = false;
-        if (gradType == 1) {
-            // Radial: ObjectMode maps the unit square onto the drawn shape's bounding
-            // rect, so a unit-space circle renders elliptically in non-square bounds —
-            // the same rule as every other backend. (a,b = center, c = radius: gsx,gsy,gex.)
-            QRadialGradient rg(QPointF(gsx, gsy), gex, QPointF(gsx, gsy));
-            rg.setCoordinateMode(QGradient::ObjectMode);
-            rg.setStops(gstops);
-            return QBrush(rg);
+        const QBrush brush = day_qt_gradient_brush(gradType, gsx, gsy, gex, gey, gstops, bounds);
+        if (gradType != 2 || canConic) return brush;
+        // A device with no conical fill (a PDF page): the gradient rendered into a texture
+        // over the shape's box, three pixels to the point.
+        const double k = 3.0;
+        const QSize px((int)std::ceil(bounds.width() * k), (int)std::ceil(bounds.height() * k));
+        if (px.isEmpty() || px.width() > 4096 || px.height() > 4096) return QBrush(gstops.first().second);
+        QImage tex(px, QImage::Format_ARGB32_Premultiplied);
+        tex.fill(Qt::transparent);
+        {
+            QPainter tp(&tex);
+            tp.scale(k, k);
+            tp.translate(-bounds.topLeft());
+            tp.fillRect(bounds, brush);
         }
-        QLinearGradient lg(bounds.x() + gsx * bounds.width(), bounds.y() + gsy * bounds.height(),
-                           bounds.x() + gex * bounds.width(), bounds.y() + gey * bounds.height());
-        lg.setStops(gstops);
-        return QBrush(lg);
+        QBrush textured(tex);
+        textured.setTransform(QTransform::fromTranslate(bounds.x(), bounds.y()).scale(1.0 / k, 1.0 / k));
+        return textured;
     };
     for (int i = 0; i + 8 < nums.size(); i += 9) {
         int k = (int)nums[i];
@@ -3076,43 +4649,129 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                 stampAt.append(QPointF(xs[q], ys[q]));
             continue;
         }
+        // Graphics state first: these touch the real painter only, never a shadow layer.
+        if (k == 8) { p.save(); shadowStack.append(qMakePair(shadow, muted)); continue; }
+        if (k == 9) {
+            p.restore();
+            if (!shadowStack.isEmpty()) {
+                const auto was = shadowStack.takeLast();
+                shadow = was.first;
+                muted = was.second;
+            }
+            continue;
+        }
+        if (k == 24) { // set-shadow: a,b offset · c blur · the color slot; clear = no shadow
+            shadow.color = color; shadow.dx = a; shadow.dy = b; shadow.blur = qMax(0.0, c);
+            continue;
+        }
+        if (k == 25) { // set-blend: a = day_spec::BlendMode::wire(); unknown draws as normal
+            QPainter::CompositionMode mode = QPainter::CompositionMode_SourceOver;
+            bool porterDuff = false;
+            switch ((int)a) {
+                case 1: mode = QPainter::CompositionMode_Multiply; break;
+                case 2: mode = QPainter::CompositionMode_Screen; break;
+                case 3: mode = QPainter::CompositionMode_Overlay; break;
+                case 4: mode = QPainter::CompositionMode_Darken; break;
+                case 5: mode = QPainter::CompositionMode_Lighten; break;
+                case 6: mode = QPainter::CompositionMode_Plus; porterDuff = true; break;
+                case 7: mode = QPainter::CompositionMode_DestinationOut; porterDuff = true; break;
+                default: break;
+            }
+            // A device that cannot do the mode (QPainter would warn and ignore it) draws normal.
+            const bool can = mode == QPainter::CompositionMode_SourceOver
+                          || (porterDuff ? canPorterDuff : canBlend);
+            muted = !can && mode == QPainter::CompositionMode_DestinationOut;
+            p.setCompositionMode(can ? mode : QPainter::CompositionMode_SourceOver);
+            continue;
+        }
+        // The records that put ink down, which are the ones that cast a shadow.
+        const bool draws = (k >= 0 && k <= 7) || (k >= 11 && k <= 13) || k == 15 || k == 16 || k == 22;
         // The template is replayed once per position under a translated transform. `ti` is
         // rewound each time so a template with a texts payload (a polygon, a path) reads the
-        // Same entry every repetition and consumes it exactly once overall.
+        // Same entry every repetition and consumes it exactly once overall; a pending gradient
+        // is put back the same way, so every repetition (and the shadow pass) is painted with it.
         const int reps = stampAt.isEmpty() ? 1 : stampAt.size();
         const int tiStart = ti;
-        for (int rep = 0; rep < reps; ++rep) {
+        const bool gradWas = gradPending;
+        // A stroke's pen: the record's own, carrying the pending gradient when there is one.
+        auto strokePen = [&](const QRectF &bounds) {
+            QPen sp = pen;
+            if (gradPending) sp.setBrush(gradBrush(bounds));
+            return sp;
+        };
+        // Where one drawing record puts ink, in its own coordinates, generously: the stroke's
+        // half width (and a miter's reach) and a pixel of antialiasing are added. It sizes the
+        // shadow's layer, so too large costs time and too small would cut the shadow.
+        auto opBounds = [&]() -> QRectF {
+            const double grow = g / 2.0 * qMax(1.0, stylePending ? sMiter : 2.0) + 1.0;
+            const auto &entry = [&]() { return tiStart < texts.size() ? texts[tiStart] : QString(); };
+            switch (k) {
+                case 0: case 2: case 3: case 22:
+                    return QRectF(a, b, c, d).normalized().adjusted(-1, -1, 1, 1);
+                case 1: case 4: case 5: case 13:
+                    return QRectF(a, b, c, d).normalized().adjusted(-grow, -grow, grow, grow);
+                case 6:
+                    return QRectF(QPointF(a, b), QPointF(c, d)).normalized().adjusted(-grow, -grow, grow, grow);
+                case 7: {
+                    const QFont font = day_qt_canvas_font(p.font(), e * fontScale,
+                                                          fontPending ? fWeight : 0,
+                                                          fontPending && fItalic,
+                                                          fontPending ? fFamily : QString());
+                    const QFontMetricsF fm(font, p.device());
+                    const int ah = (int)f / 4, av = (int)f % 4;
+                    const double w = fm.horizontalAdvance(entry());
+                    const double dx = ah == 1 ? -w / 2.0 : ah == 2 ? -w : 0.0;
+                    const double dy = av == 1 ? -fm.height() / 2.0 : av == 2 ? -fm.ascent()
+                                    : av == 3 ? -fm.height() : 0.0;
+                    // A line box is not an ink box: slanted and swashed glyphs overhang it.
+                    const double over = fm.height();
+                    return QRectF(a + dx, b + dy, w, fm.height()).adjusted(-over, -over, over, over);
+                }
+                case 11: case 12: {
+                    const double by = k == 12 ? grow : 1.0;
+                    return cachedPolygon(a, entry()).boundingRect().adjusted(-by, -by, by, by);
+                }
+                case 15: case 16: {
+                    const double by = k == 16 ? grow : 1.0;
+                    return cachedPath(a, entry(), (int)f).boundingRect().adjusted(-by, -by, by, by);
+                }
+                default: return QRectF();
+            }
+        };
+        // One record drawn once onto `q`: the real painter, or a shadow's layer.
+        auto drawOne = [&](QPainter &q, int rep) {
         ti = tiStart;
-        if (!stampAt.isEmpty()) { p.save(); p.translate(stampAt[rep]); }
+        gradPending = gradWas;
+        if (!stampAt.isEmpty()) { q.save(); q.translate(stampAt[rep]); }
         switch (k) {
             case 0:
-                if (gradPending) { p.setPen(Qt::NoPen); p.setBrush(gradBrush(QRectF(a, b, c, d))); p.drawRect(QRectF(a, b, c, d)); }
-                else p.fillRect(QRectF(a, b, c, d), color);
+                if (gradPending) { q.setPen(Qt::NoPen); q.setBrush(gradBrush(QRectF(a, b, c, d))); q.drawRect(QRectF(a, b, c, d)); }
+                else q.fillRect(QRectF(a, b, c, d), color);
                 break;
-            case 1: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(QRectF(a, b, c, d)); break;
-            case 2: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
-            case 13: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
-            case 3: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawEllipse(QRectF(a, b, c, d)); break;
-            case 4: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QRectF(a, b, c, d)); break;
+            case 1: q.setPen(strokePen(QRectF(a, b, c, d))); q.setBrush(Qt::NoBrush); q.drawRect(QRectF(a, b, c, d)); break;
+            case 2: q.setPen(Qt::NoPen); q.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); q.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
+            case 13: q.setPen(strokePen(QRectF(a, b, c, d))); q.setBrush(Qt::NoBrush); q.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
+            case 3: q.setPen(Qt::NoPen); q.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); q.drawEllipse(QRectF(a, b, c, d)); break;
+            case 4: q.setPen(strokePen(QRectF(a, b, c, d))); q.setBrush(Qt::NoBrush); q.drawEllipse(QRectF(a, b, c, d)); break;
             case 5: // arc: spec is clockwise-degrees; Qt is CCW 1/16°
-                p.setPen(pen); p.setBrush(Qt::NoBrush);
-                p.drawArc(QRectF(a, b, c, d), (int)(-e * 16.0), (int)(-f * 16.0));
+                q.setPen(strokePen(QRectF(a, b, c, d))); q.setBrush(Qt::NoBrush);
+                q.drawArc(QRectF(a, b, c, d), (int)(-e * 16.0), (int)(-f * 16.0));
                 break;
-            case 6: p.setPen(pen); p.drawLine(QPointF(a, b), QPointF(c, d)); break;
+            case 6: q.setPen(strokePen(QRectF(QPointF(a, b), QPointF(c, d)).normalized())); q.drawLine(QPointF(a, b), QPointF(c, d)); break;
             case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
                 QString t = ti < texts.size() ? texts[ti++] : QString();
-                QFont font = day_qt_canvas_font(p.font(), e * fontScale,
+                QFont font = day_qt_canvas_font(q.font(), e * fontScale,
                                                 fontPending ? fWeight : 0,
                                                 fontPending && fItalic,
                                                 fontPending ? fFamily : QString());
-                p.setFont(font);
-                p.setPen(QPen(color));
+                q.setFont(font);
+                q.setPen(QPen(color));
                 // drawText takes the BASELINE; the anchor positions the line box
                 // (ascent + descent), the box day_qt_measure_text reports. Same arithmetic
                 // as TextAnchor::offset in day-spec, from metrics this draw already holds.
                 // The PAINTER's device resolves the point size (a widget, an export image and a
                 // PDF page can differ in DPI), so the metrics must come from that device too.
-                QFontMetricsF fm(font, p.device());
+                QFontMetricsF fm(font, q.device());
                 const int ah = (int)f / 4, av = (int)f % 4;
                 const double w = fm.horizontalAdvance(t);
                 const double dx = ah == 1 ? -w / 2.0 : ah == 2 ? -w : 0.0;
@@ -3120,7 +4779,7 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                                   : av == 2 ? -fm.ascent()
                                   : av == 3 ? -fm.height()
                                             : 0.0;
-                p.drawText(QPointF(a + dx, b + dy + fm.ascent()), t);
+                q.drawText(QPointF(a + dx, b + dy + fm.ascent()), t);
                 break;
             }
             case 19: { // font for the next text: a weight (0 default), b italic; family on texts
@@ -3129,12 +4788,10 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                 fontPending = true;
                 break;
             }
-            case 8: p.save(); break;
-            case 9: p.restore(); break;
             case 10:
                 // Packed affine (a,b,c,d,tx,ty); QTransform(m11,m12,m21,m22,dx,dy) has the same
                 // row-vector meaning. combine=true concatenates onto the current world transform.
-                p.setWorldTransform(QTransform(a, b, c, d, e, f), true);
+                q.setWorldTransform(QTransform(a, b, c, d, e, f), true);
                 break;
             case 11: case 12: { // polygon (11 fill / 12 stroke); points in texts as "x,y x,y …"
                 // The texts entry is consumed either way: that channel is positional, so a
@@ -3143,11 +4800,11 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                 QPolygonF poly = cachedPolygon(a, t);
                 if (poly.size() >= 2) {
                     if (k == 11) {
-                        p.setPen(Qt::NoPen);
-                        p.setBrush(gradPending ? gradBrush(poly.boundingRect()) : QBrush(color));
-                        p.drawPolygon(poly);
+                        q.setPen(Qt::NoPen);
+                        q.setBrush(gradPending ? gradBrush(poly.boundingRect()) : QBrush(color));
+                        q.drawPolygon(poly);
                     }
-                    else { p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPolygon(poly); }
+                    else { q.setPen(strokePen(poly.boundingRect())); q.setBrush(Qt::NoBrush); q.drawPolygon(poly); }
                 }
                 break;
             }
@@ -3155,13 +4812,11 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                 QString spec = ti < texts.size() ? texts[ti++] : QString();
                 QPainterPath path = cachedPath(a, spec, (int)f);
                 if (k == 15) {
-                    p.setPen(Qt::NoPen);
-                    p.setBrush(gradPending ? gradBrush(path.boundingRect()) : QBrush(color));
-                    p.drawPath(path);
+                    q.setPen(Qt::NoPen);
+                    q.setBrush(gradPending ? gradBrush(path.boundingRect()) : QBrush(color));
+                    q.drawPath(path);
                 } else {
-                    if (gradPending) pen.setBrush(gradBrush(path.boundingRect()));
-                    p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPath(path);
-                    gradPending = false;
+                    q.setPen(strokePen(path.boundingRect())); q.setBrush(Qt::NoBrush); q.drawPath(path);
                 }
                 break;
             }
@@ -3177,7 +4832,7 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                     default: clip.addRect(QRectF(a, b, c, d)); break;
                 }
                 // IntersectClip, matching the spec: a clip only ever narrows until restore.
-                p.setClipPath(clip, Qt::IntersectClip);
+                q.setClipPath(clip, Qt::IntersectClip);
                 break;
             }
             case 18: { // stroke style for the next stroke: a cap, b join, c miter, d phase
@@ -3224,10 +4879,10 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                                     inside.width() * kx, inside.height() * ky);
                     src = inside;
                 }
-                const qreal was = p.opacity();
-                p.setOpacity(was * qBound(0.0, f, 1.0));
-                p.drawImage(target, *it, src);
-                p.setOpacity(was);
+                const qreal was = q.opacity();
+                q.setOpacity(was * qBound(0.0, f, 1.0));
+                q.drawImage(target, *it, src);
+                q.setOpacity(was);
                 break;
             }
             case 23: { // image source for the next image: a,b origin · c,d size, in pixels
@@ -3236,8 +4891,70 @@ static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStrin
                 break;
             }
         }
-        if (!stampAt.isEmpty()) p.restore();
+        if (!stampAt.isEmpty()) q.restore();
+        };
+        if (draws && muted) {
+            // Consume what the record would have, and draw nothing.
+            if (k == 7 || k == 11 || k == 12 || k == 15 || k == 16) ti = tiStart + 1;
+            gradPending = false;
+            stampAt.clear();
+            stylePending = fontPending = srcPending = false;
+            continue;
         }
+        if (draws && shadow.on() && layerScale > 0) {
+            // QPainter has no shadow. The record is drawn alone into a transparent layer, in
+            // pixels, under the same transform; the layer's alpha is blurred, tinted and drawn
+            // back at the offset with the transform reset, so the offset and the blur stay in
+            // points whatever the canvas has been scaled or turned by. The current clip and
+            // blend mode still apply to it, as they will to the record itself.
+            QRectF box = opBounds();
+            if (box.isValid()) {
+                QRectF dev;
+                const QTransform world = p.worldTransform();
+                for (int rep = 0; rep < reps; ++rep)
+                    dev |= world.mapRect(stampAt.isEmpty() ? box : box.translated(stampAt[rep]));
+                const double reach = shadow.reach();
+                // Only a silhouette whose shadow can land on the canvas matters.
+                const QRectF useful = QRectF(QPointF(0, 0), logical)
+                    .translated(-shadow.dx, -shadow.dy).adjusted(-reach, -reach, reach, reach);
+                dev = dev.adjusted(-reach, -reach, reach, reach) & useful;
+                const QRect px = QRectF(dev.x() * layerScale, dev.y() * layerScale,
+                                        dev.width() * layerScale, dev.height() * layerScale).toAlignedRect();
+                if (!px.isEmpty() && (qint64)px.width() * px.height() <= (qint64)64 * 1024 * 1024) {
+                    QImage layer(px.size(), QImage::Format_ARGB32_Premultiplied);
+                    if (!layer.isNull()) {
+                        layer.fill(Qt::transparent);
+                        // Point sizes resolve against the device's DPI: give the layer the
+                        // real device's, or text would cast a shadow of another size.
+                        if (const QPaintDevice *device = p.device()) {
+                            layer.setDotsPerMeterX(qRound(device->logicalDpiX() / 0.0254));
+                            layer.setDotsPerMeterY(qRound(device->logicalDpiY() / 0.0254));
+                        }
+                        {
+                            QPainter lp(&layer);
+                            lp.setRenderHints(p.renderHints());
+                            lp.setFont(p.font());
+                            lp.setWorldTransform(world * QTransform::fromScale(layerScale, layerScale)
+                                                 * QTransform::fromTranslate(-px.x(), -px.y()));
+                            for (int rep = 0; rep < reps; ++rep) drawOne(lp, rep);
+                        }
+                        const QImage cast = day_qt_shadow_image(layer, shadow.color,
+                                                                shadow.blur / 2.0 * layerScale);
+                        if (!cast.isNull()) {
+                            p.save();
+                            p.resetTransform();
+                            p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+                            p.drawImage(QRectF(px.x() / layerScale + shadow.dx, px.y() / layerScale + shadow.dy,
+                                               px.width() / layerScale, px.height() / layerScale), cast);
+                            p.restore();
+                        }
+                    }
+                }
+            }
+        }
+        for (int rep = 0; rep < reps; ++rep) drawOne(p, rep);
+        // A gradient belongs to the one record after it, whichever kind that was.
+        if (draws) gradPending = false;
         stampAt.clear();
         // A style record applies to one stroke; anything else that consumed the pen clears it
         // too, so it can never leak into a later record. Same for a font and its text.
@@ -3257,10 +4974,35 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *) override {
+        const qreal dpr = devicePixelRatioF();
+        if (!blends) {
+            QPainter p(this);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            day_paint_ops(p, nums, texts, caches, 1.0, QSizeF(size()), dpr);
+            return;
+        }
+        // A blend mode combines with what THIS canvas has drawn, and Erase leaves it clear
+        // (docs/canvas.md "Blend modes"). The widget's painter draws straight into the
+        // window's backing store, where the backdrop is every widget behind the canvas and
+        // there is no alpha to clear; so a drawing that blends is composed in a transparent
+        // image of its own and laid over the window once.
+        QImage group(size() * dpr, QImage::Format_ARGB32_Premultiplied);
+        if (group.isNull()) return;
+        group.setDevicePixelRatio(dpr);
+        group.fill(Qt::transparent);
+        {
+            QPainter gp(&group);
+            gp.setRenderHint(QPainter::Antialiasing, true);
+            gp.setFont(font());
+            day_paint_ops(gp, nums, texts, caches, 1.0, QSizeF(size()), dpr);
+        }
         QPainter p(this);
-        p.setRenderHint(QPainter::Antialiasing, true);
-        day_paint_ops(p, nums, texts, caches, 1.0);
+        p.drawImage(QPointF(0, 0), group);
     }
+
+public:
+    // Whether the drawing sets a blend mode other than normal (a kind-25 record).
+    bool blends = false;
 };
 
 // The encoded op list's two channels, as the painter reads them.
@@ -3280,6 +5022,9 @@ void day_qt_canvas_set_ops(void *w, const double *nums, int n, const char *texts
     DayCanvasWidget *c = static_cast<DayCanvasWidget *>(w);
     c->nums = day_qt_ops_nums(nums, n);
     c->texts = day_qt_ops_texts(texts_joined);
+    c->blends = false;
+    for (int i = 0; i + 8 < c->nums.size(); i += 9)
+        if ((int)c->nums[i] == 25 && (int)c->nums[i + 1] != 0) { c->blends = true; break; }
     c->update();
 }
 
@@ -3303,7 +5048,8 @@ int day_qt_canvas_render_image(unsigned long long id, const double *nums, int n,
             p.setRenderHint(QPainter::Antialiasing, true);
             DayCanvasCaches caches;
             day_paint_ops(p, day_qt_ops_nums(nums, n), day_qt_ops_texts(texts_joined), caches,
-                          1.0);
+                          1.0, QSizeF(pw / (scale > 0 ? scale : 1.0), ph / (scale > 0 ? scale : 1.0)),
+                          scale > 0 ? scale : 1.0);
         }
         day_qt_bitmaps().insert(id, img);
         return 1;
@@ -3398,8 +5144,11 @@ unsigned char *day_qt_canvas_render_pdf(const DayQtPdfPage *pages, int count, co
                 // Saved and restored per page: a clip or transform a page leaves behind must
                 // not carry over to the next one.
                 p.save();
+                // A shadow is a blurred image on the page; three pixels to the point keeps
+                // its edge smooth in print without swelling the file.
                 day_paint_ops(p, day_qt_ops_nums(pages[i].nums, pages[i].n),
-                              day_qt_ops_texts(pages[i].texts), caches, fontScale);
+                              day_qt_ops_texts(pages[i].texts), caches, fontScale,
+                              QSizeF(pages[i].w, pages[i].h), 3.0);
                 p.restore();
             }
             if (!p.end()) return fail("QPdfWriter could not finish the document");
@@ -3434,10 +5183,30 @@ public:
     QString svgPath;
     int mode;
     explicit DayImageLabel(int m) : mode(m) {}
+    // The raster as decoded, before any tint: `orig` is what is painted.
+    QPixmap source;
     void setImage(const QPixmap &p) {
         svg.reset(); svgPath.clear();
         setProperty("dayGlyphPath", QString());
-        orig = p; update();
+        source = p;
+        retint();
+    }
+    // Recolor the raster through the tint the widget carries (docs/images.md "Tinting"):
+    // every pixel takes the tint and keeps its own alpha, whatever the source was: a staged
+    // file, encoded bytes or a decoded bitmap. `currentColor` is a staged template glyph's
+    // palette tint; a raster from bytes or a bitmap has no template form and draws as authored.
+    void retint() {
+        QPixmap pm = source;
+        const QString tint = property("dayGlyphTint").toString();
+        if (tint == QLatin1String("currentColor")) {
+            if (!property("dayGlyphPath").toString().isEmpty())
+                pm = day_qt_tint_glyph(pm, palette().color(QPalette::WindowText));
+        } else if (!tint.isEmpty()) {
+            const QColor c(tint);
+            if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
+        }
+        orig = pm;
+        update();
     }
     // An SVG handed over as bytes (a standard symbol's outline, an app's own document): kept
     // as a renderer and painted like a staged glyph, so a template follows the palette.
@@ -3446,6 +5215,7 @@ public:
         svg = std::make_unique<QSvgRenderer>(data);
         svgPath = QStringLiteral("<bytes>");
         orig = QPixmap();
+        source = QPixmap();
         update();
     }
     // Re-render the glyph from its recorded source, through whatever tint it carries.
@@ -3453,6 +5223,7 @@ public:
         const QString file = property("dayGlyphPath").toString();
         if (file.isEmpty()) {
             if (svg) update();
+            else retint();
             return;
         }
         if (file.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
@@ -3461,20 +5232,13 @@ public:
                 svgPath = file;
             }
             orig = QPixmap();
+            source = QPixmap();
             update();
             return;
         }
         svg.reset(); svgPath.clear();
-        QPixmap pm(file);
-        const QString tint = property("dayGlyphTint").toString();
-        if (tint == QLatin1String("currentColor")) {
-            pm = day_qt_tint_glyph(pm, palette().color(QPalette::WindowText));
-        } else if (!tint.isEmpty()) {
-            const QColor c(tint);
-            if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
-        }
-        orig = pm;
-        update();
+        source = QPixmap(file);
+        retint();
     }
 protected:
     void changeEvent(QEvent *e) override {
@@ -3546,6 +5310,10 @@ void day_qt_image_set_path(void *w, const char *path) {
 /// Decode `bytes` into the bitmap registry under `id` (docs/images.md). Returns 1 and fills `out`
 /// with width, height and 1/0 for an alpha channel; 0 when the bytes are not an image Qt reads.
 int day_qt_image_decode(unsigned long long id, const unsigned char *bytes, int len, double *out) {
+    // No bytes is no image. Asked anyway, a format plugin may sniff past the end of the empty
+    // span (KDE's EXR handler reads four bytes of magic from whatever pointer it is given, and
+    // an empty Rust slice's pointer is not one to read).
+    if (!bytes || len <= 0) return 0;
     QImage img;
     // `fromRawData` does not copy, and `loadFromData` decodes into its own storage, so the
     // borrowed span never outlives this call.
@@ -3597,8 +5365,9 @@ void day_qt_bytes_free(unsigned char *p) { free(p); }
 void day_qt_image_release(unsigned long long id) { day_qt_bitmaps().remove(id); }
 
 /// An image widget showing a DECODED bitmap rather than a staged file (docs/images.md).
-void *day_qt_image_new_bitmap(unsigned long long id, int mode) {
+void *day_qt_image_new_bitmap(unsigned long long id, int mode, const char *tint) {
     DayImageLabel *l = new DayImageLabel(mode);
+    l->setProperty("dayGlyphTint", tint ? QString::fromUtf8(tint) : QString());
     auto it = day_qt_bitmaps().constFind(id);
     if (it != day_qt_bitmaps().constEnd()) l->setImage(QPixmap::fromImage(*it));
     return l;
@@ -3613,17 +5382,18 @@ static bool day_qt_is_svg(const QByteArray &data) {
 void *day_qt_image_new_bytes(const unsigned char *bytes, int len, int mode, const char *tint) {
     DayImageLabel *l = new DayImageLabel(mode);
     const QByteArray data(reinterpret_cast<const char *>(bytes), len);
+    // A vector from bytes takes the tint a staged glyph would: `currentColor` for a
+    // template, which then follows the palette like any other. A raster takes a color
+    // (docs/images.md "Tinting"), and keeps it across a later source swap.
+    const QString tintSpec = tint ? QString::fromUtf8(tint) : QString();
+    l->setProperty("dayGlyphTint", tintSpec);
+    l->setProperty("dayGlyphTemplate", tintSpec == QLatin1String("currentColor"));
     if (day_qt_is_svg(data)) {
-        // A vector from bytes takes the tint a staged glyph would: `currentColor` for a
-        // template, which then follows the palette like any other.
-        const QString tintSpec = tint ? QString::fromUtf8(tint) : QString();
-        l->setProperty("dayGlyphTint", tintSpec);
-        l->setProperty("dayGlyphTemplate", tintSpec == QLatin1String("currentColor"));
         l->setSvgBytes(data);
         return l;
     }
     QImage img;
-    if (img.loadFromData(data)) l->setImage(QPixmap::fromImage(img));
+    if (!data.isEmpty() && img.loadFromData(data)) l->setImage(QPixmap::fromImage(img));
     return l;
 }
 
@@ -3645,7 +5415,7 @@ void day_qt_image_set_bytes(void *w, const unsigned char *bytes, int len) {
         return;
     }
     QImage img;
-    if (img.loadFromData(data)) l->setImage(QPixmap::fromImage(img));
+    if (!data.isEmpty() && img.loadFromData(data)) l->setImage(QPixmap::fromImage(img));
 }
 
 // App icon (§18.2): the window icon doubles as the Dock icon on macOS and the taskbar icon on
@@ -3670,15 +5440,361 @@ int day_qt_resource_exists(const char *respath) {
     return r.isValid() ? 1 : 0;
 }
 
-// --- gestures (tap / drag / pinch / pan / rotate) ---
-// kind: 0 = tap, 1 = drag, 2 = pinch, 3 = pan, 4 = hover, 5 = rotate.
+// --- gestures (docs/gestures.md) ---
+// kind: 0 = tap, 1 = drag, 2 = pinch, 3 = pan, 4 = hover, 5 = rotate, 6 = press, 7 = long
+// press, 8 = double tap, 9 = touches.
 // phase: 0 = tap; 1/2/3 = drag began/changed/ended; 4/5/6 = pinch began/changed/ended
 // (tx = cumulative scale); 7/8/9 = pan began/changed/ended (tx/ty = incremental delta);
-// 10/11/12 = hover; 13/14/15 = rotate began/changed/ended (tx = cumulative radians, clockwise).
+// 10/11/12 = hover; 13/14/15 = rotate began/changed/ended (tx = cumulative radians, clockwise);
+// 16 = long press (at the press point); 17 = double tap; 18 = press in; 19 = press out.
 typedef void (*DayGestureCb)(uint64_t node, int phase, double x, double y, double tx, double ty);
+// Every contact on a node (docs/gestures.md "Touches"): six numbers per contact, valid for the
+// call: id, phase (0 began, 1 moved, 2 stationary, 3 ended, 4 cancelled), x, y, pressure (0 to
+// 1), kind (0 touch, 1 mouse, 2 stylus).
+typedef void (*DayTouchesCb)(uint64_t node, const double *touches, int count);
+static DayTouchesCb day_touches_cb = nullptr;
+void day_qt_set_touches_cb(DayTouchesCb cb) { day_touches_cb = cb; }
 
 /// How far a press may wander and still count as a tap rather than a drag.
 static constexpr double kTapSlop = 4.0;
+
+// The device behind a pointer event, as Day names it (docs/gestures.md "Input kind"): 0 touch,
+// 1 mouse (a trackpad, a tablet puck), 2 stylus.
+static int day_qt_device_kind(const QInputDevice *d) {
+    if (!d) return 1;
+    switch (d->type()) {
+        case QInputDevice::DeviceType::TouchScreen: return 0;
+        case QInputDevice::DeviceType::Stylus:
+        case QInputDevice::DeviceType::Airbrush: return 2;
+        default: return 1;
+    }
+}
+
+// The area a widget takes pointer input in, in its own coordinates: its rect grown by its hit
+// slop (`day_qt_set_hit_slop`). Leading and trailing follow Day's layout direction.
+static QRectF day_qt_hit_rect(const QWidget *w) {
+    const QRectF r(w->rect());
+    const QVariantList m = w->property("dayHitSlop").toList();
+    if (m.size() != 4) return r;
+    const double top = m[0].toDouble(), leading = m[1].toDouble();
+    const double bottom = m[2].toDouble(), trailing = m[3].toDouble();
+    return g_rtl ? r.adjusted(-trailing, -top, leading, bottom)
+                 : r.adjusted(-leading, -top, trailing, bottom);
+}
+
+// Focus the way Qt does on a click it delivers itself: the first enabled widget up from `w`
+// that takes focus by click. For a press Day routes by hand (a hit slop, a pass-through, a
+// touch forwarded as the mouse), which Qt's own click-to-focus never saw.
+static void day_qt_click_focus(QWidget *w) {
+    for (; w; w = w->parentWidget()) {
+        if (w->isEnabled() && (w->focusPolicy() & Qt::ClickFocus)) {
+            if (!w->hasFocus()) w->setFocus(Qt::MouseFocusReason);
+            return;
+        }
+        if (w->isWindow()) return;
+    }
+}
+
+// End the kinetic scroll of any `QScroller` above `w` (docs/gestures.md "Gestures inside a
+// scroll view"): a drag that has begun is the node's until it ends.
+static void day_qt_stop_scrollers(QWidget *w) {
+    for (QWidget *p = w ? w->parentWidget() : nullptr; p; p = p->parentWidget()) {
+        if (!QScroller::hasScroller(p)) continue;
+        QScroller *s = QScroller::scroller(p);
+        if (s->state() != QScroller::Inactive) s->stop();
+    }
+}
+
+// The recognizers that answer for one pointer sequence together, one filter per widget
+// (property "dayPointer"): tap, double tap, long press, press, and the contact list. They share
+// it because each decides with the others: a press that fired its long press is no tap, the
+// second press of a double click is no tap, and a single tap waits out the double-click
+// interval only where a double tap is wanted too. Qt's own timings throughout: a double click
+// is Qt's `MouseButtonDblClick` (its interval and distance), the long-press delay is the style
+// hint `mousePressAndHoldInterval` and its slop `startDragDistance`. An observer: no mouse
+// event is consumed, so the widget's own handling and every other filter still run.
+//
+// Touches (`WA_AcceptTouchEvents`): a widget that takes Qt's touch events must accept
+// `TouchBegin` to hear the rest of the sequence, and Qt then synthesizes no mouse events for
+// it. So the filter forwards the first contact as the mouse itself, the way Qt would have
+// (a press, moves, the release, a double click by Qt's own rule), and the tap, drag and press
+// recognizers on the widget keep working under a finger.
+class DayPointerFilter : public QObject {
+public:
+    uint64_t node; DayGestureCb cb;
+    bool want_tap = false, want_double = false, want_long = false, want_press = false,
+         want_touches = false;
+    DayPointerFilter(QWidget *w, uint64_t n, DayGestureCb c) : QObject(w), node(n), cb(c), widget(w) {
+        long_timer.setSingleShot(true);
+        tap_timer.setSingleShot(true);
+        QObject::connect(&long_timer, &QTimer::timeout, this, [this] { longPressDue(); });
+        QObject::connect(&tap_timer, &QTimer::timeout, this,
+                         [this] { this->cb(node, 0, pending.x(), pending.y(), 0.0, 0.0); });
+    }
+
+protected:
+    bool eventFilter(QObject *, QEvent *ev) override {
+        switch (ev->type()) {
+            case QEvent::MouseButtonPress:
+            case QEvent::MouseButtonDblClick: {
+                auto *me = static_cast<QMouseEvent *>(ev);
+                if (me->button() == Qt::LeftButton)
+                    down(me->position(), ev->type() == QEvent::MouseButtonDblClick,
+                         day_qt_device_kind(me->pointingDevice()));
+                break;
+            }
+            case QEvent::MouseMove: {
+                auto *me = static_cast<QMouseEvent *>(ev);
+                if (me->buttons() & Qt::LeftButton) move(me->position());
+                // A press whose release never came: a drag session (QDrag) took it.
+                else if (tracking) cancel();
+                break;
+            }
+            case QEvent::MouseButtonRelease: {
+                auto *me = static_cast<QMouseEvent *>(ev);
+                if (me->button() == Qt::LeftButton) up(me->position());
+                break;
+            }
+            case QEvent::TouchBegin:
+            case QEvent::TouchUpdate:
+            case QEvent::TouchEnd:
+            case QEvent::TouchCancel:
+                return touch(static_cast<QTouchEvent *>(ev));
+            // The platform took the sequence away: the view went, the window lost the
+            // keyboard and the pointer, or the grab ended.
+            case QEvent::Hide:
+            case QEvent::WindowDeactivate:
+            case QEvent::UngrabMouse:
+                cancel();
+                break;
+            // A disabled subtree: day-core ends the press under way itself (docs/forms.md
+            // "Disabling a group"), so the sequence is dropped here without a report, which
+            // would be a second `false`.
+            case QEvent::EnabledChange:
+                if (widget && !widget->isEnabled()) {
+                    long_timer.stop();
+                    tap_timer.stop();
+                    press_down = tracking = second = armed = false;
+                }
+                break;
+            default:
+                break;
+        }
+        return false;
+    }
+
+private:
+    QPointer<QWidget> widget;
+    QTimer long_timer, tap_timer;
+    QPointF start, last, pending;
+    bool tracking = false;   // a primary press is down on the widget
+    bool moved = false;      // past the tap slop: no tap for this press
+    bool long_fired = false; // the long press fired: no tap for this press
+    bool second = false;     // the second press of a double tap: no tap for it
+    bool armed = false;      // the last press was a tap, so a double click completes a double tap
+    bool press_down = false; // `Event::Press` reported true and not yet false
+    bool cancelling = false; // the release in flight ends a cancelled contact
+    // The mouse as one contact (id 0) of the contact list.
+    bool mouse_contact = false; int mouse_kind = 1;
+    // Touch contacts that went down on the widget, by id, at their last position.
+    QHash<int, QPointF> live;
+    // The contact forwarded as the mouse, and Qt's double-click bookkeeping for it.
+    int primary = -1; QPointF primary_at, primary_scene, primary_global;
+    bool forwarding = false;
+    QElapsedTimer last_forward; QPointF last_forward_at; bool forward_was_double = false;
+
+    void emitContact(int id, int phase, QPointF at, int kind) {
+        if (!day_touches_cb) return;
+        const double t[6] = {double(id), double(phase), at.x(), at.y(), 1.0, double(kind)};
+        day_touches_cb(node, t, 1);
+    }
+    void pressOut(QPointF at) {
+        press_down = false;
+        cb(node, 19, at.x(), at.y(), 0.0, 0.0);
+    }
+    void down(QPointF at, bool dbl, int kind) {
+        if (press_down) pressOut(last);
+        long_timer.stop();
+        start = last = at;
+        tracking = true;
+        moved = long_fired = false;
+        second = dbl && armed && want_double;
+        armed = false;
+        if (second) {
+            tap_timer.stop(); // the held single tap was the first half
+            cb(node, 17, at.x(), at.y(), 0.0, 0.0);
+        } else if (want_long) {
+            long_timer.start(QGuiApplication::styleHints()->mousePressAndHoldInterval());
+        }
+        if (want_press) {
+            press_down = true;
+            cb(node, 18, at.x(), at.y(), 0.0, 0.0);
+        }
+        if (want_touches && !forwarding) {
+            mouse_contact = true;
+            mouse_kind = kind;
+            emitContact(0, 0, at, kind);
+        }
+    }
+    void move(QPointF at) {
+        last = at;
+        if (want_touches && mouse_contact && !forwarding) emitContact(0, 1, at, mouse_kind);
+        if (!tracking) return;
+        const QPointF d = at - start;
+        const double dist2 = d.x() * d.x() + d.y() * d.y();
+        if (dist2 > kTapSlop * kTapSlop) moved = true;
+        const double slop = QGuiApplication::styleHints()->startDragDistance();
+        if (dist2 > slop * slop) long_timer.stop();
+        // Leaving the hit area ends the press; coming back does not press again.
+        if (press_down && widget && !day_qt_hit_rect(widget).contains(at)) pressOut(at);
+    }
+    void up(QPointF at) {
+        long_timer.stop();
+        last = at;
+        if (press_down) pressOut(at);
+        if (want_touches && mouse_contact && !forwarding) {
+            mouse_contact = false;
+            emitContact(0, 3, at, mouse_kind);
+        }
+        if (tracking && !moved && !long_fired && !second && !cancelling && widget &&
+            day_qt_hit_rect(widget).contains(at)) {
+            armed = want_double;
+            if (want_tap) {
+                if (want_double) {
+                    pending = at;
+                    tap_timer.start(QApplication::doubleClickInterval());
+                } else {
+                    cb(node, 0, at.x(), at.y(), 0.0, 0.0);
+                }
+            }
+        }
+        tracking = second = false;
+    }
+    void cancel() {
+        long_timer.stop();
+        if (press_down) pressOut(last);
+        if (want_touches && mouse_contact) {
+            mouse_contact = false;
+            emitContact(0, 4, last, mouse_kind);
+        }
+        tracking = second = armed = false;
+    }
+    void longPressDue() {
+        if (!tracking || moved) return;
+        long_fired = true;
+        cb(node, 16, start.x(), start.y(), 0.0, 0.0);
+    }
+
+    bool touch(QTouchEvent *te) {
+        if (!want_touches) return false;
+        // A trackpad's fingers are not contacts on the screen (docs/gestures.md "Touches").
+        const QPointingDevice *dev = te->pointingDevice();
+        if (dev && dev->type() != QInputDevice::DeviceType::TouchScreen) return false;
+        const bool cancelled = te->type() == QEvent::TouchCancel;
+        const bool hasPressure = dev && dev->capabilities().testFlag(QInputDevice::Capability::Pressure);
+        QVector<double> out;
+        QSet<int> listed;
+        for (const QEventPoint &p : te->points()) {
+            int phase;
+            switch (p.state()) {
+                case QEventPoint::State::Pressed: phase = 0; break;
+                case QEventPoint::State::Stationary: phase = 2; break;
+                case QEventPoint::State::Released: phase = 3; break;
+                default: phase = 1; break;
+            }
+            if (cancelled) phase = 4;
+            const double pressure = hasPressure ? std::clamp(double(p.pressure()), 0.0, 1.0) : 1.0;
+            out << double(p.id()) << double(phase) << p.position().x() << p.position().y()
+                << pressure << 0.0;
+            listed.insert(p.id());
+            if (phase >= 3) live.remove(p.id());
+            else live.insert(p.id(), p.position());
+        }
+        // Qt leaves out the contacts that did not change (and a cancel may carry none): every
+        // contact still down is listed, as stationary, or as cancelled with a cancel.
+        for (auto it = live.constBegin(); it != live.constEnd(); ++it)
+            if (!listed.contains(it.key()))
+                out << double(it.key()) << (cancelled ? 4.0 : 2.0) << it.value().x()
+                    << it.value().y() << 1.0 << 0.0;
+        if (cancelled) live.clear();
+        if (day_touches_cb && !out.isEmpty()) day_touches_cb(node, out.constData(), int(out.size() / 6));
+        forwardPrimary(te, cancelled);
+        te->accept();
+        return true;
+    }
+    void sendMouse(QEvent::Type t, QPointF at, QPointF scene, QPointF global,
+                   Qt::MouseButtons buttons, const QTouchEvent *te) {
+        if (!widget) return;
+        // On the primary pointing device: a mouse event writes its position into its device's
+        // point 0, which on the touch screen is a finger's.
+        const Qt::MouseButton button = t == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton;
+        QMouseEvent me(t, at, scene, global, button, buttons, te->modifiers(),
+                       QPointingDevice::primaryPointingDevice());
+        me.setTimestamp(te->timestamp());
+        QPointer<DayPointerFilter> self(this);
+        forwarding = true;
+        QCoreApplication::sendEvent(widget, &me);
+        if (self) forwarding = false;
+    }
+    void forwardPrimary(QTouchEvent *te, bool cancelled) {
+        if (cancelled) {
+            if (primary < 0) return;
+            primary = -1;
+            cancelling = true;
+            sendMouse(QEvent::MouseButtonRelease, primary_at, primary_scene, primary_global,
+                      Qt::NoButton, te);
+            cancelling = false;
+            return;
+        }
+        for (const QEventPoint &p : te->points()) {
+            if (primary < 0 && p.state() == QEventPoint::State::Pressed) primary = p.id();
+            if (p.id() != primary) continue;
+            primary_at = p.position();
+            primary_scene = p.scenePosition();
+            primary_global = p.globalPosition();
+            switch (p.state()) {
+                case QEventPoint::State::Pressed: {
+                    // Qt's rule for a double click: a second press within the interval and the
+                    // distance of the first, and never a third in a row.
+                    const QPointF d = p.globalPosition() - last_forward_at;
+                    const double reach = QGuiApplication::styleHints()->mouseDoubleClickDistance();
+                    const bool dbl = !forward_was_double && last_forward.isValid() &&
+                                     last_forward.elapsed() < QApplication::doubleClickInterval() &&
+                                     d.x() * d.x() + d.y() * d.y() <= reach * reach;
+                    forward_was_double = dbl;
+                    last_forward.start();
+                    last_forward_at = p.globalPosition();
+                    day_qt_click_focus(widget);
+                    sendMouse(dbl ? QEvent::MouseButtonDblClick : QEvent::MouseButtonPress,
+                              primary_at, primary_scene, primary_global, Qt::LeftButton, te);
+                    break;
+                }
+                case QEventPoint::State::Released:
+                    primary = -1;
+                    sendMouse(QEvent::MouseButtonRelease, primary_at, primary_scene,
+                              primary_global, Qt::NoButton, te);
+                    break;
+                case QEventPoint::State::Stationary:
+                    break;
+                default:
+                    sendMouse(QEvent::MouseMove, primary_at, primary_scene, primary_global,
+                              Qt::LeftButton, te);
+                    break;
+            }
+            break;
+        }
+    }
+};
+
+// The widget's pointer filter, made on first use.
+static DayPointerFilter *day_qt_pointer_filter(QWidget *widget, uint64_t node, DayGestureCb cb) {
+    QVariant held = widget->property("dayPointer");
+    if (held.isValid()) return reinterpret_cast<DayPointerFilter *>(held.value<quintptr>());
+    auto *f = new DayPointerFilter(widget, node, cb); // freed with the widget
+    widget->installEventFilter(f);
+    widget->setProperty("dayPointer", QVariant::fromValue(reinterpret_cast<quintptr>(f)));
+    return f;
+}
 
 class DayGestureFilter : public QObject {
 public:
@@ -3735,7 +5851,7 @@ protected:
         }
         switch (ev->type()) {
             case QEvent::MouseButtonPress: {
-                if (kind > 1) break;
+                if (!is_drag) break;
                 QMouseEvent *me = static_cast<QMouseEvent *>(ev);
                 start = me->position();
                 pressed = true;
@@ -3751,10 +5867,26 @@ protected:
                     QPointF p = static_cast<QMouseEvent *>(ev)->position();
                     QPointF d = p - start;
                     if (!engaged) {
-                        if (d.x() * d.x() + d.y() * d.y() <= kTapSlop * kTapSlop) break;
+                        // A drag along one axis (`day_qt_set_drag_axis`, 1 horizontal,
+                        // 2 vertical) decides at the platform's drag distance: one that sets
+                        // off across the axis is not this node's, so nothing is reported for
+                        // it and an enclosing scroller may take it.
+                        QWidget *w = qobject_cast<QWidget *>(obj);
+                        const int axis = w ? w->property("dayDragAxis").toInt() : 0;
+                        const double slop = axis ? QGuiApplication::styleHints()->startDragDistance()
+                                                 : kTapSlop;
+                        if (d.x() * d.x() + d.y() * d.y() <= slop * slop) break;
+                        if ((axis == 1 && std::abs(d.x()) < std::abs(d.y())) ||
+                            (axis == 2 && std::abs(d.y()) < std::abs(d.x()))) {
+                            pressed = false;
+                            break;
+                        }
                         // Began carries the ORIGINAL press point, not the point that crossed
-                        // the slop, so the app's drag starts where the finger went down.
+                        // the slop, so the app's drag starts where the finger went down. From
+                        // here the sequence is the node's (the claim rule): no kinetic
+                        // scroller above it keeps moving.
                         engaged = true;
+                        day_qt_stop_scrollers(w);
                         cb(node, 1, start.x(), start.y(), 0.0, 0.0);
                     }
                     cb(node, 2, p.x(), p.y(), d.x(), d.y());
@@ -3762,23 +5894,12 @@ protected:
                 break;
             }
             case QEvent::MouseButtonRelease: {
-                if (kind > 1) break;
+                // A tap is `DayPointerFilter`'s: past the same 4px slop a press is a drag and
+                // never also a tap, so the two are mutually exclusive on every backend.
+                if (!is_drag) break;
                 QMouseEvent *me = static_cast<QMouseEvent *>(ev);
                 QPointF p = me->position();
-                if (is_drag && engaged) {
-                    cb(node, 3, p.x(), p.y(), p.x() - start.x(), p.y() - start.y());
-                } else if (!is_drag && pressed) {
-                    // Past a few pixels the press was a DRAG, and reporting a tap for it too
-                    // would hand the app two gestures for one press — the second of them
-                    // undoing what the first did (a canvas band sweeps a selection, then the
-                    // stray tap on empty space clears it). The same 4px slop the web shim
-                    // uses, so tap and drag are mutually exclusive on every backend.
-                    QPointF d = p - start;
-                    bool moved = d.x() * d.x() + d.y() * d.y() > kTapSlop * kTapSlop;
-                    QWidget *w = qobject_cast<QWidget *>(obj);
-                    if (!moved && (!w || w->rect().contains(p.toPoint())))
-                        cb(node, 0, p.x(), p.y(), 0.0, 0.0);
-                }
+                if (engaged) cb(node, 3, p.x(), p.y(), p.x() - start.x(), p.y() - start.y());
                 pressed = false;
                 engaged = false;
                 break;
@@ -3847,6 +5968,23 @@ protected:
 
 void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
     QWidget *widget = static_cast<QWidget *>(w);
+    // A recognizer of any kind makes the view take pointer input (docs/gestures.md
+    // "Pass-through").
+    widget->setProperty("dayInput", true);
+    if (kind == 0 || kind >= 6) {
+        DayPointerFilter *f = day_qt_pointer_filter(widget, node, cb);
+        switch (kind) {
+            case 0: f->want_tap = true; break;
+            case 6: f->want_press = true; break;
+            case 7: f->want_long = true; break;
+            case 8: f->want_double = true; break;
+            default:
+                f->want_touches = true;
+                widget->setAttribute(Qt::WA_AcceptTouchEvents);
+                break;
+        }
+        return;
+    }
     // Hover (kind 4) needs tracking on: without it Qt delivers MouseMove only while a button is
     // down, which is precisely the case hover is NOT.
     if (kind == 4) widget->setMouseTracking(true);
@@ -3873,6 +6011,260 @@ void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
         f->pan_host = widget;
         qApp->installEventFilter(f); // QObject removes its filters when the host dies.
     } else widget->installEventFilter(f);
+}
+
+// The axis a node's drag follows (docs/gestures.md "Gestures inside a scroll view"): 0 any,
+// 1 horizontal, 2 vertical. Read by the drag filter at its first movement.
+void day_qt_set_drag_axis(void *w, int axis) {
+    static_cast<QWidget *>(w)->setProperty("dayDragAxis", axis);
+}
+
+// --- pointer routing: hit slop and pass-through (docs/gestures.md) ---
+// Qt hands a press to the deepest widget under the pointer and then up its parents; it has no
+// per-widget hit test to override. Two of Day's rules need one, so an application filter judges
+// each press where Qt delivers it and, when Day's answer is another widget, sends the press
+// there instead and keeps the sequence (moves, the release) going to it until the buttons are
+// up:
+// - Hit slop: a view's grown area (`day_qt_hit_rect`) takes the press where the view is in
+//   front of what Qt picked; the grown area reaches past the parent's bounds, except where a
+//   scroll area's viewport clips the view.
+// - Pass-through: a passive Day view (one with no recognizer, menu, drag, drop or focus, and
+//   no native interaction of its own) lets a press, a double click and the wheel reach the view
+//   behind it, exactly as if it were not there. Qt already passes them on to its PARENTS; only
+//   a view behind it in another branch (an overlay's base, a lower zstack layer) needs this.
+//   Hover and the cursor stay with the passive view.
+// Only spontaneous events are judged: the ones Day forwards itself are already where Day
+// wants them.
+static QList<QPointer<QWidget>> g_slop_views;
+
+// Whether a Day view takes no pointer input of its own (docs/gestures.md "Pass-through").
+static bool day_qt_passive(const QWidget *w) {
+    if (!w->property("dayPassive").toBool() || w->property("dayInput").toBool()) return false;
+    if (w->acceptDrops() || w->property("dayTransferSource").toBool()) return false;
+    if (w->contextMenuPolicy() != Qt::DefaultContextMenu && w->contextMenuPolicy() != Qt::NoContextMenu)
+        return false;
+    if (const QLabel *l = qobject_cast<const QLabel *>(w))
+        if (l->textInteractionFlags() != Qt::NoTextInteraction) return false;
+    return true;
+}
+
+// The deepest widget under `p` (in `w`'s coordinates) the way `QWidget::childAt` finds it,
+// passing over the widgets in `skip` as if they were transparent for the mouse; null if none.
+static QWidget *day_qt_pick_at(QWidget *w, QPoint p, const QSet<const QWidget *> &skip) {
+    const QObjectList &kids = w->children();
+    for (int i = int(kids.size()) - 1; i >= 0; --i) {
+        QWidget *c = qobject_cast<QWidget *>(kids.at(i));
+        if (!c || c->isWindow() || !c->isVisible() || c->testAttribute(Qt::WA_TransparentForMouseEvents))
+            continue;
+        const QPoint cp = p - c->pos();
+        if (!c->rect().contains(cp) || (!c->mask().isEmpty() && !c->mask().contains(cp))) continue;
+        if (QWidget *deeper = day_qt_pick_at(c, cp, skip)) return deeper;
+        if (!skip.contains(c)) return c;
+    }
+    return nullptr;
+}
+
+// Whether `a` is drawn in front of `b` in one window: a descendant is in front of its
+// ancestors, and of two branches the later sibling (Qt keeps children in stacking order).
+static bool day_qt_in_front(const QWidget *a, const QWidget *b) {
+    if (a == b || a->isAncestorOf(b)) return false;
+    if (b->isAncestorOf(a)) return true;
+    const QWidget *ca = a;
+    while (ca->parentWidget() && !ca->parentWidget()->isAncestorOf(b)) ca = ca->parentWidget();
+    const QWidget *common = ca->parentWidget();
+    if (!common) return false;
+    const QWidget *cb = b;
+    while (cb->parentWidget() && cb->parentWidget() != common) cb = cb->parentWidget();
+    const QObjectList &kids = common->children();
+    return kids.indexOf(const_cast<QWidget *>(ca)) > kids.indexOf(const_cast<QWidget *>(cb));
+}
+
+// Whether `p` (in `top`'s coordinates) is inside every scroll area viewport around `w`: a
+// view scrolled out of sight takes nothing through its slop.
+static bool day_qt_unclipped(const QWidget *w, const QWidget *top, QPoint p) {
+    for (const QWidget *a = w->parentWidget(); a && a != top; a = a->parentWidget()) {
+        const auto *area = qobject_cast<const QAbstractScrollArea *>(a->parentWidget());
+        if (area && area->viewport() == a && !a->rect().contains(a->mapFrom(top, p))) return false;
+    }
+    return true;
+}
+
+typedef void (*DayPointerKindCb)(int kind);
+
+class DayInputRouter : public QObject {
+public:
+    DayPointerKindCb kind_cb = nullptr;
+    int kind = 1; // the kind last reported; a desktop starts with the mouse
+
+    // Where Day sends a press Qt delivered to `hit` at `p` (in `top`'s coordinates).
+    static QWidget *pick(QWidget *top, QWidget *hit, QPoint p, bool slop) {
+        QWidget *front = hit;
+        QSet<const QWidget *> skip;
+        while (front && front != top && day_qt_passive(front)) {
+            skip.insert(front);
+            QWidget *next = day_qt_pick_at(top, p, skip);
+            front = next ? next : top;
+        }
+        if (!slop) return front;
+        QWidget *best = nullptr;
+        for (const QPointer<QWidget> &s : g_slop_views) {
+            if (!s || s->window() != top || !s->isVisible() || !s->isEnabled()) continue;
+            if (s == front || s->isAncestorOf(front)) continue;
+            if (!day_qt_hit_rect(s).contains(s->mapFrom(top, QPointF(p)))) continue;
+            if (!day_qt_unclipped(s, top, p)) continue;
+            if (day_qt_in_front(s, best ? best : front)) best = s;
+        }
+        return best ? best : front;
+    }
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        const QEvent::Type t = ev->type();
+        // The input kind (docs/gestures.md "Input kind"), from the raw event the window gets
+        // once: a press, a hovering move, a touch, a pen coming near.
+        if (kind_cb && obj->isWindowType() && ev->spontaneous()) {
+            switch (t) {
+                case QEvent::MouseButtonPress:
+                case QEvent::MouseMove:
+                case QEvent::TouchBegin:
+                case QEvent::TabletPress:
+                case QEvent::TabletEnterProximity: {
+                    const int k = day_qt_device_kind(static_cast<QPointerEvent *>(ev)->pointingDevice());
+                    if (k != kind) {
+                        kind = k;
+                        kind_cb(k);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+        if (!obj->isWidgetType() || !ev->spontaneous()) return false;
+        switch (t) {
+            case QEvent::MouseButtonPress:
+            case QEvent::MouseButtonDblClick:
+            case QEvent::MouseMove:
+            case QEvent::MouseButtonRelease:
+                return routeMouse(static_cast<QWidget *>(obj), static_cast<QMouseEvent *>(ev));
+            case QEvent::Wheel:
+                return routeWheel(static_cast<QWidget *>(obj), static_cast<QWheelEvent *>(ev));
+            default:
+                return false;
+        }
+    }
+
+private:
+    QPointer<QWidget> captured;
+    // The event last judged. Qt offers a mouse event to the filters once per widget as it
+    // passes it up the parents, each time as a copy: judge it at the first.
+    quint64 seen_ts = 0; QEvent::Type seen_type = QEvent::None; QPointF seen_at;
+
+    bool seen(const QSinglePointEvent *e) {
+        if (e->timestamp() == seen_ts && e->type() == seen_type && e->globalPosition() == seen_at)
+            return true;
+        seen_ts = e->timestamp();
+        seen_type = e->type();
+        seen_at = e->globalPosition();
+        return false;
+    }
+
+    bool routeMouse(QWidget *w, QMouseEvent *me) {
+        const QEvent::Type t = me->type();
+        const bool press = t == QEvent::MouseButtonPress || t == QEvent::MouseButtonDblClick;
+        if (captured && !press && captured->window() == w->window()) {
+            QWidget *to = captured;
+            if (t == QEvent::MouseButtonRelease && me->buttons() == Qt::NoButton) captured = nullptr;
+            deliver(to, me);
+            return true;
+        }
+        if (!press || seen(me)) return false;
+        captured = nullptr; // a stale capture: a drag session ate its release
+        QWidget *top = w->window();
+        const QPoint p = w->mapTo(top, me->position().toPoint());
+        QWidget *target = pick(top, w, p, !g_slop_views.isEmpty());
+        if (!target || target == w || target->isAncestorOf(w)) return false;
+        if (t == QEvent::MouseButtonPress) day_qt_click_focus(target);
+        captured = target;
+        deliver(target, me);
+        return true;
+    }
+
+    bool routeWheel(QWidget *w, QWheelEvent *we) {
+        if (seen(we)) return false;
+        QWidget *top = w->window();
+        const QPoint p = w->mapTo(top, we->position().toPoint());
+        QWidget *target = pick(top, w, p, false);
+        if (!target || target == w || target->isAncestorOf(w)) return false;
+        QWheelEvent copy(target->mapFromGlobal(we->globalPosition()), we->globalPosition(),
+                         we->pixelDelta(), we->angleDelta(), we->buttons(), we->modifiers(),
+                         we->phase(), we->inverted(), we->source(), we->pointingDevice());
+        copy.setTimestamp(we->timestamp());
+        QCoreApplication::sendEvent(target, &copy);
+        we->setAccepted(true);
+        return true;
+    }
+
+    static void deliver(QWidget *to, QMouseEvent *me) {
+        QMouseEvent copy(me->type(), to->mapFromGlobal(me->globalPosition()), me->scenePosition(),
+                         me->globalPosition(), me->button(), me->buttons(), me->modifiers(),
+                         me->pointingDevice());
+        copy.setTimestamp(me->timestamp());
+        QCoreApplication::sendEvent(to, &copy);
+        me->setAccepted(true);
+    }
+};
+
+static DayInputRouter *g_input_router = nullptr;
+
+// Install the router once the QApplication exists; `cb` hears the input kind change.
+void day_qt_install_input_router(DayPointerKindCb cb) {
+    if (!g_input_router) {
+        g_input_router = new DayInputRouter;
+        g_input_router->setParent(qApp);
+        qApp->installEventFilter(g_input_router);
+    }
+    g_input_router->kind_cb = cb;
+}
+
+// A Day view that takes no pointer input until something asks for it (docs/gestures.md
+// "Pass-through"): the router lets presses through it.
+void day_qt_set_passive(void *w) {
+    static_cast<QWidget *>(w)->setProperty("dayPassive", true);
+}
+
+// Grow (or with zeros restore) the area `w` takes pointer input in, in points per edge
+// (docs/gestures.md "Hit slop"). Layout, drawing and the accessible frame keep the bounds.
+void day_qt_set_hit_slop(void *w, double top, double leading, double bottom, double trailing) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    g_slop_views.removeAll(QPointer<QWidget>());
+    g_slop_views.removeAll(QPointer<QWidget>(widget));
+    if (top == 0.0 && leading == 0.0 && bottom == 0.0 && trailing == 0.0) {
+        widget->setProperty("dayHitSlop", QVariant());
+        return;
+    }
+    widget->setProperty("dayHitSlop", QVariantList{top, leading, bottom, trailing});
+    g_slop_views.append(widget);
+}
+
+// Enable or disable everything under `w` (docs/forms.md "Disabling a group"). Qt's enabled
+// state cascades: the descendants dim, leave the focus chain (focus inside moves on), take no
+// input and read as disabled to assistive technology, and a child disabled on its own stays so
+// when the group comes back. Counted, so a view two disabled groups reach stays disabled until
+// both are enabled; a view that was disabled on its own before the first call stays disabled.
+void day_qt_subtree_enabled(void *w, int enabled) {
+    QWidget *q = static_cast<QWidget *>(w);
+    int held = q->property("daySubtreeOff").toInt();
+    if (!enabled) {
+        if (held++ == 0) {
+            q->setProperty("dayOwnOff", q->testAttribute(Qt::WA_ForceDisabled));
+            q->setEnabled(false);
+        }
+    } else {
+        if (held == 0) return;
+        if (--held == 0) q->setEnabled(!q->property("dayOwnOff").toBool());
+    }
+    q->setProperty("daySubtreeOff", held);
 }
 
 // --- the list (docs/list.md): a QListView over a count-only model ---
@@ -3918,12 +6310,23 @@ public:
     // The height of a header row Day has not laid yet: the last one it did lay (headers size to
     // their content even in a `Uniform` list, and a list's headers are usually alike).
     int headerEstimate;
+    // The list's supplementary rows, ascending (docs/list.md "Header, footer and empty state":
+    // its header, footer, empty state and content padding; empty otherwise). Plain content
+    // that scrolls with the rows: no flags at all, so the view never selects, activates,
+    // hovers, focuses or drags one, and the delegate paints no chrome under it.
+    std::vector<int> supplements;
     DayListModel(int pitch, bool reorder, QObject *parent)
         : QAbstractListModel(parent), estimate(pitch > 0 ? pitch : 1), reorderable(reorder),
           headerEstimate(pitch > 0 ? pitch : 1) {}
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override { return parent.isValid() ? 0 : n; }
     bool isHeader(int row) const { return !headers.empty() && std::binary_search(headers.begin(), headers.end(), row); }
+    bool isSupplement(int row) const {
+        return !supplements.empty() && std::binary_search(supplements.begin(), supplements.end(), row);
+    }
+    // A row the user never selects, activates or lands on with the keyboard: a section header
+    // or a supplementary row.
+    bool isInert(int row) const { return isHeader(row) || isSupplement(row); }
     // The header of the section holding `row` (the nearest at or before it), or -1.
     int headerFor(int row) const {
         auto it = std::upper_bound(headers.begin(), headers.end(), row);
@@ -3947,6 +6350,7 @@ public:
         // Drops land BETWEEN rows (the view's above/below positions), never on one, so no item
         // takes ItemIsDropEnabled; the root does, which is what the view's drag-move checks.
         if (!ix.isValid()) return reorderable ? Qt::ItemIsDropEnabled : Qt::NoItemFlags;
+        if (isSupplement(ix.row())) return Qt::NoItemFlags;
         if (isHeader(ix.row())) return Qt::ItemNeverHasChildren;
         Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemNeverHasChildren;
         if (reorderable) f |= Qt::ItemIsDragEnabled;
@@ -4006,6 +6410,18 @@ public:
         if (!beginMoveRows(QModelIndex(), from, from, QModelIndex(), dest)) return;
         endMoveRows();
     }
+    // Start over at `count` rows: the model reset behind a splice that does not fit the rows
+    // the view was told about (`day_qt_list_splice_all`). Every per-row fact goes with it;
+    // the Rust side gives back the headers, the supplementary rows and the bound heights in
+    // the sync that follows.
+    void resetTo(int count) {
+        beginResetModel();
+        n = std::max(0, count);
+        heights.clear();
+        headers.clear();
+        supplements.clear();
+        endResetModel();
+    }
     void heightsChanged(int lo, int hi) {
         if (n == 0) return;
         lo = std::clamp(lo, 0, n - 1);
@@ -4046,6 +6462,9 @@ public:
         return QSize(view->viewport()->width(), model->heightOf(index.row()));
     }
     void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        // A supplementary row is the list's own content (docs/list.md "Header, footer and empty
+        // state"): no highlight, hover, focus or separator, nothing under Day's cell at all.
+        if (model->isSupplement(index.row())) return;
         if (model->isHeader(index.row())) {
             dayListPaintHeader(p, option.rect, view->viewport()->palette());
             return;
@@ -4057,8 +6476,9 @@ public:
         opt.features &= ~(QStyleOptionViewItem::HasDisplay | QStyleOptionViewItem::HasDecoration);
         const QWidget *w = option.widget;
         (w ? w->style() : QApplication::style())->drawControl(QStyle::CE_ItemViewItem, &opt, p, w);
-        // The row above a header leaves the edge to the header's own hairline.
-        if (separators && index.row() + 1 < model->n && !model->isHeader(index.row() + 1)) {
+        // The row above a header leaves the edge to the header's own hairline, and the row
+        // above a supplementary row draws none: nothing separates the list from its footer.
+        if (separators && index.row() + 1 < model->n && !model->isInert(index.row() + 1)) {
             QColor line = opt.palette.color(QPalette::Mid);
             line.setAlpha(110);
             p->fillRect(QRect(opt.rect.left(), opt.rect.bottom(), opt.rect.width(), 1), line);
@@ -4101,6 +6521,8 @@ public:
     DayListCanMoveCb can = nullptr;
     DayListMoveCb commit = nullptr;
     DayListWindowCb onWindow = nullptr;
+    // The reader started a scroll (docs/list.md "Following the end"): `readerScrolled`.
+    void (*onReader)(uint64_t node) = nullptr;
     // A programmatic selection sync (or a model delta) must not echo back as a report.
     bool syncing = false;
     // The row under the last left press, and the row a drag in flight carries. A reorderable
@@ -4121,6 +6543,23 @@ public:
     DayListPin *pin = nullptr;
     int pinRow = -1;
     int pinHeight = 0;
+    // The last programmatic row scroll (docs/list.md "Programmatic scrolling"): its row (-1 =
+    // the end of the content), alignment and animation. `scrollQueued` holds it behind a height
+    // relayout still to come, so it lands on the rows as they will be laid; `settling` keeps
+    // re-aiming it while the rows it brought into view are measured (`Automatic` rows and
+    // supplementary ones change height once Day lays them), until the user scrolls, a newer
+    // request arrives, or `settleTimer` runs out with nothing left to measure. Re-aiming stops
+    // too once the row count moves away from `scrollCount`, the count the request was made
+    // for: a glide to the end does not chase an end that rows appended meanwhile pushed away
+    // (an `on_end_reached` that appends would never let it stop; `follow_end` asks again).
+    int scrollRow = -1;
+    int scrollCount = 0;
+    int scrollAlign = 0;
+    bool scrollAnimated = false;
+    bool scrollQueued = false;
+    bool settling = false;
+    QTimer settleTimer;
+    DayScrollGlide glide;
 
     DayListView(uint64_t n, int rowH, bool reorderable, bool separators) : node(n) {
         m = new DayListModel(rowH, reorderable, this);
@@ -4146,13 +6585,128 @@ public:
                     std::vector<int> rows = selectedRows();
                     onSelect(node, rows.data(), static_cast<int>(rows.size()));
                 });
+        settleTimer.setSingleShot(true);
+        settleTimer.setInterval(150);
+        connect(&settleTimer, &QTimer::timeout, this, [this] { settling = false; });
+        // Every scroll the user drives through the bar (a wheel step, a key, a thumb drag, a
+        // page click) is an action; a programmatic value change is not. The user wins. The
+        // action comes with the slider already where it goes and the value not yet there, so
+        // one that moves the list is the reader's own scroll (a wheel step at the end is not).
+        connect(verticalScrollBar(), &QAbstractSlider::actionTriggered, this, [this](int) {
+            userScrolled();
+            if (verticalScrollBar()->sliderPosition() != verticalScrollBar()->value()) readerScrolled();
+        });
     }
 
-    // A header is never part of the selection Day hears about, whatever a range swept over.
+    // The user took over the scrolling: a running glide stops where it is, and a settling
+    // request stops re-aiming.
+    void userScrolled() {
+        glide.stop();
+        settling = false;
+        scrollQueued = false;
+        settleTimer.stop();
+    }
+
+    // The reader moved the list themselves: a wheel, the scroll bar (both through the bar's
+    // `actionTriggered`), or a key that scrolled (`keyPressEvent`).
+    void readerScrolled() {
+        if (onReader) onReader(node);
+    }
+
+    // The scroll value that puts the requested row where its alignment says, with the rows as
+    // they are laid now (a pending item layout runs first). The end of the content is the
+    // bottom of the range, past a footer or a bottom padding row, which are rows.
+    int scrollTarget() {
+        executeDelayedItemsLayout();
+        QScrollBar *sb = verticalScrollBar();
+        if (scrollRow < 0) return sb->maximum();
+        if (scrollRow >= m->n) return sb->value();
+        const QRect r = visualRect(m->index(scrollRow));
+        // A row under a pinned section header is covered by the header's copy (docs/list.md
+        // "Sections"): the row lands below it.
+        int inset = 0;
+        if (!m->headers.empty() && !m->isHeader(scrollRow)) {
+            const int h = m->headerFor(scrollRow);
+            if (h >= 0) inset = m->heightOf(h);
+        }
+        return day_qt_aligned_offset(r.top() + sb->value(), r.height(), viewport()->height(), sb->value(),
+                                     sb->maximum(), scrollAlign, inset);
+    }
+    // Scroll to the request now: a glide for an animated one that has somewhere to go, a jump
+    // otherwise. Either way it ends with a window report, which the Rust side turns into the
+    // viewport report a scroll owes (docs/list.md "Visible rows").
+    void runScroll() {
+        scrollQueued = false;
+        const int to = scrollTarget();
+        QScrollBar *sb = verticalScrollBar();
+        if (scrollAnimated && to != sb->value()) {
+            glide.start(sb, to, [this] {
+                // Rows laid during the glide may have moved the target: land on it, unless
+                // the rows themselves changed (see `scrollCount`).
+                if (m->n == scrollCount) {
+                    const int again = scrollTarget();
+                    if (again != verticalScrollBar()->value()) verticalScrollBar()->setValue(again);
+                    settleTimer.start();
+                } else {
+                    settling = false;
+                }
+                notifyWindow();
+            });
+            return;
+        }
+        glide.stop();
+        if (to != sb->value()) sb->setValue(to);
+        notifyWindow();
+    }
+    // A row scroll (`Toolkit::list_scroll`): replaces any earlier one, and waits for a height
+    // relayout already queued this turn, so it aims at the rows as they will be laid.
+    void requestScroll(int row, int align, bool animated) {
+        glide.stop();
+        scrollRow = row;
+        scrollCount = m->n;
+        scrollAlign = align;
+        scrollAnimated = animated;
+        settling = true;
+        settleTimer.start();
+        if (flushPosted) {
+            scrollQueued = true;
+            return;
+        }
+        runScroll();
+    }
+
+    // A splice that does not fit the rows the view holds (`day_qt_splice_fits`): reload to
+    // `count` rows instead, keeping the scroll position and, by index, the selection and the
+    // current row, which is what a reload (`day_qt_list_set_count`) keeps too.
+    void resetTo(int count) {
+        QScrollBar *sb = verticalScrollBar();
+        const int value = sb->value();
+        const std::vector<int> selected = selectedRows();
+        const int current = currentIndex().isValid() ? currentIndex().row() : -1;
+        syncing = true;
+        m->resetTo(count);
+        executeDelayedItemsLayout();
+        QItemSelection sel;
+        for (int r : selected)
+            if (r < m->n) sel.select(m->index(r), m->index(r));
+        selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+        if (current >= 0 && current < m->n)
+            selectionModel()->setCurrentIndex(m->index(current), QItemSelectionModel::NoUpdate);
+        syncing = false;
+        sb->setValue(value);
+        paintSelection();
+        placeAll();
+    }
+
+    // Run a pending item layout now, so geometry questions answer for the current rows.
+    void layoutNow() { executeDelayedItemsLayout(); }
+
+    // A section header or a supplementary row is never part of the selection Day hears about,
+    // whatever a range swept over.
     std::vector<int> selectedRows() const {
         std::vector<int> rows;
         for (const QModelIndex &ix : selectionModel()->selectedRows())
-            if (!m->isHeader(ix.row())) rows.push_back(ix.row());
+            if (!m->isInert(ix.row())) rows.push_back(ix.row());
         std::sort(rows.begin(), rows.end());
         return rows;
     }
@@ -4253,9 +6807,17 @@ public:
     // One relayout for every height that changed this turn, keeping the row at the top of the
     // viewport where it was: Qt keeps the pixel offset, so a row above the viewport growing
     // would otherwise slide the content under the pointer.
+    //
+    // A row scroll waiting on this relayout runs right after it; one still settling is aimed
+    // again instead of anchoring the top row (its row, not the top one, is what must stay put),
+    // and a running glide is left alone: it lands on the re-aimed target when it ends. The
+    // window report afterwards carries the new content height to the viewport report.
     void flushHeights() {
         flushPosted = false;
-        if (dirtyLo < 0) return;
+        if (dirtyLo < 0) {
+            if (scrollQueued) runScroll();
+            return;
+        }
         const QModelIndex top = indexAt(QPoint(1, 1));
         const int anchorRow = top.isValid() ? top.row() : -1;
         const int anchorY = anchorRow >= 0 ? visualRect(top).top() : 0;
@@ -4263,11 +6825,18 @@ public:
         dirtyLo = dirtyHi = -1;
         m->heightsChanged(lo, hi);
         doItemsLayout();
-        if (anchorRow >= 0 && anchorRow < m->n) {
+        if (scrollQueued) {
+            runScroll();
+        } else if (settling && !glide.running() && m->n == scrollCount) {
+            const int to = scrollTarget();
+            if (to != verticalScrollBar()->value()) verticalScrollBar()->setValue(to);
+            settleTimer.start();
+        } else if (!glide.running() && anchorRow >= 0 && anchorRow < m->n) {
             const int ny = visualRect(m->index(anchorRow)).top();
             if (ny != anchorY) verticalScrollBar()->setValue(verticalScrollBar()->value() + (ny - anchorY));
         }
         placeAll();
+        notifyWindow();
     }
 
     // Where a drop at `pos` lands, as the index Day's `move_row(from, to)` wants: the row the
@@ -4304,17 +6873,18 @@ public:
     }
 
 protected:
-    // The keyboard walker passes over header rows the way it was going (docs/list.md
-    // "Sections"); one with nowhere to go that way — Up from a section's first row under the
-    // list's first header — stays on the row it is on.
+    // The keyboard walker passes over header rows and supplementary rows the way it was going
+    // (docs/list.md "Sections", "Header, footer and empty state"); one with nowhere to go that
+    // way — Up from a section's first row under the list's first header — stays on the row it
+    // is on.
     QModelIndex moveCursor(CursorAction action, Qt::KeyboardModifiers mods) override {
         const QModelIndex ix = QListView::moveCursor(action, mods);
-        if (!ix.isValid() || !m->isHeader(ix.row())) return ix;
+        if (!ix.isValid() || !m->isInert(ix.row())) return ix;
         const bool back = action == MoveUp || action == MoveLeft || action == MovePrevious ||
                           action == MovePageUp || action == MoveEnd;
         for (int step : {back ? -1 : 1, back ? 1 : -1}) {
             int r = ix.row();
-            while (r >= 0 && r < m->n && m->isHeader(r)) r += step;
+            while (r >= 0 && r < m->n && m->isInert(r)) r += step;
             if (r >= 0 && r < m->n) {
                 // The reverse walk is only for Home and End, which name a place, not a way.
                 if (step != (back ? -1 : 1) && action != MoveHome && action != MoveEnd) break;
@@ -4338,17 +6908,33 @@ protected:
         QListView::updateGeometries();
         placeAll();
     }
+    // A wheel step stops a programmatic glide where it is (docs/scroll.md "Animated
+    // scroll_to"), before the step itself moves the bar; so do a press and a key.
+    void wheelEvent(QWheelEvent *e) override {
+        userScrolled();
+        QListView::wheelEvent(e);
+    }
+    // A key that moves the cursor scrolls it into view through `scrollTo`, a programmatic
+    // value change; one that moved the list is the reader's own scroll.
+    void keyPressEvent(QKeyEvent *e) override {
+        userScrolled();
+        const int before = verticalScrollBar()->value();
+        QListView::keyPressEvent(e);
+        if (verticalScrollBar()->value() != before) readerScrolled();
+    }
     void mousePressEvent(QMouseEvent *e) override {
+        userScrolled();
         QListView::mousePressEvent(e);
         // The press lands on the row's cell first and propagates here; Qt's click-to-focus
         // walk does not reach this view through the cell, so the list takes focus itself —
         // the keyboard walker and the focused selection color depend on it.
         if (!hasFocus()) setFocus(Qt::MouseFocusReason);
         // Arm the drag watcher: the moves that follow this press will not reach this view
-        // (a QLabel in the row swallows them), so the watcher starts the drag for it.
+        // (a QLabel in the row swallows them), so the watcher starts the drag for it. A section
+        // header or a supplementary row never starts one (docs/list.md).
         const QModelIndex pressed = indexAt(e->position().toPoint());
-        pressedRow = pressed.isValid() ? pressed.row() : -1;
-        if (dragEnabled() && e->button() == Qt::LeftButton && pressed.isValid()) {
+        pressedRow = pressed.isValid() && !m->isInert(pressed.row()) ? pressed.row() : -1;
+        if (dragEnabled() && e->button() == Qt::LeftButton && pressedRow >= 0) {
             g_list_pressed = this;
             g_list_press_global = e->globalPosition().toPoint();
         }
@@ -4485,6 +7071,86 @@ int day_qt_list_splice(void *w, int kind, int a, int b) {
     return l->m->n;
 }
 
+// A whole `ListPatch::Splice` (docs/list.md "Keyed updates"): `count` sequential `kind, a, b`
+// triples, as `day_qt_list_splice` takes one, after which the source holds `final_len` rows.
+// Applied delta by delta through beginInsertRows / beginRemoveRows / beginMoveRows when they
+// fit the rows the view holds now and end at `final_len` (`day_qt_splice_fits`); otherwise the
+// view is told nothing about them and reloads to `final_len` rows with a model reset that keeps
+// the scroll position. Returns 1 when the deltas were applied, 0 for the reload.
+int day_qt_list_splice_all(void *w, const int *triples, int count, int final_len) {
+    auto *l = static_cast<DayListView *>(w);
+    if (!day_qt_splice_fits(l->m->n, triples, count, final_len)) {
+        l->resetTo(final_len);
+        return 0;
+    }
+    l->syncing = true;
+    for (int i = 0; i < count; ++i) {
+        const int kind = triples[3 * i], a = triples[3 * i + 1], b = triples[3 * i + 2];
+        switch (kind) {
+        case 0: l->m->insertAt(a); break;
+        case 1: l->m->removeAt(a); break;
+        default: l->m->moveRow(a, b); break;
+        }
+    }
+    l->syncing = false;
+    return 1;
+}
+
+// The list's supplementary rows (docs/list.md "Header, footer and empty state"), in display rows
+// (any order; duplicates and rows past the count are dropped). They take no flags and no chrome,
+// and size to what Day lays them at even in a `Uniform` list, so the view stops assuming
+// uniform rows once there is one.
+void day_qt_list_set_supplements(void *w, const int *rows, int n) {
+    auto *l = static_cast<DayListView *>(w);
+    std::vector<int> supplements;
+    supplements.reserve(n > 0 ? n : 0);
+    for (int i = 0; i < n; ++i)
+        if (rows[i] >= 0 && rows[i] < l->m->n) supplements.push_back(rows[i]);
+    std::sort(supplements.begin(), supplements.end());
+    supplements.erase(std::unique(supplements.begin(), supplements.end()), supplements.end());
+    if (supplements == l->m->supplements) return;
+    l->m->supplements = std::move(supplements);
+    if (!l->m->supplements.empty()) l->setUniformItemSizes(false);
+    l->syncing = true;
+    for (int r : l->m->supplements) l->selectionModel()->select(l->m->index(r), QItemSelectionModel::Deselect);
+    l->syncing = false;
+    if (l->m->n > 0) l->markDirty(0, l->m->n - 1);
+}
+
+// What the list shows (docs/list.md "Visible rows"): the first and last rows with any part in
+// the viewport, in the view's own rows, and the distance from the viewport's bottom edge to the
+// content's (the vertical bar's `maximum() - value()`: the list scrolls per pixel), after any
+// pending item layout. Returns 0, reporting nothing, with no rows or before the view has a
+// height.
+int day_qt_list_viewport(void *w, int *first, int *last, double *end_distance) {
+    auto *l = static_cast<DayListView *>(w);
+    *first = 0;
+    *last = 0;
+    *end_distance = 0.0;
+    const int n = l->m->n;
+    const int h = l->viewport()->height();
+    if (n == 0 || h <= 0) return 0;
+    l->layoutNow();
+    const QModelIndex a = l->indexAt(QPoint(1, 0));
+    const QModelIndex b = l->indexAt(QPoint(1, h - 1));
+    *first = a.isValid() ? a.row() : 0;
+    *last = b.isValid() ? b.row() : n - 1;
+    if (*last < *first) *last = *first;
+    QScrollBar *sb = l->verticalScrollBar();
+    *end_distance = std::max(0, sb->maximum() - sb->value());
+    return 1;
+}
+
+// Scroll to row `row` (-1: the end of the content) aligned as `align` says (`RowAlign`: 0 =
+// Nearest, 1 = Start, 2 = Center, 3 = End), gliding when `animated` (docs/list.md
+// "Programmatic scrolling"). Waits for a height relayout queued this turn; ends with a window
+// report.
+void day_qt_list_scroll(void *w, int row, int align, int animated) {
+    auto *l = static_cast<DayListView *>(w);
+    if (row >= l->m->n) row = l->m->n - 1;
+    l->requestScroll(row < 0 ? -1 : row, align, animated != 0);
+}
+
 // Rows of different heights (`RowHeight::Automatic`): the view stops assuming every row is as
 // tall as the first, and each row takes the height `day_qt_list_set_row_height` gives it.
 void day_qt_list_set_automatic(void *w) {
@@ -4556,6 +7222,11 @@ void day_qt_list_visible_rows(void *w, int *first, int *last) {
 
 double day_qt_list_viewport_width(void *w) {
     return static_cast<DayListView *>(w)->viewport()->width();
+}
+
+// The scrolls the reader starts (docs/list.md "Following the end", `DayListView::readerScrolled`).
+void day_qt_list_on_reader_scroll(void *w, void (*cb)(uint64_t node)) {
+    static_cast<DayListView *>(w)->onReader = cb;
 }
 
 void day_qt_list_on_viewport_resized(void *w, void (*cb)(void *)) {
@@ -4679,16 +7350,103 @@ void day_qt_enable_focus(void *w, uint64_t node, DayFocusCb cb) {
         QObject::connect(e, &QLineEdit::returnPressed, [node, cb]() { cb(node, 2); });
 }
 
+// The keyboard focus indicator of a focusable Day view (docs/focus.md): Qt draws one for its
+// own controls only. Shown when focus arrives from the keyboard (Tab, Backtab, a shortcut) and
+// gone with the focus. On macOS a `QFocusFrame`, through which the style draws the system
+// focus ring around the view; elsewhere a mouse-transparent overlay the style paints its focus
+// rectangle on (`PE_FrameFocusRect`, which the style draws only after a keyboard focus change).
+class DayFocusOverlay : public QWidget {
+public:
+    explicit DayFocusOverlay(QWidget *w) : QWidget(w) {
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setFocusPolicy(Qt::NoFocus);
+        setGeometry(w->rect());
+        raise();
+        show();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QWidget *w = parentWidget();
+        if (!w) return;
+        QPainter p(this);
+        QStyleOptionFocusRect opt;
+        opt.initFrom(w);
+        opt.rect = rect();
+        opt.state |= QStyle::State_HasFocus | QStyle::State_KeyboardFocusChange;
+        opt.backgroundColor = w->palette().color(QPalette::Window);
+        w->style()->drawPrimitive(QStyle::PE_FrameFocusRect, &opt, &p, w);
+    }
+};
+
+class DayFocusRing : public QObject {
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject *o, QEvent *ev) override {
+        QWidget *w = qobject_cast<QWidget *>(o);
+        if (!w) return false;
+        switch (ev->type()) {
+            case QEvent::FocusIn: {
+                const Qt::FocusReason r = static_cast<QFocusEvent *>(ev)->reason();
+                if (ring || (r != Qt::TabFocusReason && r != Qt::BacktabFocusReason &&
+                             r != Qt::ShortcutFocusReason))
+                    break;
+#ifdef Q_OS_MACOS
+                auto *frame = new QFocusFrame(w);
+                frame->setWidget(w);
+                ring = frame;
+#else
+                ring = new DayFocusOverlay(w);
+#endif
+                break;
+            }
+            case QEvent::FocusOut:
+                if (ring) ring->deleteLater();
+                ring = nullptr;
+                break;
+            case QEvent::Resize:
+                if (ring && ring->parentWidget() == w) ring->setGeometry(w->rect());
+                break;
+            default:
+                break;
+        }
+        return false; // observe only
+    }
+
+private:
+    QPointer<QWidget> ring;
+};
+
+// `.focusable()` (docs/focus.md): the view takes pointer input (it focuses on a press) and
+// shows the focus indicator when the keyboard brings focus to it. The focus policy and the
+// keys come with `day_qt_enable_keys`, the focus reports with `day_qt_enable_focus`.
+void day_qt_set_focusable(void *w) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    widget->setProperty("dayInput", true);
+    if (widget->property("dayFocusRing").toBool()) return;
+    widget->setProperty("dayFocusRing", true);
+    auto *ring = new DayFocusRing(widget); // freed with the widget
+    widget->installEventFilter(ring);
+}
+
 // --- the non-text keys, for a widget that can hold focus (docs/menus.md) ---
 // `code`: 0 left, 1 right, 2 up, 3 down, 10–19 the digits 0–9; `modifiers` is a day KeyEvent
 // mask (1 shift, 2 primary, 4 alt). The callback answers whether the app CLAIMED the key — an
 // unclaimed one falls through, so a scroll area around the widget still scrolls with the
 // keyboard.
-typedef int (*DayKeyCb)(uint64_t node, int code, int modifiers);
+//
+// Every key callback carries the key's phase (docs/menus.md "Keys"): 0 down, 1 repeat (Qt's
+// `isAutoRepeat`), 2 up. An up is reported only for a key whose down the node claimed, while
+// it held focus; the filter claims that release itself, and drops the releases Qt sends
+// between the repeats of a held key (X11 pairs each repeat with one).
+typedef int (*DayKeyCb)(uint64_t node, int code, int modifiers, int phase);
 // The full route (`Decorate::keyboard`, docs/menus.md "The full route"): every key, by its day
 // name, with the text it typed (`text`, UTF-8, or null for a key that typed nothing). Both are
 // valid for the call. The query says whether the node took the whole keyboard.
-typedef int (*DayTextKeyCb)(uint64_t node, const char *name, const char *text, int modifiers);
+typedef int (*DayTextKeyCb)(uint64_t node, const char *name, const char *text, int modifiers,
+                            int phase);
 typedef int (*DayTextKeyQuery)(uint64_t node);
 static DayTextKeyCb day_text_key_cb = nullptr;
 static DayTextKeyQuery day_text_key_query = nullptr;
@@ -4710,6 +7468,16 @@ static int day_qt_key_modifiers(Qt::KeyboardModifiers m) {
 #else
     if (m & Qt::ControlModifier) mods |= 8;
 #endif
+    return mods;
+}
+
+// The short route's modifier mask (docs/menus.md): 1 shift, 2 primary (Qt's Control, ⌘ on a
+// Mac), 4 alt.
+static int day_qt_short_modifiers(Qt::KeyboardModifiers m) {
+    int mods = 0;
+    if (m & Qt::ShiftModifier) mods |= 1;
+    if (m & Qt::ControlModifier) mods |= 2;
+    if (m & Qt::AltModifier) mods |= 4;
     return mods;
 }
 
@@ -4749,18 +7517,25 @@ static bool day_qt_menu_chord(Qt::KeyboardModifiers m) {
 }
 
 // A key press on the full route, for a widget whose node took the whole keyboard. Answers
-// whether the app claimed it. The order is the policy: a ⌘ chord is the menu's; a key that
-// types nothing is named; a Control or Alt chord names its key and types nothing (`text()`
-// would carry the control code, so the key's own character names it, cased by Shift: Ctrl+C
-// is "c"); an AltGr chord (Ctrl+Alt on Windows, Qt's spelling of it) that typed a character
-// is that text; what is left typed `text()`, and is text. A dead key or an input method's
-// keys never get here: Qt composes them and delivers the commit as an input method event.
-static bool day_qt_full_route_key(uint64_t node, const QKeyEvent *ke) {
+// whether the app claimed it, and puts in `name` the key's day name when the app claimed a key
+// it can later hear released (a single named key or character). The order is the policy: a ⌘
+// chord is the menu's; a key that types nothing is named; a Control or Alt chord names its key
+// and types nothing (`text()` would carry the control code, so the key's own character names
+// it, cased by Shift: Ctrl+C is "c"); an AltGr chord (Ctrl+Alt on Windows, Qt's spelling of it)
+// that typed a character is that text; what is left typed `text()`, and is text. A dead key or
+// an input method's keys never get here: Qt composes them and delivers the commit as an input
+// method event. A repeat that types still carries its text (holding `a` types `aaaa`).
+static bool day_qt_full_route_key(uint64_t node, const QKeyEvent *ke, int phase, QByteArray *name) {
     const Qt::KeyboardModifiers m = ke->modifiers();
     const int mods = day_qt_key_modifiers(m);
     if (day_qt_menu_chord(m)) return false;
+    auto report = [&](const QByteArray &key, const char *text, int mask) {
+        const bool claimed = day_text_key_cb(node, key.constData(), text, mask, phase) != 0;
+        if (claimed) *name = key;
+        return claimed;
+    };
     const QByteArray named = day_qt_named_key(ke->key());
-    if (!named.isEmpty()) return day_text_key_cb(node, named.constData(), nullptr, mods) != 0;
+    if (!named.isEmpty()) return report(named, nullptr, mods);
     const QString t = ke->text();
     bool printable = !t.isEmpty();
     for (const QChar &c : t) if (c.unicode() < 0x20 || c.unicode() == 0x7f) printable = false;
@@ -4771,8 +7546,7 @@ static bool day_qt_full_route_key(uint64_t node, const QKeyEvent *ke) {
     const bool altgr = (m & Qt::ControlModifier) && (m & Qt::AltModifier) && printable;
     if (altgr) {
         const QByteArray utf8 = t.toUtf8();
-        const QByteArray name = t.size() == 1 ? utf8 : QByteArray();
-        return day_text_key_cb(node, name.constData(), utf8.constData(), mods & 1) != 0;
+        return report(t.size() == 1 ? utf8 : QByteArray(), utf8.constData(), mods & 1);
     }
 #endif
     if (chord) {
@@ -4780,16 +7554,41 @@ static bool day_qt_full_route_key(uint64_t node, const QKeyEvent *ke) {
         if (k >= Qt::Key_Space && k <= Qt::Key_AsciiTilde) {
             QChar c(k);
             if (!(m & Qt::ShiftModifier)) c = c.toLower();
-            return day_text_key_cb(node, QString(c).toUtf8().constData(), nullptr, mods) != 0;
+            return report(QString(c).toUtf8(), nullptr, mods);
         }
         // A lone modifier, or a key with no character of its own: claimed, types nothing.
         return true;
     }
     if (!printable) return true;
     const QByteArray utf8 = t.toUtf8();
-    const QByteArray name = t.size() == 1 ? utf8 : QByteArray();
-    return day_text_key_cb(node, name.constData(), utf8.constData(), mods) != 0;
+    return report(t.size() == 1 ? utf8 : QByteArray(), utf8.constData(), mods);
 }
+
+// The phase of a key press: 1 for Qt's auto-repeat, else 0.
+static int day_qt_key_phase(const QKeyEvent *ke) { return ke->isAutoRepeat() ? 1 : 0; }
+
+// The keys a node claimed the down of and has not yet heard released, by Qt key code, with
+// what each was reported as (the short route's code, or the day name), so its release reaches
+// the node as the same key (docs/menus.md "Keys").
+struct DayHeldKeys {
+    QHash<int, QPair<int, QByteArray>> held;
+
+    void claimed(const QKeyEvent *ke, int code, const QByteArray &name) {
+        if (!ke->isAutoRepeat()) held.insert(ke->key(), qMakePair(code, name));
+    }
+    // A release: 0 for a key the node does not hold, 1 for one Qt sends between the repeats of
+    // a held key (claimed and dropped), 2 for the real release, with what the down was. The
+    // real release forgets the key.
+    int released(const QKeyEvent *ke, int *code, QByteArray *name) {
+        auto it = held.find(ke->key());
+        if (it == held.end()) return 0;
+        if (ke->isAutoRepeat()) return 1;
+        *code = it->first;
+        *name = it->second;
+        held.erase(it);
+        return 2;
+    }
+};
 
 class DayKeyFilter : public QObject {
 public:
@@ -4798,6 +7597,9 @@ public:
 protected:
     bool eventFilter(QObject *watched, QEvent *ev) override {
         const bool full = day_text_key_query && day_text_key_cb && day_text_key_query(node);
+        // A key that went down while the node held focus and comes up after it lost it is
+        // not the node's: no up for it (the app stops held-key movement at the loss).
+        if (ev->type() == QEvent::FocusOut) keys.held.clear();
         // The full route (docs/menus.md "The full route"). Input methods address a widget
         // that says it takes them, and Qt asks at focus time, so the attribute is set as the
         // focus arrives; a composition's commit (a dead key's accent, a Japanese phrase) is
@@ -4811,7 +7613,7 @@ protected:
                 if (!commit.isEmpty()) {
                     const QByteArray utf8 = commit.toUtf8();
                     const QByteArray name = commit.size() == 1 ? utf8 : QByteArray();
-                    day_text_key_cb(node, name.constData(), utf8.constData(), 0);
+                    day_text_key_cb(node, name.constData(), utf8.constData(), 0, 0);
                 }
                 return true;
             }
@@ -4821,9 +7623,26 @@ protected:
                 return false;
             }
         }
+        if (ev->type() == QEvent::KeyRelease) {
+            const QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
+            int code = -1;
+            QByteArray name;
+            const int r = keys.released(ke, &code, &name);
+            if (r == 0) return false;
+            if (r == 2 && code >= 0) cb(node, code, day_qt_short_modifiers(ke->modifiers()), 2);
+            else if (r == 2 && day_text_key_cb)
+                day_text_key_cb(node, name.constData(), nullptr, day_qt_key_modifiers(ke->modifiers()), 2);
+            return true;
+        }
         if (ev->type() != QEvent::KeyPress) return false;
         QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
-        if (full) return day_qt_full_route_key(node, ke);
+        const int phase = day_qt_key_phase(ke);
+        if (full) {
+            QByteArray name;
+            const bool claimed = day_qt_full_route_key(node, ke, phase, &name);
+            if (claimed && !name.isEmpty()) keys.claimed(ke, -1, name);
+            return claimed;
+        }
         int code = -1;
         switch (ke->key()) {
             case Qt::Key_Left:      code = 0; break;
@@ -4844,19 +7663,21 @@ protected:
             if (!held && c >= u'0' && c <= u'9') code = 10 + (c - u'0');
         }
         if (code < 0) return false;
-        int mods = 0;
-        if (ke->modifiers() & Qt::ShiftModifier) mods |= 1;
-        if (ke->modifiers() & Qt::ControlModifier) mods |= 2;
-        if (ke->modifiers() & Qt::AltModifier) mods |= 4;
-        return cb(node, code, mods) != 0;
+        const bool claimed = cb(node, code, day_qt_short_modifiers(ke->modifiers()), phase) != 0;
+        if (claimed) keys.claimed(ke, code, QByteArray());
+        return claimed;
     }
+
+private:
+    DayHeldKeys keys;
 };
 
 // The keys a line edit with a key handler claims (docs/textfield.md "Keys"): Up, Down and
 // Escape. The callback answers whether the node claims the key; `deliver` 0 only asks (for
-// ShortcutOverride, so a claimed Escape beats a sheet's Escape shortcut), 1 also reports it.
-// A claimed press never reaches the QLineEdit.
-typedef int (*DayFieldKeyCb)(uint64_t node, const char *name, int modifiers, int deliver);
+// ShortcutOverride, so a claimed Escape beats a sheet's Escape shortcut), 1 also reports it,
+// with its phase (0 down, 1 repeat, 2 up). A claimed press never reaches the QLineEdit, and
+// neither does its release.
+typedef int (*DayFieldKeyCb)(uint64_t node, const char *name, int modifiers, int deliver, int phase);
 
 class DayFieldKeyFilter : public QObject {
 public:
@@ -4864,6 +7685,16 @@ public:
     DayFieldKeyFilter(uint64_t n, DayFieldKeyCb c) : node(n), cb(c) {}
 protected:
     bool eventFilter(QObject *, QEvent *ev) override {
+        if (ev->type() == QEvent::FocusOut) keys.held.clear();
+        if (ev->type() == QEvent::KeyRelease) {
+            const QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
+            int code = -1;
+            QByteArray name;
+            const int r = keys.released(ke, &code, &name);
+            if (r == 0) return false;
+            if (r == 2) cb(node, name.constData(), day_qt_key_modifiers(ke->modifiers()), 1, 2);
+            return true;
+        }
         if (ev->type() != QEvent::KeyPress && ev->type() != QEvent::ShortcutOverride) return false;
         QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
         const char *name = nullptr;
@@ -4874,13 +7705,19 @@ protected:
             default: return false;
         }
         const int mods = day_qt_key_modifiers(ke->modifiers());
+        const int phase = day_qt_key_phase(ke);
         if (ev->type() == QEvent::ShortcutOverride) {
-            if (cb(node, name, mods, 0) == 0) return false;
+            if (cb(node, name, mods, 0, phase) == 0) return false;
             ev->accept();
             return true;
         }
-        return cb(node, name, mods, 1) != 0;
+        const bool claimed = cb(node, name, mods, 1, phase) != 0;
+        if (claimed) keys.claimed(ke, 0, QByteArray(name));
+        return claimed;
     }
+
+private:
+    DayHeldKeys keys;
 };
 
 void day_qt_lineedit_enable_field_keys(void *w, uint64_t node, DayFieldKeyCb cb) {

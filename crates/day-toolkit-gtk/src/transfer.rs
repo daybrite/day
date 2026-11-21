@@ -78,6 +78,13 @@ pub fn target(widget: &gtk4::Widget, target: Target) {
         let target = target.clone();
         move |_, d, x, y| action(&target, d, x, y)
     });
+    // The drag left without dropping, or the session ended over the view (Escape, a drop
+    // elsewhere): the hover ends (docs/drag-and-drop.md "Accepting drops"). Idempotent, so the
+    // leave GTK also sends around a drop costs nothing.
+    controller.connect_drag_leave({
+        let target = target.clone();
+        move |_, _| day_spec::ffi_guard::contain((), || target.leave())
+    });
     controller.connect_drop(move |_, drop, x, y| {
         let at = location(drop, x, y);
         if target.proposal(&at) != Operation::Copy {

@@ -38,5 +38,35 @@ This fallback supports programmatic selection but supplies no swipe gesture.
 `select` event uses the logical position in the current order, while settled callbacks use the
 stable slot identity. Applications should use the callback to update their selected state.
 
+## Progress
+
+```rust
+let progress = Signal::new(0.0);
+column((
+    pager(state, busy, pages, settle).progress(progress),
+    page_dots(pages_len, progress),
+))
+```
+
+[`.progress(binding)`](https://docs.rs/day-pieces/latest/day_pieces/pager/trait.PagerBuilder.html#tymethod.progress)
+follows the pager's position in reading order, in pages: `0.0` is the first page and `1.5` is
+halfway from the second to the third. A page indicator drawn from it tracks the finger.
+
+Where `Cap::PagerProgress` is `Native`, the pager writes the position continuously while a
+page is dragged, at most once per display frame. Everywhere else the value steps to the
+selected page's position when the selection changes, so the same indicator still shows the
+right page.
+
+| Toolkit | Progress |
+|---|---|
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `Native`: the page view controller's own scroll view, observed |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `Native`: the pager's `onPageScrolled`, once per frame and once at rest |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `Native`: the swiper's content-scroll event, a whole page when it settles |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | steps with the selection (composed pager) |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | steps with the selection (composed pager) |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | steps with the selection (composed pager) |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | steps with the selection (composed pager) |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | steps with the selection (composed pager) |
+
 The [navigation guide](/docs/reference/navigation) covers route and back-stack presentation.
 A pager does not create routes or manage navigation history.

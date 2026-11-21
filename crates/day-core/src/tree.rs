@@ -41,6 +41,10 @@ pub struct Flex {
     /// `.max_height` cap): it gives way to them on a short screen, but unlike `grow_h` it never
     /// makes the column fill what it is offered.
     pub yields_h: bool,
+    /// This node's share of the space its growing siblings divide, relative to theirs
+    /// ([`crate::Grow`]). `0.0`, the default, counts as `1.0`: read it through
+    /// [`Flex::weight`].
+    pub grow_weight: f64,
     /// Takes all remaining main-axis space in a stack.
     pub is_spacer: bool,
     /// Layout-transparent group (`when`/`each` anchors): stacks lay out its children inline.
@@ -51,6 +55,19 @@ pub struct Flex {
     /// row's height itself, so a list cell gives it only the side margins (docs/list.md "Row
     /// metrics").
     pub whole_row: bool,
+}
+
+impl Flex {
+    /// The node's share of the space growing siblings divide: [`Flex::grow_weight`], with the
+    /// unset `0.0` (and anything negative) read as `1.0`.
+    #[must_use]
+    pub fn weight(&self) -> f64 {
+        if self.grow_weight > 0.0 {
+            self.grow_weight
+        } else {
+            1.0
+        }
+    }
 }
 
 /// Per-node grid facts (docs/grid.md), carried on [`Flex`]: the shipped form of the §7.2
@@ -66,6 +83,10 @@ pub struct GridFacts {
     pub col_span: u16,
     /// Cell-only: alignment override within the cell rect.
     pub align: Option<Alignment>,
+    /// The anchor of an absent optional child (`None`, [`crate::Piece`] for `Option`). Inside
+    /// a grid row it keeps its column as an empty cell, so the cells after it stay in their
+    /// columns; everywhere else it is an ordinary empty group.
+    pub holds_cell: bool,
 }
 
 /// Cached last-applied props for the dayscript element index (§14.2).
@@ -179,6 +200,12 @@ pub struct Tree<B: Toolkit> {
     /// The gesture kinds each node asked the toolkit for (`enable_gesture`): where a gesture
     /// addressed to a descendant is redirected (see `dispatch_to_node`).
     gestures: HashMap<RNode, Vec<day_spec::GestureKind>>,
+    /// The roots of the subtrees `.enabled(false)` disabled (docs/forms.md).
+    disabled: std::collections::HashSet<RNode>,
+    /// Each node's `.hit_slop(..)`, kept for probes.
+    hit_slops: HashMap<RNode, day_spec::Insets>,
+    /// Each node's `.drop_target(..)`, kept so a scripted drag can reach it.
+    drop_targets: HashMap<RNode, day_spec::transfer::Target>,
     /// A decorated piece's own node, mapped to the outermost node its modifiers wrapped it in
     /// (`set_element_outer`): how far a gesture addressed to that node may climb.
     element_outer: HashMap<RNode, RNode>,
@@ -200,6 +227,13 @@ pub struct Tree<B: Toolkit> {
     /// Count of nodes carrying an implicit `.animation` (§8.4). Gates the `resolve_anim` ancestor
     /// walk: zero ⇒ non-`with_animation` patches skip it entirely (the common, O(1) path).
     implicit_anim_count: usize,
+    /// Reading-direction overrides (`.layout_direction()`), by the node that carries one. A
+    /// node with no entry takes its parent's direction, and the root takes the app's.
+    directions: HashMap<RNode, day_spec::LayoutDirection>,
+    /// The direction each node's widget was last given through
+    /// `Toolkit::set_layout_direction`, kept only for nodes told something other than the
+    /// app's direction.
+    native_directions: HashMap<RNode, day_spec::LayoutDirection>,
 }
 
 impl<B: Toolkit> Tree<B> {
@@ -271,6 +305,9 @@ impl<B: Toolkit> Tree<B> {
             layout_dirty: true,
             handlers: HashMap::new(),
             gestures: HashMap::new(),
+            disabled: std::collections::HashSet::new(),
+            hit_slops: HashMap::new(),
+            drop_targets: HashMap::new(),
             element_outer: HashMap::new(),
             element_targets: HashMap::new(),
             release_queue: Vec::new(),
@@ -279,7 +316,184 @@ impl<B: Toolkit> Tree<B> {
             context_menus: HashMap::new(),
             button_menus: HashMap::new(),
             implicit_anim_count: 0,
+            directions: HashMap::new(),
+            native_directions: HashMap::new(),
         }
+    }
+
+    /// The reading direction in force at `node`: the nearest `.layout_direction()` override
+    /// at or above it, else the app's. A list or tree cell continues at its host.
+    pub(crate) fn direction_of(&self, node: RNode) -> day_spec::LayoutDirection {
+        if self.directions.is_empty() {
+            return crate::layout_direction();
+        }
+        let mut at = node;
+        loop {
+            if let Some(dir) = self.directions.get(&at) {
+                return *dir;
+            }
+            let Some(n) = self.nodes.get(at) else { break };
+            at = if n.parent.is_null() {
+                match self.cell_host(at) {
+                    Some(host) => host,
+                    None => break,
+                }
+            } else {
+                n.parent
+            };
+        }
+        crate::layout_direction()
+    }
+
+    /// Scroll the list at `node` to display row `row` (a header and a supplementary row
+    /// count), or to the end of its content for `None`, through the toolkit's `list_scroll`
+    /// duty, else the plain patch, which reveals the row where the platform puts it.
+    fn list_scroll_display(
+        &mut self,
+        node: RNode,
+        row: Option<usize>,
+        align: day_spec::RowAlign,
+        animated: bool,
+    ) {
+        let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+            return;
+        };
+        let to = day_spec::ListScroll {
+            row,
+            align,
+            animated: animated && !crate::reduce_motion_now(),
+        };
+        if self.toolkit.list_scroll(&handle, to) {
+            return;
+        }
+        let patch = match row {
+            Some(row) => day_spec::props::ListPatch::ScrollToRow(row),
+            None => day_spec::props::ListPatch::ScrollToEnd,
+        };
+        self.toolkit
+            .update(&handle, kinds::LIST, &patch as &dyn Any, None);
+    }
+
+    /// Reveal the row whose cell `anchor` is, when it is a cell of a recycling list: the
+    /// list scrolls it into view with the least movement. `false` for any other node.
+    fn reveal_list_row(&mut self, anchor: RNode, animated: bool) -> bool {
+        use crate::list::{CellKind, DisplayRow};
+        let found = self.lists.iter().find_map(|(host, state)| {
+            state.cells.values().find(|c| c.anchor == anchor).map(|c| {
+                (
+                    *host,
+                    c.kind,
+                    c.token,
+                    state.driver.clone(),
+                    state.sections.clone(),
+                )
+            })
+        });
+        let Some((list, kind, token, driver, sections)) = found else {
+            return false;
+        };
+        let item = || (0..(driver.len)()).find(|i| (driver.token_at)(*i) == token);
+        let display = match (kind, sections) {
+            (CellKind::Item, None) => item(),
+            (CellKind::Item, Some(map)) => item().and_then(|i| map.display_of(i)),
+            (CellKind::Header, Some(map)) => {
+                (0..map.len()).find(|d| map.header_token_at(*d) == Some(token))
+            }
+            (CellKind::Extra(sup), Some(map)) => {
+                (0..map.len()).find(|d| map.row(*d) == Some(DisplayRow::Extra(sup)))
+            }
+            (CellKind::Header | CellKind::Extra(_), None) => None,
+        };
+        let Some(display) = display else {
+            return false;
+        };
+        self.list_scroll_display(list, Some(display), day_spec::RowAlign::Nearest, animated);
+        true
+    }
+
+    /// The list or tree whose cell `anchor` is, if it is one.
+    fn cell_host(&self, anchor: RNode) -> Option<RNode> {
+        let in_list = self
+            .lists
+            .iter()
+            .find(|(_, s)| s.cells.values().any(|c| c.anchor == anchor))
+            .map(|(host, _)| *host);
+        in_list.or_else(|| {
+            self.trees
+                .iter()
+                .find(|(_, s)| s.cells.values().any(|c| c.anchor == anchor))
+                .map(|(host, _)| *host)
+        })
+    }
+
+    /// Resolve `node`'s reading direction and tell its widget when that differs from what it
+    /// last heard. Called from the place pass, so a node added to an overridden subtree later
+    /// (a `when` arm, an `each` row, a recycled cell) is told on its first layout.
+    pub(crate) fn sync_direction(&mut self, node: RNode) -> day_spec::LayoutDirection {
+        if self.directions.is_empty() && self.native_directions.is_empty() {
+            return crate::layout_direction();
+        }
+        let direction = self.direction_of(node);
+        self.tell_direction(node, direction);
+        direction
+    }
+
+    fn tell_direction(&mut self, node: RNode, direction: day_spec::LayoutDirection) {
+        let app = crate::layout_direction();
+        let last = self.native_directions.get(&node).copied().unwrap_or(app);
+        if last == direction {
+            return;
+        }
+        if direction == app {
+            self.native_directions.remove(&node);
+        } else {
+            self.native_directions.insert(node, direction);
+        }
+        let Some(n) = self.nodes.get(node) else {
+            return;
+        };
+        let kind = n.kind;
+        if let Some(h) = n.handle.clone() {
+            self.toolkit.set_layout_direction(&h, kind, direction);
+        }
+    }
+
+    /// Send every control at or under `node` its effective enabled state: its own
+    /// (`probe.enabled`, what the piece asked for) and no disabled group around it. The part
+    /// of `.enabled(false)` on a group that day-core can do for every backend, since each of
+    /// these controls already takes an `Enabled` patch (docs/forms.md "Disabling a group").
+    fn sync_enabled_controls(&mut self, node: RNode) {
+        let mut stack = vec![node];
+        while let Some(cur) = stack.pop() {
+            let Some(n) = self.nodes.get(cur) else {
+                continue;
+            };
+            stack.extend(n.children.iter().copied());
+            let (kind, own) = (n.kind, n.probe.enabled);
+            let Some(h) = n.handle.clone() else { continue };
+            let effective = own && !self.subtree_disabled(cur);
+            if let Some(patch) = enabled_patch(kind, effective) {
+                self.toolkit.update(&h, kind, patch.as_ref(), None);
+            }
+        }
+    }
+
+    /// The nearest native view at or under `node`, through single-child layout-only wrappers:
+    /// where a modifier that needs a view (a recognizer, a hit slop) lands when it was written
+    /// on a `.frame()` or `.padding()` wrapper. `None` when the chain forks or ends first.
+    fn native_under(&self, node: RNode) -> Option<(B::Handle, RNode)> {
+        let mut cur = node;
+        for _ in 0..16 {
+            let n = self.nodes.get(cur)?;
+            if let Some(h) = n.handle.clone() {
+                return Some((h, cur));
+            }
+            match n.children.as_slice() {
+                [only] => cur = *only,
+                _ => return None,
+            }
+        }
+        None
     }
 
     /// Create a node whose native handle is a foreign cell adopted from a recycling list host:
@@ -455,6 +669,10 @@ impl<B: Toolkit> Tree<B> {
             .get_mut(child)
             .expect("attach missing child")
             .parent = parent;
+        // A subtree built into a disabled group starts out disabled too.
+        if !self.disabled.is_empty() && self.subtree_disabled(child) {
+            self.sync_enabled_controls(child);
+        }
         // Native wiring: every native root inside `child`'s subtree inserts under the nearest
         // native ancestor at its in-order position.
         let ancestor = self.native_ancestor(parent);
@@ -547,8 +765,14 @@ impl<B: Toolkit> Tree<B> {
             };
             self.handlers.remove(&n);
             self.gestures.remove(&n);
+            self.disabled.remove(&n);
+            self.hit_slops.remove(&n);
+            self.drop_targets.remove(&n);
+            crate::gesture::forget(rnode_to_id(n));
             self.element_outer.remove(&n);
             self.element_targets.remove(&n);
+            self.directions.remove(&n);
+            self.native_directions.remove(&n);
             day_spec::keys::forget(rnode_to_id(n));
             if data.implicit_anim.is_some() {
                 self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1);
@@ -607,20 +831,57 @@ impl<B: Toolkit> Tree<B> {
     /// is placed, shared by the first-approximation pass (`list_layout_cell`) and the backend's
     /// correction (`list_layout_cell_width`).
     fn layout_list_cell_at(&mut self, node: RNode, key: usize, width: f64) {
+        use crate::list::{CellKind, Supplement};
         let Some(state) = self.lists.get(&node) else {
             return;
         };
-        let (anchor, stale, header) = match state.cells.get(&key) {
-            Some(b) if b.active => (b.anchor, b.laid_width != Some(width), b.header),
+        let (anchor, stale, kind) = match state.cells.get(&key) {
+            Some(b) if b.active => (b.anchor, b.laid_width != Some(width), b.kind),
             _ => return,
         };
-        // A section header sizes to its content in every list: a `Uniform` pitch is the
-        // items' (docs/list.md "Sections").
-        let row_height = if header {
-            day_spec::props::RowHeight::Automatic
-        } else {
-            state.driver.row_height
+        let padding = state.driver.supplements.padding;
+        // A section header and a supplementary row size to their content in every list: a
+        // `Uniform` pitch is the items' (docs/list.md "Sections"). A padding row is its inset.
+        let row_height = match kind {
+            CellKind::Item => state.driver.row_height,
+            CellKind::Extra(Supplement::PadTop) => day_spec::props::RowHeight::Uniform(padding.top),
+            CellKind::Extra(Supplement::PadBottom) => {
+                day_spec::props::RowHeight::Uniform(padding.bottom)
+            }
+            CellKind::Header | CellKind::Extra(_) => day_spec::props::RowHeight::Automatic,
         };
+        // The empty state fills what the list's other supplementary rows leave of the
+        // viewport, so its content can center there. A header or footer that has not been
+        // laid yet has no height to leave room for: until it has, the empty state keeps its
+        // own height. Filling early pushed the footer out of a viewport that binds only the
+        // rows it shows (UIKit sizes each row as it binds it), so the footer was never laid.
+        // Laying the header or footer re-lays the empty state (below).
+        let fill = (kind == CellKind::Extra(Supplement::Empty))
+            .then(|| {
+                let supplements = &state.driver.supplements;
+                let laid = |which: Supplement| -> Option<f64> {
+                    state
+                        .cells
+                        .values()
+                        .filter(|b| b.active && b.kind == CellKind::Extra(which))
+                        .find_map(|b| b.laid_height)
+                };
+                let header = match supplements.header {
+                    Some(_) => laid(Supplement::Header)?,
+                    None => 0.0,
+                };
+                let footer = match supplements.footer {
+                    Some(_) => laid(Supplement::Footer)?,
+                    None => 0.0,
+                };
+                let viewport = self
+                    .nodes
+                    .get(node)
+                    .and_then(|n| n.last_native_frame)
+                    .map_or(0.0, |f| f.size.height);
+                Some((viewport - padding.top - padding.bottom - header - footer).max(0.0))
+            })
+            .flatten();
         // A new width: nothing measured at the old one may survive, or a `grow` child keeps it.
         // The same width again (the dirty-cell sweep re-lays every bound cell on every pass)
         // keeps the row's measurement cache; re-measuring every row's text each pass is what
@@ -641,6 +902,7 @@ impl<B: Toolkit> Tree<B> {
                 crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
             }
         };
+        let height = fill.map_or(height, |fill| height.max(fill));
         let previous = self
             .lists
             .get_mut(&node)
@@ -670,6 +932,23 @@ impl<B: Toolkit> Tree<B> {
         // changes; placement dirt reaches this anchor even through a nested measure boundary.
         // Left set, the sweep re-laid every bound cell of every list on every layout pass.
         self.nodes[anchor].needs_measure = false;
+        // A header or footer laid for the first time or at a new height changes what the
+        // empty state fills: re-lay it, which reports its new height to the host.
+        if matches!(
+            kind,
+            CellKind::Extra(Supplement::Header | Supplement::Footer)
+        ) && previous.is_none_or(|p| (p - height).abs() > 0.25)
+        {
+            let empty = self.lists.get(&node).and_then(|s| {
+                s.cells
+                    .iter()
+                    .find(|(_, b)| b.active && b.kind == CellKind::Extra(Supplement::Empty))
+                    .map(|(key, b)| (*key, b.laid_width.unwrap_or(width)))
+            });
+            if let Some((key, at)) = empty {
+                self.layout_list_cell_at(node, key, at);
+            }
+        }
     }
 
     /// The tree twin of [`Self::layout_list_cell_at`]: lay tree cell `key`'s row out at `width`
@@ -917,6 +1196,16 @@ pub trait TreeOps {
     /// Make `node`'s text user-selectable (the `.selectable()` modifier). One-shot and unmanaged;
     /// No-op if the node has no handle.
     fn set_node_selectable(&mut self, node: RNode, selectable: bool);
+    /// Give `node`'s subtree a reading direction of its own (the `.layout_direction()`
+    /// modifier), or lift the override with `None`. The subtree's placement mirrors on the
+    /// next layout pass, and every widget in it is told through
+    /// `Toolkit::set_layout_direction`.
+    fn set_node_direction(&mut self, node: RNode, direction: Option<day_spec::LayoutDirection>);
+    /// The reading direction in force at `node` (see [`TreeOps::set_node_direction`]).
+    fn node_direction(&self, node: RNode) -> day_spec::LayoutDirection;
+    /// The factor the system's text-size setting applies to `style` (see
+    /// `Toolkit::text_scale`).
+    fn text_scale(&mut self, style: day_spec::Font) -> f64;
     /// Apply a text field's [`InputTraits`](day_spec::InputTraits) (docs/textfield.md).
     /// Idempotent; called again with the whole set when a reactive member changes. No-op if
     /// the node has no handle.
@@ -967,6 +1256,12 @@ pub trait TreeOps {
     /// The node's actual native state (`a11y_audit` diffs it against `node_a11y`, and
     /// `assert_native` against the probe).
     fn read_native(&self, node: RNode) -> Option<day_spec::NativeSnapshot>;
+    /// What `node` shows right now, an animation's in-between state included
+    /// (`Toolkit::read_displayed`), for the `assert_displayed` step. A modifier's layer sits
+    /// above the piece it wraps, so the answer composes the node with its ancestors: the
+    /// opacities multiply, the translations add, the frame is the node's own, and the
+    /// background is the nearest one.
+    fn read_displayed(&self, node: RNode) -> Option<day_spec::Displayed>;
     /// For every node with an `.id()` and a native handle: `(id, kind, expected, actual)`, the
     /// raw material for the `a11y_audit` step (§14.2). Comparison/policy lives in day-script.
     fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::NativeSnapshot)>;
@@ -1175,7 +1470,8 @@ pub trait TreeOps {
         node: RNode,
         key: usize,
         cell: RawHandle,
-        header: bool,
+        kind: crate::list::CellKind,
+        token: u64,
     ) -> crate::list::CellStep;
     /// Record a freshly built row (or section header) for a cell.
     fn list_store_cell(
@@ -1184,7 +1480,8 @@ pub trait TreeOps {
         key: usize,
         anchor: RNode,
         built: crate::list::BuiltRow,
-        header: bool,
+        kind: crate::list::CellKind,
+        token: u64,
     );
     /// Lay the row out inside its cell bounds (row content width × the `RowHeight`).
     fn list_layout_cell(&mut self, node: RNode, key: usize);
@@ -1211,13 +1508,51 @@ pub trait TreeOps {
     /// Apply a data change: the native host re-queries the source.
     fn list_reload(&mut self, node: RNode);
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>);
+    /// Row deltas in the host's own rows (headers and supplementary rows counted), as
+    /// [`crate::list_sync`] computes them.
+    fn list_splice_rows(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>);
+    /// The list's bound, displayed cells, for [`crate::list_refresh_rows`].
+    fn list_live_cells(&self, node: RNode) -> Vec<crate::list::LiveCell>;
     fn set_undo_state(&mut self, state: &day_spec::UndoState);
     fn set_edit_state(&mut self, state: &day_spec::EditState);
     fn modifiers(&mut self) -> day_spec::Modifiers;
-    /// Imperatively scroll the native list so its last row is fully visible (no-op if empty).
-    fn list_scroll_to_end(&mut self, node: RNode);
-    /// Imperatively scroll the native list so row `row` is visible (clamped; no-op if empty).
-    fn list_scroll_to_row(&mut self, node: RNode, row: usize);
+    /// How the toolkit delivers a gesture (`Toolkit::gesture_support`), before day-core's own
+    /// derivation is counted; `crate::gesture::gesture_support` is the app-facing answer.
+    fn gesture_support(&self, kind: day_spec::GestureKind) -> Support;
+    /// The toolkit's opening answer for the input kind (`Toolkit::primary_pointer`).
+    fn primary_pointer(&self) -> day_spec::PointerKind;
+    /// Grow the area `node` takes pointer input in (`Decorate::hit_slop`, docs/shapes.md).
+    fn set_hit_slop(&mut self, node: RNode, slop: day_spec::Insets);
+    /// The hit slop last set on `node`, for probes and tests.
+    fn hit_slop(&self, node: RNode) -> day_spec::Insets;
+    /// Keep `node`'s drag to one axis (`Decorate::on_drag_along`, docs/shapes.md).
+    fn set_drag_axis(&mut self, node: RNode, axis: Option<day_spec::DragAxis>);
+    /// Enable or disable everything under `node` (`Decorate::enabled`, docs/forms.md).
+    fn set_subtree_enabled(&mut self, node: RNode, enabled: bool);
+    /// Whether `node` or an ancestor was disabled with [`TreeOps::set_subtree_enabled`].
+    fn subtree_disabled(&self, node: RNode) -> bool;
+    /// The drop target attached to `node`, for a scripted drag (`Decorate::drop_target`).
+    fn drop_target(&self, node: RNode) -> Option<day_spec::transfer::Target>;
+    /// The nearest node above `node` that enabled `kind`, or a gesture day-core recognizes from
+    /// it (a double tap, press or long press from taps; a press, long press or touches from
+    /// drags): where a tap or a drag goes on when the node that received it only watched it to
+    /// derive a press.
+    fn gesture_ancestor(&self, node: RNode, kind: day_spec::GestureKind) -> Option<RNode>;
+    /// Where `node`'s origin sits in `ancestor`'s coordinates, from the last layout: the
+    /// offset that moves a point from the one to the other when an event is passed on. `None`
+    /// before both have been laid out, or when `ancestor` is not above `node`. A scroll between
+    /// the two contributes its content position, not where it is scrolled to.
+    fn offset_in(&self, node: RNode, ancestor: RNode) -> Option<Point>;
+    /// Imperatively scroll the native list to item `row` (clamped), or to the end of its
+    /// content for `None`; a no-op while the list is empty. `animated` yields to the
+    /// reduce-motion setting.
+    fn list_scroll(
+        &mut self,
+        node: RNode,
+        row: Option<usize>,
+        align: day_spec::RowAlign,
+        animated: bool,
+    );
     /// Programmatically sync the list's selected rows (empty = clear). The toolkit applies
     /// without re-emitting a selection event.
     fn list_set_selected(&mut self, node: RNode, rows: Vec<usize>);
@@ -1288,8 +1623,18 @@ pub trait TreeOps {
 
 impl<B: Toolkit> TreeOps for Tree<B> {
     fn set_presented(&mut self, node: RNode, visible: bool) {
-        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
-            self.toolkit.set_presented(&handle, visible);
+        // Every native view directly under the node: a layout-only wrapper (a `.grow()` around
+        // a composed pager's page) has none of its own, and its children may be several.
+        let mut stack = vec![node];
+        while let Some(cur) = stack.pop() {
+            let Some(n) = self.nodes.get(cur) else {
+                continue;
+            };
+            if let Some(handle) = n.handle.clone() {
+                self.toolkit.set_presented(&handle, visible);
+            } else {
+                stack.extend(n.children.iter().copied());
+            }
         }
     }
 
@@ -1723,41 +2068,52 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind) {
+        use day_spec::GestureKind as K;
         let kinds = self.gestures.entry(node).or_default();
         if !kinds.contains(&kind) {
             kinds.push(kind);
         }
+        // A gesture the backend has no recognizer for is derived from the tap and drag events
+        // (crate::gesture): attach those instead, and never ask for the missing one.
+        let native = |t: &B, k: K| t.gesture_support(k) != Support::Unsupported;
+        let derived = !native(&self.toolkit, kind);
+        crate::gesture::note_enabled(rnode_to_id(node), kind, derived);
+        let attach: &[K] = match kind {
+            _ if !derived => &[kind],
+            K::DoubleTap => &[K::Tap],
+            K::LongPress if native(&self.toolkit, K::Press) => &[K::Press],
+            K::Press | K::LongPress => &[K::Drag, K::Tap],
+            K::Touches => &[K::Drag],
+            _ => &[],
+        };
         // `.on_tap`/`.on_drag` often land on a layout-only wrapper (`.frame()`, `.padding()`,
         // `.grow(Dimension::Both)` produce one) that has no native view to carry a recognizer. Descend
         // through single-child layout-only nodes to the nearest native descendant and attach
         // there, but deliver events against the original node, where the modifier registered
         // its handler.
-        let mut cur = node;
-        for _ in 0..16 {
-            let Some(n) = self.nodes.get(cur) else { return };
-            if let Some(h) = n.handle.clone() {
-                if kind == day_spec::GestureKind::Tap && n.kind == kinds::BUTTON {
-                    log::warn!(
-                        "tap gesture attached to native button {:?} (id: {:?}): \
-                         use .action(...) instead of .on_tap(...) or .on_tap_at(...). \
-                         A separate gesture recognizer can delay pressed feedback and \
-                         bypass native keyboard, accessibility, and disabled behavior",
-                        rnode_to_id(cur),
-                        n.id,
-                    );
-                }
-                self.toolkit.enable_gesture(&h, rnode_to_id(node), kind);
-                return;
-            }
-            match n.children.as_slice() {
-                [only] => cur = *only,
-                _ => break,
-            }
+        let Some((h, view)) = self.native_under(node) else {
+            log::warn!(
+                "enable_gesture({kind:?}) found no native view under the target node — \
+                 the gesture will not fire natively (attach it to a piece with a native handle)"
+            );
+            return;
+        };
+        if kind == K::Tap
+            && let Some(n) = self.nodes.get(view)
+            && n.kind == kinds::BUTTON
+        {
+            log::warn!(
+                "tap gesture attached to native button {:?} (id: {:?}): \
+                 use .action(...) instead of .on_tap(...) or .on_tap_at(...). \
+                 A separate gesture recognizer can delay pressed feedback and \
+                 bypass native keyboard, accessibility, and disabled behavior",
+                rnode_to_id(view),
+                n.id,
+            );
         }
-        log::warn!(
-            "enable_gesture({kind:?}) found no native view under the target node — \
-             the gesture will not fire natively (attach it to a piece with a native handle)"
-        );
+        for k in attach {
+            self.toolkit.enable_gesture(&h, rnode_to_id(node), *k);
+        }
     }
 
     fn focus_node(&mut self, node: RNode, focused: bool) {
@@ -1932,6 +2288,32 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 _ => false,
             };
         }
+        // A native list scrolls by rows, through its own duty (docs/list.md "Programmatic
+        // scrolling"): the first display row (a header above the items included) for the top,
+        // the end of the content for the bottom. It has no horizontal extremes or offsets.
+        if n.kind == kinds::LIST
+            && let Some(state) = self.lists.get(&node)
+        {
+            let rows = match state.sections.as_ref() {
+                Some(map) => map.len(),
+                None => (state.driver.len)(),
+            };
+            if rows == 0 {
+                // Nothing to scroll: the list is already at both ends.
+                return matches!(target, ScrollTarget::Top | ScrollTarget::Bottom);
+            }
+            return match target {
+                ScrollTarget::Top => {
+                    self.list_scroll_display(node, Some(0), day_spec::RowAlign::Start, animated);
+                    true
+                }
+                ScrollTarget::Bottom => {
+                    self.list_scroll_display(node, None, day_spec::RowAlign::Nearest, animated);
+                    true
+                }
+                _ => false,
+            };
+        }
         if n.kind != kinds::SCROLL {
             return false;
         }
@@ -1967,9 +2349,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             Some(n) => n.parent,
             None => return false,
         };
+        let mut below = node;
         loop {
             let Some(a) = self.nodes.get(anc) else {
-                return false; // walked off the root: no scroll ancestor
+                // Walked off the top of a subtree. A recycling list's row is one: its cell
+                // anchor has no parent, and the list scrolls it into view by its row.
+                return self.reveal_list_row(below, animated);
             };
             if a.kind == kinds::SCROLL {
                 let Some(h) = a.handle.clone() else {
@@ -1985,6 +2370,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 rect.origin.x += f.origin.x;
                 rect.origin.y += f.origin.y;
             }
+            below = anc;
             anc = a.parent;
         }
     }
@@ -2002,7 +2388,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                             n.probe.text.clone_from(t);
                         }
                         LabelPatch::Font(font) => n.probe.font = Some(*font),
-                        LabelPatch::Color(_) => {}
+                        LabelPatch::Color(_) | LabelPatch::Paragraph(_) => {}
                     }
                 } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                     match p {
@@ -2062,6 +2448,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let kind = n.kind;
         if let Some(h) = n.handle.clone() {
             let anim = self.resolve_anim(node);
+            // A control enabling itself inside a disabled group stays disabled until the
+            // group is enabled; its own wish is kept in the probe for that moment.
+            let patch = if is_enable_patch(patch.as_ref()) && self.subtree_disabled(node) {
+                enabled_patch(kind, false).unwrap_or(patch)
+            } else {
+                patch
+            };
             self.toolkit.update(&h, kind, patch.as_ref(), anim.as_ref());
         }
         if affects_size {
@@ -2125,6 +2518,49 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 );
             }
             n.handle = Some(new);
+        }
+    }
+
+    fn set_node_direction(&mut self, node: RNode, direction: Option<day_spec::LayoutDirection>) {
+        if !self.nodes.contains_key(node) {
+            return;
+        }
+        let changed = match direction {
+            Some(dir) => self.directions.insert(node, dir) != Some(dir),
+            None => self.directions.remove(&node).is_some(),
+        };
+        if !changed {
+            return;
+        }
+        // Tell the widgets that exist now; the place pass tells the ones built later.
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            let dir = self.direction_of(n);
+            self.tell_direction(n, dir);
+            if let Some(data) = self.nodes.get(n) {
+                stack.extend(data.children.iter().copied());
+            }
+            if let Some(list) = self.lists.get(&n) {
+                stack.extend(list.cells.values().map(|c| c.anchor));
+            }
+            if let Some(tree) = self.trees.get(&n) {
+                stack.extend(tree.cells.values().map(|c| c.anchor));
+            }
+        }
+        self.mark_needs_measure_impl(node);
+        self.layout_dirty = true;
+    }
+
+    fn node_direction(&self, node: RNode) -> day_spec::LayoutDirection {
+        self.direction_of(node)
+    }
+
+    fn text_scale(&mut self, style: day_spec::Font) -> f64 {
+        let scale = self.toolkit.text_scale(style);
+        if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
         }
     }
 
@@ -2292,7 +2728,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn node_probe(&self, node: RNode) -> Option<NodeProbe> {
-        self.nodes.get(node).map(|n| n.probe.clone())
+        let disabled = self.subtree_disabled(node);
+        self.nodes.get(node).map(|n| {
+            let mut probe = n.probe.clone();
+            probe.enabled &= !disabled;
+            probe
+        })
     }
 
     fn node_a11y(&self, node: RNode) -> Option<A11yProps> {
@@ -2303,6 +2744,33 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let n = self.nodes.get(node)?;
         let h = n.handle.as_ref()?;
         Some(self.toolkit.read_native(h))
+    }
+
+    fn read_displayed(&self, node: RNode) -> Option<day_spec::Displayed> {
+        self.nodes.get(node)?;
+        let mut shown = day_spec::Displayed::default();
+        let mut cur = node;
+        while let Some(n) = self.nodes.get(cur) {
+            if let Some(h) = n.handle.as_ref() {
+                let d = self.toolkit.read_displayed(h);
+                if cur == node {
+                    shown.frame = d.frame;
+                }
+                if let Some(o) = d.opacity {
+                    shown.opacity = Some(shown.opacity.unwrap_or(1.0) * o);
+                }
+                if let Some(t) = d.translation {
+                    let sum = shown.translation.unwrap_or(day_spec::Point::ZERO);
+                    shown.translation = Some(day_spec::Point::new(sum.x + t.x, sum.y + t.y));
+                }
+                shown.background = shown.background.or(d.background);
+            }
+            if n.parent == cur {
+                break;
+            }
+            cur = n.parent;
+        }
+        Some(shown)
     }
 
     fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::NativeSnapshot)> {
@@ -2658,9 +3126,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn install_list(&mut self, node: RNode, driver: crate::list::ListDriver) {
         let driver = Rc::new(driver);
-        let sections = driver
-            .sections
-            .is_some()
+        let sections = (driver.sections.is_some() || driver.supplements.any())
             .then(|| crate::list::register_sections(node, driver.clone()));
         self.lists.insert(
             node,
@@ -2681,13 +3147,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         node: RNode,
         key: usize,
         cell: RawHandle,
-        header: bool,
+        kind: crate::list::CellKind,
+        token: u64,
     ) -> crate::list::CellStep {
-        // A cell that held the other kind (a header's cell reused for an item, or the reverse)
+        // A cell that held another kind (a header's cell reused for an item, or the reverse)
         // cannot be rebound: its subtree is the wrong piece. Dispose it as a release would and
         // build afresh in the same native cell.
         if let Some(state) = self.lists.get_mut(&node)
-            && state.cells.get(&key).is_some_and(|b| b.header != header)
+            && state.cells.get(&key).is_some_and(|b| b.kind != kind)
             && let Some(old) = state.cells.remove(&key)
         {
             old.scope.dispose();
@@ -2697,6 +3164,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             && let Some(bound) = state.cells.get_mut(&key)
         {
             bound.active = true;
+            bound.token = token;
             let (rebind, anchor, pinned) = (bound.rebind.clone(), bound.anchor, bound.pinned);
             // A pooled cell coming back: its ids were parked when it was recycled, and a
             // rebind to unchanged content would never re-set them (see `parked_id`). A pinned
@@ -2715,10 +3183,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         // A section header lines up with the rows (the side insets) but is no row: its own
         // padding sets its height, and the platform's least row height is a touch target's,
         // which a header is not.
-        if header {
-            metrics.insets.top = 0.0;
-            metrics.insets.bottom = 0.0;
-            metrics.min_height = 0.0;
+        match kind {
+            crate::list::CellKind::Item => {}
+            crate::list::CellKind::Header => {
+                metrics.insets.top = 0.0;
+                metrics.insets.bottom = 0.0;
+                metrics.min_height = 0.0;
+            }
+            // A supplementary row is the app's own content, edge to edge.
+            crate::list::CellKind::Extra(_) => metrics = day_spec::RowMetrics::default(),
+        }
+        // The list's content padding insets every row from the sides (docs/list.md "Header,
+        // footer and empty state"); its top and bottom are rows of their own.
+        if let Some(padding) = self.lists.get(&node).map(|s| s.driver.supplements.padding) {
+            metrics.insets.leading += padding.leading;
+            metrics.insets.trailing += padding.trailing;
         }
         let handle = self.toolkit.adopt(cell);
         let anchor = self.create_cell_anchor(
@@ -2735,7 +3214,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         key: usize,
         anchor: RNode,
         built: crate::list::BuiltRow,
-        header: bool,
+        kind: crate::list::CellKind,
+        token: u64,
     ) {
         if let Some(state) = self.lists.get_mut(&node) {
             state.cells.insert(
@@ -2748,7 +3228,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     native_width: None,
                     laid_width: None,
                     laid_height: None,
-                    header,
+                    kind,
+                    token,
                     pinned: false,
                 },
             );
@@ -2821,11 +3302,40 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>) {
-        // A sectioned list's deltas name items, and the headers around them move too: the
-        // host re-queries instead (docs/list.md "Sections").
-        if self.lists.get(&node).is_some_and(|s| s.sections.is_some()) {
-            self.list_reload(node);
+        use day_spec::props::RowDelta;
+        let Some(state) = self.lists.get(&node) else {
             return;
+        };
+        let deltas = match &state.sections {
+            None => deltas,
+            // A sectioned list's deltas name items, and the headers around them move too;
+            // an empty state comes and goes with the first and last item. The host
+            // re-queries instead (docs/list.md "Sections").
+            Some(_)
+                if state.driver.sections.is_some() || state.driver.supplements.empty.is_some() =>
+            {
+                self.list_reload(node);
+                return;
+            }
+            // Rows above the items only shift every index.
+            Some(map) => {
+                let lead = map.lead();
+                deltas
+                    .into_iter()
+                    .map(|delta| match delta {
+                        RowDelta::Insert(at) => RowDelta::Insert(at + lead),
+                        RowDelta::Remove(at) => RowDelta::Remove(at + lead),
+                        RowDelta::Move(from, to) => RowDelta::Move(from + lead, to + lead),
+                    })
+                    .collect()
+            }
+        };
+        self.list_splice_rows(node, deltas);
+    }
+
+    fn list_splice_rows(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>) {
+        if let Some(map) = self.lists.get(&node).and_then(|s| s.sections.as_ref()) {
+            map.invalidate();
         }
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.update(
@@ -2835,6 +3345,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 None,
             );
         }
+    }
+
+    fn list_live_cells(&self, node: RNode) -> Vec<crate::list::LiveCell> {
+        self.lists.get(&node).map_or_default(|s| {
+            s.cells
+                .iter()
+                .filter(|(_, cell)| cell.active)
+                .map(|(key, cell)| crate::list::LiveCell {
+                    key: *key,
+                    token: cell.token,
+                    kind: cell.kind,
+                    rebind: cell.rebind.clone(),
+                })
+                .collect()
+        })
     }
 
     fn set_undo_state(&mut self, state: &day_spec::UndoState) {
@@ -2849,39 +3374,156 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.toolkit.modifiers()
     }
 
-    fn list_scroll_to_end(&mut self, node: RNode) {
-        // Empty list: nothing to scroll to (the row count is read straight from the piece's
-        // snapshot, with no tree access, so this guard is cheap and backend-independent).
-        if self.lists.get(&node).map_or(0, |s| (s.driver.len)()) == 0 {
-            return;
-        }
-        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
-            self.toolkit.update(
-                &handle,
-                kinds::LIST,
-                &day_spec::props::ListPatch::ScrollToEnd as &dyn Any,
-                None,
+    fn gesture_support(&self, kind: day_spec::GestureKind) -> Support {
+        self.toolkit.gesture_support(kind)
+    }
+
+    fn primary_pointer(&self) -> day_spec::PointerKind {
+        self.toolkit.primary_pointer()
+    }
+
+    fn set_hit_slop(&mut self, node: RNode, slop: day_spec::Insets) {
+        self.hit_slops.insert(node, slop);
+        if let Some((h, _)) = self.native_under(node) {
+            self.toolkit.set_hit_slop(&h, rnode_to_id(node), slop);
+        } else {
+            log::warn!(
+                "hit_slop found no native view under the target node — \
+                 the piece keeps its own bounds as its input area"
             );
         }
     }
 
-    fn list_scroll_to_row(&mut self, node: RNode, row: usize) {
+    fn hit_slop(&self, node: RNode) -> day_spec::Insets {
+        self.hit_slops.get(&node).copied().unwrap_or_default()
+    }
+
+    fn set_drag_axis(&mut self, node: RNode, axis: Option<day_spec::DragAxis>) {
+        crate::gesture::set_axis(rnode_to_id(node), axis);
+        if let Some((h, _)) = self.native_under(node) {
+            self.toolkit.set_drag_axis(&h, rnode_to_id(node), axis);
+        }
+    }
+
+    fn set_subtree_enabled(&mut self, node: RNode, enabled: bool) {
+        let changed = if enabled {
+            self.disabled.remove(&node)
+        } else {
+            self.disabled.insert(node)
+        };
+        if !changed {
+            return;
+        }
+        // Every native view directly under the node: a layout-only wrapper has none of its
+        // own, and its children may be several.
+        let mut stack = vec![node];
+        while let Some(cur) = stack.pop() {
+            let Some(n) = self.nodes.get(cur) else {
+                continue;
+            };
+            if let Some(h) = n.handle.clone() {
+                self.toolkit
+                    .set_subtree_enabled(&h, rnode_to_id(node), enabled);
+            } else {
+                stack.extend(n.children.iter().copied());
+            }
+        }
+        self.sync_enabled_controls(node);
+    }
+
+    fn subtree_disabled(&self, node: RNode) -> bool {
+        if self.disabled.is_empty() {
+            return false;
+        }
+        let mut cur = Some(node);
+        while let Some(n) = cur {
+            if self.disabled.contains(&n) {
+                return true;
+            }
+            cur = self.nodes.get(n).map(|d| d.parent).filter(|p| !p.is_null());
+        }
+        false
+    }
+
+    fn drop_target(&self, node: RNode) -> Option<day_spec::transfer::Target> {
+        self.drop_targets.get(&node).cloned()
+    }
+
+    fn offset_in(&self, node: RNode, ancestor: RNode) -> Option<Point> {
+        // A frame is relative to the nearest realized native ancestor (§7), so a node's place
+        // in the shared space is its own origin plus every realized ancestor's. Both ends are
+        // measured that way and subtracted, which also covers a layout-only `ancestor`.
+        let place = |from: RNode| -> Option<(Point, Vec<RNode>)> {
+            let n = self.nodes.get(from)?;
+            let mut at = n.last_native_frame?.origin;
+            let mut chain = Vec::new();
+            let mut cur = n.parent;
+            while let Some(a) = self.nodes.get(cur) {
+                chain.push(cur);
+                if a.handle.is_some()
+                    && let Some(f) = a.last_native_frame
+                {
+                    at = Point::new(at.x + f.origin.x, at.y + f.origin.y);
+                }
+                cur = a.parent;
+            }
+            Some((at, chain))
+        };
+        let (below, chain) = place(node)?;
+        if !chain.contains(&ancestor) {
+            return None;
+        }
+        let (above, _) = place(ancestor)?;
+        Some(Point::new(below.x - above.x, below.y - above.y))
+    }
+
+    fn gesture_ancestor(&self, node: RNode, kind: day_spec::GestureKind) -> Option<RNode> {
+        use day_spec::GestureKind as K;
+        // A piece whose recognizer is derived from taps or drags takes them too: an outer
+        // double tap, press or long press is recognized from the taps and drags passed to it.
+        let covers = |k: &K| {
+            *k == kind
+                || match kind {
+                    K::Tap => matches!(k, K::DoubleTap | K::Press | K::LongPress),
+                    K::Drag => matches!(k, K::Press | K::LongPress | K::Touches),
+                    _ => false,
+                }
+        };
+        let mut cur = self.nodes.get(node).map(|n| n.parent)?;
+        while !cur.is_null() {
+            if self
+                .gestures
+                .get(&cur)
+                .is_some_and(|k| k.iter().any(covers))
+            {
+                return Some(cur);
+            }
+            cur = self.nodes.get(cur).map(|n| n.parent)?;
+        }
+        None
+    }
+
+    fn list_scroll(
+        &mut self,
+        node: RNode,
+        row: Option<usize>,
+        align: day_spec::RowAlign,
+        animated: bool,
+    ) {
+        // Empty list: nothing to scroll to (the row count is read straight from the piece's
+        // snapshot, with no tree access, so this guard is cheap and backend-independent).
         let len = self.lists.get(&node).map_or(0, |s| (s.driver.len)());
         if len == 0 {
             return;
         }
-        let mut row = row.min(len - 1);
-        if let Some(map) = self.lists.get(&node).and_then(|s| s.sections.as_ref()) {
-            row = map.display_of(row).unwrap_or(row);
-        }
-        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
-            self.toolkit.update(
-                &handle,
-                kinds::LIST,
-                &day_spec::props::ListPatch::ScrollToRow(row) as &dyn Any,
-                None,
-            );
-        }
+        let row = row.map(|row| {
+            let row = row.min(len - 1);
+            match self.lists.get(&node).and_then(|s| s.sections.as_ref()) {
+                Some(map) => map.display_of(row).unwrap_or(row),
+                None => row,
+            }
+        });
+        self.list_scroll_display(node, row, align, animated);
     }
 
     fn list_set_editing(&mut self, node: RNode, on: bool) {
@@ -3144,6 +3786,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
     }
     fn set_drop_target(&mut self, node: RNode, target: day_spec::transfer::Target) {
+        self.drop_targets.insert(node, target.clone());
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit.set_drop_target(&handle, target);
         }
@@ -3253,7 +3896,7 @@ pub fn install_tree(tree: Box<dyn TreeOps>) {
     TREE.with(|t| *t.borrow_mut() = Some(tree));
     // Seed colors outside layout/draw callbacks, and refresh across activity recreation.
     crate::note_appearance_changed();
-    let _ = crate::system_color(day_spec::SystemColor::Accent);
+    let _ = crate::palette();
     // Read the export answers now, while the tree is free, so a context menu built inside a
     // later borrow finds them (`image::canvas_exports`).
     let _ = crate::image::canvas_exports();
@@ -3786,7 +4429,11 @@ fn pump_events_inner() {
         if let Event::FocusChanged(_) = ev {
             dispatch_focus_probe(id, &ev);
         }
-        dispatch_to_node(id, &ev);
+        // Gestures pass through the shared recognizers (crate::gesture): one event may come
+        // back as none (a disabled subtree, a withheld tap), itself, or several.
+        for (id, ev) in crate::gesture::route(id, ev) {
+            dispatch_to_node(id, &ev);
+        }
     }
     day_reactive::flush_sync();
     // The route has settled now that every queued event is dispatched and reactive writes have
@@ -3831,6 +4478,53 @@ pub fn scroll_to(node: RNode, target: ScrollTarget) {
     });
 }
 
+/// The patch that enables or disables a control of `kind`, for the kinds whose own patch
+/// vocabulary has one.
+fn enabled_patch(kind: day_spec::PieceKind, enabled: bool) -> Option<Box<dyn Any>> {
+    use day_spec::props::{ButtonPatch, PickerPatch, SliderPatch, TextFieldPatch, TogglePatch};
+    Some(if kind == kinds::BUTTON {
+        Box::new(ButtonPatch::Enabled(enabled))
+    } else if kind == kinds::TOGGLE {
+        Box::new(TogglePatch::Enabled(enabled))
+    } else if kind == kinds::SLIDER {
+        Box::new(SliderPatch::Enabled(enabled))
+    } else if kind == kinds::PICKER {
+        Box::new(PickerPatch::Enabled(enabled))
+    } else if kind == kinds::TEXT_FIELD {
+        Box::new(TextFieldPatch::Enabled(enabled))
+    } else {
+        return None;
+    })
+}
+
+/// Whether `patch` asks one of those controls to enable itself.
+fn is_enable_patch(patch: &dyn Any) -> bool {
+    use day_spec::props::{ButtonPatch, PickerPatch, SliderPatch, TextFieldPatch, TogglePatch};
+    matches!(
+        patch.downcast_ref::<ButtonPatch>(),
+        Some(ButtonPatch::Enabled(true))
+    ) || matches!(
+        patch.downcast_ref::<TogglePatch>(),
+        Some(TogglePatch::Enabled(true))
+    ) || matches!(
+        patch.downcast_ref::<SliderPatch>(),
+        Some(SliderPatch::Enabled(true))
+    ) || matches!(
+        patch.downcast_ref::<PickerPatch>(),
+        Some(PickerPatch::Enabled(true))
+    ) || matches!(
+        patch.downcast_ref::<TextFieldPatch>(),
+        Some(TextFieldPatch::Enabled(true))
+    )
+}
+
+/// Deliver an event the shared recognizers produced outside the pump (a timer's long press, a
+/// single tap that waited out the double-tap interval), then flush, as the pump does.
+pub(crate) fn dispatch_routed(id: NodeId, ev: &Event) {
+    dispatch_to_node(id, ev);
+    day_reactive::flush_sync();
+}
+
 /// Run one already-routed event through its node's handlers (the tail of the pump loop).
 fn dispatch_to_node(id: NodeId, ev: &Event) {
     let node = if id == day_spec::WINDOW_NODE {
@@ -3846,6 +4540,9 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
     let gesture = match ev {
         Event::Tap(_) => Some(day_spec::GestureKind::Tap),
         Event::LongPress(_) => Some(day_spec::GestureKind::LongPress),
+        Event::DoubleTap(_) => Some(day_spec::GestureKind::DoubleTap),
+        Event::Press { .. } => Some(day_spec::GestureKind::Press),
+        Event::Touches(_) => Some(day_spec::GestureKind::Touches),
         Event::Drag { .. } => Some(day_spec::GestureKind::Drag),
         Event::Pan { .. } => Some(day_spec::GestureKind::Pan),
         Event::Pinch { .. } => Some(day_spec::GestureKind::Pinch),

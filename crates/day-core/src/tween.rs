@@ -1,41 +1,31 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Tweening for self-drawn content (docs/tween.md): the pieces a canvas animation needs that
-//! native widgets get from their toolkit.
+//! Interpolation for self-drawn content (docs/tween.md): what a canvas animation needs to say
+//! what the in-between picture is.
 //!
 //! [`with_animation`](crate::with_animation) hands native widgets *intent* and lets each toolkit
 //! animate on its own compositor. A canvas has no compositor to hand anything to: it re-records a
-//! display list, so something has to decide, frame by frame, what the in-between picture is. That
-//! something is built from four parts, each usable on its own:
+//! display list, so something has to decide, frame by frame, what the in-between picture is.
+//! [`motion`](crate::motion) moves the values ([`Animated`](crate::motion::Animated),
+//! [`Animation`](crate::motion::Animation)); this module says what lies between two of them:
 //!
 //! * [`Lerp`]: how a value moves between two states. Numbers, points, rects, tuples, arrays,
 //!   vectors, and colors (blended in OKLab, so a heat map's mid-transition cells are the colors in
 //!   between rather than a muddy detour through gray).
-//! * [`Timing`]: an [`AnimSpec`] sampled over elapsed seconds: delay, easing curve or spring,
-//!   repeats and autoreverse, and a definite end, so a driver knows when to stop asking for frames.
-//! * [`animate`]: a driver on the window's [`FrameClock`], calling a step
-//!   closure once per display frame until the timing completes, then releasing the clock.
-//! * [`Tweened`]: a reactive value that glides to each new target, starting from wherever it is when
-//!   retargeted, so an interrupted transition bends instead of jumping.
+//! * [`stagger`]: one [`AnimSpec`] per item, each delayed a little more, for sequences (bars
+//!   rising left to right).
+//! * [`Pairs`]: the step before either when what changed is a *collection*. It matches the
+//!   items of two states by key, gives the ones only one side has somewhere to come from or go
+//!   to, and interpolates the lot, so bars that trade places slide and a new one grows out of
+//!   its neighbor instead of the whole picture cross-fading.
 //!
-//! [`stagger`] offsets one spec per item, for sequences (bars rising left to right).
-//!
-//! [`Pairs`] is the step before any of them when what changed is a *collection*: it matches the
-//! items of two states by key, gives the ones only one side has somewhere to come from or go to,
-//! and interpolates the lot, so bars that trade places slide and a new one grows out of its
-//! neighbor instead of the whole picture cross-fading.
+//! An `AnimSpec`'s timeline as a function of elapsed time is [`AnimSpec::sample`].
 
-use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
-use std::ops::ControlFlow;
-use std::rc::Rc;
-use std::time::Duration;
 
-use day_spec::{AnimSpec, Color, Point, Rect, Size};
-
-use crate::frame::{FrameClock, FrameHandle};
+use day_spec::{Angle, AnimSpec, Color, Ink, Palette, Point, Rect, Size};
 
 /// A value that can be interpolated: `a.lerp(&b, 0.0)` is `a`, `a.lerp(&b, 1.0)` is `b`.
 ///
@@ -96,6 +86,43 @@ impl Lerp for Rect {
 impl Lerp for Color {
     fn lerp(&self, to: &Self, t: f64) -> Self {
         mix_oklab(*self, *to, t)
+    }
+}
+
+/// An angle moves along the number line, not the short way round: from 350° to 10° is a turn of
+/// 340° backwards, which is what a spinner counting down means. Normalize first for the short arc.
+impl Lerp for Angle {
+    fn lerp(&self, to: &Self, t: f64) -> Self {
+        Angle::deg(lerp(self.degrees(), to.degrees(), t))
+    }
+}
+
+/// Inks blend per appearance (docs/color.md "Inks in motion"). Two fixed colors or two light/dark
+/// pairs blend each side in OKLab, so the in-between value still follows an appearance switch. A
+/// [`SystemColor`](day_spec::SystemColor) role has no color of its own until the toolkit answers
+/// it, so a blend that involves one resolves the role against [`Palette::both`] and blends the
+/// pair.
+/// The endpoints are exact: `t == 1` is `to` itself, role and all, so the settled value follows
+/// the platform again.
+impl Lerp for Ink {
+    #[expect(
+        clippy::float_cmp,
+        reason = "the exact endpoints are the contract, so exact comparison is the point"
+    )]
+    fn lerp(&self, to: &Self, t: f64) -> Self {
+        if t == 0.0 {
+            return *self;
+        }
+        if t == 1.0 {
+            return *to;
+        }
+        if let (Ink::Fixed(a), Ink::Fixed(b)) = (self, to) {
+            return Ink::Fixed(mix_oklab(*a, *b, t));
+        }
+        let (light, dark) = Palette::both();
+        let (a_light, a_dark) = self.pair(&light, &dark);
+        let (b_light, b_dark) = to.pair(&light, &dark);
+        Ink::adaptive(mix_oklab(a_light, b_light, t), mix_oklab(a_dark, b_dark, t))
     }
 }
 
@@ -215,92 +242,7 @@ pub fn mix_oklab(a: Color, b: Color, t: f64) -> Color {
     )
 }
 
-// --- Timing -----------------------------------------------------------------------------------
-
-/// One sample of a [`Timing`]: how far the value has come, and whether it has arrived.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Sample {
-    /// `0` at the start, `1` at the end. A spring may overshoot on the way; the final sample is
-    /// exactly the end value (`1`, or `0` for an autoreversed cycle count that ends where it began).
-    pub progress: f64,
-    /// Whether this sample is the last one. A driver stops requesting frames after it.
-    pub done: bool,
-}
-
-/// An [`AnimSpec`] as a function of elapsed seconds.
-///
-/// Easing curves run for `duration_ms`. A spring runs its analytic step response and ends at
-/// `duration_ms`, which `AnimSpec::spring` sets to the spring's `response`: that is how every Day
-/// backend times a spring, so a canvas transition and a native one started together land together.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Timing {
-    pub spec: AnimSpec,
-}
-
-impl Timing {
-    #[must_use]
-    pub fn new(spec: AnimSpec) -> Self {
-        Timing { spec }
-    }
-
-    /// One cycle, in seconds.
-    fn cycle(&self) -> f64 {
-        (f64::from(self.spec.duration_ms) / 1000.0).max(0.0)
-    }
-
-    /// The whole run including the delay, or `None` for a spec that repeats forever.
-    #[must_use]
-    pub fn total(&self) -> Option<f64> {
-        if self.spec.repeat == u32::MAX {
-            return None;
-        }
-        Some(
-            f64::from(self.spec.delay_ms) / 1000.0
-                + self.cycle() * (f64::from(self.spec.repeat) + 1.0),
-        )
-    }
-
-    /// Where the transition is `elapsed` seconds after it was started.
-    #[must_use]
-    pub fn sample(&self, elapsed: f64) -> Sample {
-        let t = elapsed - f64::from(self.spec.delay_ms) / 1000.0;
-        if t < 0.0 || !t.is_finite() {
-            return Sample {
-                progress: 0.0,
-                done: false,
-            };
-        }
-        let one = self.cycle();
-        let reverses = self.spec.autoreverse;
-        let cycles = self.spec.repeat.saturating_add(1);
-        let forever = self.spec.repeat == u32::MAX;
-        if one <= 0.0 {
-            return Sample {
-                progress: 1.0,
-                done: true,
-            };
-        }
-        let index = (t / one).floor();
-        if !forever && index >= f64::from(cycles) {
-            // Arrived. An autoreversed run of an even number of cycles ends back at the start.
-            let back = reverses && cycles.is_multiple_of(2);
-            return Sample {
-                progress: if back { 0.0 } else { 1.0 },
-                done: true,
-            };
-        }
-        let mut local = t - index * one;
-        if reverses && (index as u64) % 2 == 1 {
-            local = one - local;
-        }
-        // A spring evaluates its own step response, which may overshoot; an easing curve its
-        // shape over the cycle. `Curve::fraction` is both.
-        Sample {
-            progress: self.spec.curve.fraction(local, one),
-            done: false,
-        }
-    }
-}
+// --- Staggering ------------------------------------------------------------------------------
 
 /// `spec`, delayed for item `index` of `count` so the items start `spread_ms` apart in total:
 /// the first starts on time, the last `spread_ms` later. Bars rising left to right, points popping
@@ -314,180 +256,6 @@ pub fn stagger(spec: AnimSpec, index: usize, count: usize, spread_ms: u32) -> An
     AnimSpec {
         delay_ms: spec.delay_ms + (step * index as f64).round() as u32,
         ..spec
-    }
-}
-
-// --- Drivers ----------------------------------------------------------------------------------
-
-/// Call `step(sample)` once per display frame of `clock` until `timing` is done, then stop.
-///
-/// Elapsed time is measured from the first frame delivered, not from this call, so a transition
-/// started while the app is busy begins on screen rather than part-way through. The final call has
-/// `sample.done == true` and the exact end value; after it the subscription ends and the window
-/// requests no more frames on this transition's behalf. Keep the handle, or call
-/// [`FrameHandle::in_scope`]: dropping it cancels the transition where it stands.
-pub fn animate(
-    clock: FrameClock,
-    timing: Timing,
-    mut step: impl FnMut(Sample) + 'static,
-) -> FrameHandle {
-    // Under reduced motion, finish finite decorative tweens on their first frame. Keep
-    // continuous animations and simulations running; they have no meaningful final state. The
-    // check is per frame, not per start, so a setting flipped mid-flight lands the tween too.
-    let finish = |timing: &Timing| {
-        (crate::reduce_motion_now() && timing.total().is_some()).then_some(Sample {
-            progress: if timing.spec.duration_ms > 0
-                && timing.spec.autoreverse
-                && timing.spec.repeat % 2 == 1
-            {
-                0.0
-            } else {
-                1.0
-            },
-            done: true,
-        })
-    };
-    let mut start: Option<Duration> = None;
-    clock.subscribe(move |frame| {
-        let t0 = *start.get_or_insert(frame.timestamp);
-        let elapsed = frame.timestamp.saturating_sub(t0).as_secs_f64();
-        let sample = finish(&timing).unwrap_or_else(|| timing.sample(elapsed));
-        step(sample);
-        if sample.done {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        }
-    })
-}
-
-struct Flight<T> {
-    from: T,
-    to: T,
-    handle: Option<FrameHandle>,
-}
-
-/// A value that animates toward whatever it is told to become.
-///
-/// Reads are reactive, so a canvas that reads a `Tweened` re-records every frame of its
-/// transition and not otherwise. Retargeting mid-flight starts the new transition from the value
-/// on screen, which keeps the motion continuous: a slider dragged back and forth bends the path
-/// instead of snapping it.
-///
-/// ```rust,ignore
-/// let height = Tweened::new(0.0);
-/// button("Grow").action(move || height.animate_to(120.0, AnimSpec::spring(0.4, 0.8)));
-/// canvas(move |d, _| d.fill(Shape::Rect(Rect::new(0.0, 0.0, 40.0, height.get())), BLUE));
-/// ```
-pub struct Tweened<T: Lerp + 'static> {
-    shown: day_reactive::Signal<T>,
-    flight: Rc<RefCell<Flight<T>>>,
-    clock: FrameClock,
-    moving: Rc<Cell<bool>>,
-}
-
-impl<T: Lerp + 'static> Clone for Tweened<T> {
-    fn clone(&self) -> Self {
-        Tweened {
-            shown: self.shown,
-            flight: self.flight.clone(),
-            clock: self.clock,
-            moving: self.moving.clone(),
-        }
-    }
-}
-
-impl<T: Lerp + 'static> Tweened<T> {
-    /// A value at `initial`, animating on the current page's window.
-    pub fn new(initial: T) -> Self {
-        Self::on(FrameClock::current(), initial)
-    }
-
-    /// A value at `initial`, animating on `clock`.
-    pub fn on(clock: FrameClock, initial: T) -> Self {
-        Tweened {
-            shown: day_reactive::Signal::new(initial.clone()),
-            flight: Rc::new(RefCell::new(Flight {
-                from: initial.clone(),
-                to: initial,
-                handle: None,
-            })),
-            clock,
-            moving: Rc::new(Cell::new(false)),
-        }
-    }
-
-    /// The value on screen now; tracked.
-    #[must_use]
-    pub fn get(&self) -> T {
-        self.shown.get()
-    }
-
-    /// The value on screen now, without subscribing.
-    #[must_use]
-    pub fn get_untracked(&self) -> T {
-        self.shown.get_untracked()
-    }
-
-    /// Where the value is headed (the value itself once it has arrived).
-    #[must_use]
-    pub fn target(&self) -> T {
-        self.flight.borrow().to.clone()
-    }
-
-    /// Whether a transition is in flight.
-    #[must_use]
-    pub fn is_animating(&self) -> bool {
-        self.moving.get()
-    }
-
-    /// Jump to `value`, cancelling any transition.
-    pub fn set(&self, value: T) {
-        let mut f = self.flight.borrow_mut();
-        if let Some(h) = f.handle.take() {
-            h.cancel();
-        }
-        f.from = value.clone();
-        f.to = value.clone();
-        drop(f);
-        self.moving.set(false);
-        self.shown.set(value);
-    }
-
-    /// Animate from the value on screen to `target` under `spec`.
-    pub fn animate_to(&self, target: T, spec: AnimSpec) {
-        // Reduced motion (docs/accessibility.md): a finite transition lands at once; an
-        // endless one (a spinner, a pulse that is the only sign of work) keeps going.
-        if crate::reduce_motion_now() && spec.repeat != u32::MAX {
-            self.set(target);
-            return;
-        }
-        let from = self.shown.get_untracked();
-        {
-            let mut f = self.flight.borrow_mut();
-            if let Some(h) = f.handle.take() {
-                h.cancel();
-            }
-            f.from = from;
-            f.to = target;
-        }
-        self.moving.set(true);
-        let (flight, shown, moving) = (self.flight.clone(), self.shown, self.moving.clone());
-        let handle = animate(self.clock, Timing::new(spec), move |s| {
-            let v = {
-                let f = flight.borrow();
-                if s.done {
-                    f.to.clone()
-                } else {
-                    f.from.lerp(&f.to, s.progress)
-                }
-            };
-            shown.set(v);
-            if s.done {
-                moving.set(false);
-            }
-        });
-        self.flight.borrow_mut().handle = Some(handle);
     }
 }
 
@@ -715,61 +483,10 @@ impl<'a, T> IntoIterator for &'a Pairs<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     fn near(a: f64, b: f64) -> bool {
         (a - b).abs() < 1e-9
-    }
-
-    #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "a finished tween reports a progress of exactly 1.0"
-    )]
-    fn linear_timing_runs_its_duration_then_stops() {
-        let t = Timing::new(AnimSpec::linear(200));
-        assert_eq!(t.sample(0.0).progress, 0.0);
-        assert!(near(t.sample(0.1).progress, 0.5));
-        assert!(!t.sample(0.199).done);
-        let end = t.sample(0.2);
-        assert!(end.done && end.progress == 1.0);
-        assert_eq!(t.total(), Some(0.2));
-    }
-
-    #[test]
-    fn delay_holds_the_start_and_repeat_autoreverse_ends_where_it_began() {
-        let t = Timing::new(AnimSpec {
-            delay_ms: 100,
-            repeat: 1,
-            autoreverse: true,
-            ..AnimSpec::linear(100)
-        });
-        assert_eq!(t.sample(0.05).progress, 0.0);
-        assert!(near(t.sample(0.15).progress, 0.5)); // forward
-        assert!(near(t.sample(0.275).progress, 0.25)); // back
-        let end = t.sample(0.31);
-        assert!(end.done && end.progress == 0.0);
-        assert!(near(t.total().unwrap(), 0.3));
-        let forever = Timing::new(AnimSpec {
-            repeat: u32::MAX,
-            ..AnimSpec::linear(100)
-        });
-        assert!(!forever.sample(1000.0).done);
-        assert_eq!(forever.total(), None);
-    }
-
-    #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "a finished tween reports a progress of exactly 1.0"
-    )]
-    fn a_bouncy_spring_overshoots_and_ends_exactly_on_target() {
-        let t = Timing::new(AnimSpec::spring(0.5, 0.4));
-        let peak = (1..50)
-            .map(|i| t.sample(f64::from(i) * 0.01).progress)
-            .fold(0.0, f64::max);
-        assert!(peak > 1.0, "an under-damped spring overshoots: peak {peak}");
-        let end = t.sample(0.5);
-        assert!(end.done && end.progress == 1.0);
     }
 
     #[test]
@@ -779,52 +496,6 @@ mod tests {
         assert_eq!(stagger(s, 2, 5, 400).delay_ms, 200);
         assert_eq!(stagger(s, 4, 5, 400).delay_ms, 400);
         assert_eq!(stagger(s, 0, 1, 400).delay_ms, 0);
-    }
-
-    #[test]
-    fn tweened_values_ride_the_frame_clock_and_release_it_on_arrival() {
-        use crate::tree::RNode;
-        use day_spec::FrameStamp;
-        use std::collections::VecDeque;
-        let pending: Rc<RefCell<VecDeque<day_spec::FrameCallback>>> = Rc::default();
-        let q = pending.clone();
-        crate::frame::install_frame_requester(move |_, cb| {
-            q.borrow_mut().push_back(cb);
-            Box::new(|| {})
-        });
-        let fire = |ts: f64| {
-            let cb = pending
-                .borrow_mut()
-                .pop_front()
-                .expect("a frame was requested");
-            cb(FrameStamp {
-                timestamp: ts,
-                target_timestamp: None,
-            });
-        };
-        let v = Tweened::on(FrameClock::for_root(RNode::default()), 0.0);
-        v.animate_to(100.0, AnimSpec::linear(100));
-        assert!(v.is_animating());
-        fire(5.0); // the first frame is the start: elapsed 0
-        assert_eq!(v.get_untracked(), 0.0);
-        fire(5.05);
-        assert!(near(v.get_untracked(), 50.0));
-        // Retargeted mid-flight: the new transition starts from the value on screen. The cancelled
-        // transition's request is still queued in this fake (a native source would drop it); the
-        // frame service ignores its delivery.
-        v.animate_to(0.0, AnimSpec::linear(100));
-        fire(5.06);
-        fire(5.07); // the new transition's first frame
-        assert!(near(v.get_untracked(), 50.0));
-        fire(5.12);
-        assert!(near(v.get_untracked(), 25.0));
-        fire(5.18);
-        assert_eq!(v.get_untracked(), 0.0);
-        assert!(!v.is_animating());
-        assert!(
-            pending.borrow().is_empty(),
-            "no frames requested after arrival"
-        );
     }
 
     #[test]

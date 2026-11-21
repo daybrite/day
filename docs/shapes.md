@@ -60,7 +60,7 @@ See [accessibility](/docs/reference/accessibility).
 | [`circle()`](https://docs.rs/day-pieces/latest/day_pieces/fn.circle.html) | Centered circle whose diameter is the shorter side. |
 | [`ellipse()`](https://docs.rs/day-pieces/latest/day_pieces/fn.ellipse.html) | Ellipse filling the bounds. |
 | [`capsule()`](https://docs.rs/day-pieces/latest/day_pieces/fn.capsule.html) | Rounded rectangle with a radius of half the shorter side. |
-| [`arc(start_deg, sweep_deg)`](https://docs.rs/day-pieces/latest/day_pieces/fn.arc.html) | Arc of the bounds' ellipse; zero degrees points right and positive angles run clockwise. |
+| [`arc(start, sweep)`](https://docs.rs/day-pieces/latest/day_pieces/fn.arc.html) | Arc of the bounds' ellipse, both [`Angle`](https://docs.rs/day-geometry/latest/day_geometry/struct.Angle.html)s: zero points right and positive angles run clockwise. [`arc(Angle::deg(-90.0), Angle::FULL * 0.75)`](https://docs.rs/day-pieces/latest/day_pieces/fn.arc.html) |
 | [`line(from, to)`](https://docs.rs/day-pieces/latest/day_pieces/fn.line.html) | Segment between fractional `(x, y)` points; requires a stroke. |
 | [`polygon(points)`](https://docs.rs/day-pieces/latest/day_pieces/fn.polygon.html) | Closed polygon through fractional `(x, y)` points. |
 
@@ -70,19 +70,20 @@ See [accessibility](/docs/reference/accessibility).
 or a bounded parent to give them a useful size.
 
 Line and polygon coordinates are fractions of the bounds and are not clamped to 0–1.
-`Corner::Fixed` is clamped to half the shorter side; `Corner::Fraction(1.0)` gives that maximum radius.
+`Corner::Fixed` is clamped to half the shorter side; `Corner::Fraction(1.0)`, also spelled
+`Corner::CAPSULE`, gives that maximum radius. A [`Radius`](https://docs.rs/day-pieces/latest/day_pieces/enum.Radius.html)
+step converts to a `Corner`, and the same `Corner` rounds a view ([`.corner_radius(..)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.corner_radius)).
 
 ## Fills and strokes
 
-[`.fill(color)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill)
-sets a solid fill. Use
-[`.fill_linear(gradient)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_linear)
-or [`.fill_radial(gradient)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill_radial)
-for gradients. These accept values, signals, or closures. If several fill types are set,
-radial takes precedence over linear, then solid; call order does not change that precedence.
+[`.fill(paint)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.fill)
+takes any [`Paint`](https://docs.rs/day-spec/latest/day_spec/enum.Paint.html): a `Color`, a
+`SystemColor`, an `Ink`, or a linear, radial or conic gradient. It accepts a value, a signal
+or a closure, and the last call wins. It is the same `fill` a surface and a canvas take
+([color.md](color.md) "One fill vocabulary").
 
 [`.stroke(color, width)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.stroke)
-adds a solid outline. Shapes have no fill or stroke by default. A line ignores fills.
+adds a solid outline in any `Ink`. Shapes have no fill or stroke by default. A line ignores fills.
 For gradient strokes, dash patterns, and arbitrary paths, use the canvas drawing API.
 
 Closed shapes other than polygons inset their geometry by half the stroke width to keep the
@@ -95,12 +96,14 @@ an edge may clip. See [Colors](/docs/reference/color) for color and gradient val
 | --- | --- |
 | [`.at(x, y, width, height)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.at) | Places the shape in a fractional subrectangle of its bounds. |
 | [`.inset(points)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.inset) | Insets that rectangle before resolving the geometry. |
-| [`.rotate(degrees)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.rotate) | Rotates the drawing around its center. |
+| [`.rotation(angle)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.rotation) | Rotates the drawing clockwise around its center by an `Angle`. |
 | [`.scale(factor)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.scale) | Scales the drawing uniformly around its center. |
-| [`.offset(x, y)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.offset) | Translates the drawing within its layout frame. |
+| [`.translation(x, y)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.translation) | Translates the drawing within its layout frame. |
 
+The names are the ones a view's transform modifiers use ([`Decorate::rotation`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.rotation), `scale`,
+`translation`), so moving a drawing from a shape to a view changes nothing at the call site.
 Drawing transforms do not change the shape's allocated layout size. Inset, rotation, scale,
-and offset can read reactive values. Use [animation](/docs/reference/tween) to interpolate
+and translation can read reactive values. Use [animation](/docs/reference/tween) to interpolate
 those values over time.
 
 ## Shape groups
@@ -122,14 +125,17 @@ ellipse containment; polygons use polygon containment. Rectangles, rounded recta
 arcs, and lines use rectangular bounds, so hit testing does not follow every visible contour.
 
 [`.on_drag(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ShapePieceBuilder.html#tymethod.on_drag)
-reports a `Drag` with phase, local pointer location, and cumulative translation. The press
-location is `location - translation`; the first reported drag event may arrive after the
-pointer has already moved. Drag handling does not use the tap containment test.
+reports a `Drag` with phase, local pointer location, cumulative translation and velocity. The
+press location is [`Drag::start()`](https://docs.rs/day-pieces/latest/day_pieces/struct.Drag.html#method.start) (`location - translation`); the first reported drag event may
+arrive after the pointer has already moved. Drag handling does not use the tap containment test.
 
-On iOS and Android, a shape with no tap, drag, hover, context menu or key handler takes no
-touches: a tap on it reaches whatever is beneath it, so a border stroked over a row of controls
-with [`.overlay(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.overlay)
-leaves the controls working.
+Every other gesture comes from the modifiers any piece takes: double tap, long press, press,
+raw touches, hit slop and a drag along one axis are described in [gestures](gestures.md).
+
+A shape with no handler takes no pointer input: a press on it reaches whatever is beneath it,
+so a border stroked over a row of controls with
+[`.overlay(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.overlay)
+leaves the controls working ([gestures](gestures.md) "Pass-through").
 
 ## Toolkit implementations
 

@@ -5,12 +5,35 @@
 
 // ---- label ----
 
+// Whether each label was built to wrap (`LabelProps::wraps`, realize-time): a paragraph patch
+// keeps a one-line label on one line whatever its line cap says. Dropped with the node.
+static std::map<void*, bool> g_label_wraps;
+// Typography for a label or a run, defined with the paragraph setters below.
+static void apply_features(WUX::DependencyObject const& o, bool small_caps, bool oldstyle);
+
 void* day_xaml_label_new(const char* text, int wraps) {
     WUXC::TextBlock t;
     t.Text(hs(text));
     t.TextWrapping(wraps ? WUX::TextWrapping::Wrap : WUX::TextWrapping::NoWrap);
     if (!wraps) { t.MaxLines(1); t.TextTrimming(WUX::TextTrimming::CharacterEllipsis); }
-    return boxh(t);
+    auto h = boxh(t);
+    g_label_wraps[h] = wraps != 0;
+    // Passive until it is made selectable, given a link or anything else that takes input.
+    t.IsHitTestVisible(false);
+    g_passive.insert(h);
+    return h;
+}
+int day_xaml_label_wraps(void* h) {
+    auto it = g_label_wraps.find(h);
+    return it == g_label_wraps.end() || it->second ? 1 : 0;
+}
+// The label's text as it stands (a heap copy for day_xaml_string_free), runs flattened.
+char* day_xaml_label_text(void* h) {
+    std::string out;
+    guard([&] {
+        if (auto tb = elem(h).try_as<WUXC::TextBlock>()) out = u8(tb.Text());
+    });
+    return _strdup(out.c_str());
 }
 void day_xaml_label_set_text(void* h, const char* t) {
     auto tb = elem(h).try_as<WUXC::TextBlock>();
@@ -42,7 +65,7 @@ void day_xaml_label_runs_begin(void* h, unsigned long long node) {
 
 void day_xaml_label_link_cb(DayLinkCb cb) { g_link_cb = cb; }
 
-/// Append one run. `flags` packs bold/italic/mono/strike/hasColour; `link` is empty for a plain
+/// Append one run. `flags` packs bold/italic/mono/strike/hasColor; `link` is empty for a plain
 /// run. Each run is an INLINE inside the one TextBlock, so the paragraph still wraps, selects
 /// and is read as a single block — which is the whole reason for runs.
 
@@ -58,6 +81,7 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
     // Windows default behind it.
     if (flags & 4) run.FontFamily(WUXM::FontFamily(L"Consolas, Courier New, monospace"));
     if (flags & 16) run.Foreground(brush_bits(argb));
+    if (flags & (128 | 256)) apply_features(run, (flags & 128) != 0, (flags & 256) != 0);
     // TextDecorations is a FLAGS enum, so underline and strikethrough combine in one write —
     // setting the property twice would keep only the second (Windows 10 1809+).
     {
@@ -72,6 +96,8 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
         run.FontSize(tb.FontSize() * scale_permille / 1000.0);
     }
     if (link && link[0]) {
+        // A link takes presses, so the label does (docs/gestures.md "Pass-through").
+        day_hit_on(h);
         // A Hyperlink is an inline container: the run goes inside it, so the link sits in the
         // same wrapping paragraph as its neighbors. Activation is Phase 4.
         WUXD::Hyperlink hl;
@@ -119,6 +145,7 @@ void day_xaml_label_set_align(void* h, int mode) {
         if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
             tb.TextAlignment(mode == 1   ? WUX::TextAlignment::Center
                              : mode == 2 ? WUX::TextAlignment::Right
+                             : mode == 3 ? WUX::TextAlignment::Justify
                                          : WUX::TextAlignment::Left);
         }
     });
@@ -197,7 +224,10 @@ void day_xaml_set_cursor(void* h, int code) {
     if (g_cursor_current != 0) apply_cursor_now(cursor_code_over(e));
 }
 void day_xaml_label_set_selectable(void* h, int on) {
-    if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.IsTextSelectionEnabled(on != 0);
+    if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
+        tb.IsTextSelectionEnabled(on != 0);
+        if (on) day_hit_on(h);
+    }
 }
 void day_xaml_label_set_color(void* h, unsigned argb) {
     auto tb = elem(h).try_as<WUXC::TextBlock>();
@@ -233,10 +263,26 @@ void day_xaml_label_set_secondary(void* h) try {
     tb.Style(style);
 } catch (...) {
 }
+// A label's line height as a multiple of its font size (`LabelProps::line_height`), kept so a font
+// change recomputes it. Absent: the font's own line height. Dropped with the node.
+static std::map<void*, double> g_line_multiple;
+static void apply_line_height(void* h, WUXC::TextBlock const& tb) {
+    auto it = g_line_multiple.find(h);
+    if (it == g_line_multiple.end()) {
+        tb.ClearValue(WUXC::TextBlock::LineHeightProperty());
+        tb.LineStackingStrategy(WUX::LineStackingStrategy::MaxHeight);
+        return;
+    }
+    // Every line box exactly `multiple × size` tall, the glyphs inside it (the CSS model).
+    tb.LineStackingStrategy(WUX::LineStackingStrategy::BlockLineHeight);
+    tb.LineHeight(it->second * tb.FontSize());
+}
+
 void day_xaml_label_set_font(void* h, double pt, int weight, int italic, int tabular) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
         // FontSize scales with the OS text-scale-factor (accessibility "Text size"); XAML applies it.
         tb.FontSize(pt);
+        apply_line_height(h, tb);
         // `weight` is a numeric font weight (100–900); build a FontWeight directly.
         winrt::Windows::UI::Text::FontWeight w;
         w.Weight = static_cast<uint16_t>(weight > 0 ? weight : 400);
@@ -256,6 +302,122 @@ void day_xaml_label_set_font(void* h, double pt, int weight, int italic, int tab
                         : WUX::FontNumeralAlignment::Normal);
     }
 }
+// The paragraph attributes of a label (docs/text.md): one line (`wraps` 0) or at most `max_lines`
+// (0 = unlimited) with an ellipsis on the last visible line; letter spacing in ems, which XAML
+// takes in thousandths of an em; the line height as a multiple of the font size, 0 for the font's
+// own. Idempotent; the label is measured afresh after it.
+void day_xaml_label_set_paragraph(void* h, int wraps, int max_lines, double letter_ems,
+                                  double line_multiple) {
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    guard([&] {
+        if (!wraps) {
+            tb.TextWrapping(WUX::TextWrapping::NoWrap);
+            tb.MaxLines(1);
+            tb.TextTrimming(WUX::TextTrimming::CharacterEllipsis);
+        } else {
+            tb.TextWrapping(WUX::TextWrapping::Wrap);
+            tb.MaxLines(max_lines > 0 ? max_lines : 0);
+            tb.TextTrimming(max_lines > 0 ? WUX::TextTrimming::CharacterEllipsis
+                                          : WUX::TextTrimming::None);
+        }
+        tb.CharacterSpacing(std::isfinite(letter_ems) ? static_cast<int32_t>(std::lround(letter_ems * 1000.0)) : 0);
+        if (line_multiple > 0 && std::isfinite(line_multiple)) g_line_multiple[h] = line_multiple;
+        else g_line_multiple.erase(h);
+        apply_line_height(h, tb);
+    });
+}
+// Small capitals and old-style figures (`FontSpec::{small_caps, oldstyle_figures}`): the
+// Typography attached properties, which ask the face for `smcp` and `onum` and draw its ordinary
+// glyphs when it has neither.
+static void apply_features(WUX::DependencyObject const& o, bool small_caps, bool oldstyle) {
+    WUXD::Typography::SetCapitals(o, small_caps ? WUX::FontCapitals::SmallCaps : WUX::FontCapitals::Normal);
+    WUXD::Typography::SetNumeralStyle(o, oldstyle ? WUX::FontNumeralStyle::OldStyle : WUX::FontNumeralStyle::Normal);
+}
+void day_xaml_label_set_features(void* h, int small_caps, int oldstyle) {
+    if (auto tb = elem(h).try_as<WUXC::TextBlock>()) guard([&] { apply_features(tb, small_caps != 0, oldstyle != 0); });
+}
+// Show `shown` (a head- or middle-elided string, docs/text.md "Truncation") while the label keeps
+// `full` as its accessible name: the reader hears the whole text, the screen shows what fits.
+void day_xaml_label_show_elided(void* h, const char* shown, const char* full) {
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    guard([&] {
+        tb.Inlines().Clear();
+        tb.Text(hs(shown));
+        WUXA::AutomationProperties::SetName(tb, hs(full));
+    });
+}
+// The width `text` takes on one line in the label's own font and spacing, for the elision above.
+double day_xaml_label_text_width(void* h, const char* text) {
+    double w = 0;
+    guard([&] {
+        auto tb = elem(h).try_as<WUXC::TextBlock>();
+        if (!tb) return;
+        WUXC::TextBlock probe;
+        probe.FontSize(tb.FontSize());
+        probe.FontFamily(tb.FontFamily());
+        probe.FontWeight(tb.FontWeight());
+        probe.FontStyle(tb.FontStyle());
+        probe.CharacterSpacing(tb.CharacterSpacing());
+        probe.TextWrapping(WUX::TextWrapping::NoWrap);
+        probe.Text(hs(text));
+        probe.Measure({std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()});
+        w = probe.DesiredSize().Width;
+    });
+    return w;
+}
+// The label's base reading direction (docs/localization.md "Direction of a subtree"), and its
+// paragraph alignment re-read against it: 0 leading, 1 center, 2 trailing, 3 justified.
+// XAML's Left and Right are the start and end edges of the element's own flow direction.
+void day_xaml_label_set_direction(void* h, int rtl, int align) {
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    guard([&] {
+        tb.FlowDirection(rtl ? WUX::FlowDirection::RightToLeft : WUX::FlowDirection::LeftToRight);
+        tb.TextAlignment(align == 1   ? WUX::TextAlignment::Center
+                         : align == 2 ? WUX::TextAlignment::Right
+                         : align == 3 ? WUX::TextAlignment::Justify
+                                      : WUX::TextAlignment::Left);
+    });
+}
+// A leaf control's reading direction: which side a slider fills from, where a toggle's knob
+// starts, a field's base direction. Never a panel, whose FlowDirection would mirror the frames
+// Day placed inside it a second time.
+void day_xaml_set_flow_direction(void* h, int rtl) {
+    auto fe = elem(h).try_as<FrameworkElement>();
+    if (!fe || fe.try_as<WUXC::Panel>()) return;
+    guard([&] { fe.FlowDirection(rtl ? WUX::FlowDirection::RightToLeft : WUX::FlowDirection::LeftToRight); });
+}
+// Selection reports (docs/text.md "Selection"): the selection's UTF-16 offsets into the label's
+// text, start <= end, each time it changes; equal offsets when it is cleared.
+typedef void (*DaySelectionCb)(unsigned long long id, int start, int end);
+void day_xaml_label_report_selection(void* h, unsigned long long id, DaySelectionCb cb) {
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    guard([&] {
+        auto last = std::make_shared<std::pair<int, int>>(-1, -1);
+        tb.SelectionChanged([id, cb, last](WF::IInspectable const& sender, WUX::RoutedEventArgs const&) {
+            try {
+                auto t = sender.as<WUXC::TextBlock>();
+                int a = 0, b = 0;
+                auto start = t.SelectionStart(), end = t.SelectionEnd();
+                if (start && end) {
+                    const int origin = t.ContentStart().Offset();
+                    a = start.Offset() - origin;
+                    b = end.Offset() - origin;
+                }
+                if (a > b) std::swap(a, b);
+                if (a < 0) a = 0;
+                if (last->first == a && last->second == b) return;
+                *last = {a, b};
+                cb(id, a, b);
+            } catch (...) {
+            }
+        });
+    });
+}
+
 // Bundled custom font (§18.4): `spec` is a FontFamily source string of the form
 // "ms-appx:///fonts/<file>#<family>". Unpackaged system XAML rejects `file://`/absolute font
 // locations (like BitmapImage), so the Rust side stages the font under `<exe>/fonts/` and hands us
@@ -434,6 +596,14 @@ void day_xaml_toggle_set(void* h, int on) {
 
 // ---- slider (native double range: day passes the app's f64 min/max/step/value straight through) ----
 
+// Set while day itself moves a slider (`day_xaml_slider_set`). XAML raises ValueChanged from
+// inside the Value setter, so without this every value the app binds came back as a drag: the
+// slider front-end hands a ValueChanged to the binding as the user's preview, and a binding that
+// acts on one (a media scrubber seeking to the thumb) then answered each of its own position
+// updates with a seek. Echo suppression is the backend's duty (DESIGN.md §4.4), as the Qt
+// slider's `suppress` flag and AppKit's action-only-on-user-input already provide.
+static bool g_slider_writing = false;
+
 // `cb(id, value, committed)`: `committed != 0` marks the value the user settled on, as against
 // the stream a drag produces (day-spec `Event::ValueCommitted`).
 void* day_xaml_slider_new(double value, double min, double max, double step, unsigned long long id,
@@ -454,6 +624,7 @@ void* day_xaml_slider_new(double value, double min, double max, double step, uns
     s.Value(value);
     s.ValueChanged([id, cb](WF::IInspectable const& sender,
                             WUXCP::RangeBaseValueChangedEventArgs const&) {
+        if (g_slider_writing) return;
         cb(id, sender.as<WUXC::Slider>().Value(), 0);
     });
     // XAML gives a Slider no "drag ended" event. What it does give is the thumb's pointer
@@ -469,8 +640,14 @@ void* day_xaml_slider_new(double value, double min, double max, double step, uns
     return boxh(s);
 }
 void day_xaml_slider_set(void* h, double value) {
-    if (auto s = elem(h).try_as<WUXC::Slider>())
-        if (s.Value() != value) s.Value(value);
+    if (auto s = elem(h).try_as<WUXC::Slider>()) {
+        if (s.Value() == value) return;
+        struct Writing {
+            Writing() { g_slider_writing = true; }
+            ~Writing() { g_slider_writing = false; }
+        } writing;
+        s.Value(value);
+    }
 }
 
 // ---- progress (determinate ProgressBar 0..1000, or indeterminate ProgressRing) ----

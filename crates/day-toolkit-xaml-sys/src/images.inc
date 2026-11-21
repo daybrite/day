@@ -28,30 +28,6 @@ void* day_xaml_divider_new(int vertical) {
     return boxh(b);
 }
 
-// Read a local file's bytes into an in-memory stream. The system-XAML BitmapImage can't load a
-// `file://` / bare-path Uri (a UWP restriction that carries into XAML Islands), so bundled images
-// must be fed as a stream via SetSource. `path` is a UTF-8 native path; open it wide so Unicode
-// paths work. StoreAsync().get() commits the in-memory buffer (completes on a pool thread — no UI
-// deadlock). Returns null on any failure.
-static WSS::IRandomAccessStream read_file_stream(const char* path) {
-    try {
-        std::ifstream f(hs(path).c_str(), std::ios::binary); // hstring::c_str() is wchar_t* (MSVC)
-        if (!f) return nullptr;
-        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
-                                   std::istreambuf_iterator<char>());
-        if (bytes.empty()) return nullptr;
-        WSS::InMemoryRandomAccessStream stream;
-        WSS::DataWriter writer(stream);
-        writer.WriteBytes(winrt::array_view<uint8_t const>(bytes.data(), bytes.data() + bytes.size()));
-        writer.StoreAsync().get();
-        writer.DetachStream();
-        stream.Seek(0);
-        return stream;
-    } catch (...) {
-        return nullptr;
-    }
-}
-
 // ---- vector glyphs as real XAML geometry (docs/vectors.md) -------------------
 //
 // A `vector(…)` glyph draws as `Path` geometry, not as an image: the CLI converts the staged SVG
@@ -267,6 +243,11 @@ struct ImageView {
     unsigned int argb = 0;
     bool templ = false;
     std::string spec;
+    // The raster the view shows, so a tint can be composed over it at any time and outlive a
+    // source swap (docs/images.md "Tinting"): the encoded bytes of a file or a byte source, or
+    // the id of a held bitmap, whose bytes stay in the registry.
+    std::shared_ptr<std::vector<uint8_t>> raster;
+    uint64_t bitmap = 0;
 };
 static std::map<void*, std::shared_ptr<ImageView>> g_image_views;
 
@@ -337,6 +318,10 @@ void day_xaml_image_set_vector(void* h, const char* spec) {
     }
 }
 
+extern "C++" { // defined with the raster section below
+static UIElement raster_content(ImageView const& s);
+} // extern "C++"
+
 void day_xaml_image_set_tint(void* h, unsigned int argb, int tinted) {
     auto it = g_image_views.find(h);
     if (it == g_image_views.end()) return;
@@ -351,8 +336,33 @@ void day_xaml_image_set_tint(void* h, unsigned int argb, int tinted) {
             icon.ShowAsMonochrome(s.tinted != 0);
             if (tinted) icon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
             else icon.ClearValue(WUXC::IconElement::ForegroundProperty());
+        } else {
+            // A raster: show it again, recolored or as authored.
+            replace_image(h, raster_content(s));
         }
     }
+}
+
+/// A tinted image's tint color again, its tint mode kept (the appearance changed under a tint
+/// that follows it, docs/color.md). An untinted image is left as it is.
+void day_xaml_image_retint(void* h, unsigned int argb) {
+    auto it = g_image_views.find(h);
+    if (it == g_image_views.end()) return;
+    auto& s = *it->second;
+    if (s.tinted != 1 && s.tinted != 3) return;
+    guard([&] {
+        s.argb = argb;
+        if (!s.spec.empty()) {
+            replace_image(h, vector_content(s.spec.c_str(), s.mode, argb, s.tinted));
+        } else {
+            auto host = elem(h).as<WUXC::Canvas>();
+            if (auto icon = host.Children().GetAt(0).try_as<WUXC::BitmapIcon>()) {
+                icon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
+            } else {
+                replace_image(h, raster_content(s));
+            }
+        }
+    });
 }
 
 #include "vector-icon.inc"
@@ -413,8 +423,9 @@ static std::map<uint64_t, std::vector<uint8_t>>& xaml_bitmaps() {
     return m;
 }
 
-/// A random-access stream over `bytes` — the in-memory twin of `read_file_stream`, which XAML's
-/// image loader needs because it accepts neither `file://` nor a bare path.
+/// A random-access stream over `bytes`, which XAML's image loader needs because it accepts
+/// neither `file://` nor a bare path. StoreAsync().get() commits the in-memory buffer (it
+/// completes on a pool thread, so there is no UI deadlock).
 static WSS::IRandomAccessStream bytes_stream(const uint8_t* bytes, uint32_t len) {
     try {
         if (!bytes || len == 0) return nullptr;
@@ -473,50 +484,187 @@ void day_xaml_image_release(unsigned long long id) {
 #endif
 }
 
+// ---- Raster tint (docs/images.md "Tinting") -------------------------------------------------
+//
+// A tinted raster is a template image: every pixel takes the tint's color and keeps its own
+// alpha (source-in). Win2D's `TintEffect` multiplies, which leaves a black pixel black, so the
+// recolor is a `ColorMatrixEffect` that drops the source color, adds the tint's, and scales
+// alpha by the tint's. It is rendered once into the `WriteableBitmap` the XAML `Image` shows.
+
+#ifdef DAY_WINUI
+extern "C++" {
+/// `bytes` decoded and recolored to `argb`, or null when they do not decode.
+static WUXM::ImageSource tinted_bitmap(std::vector<uint8_t> const& bytes, unsigned int argb) {
+    try {
+        auto pixels = canvas_decode(bytes);
+        const float a = ((argb >> 24) & 0xff) / 255.0f, r = ((argb >> 16) & 0xff) / 255.0f;
+        const float g = ((argb >> 8) & 0xff) / 255.0f, b = (argb & 0xff) / 255.0f;
+        try {
+            auto device = canvas_device();
+            auto source = WC::CanvasBitmap::CreateFromBytes(device, pixels.bytes, pixels.width, pixels.height,
+                winrt::Windows::Graphics::DirectX::DirectXPixelFormat::B8G8R8A8UIntNormalized, 96,
+                WC::CanvasAlphaMode::Premultiplied);
+            WCE::ColorMatrixEffect recolor;
+            recolor.Source(source);
+            WCE::Matrix5x4 m{};
+            m.M44 = a; m.M51 = r; m.M52 = g; m.M53 = b;
+            recolor.ColorMatrix(m);
+            WC::CanvasRenderTarget target(device, float(pixels.width), float(pixels.height), 96);
+            auto ds = target.CreateDrawingSession();
+            ds.Clear(color_argb(0));
+            ds.DrawImage(recolor);
+            ds.Close();
+            auto out = target.GetPixelBytes();
+            if (out.size() != pixels.bytes.size()) winrt::throw_hresult(E_FAIL);
+            pixels.bytes.assign(out.begin(), out.end());
+        } catch (...) {
+            // No Direct3D device to run the effect on: the same arithmetic on the decoded
+            // (premultiplied BGRA) pixels.
+            for (size_t i = 0; i + 3 < pixels.bytes.size(); i += 4) {
+                const float alpha = pixels.bytes[i + 3] * a;
+                pixels.bytes[i] = static_cast<uint8_t>(std::lround(b * alpha));
+                pixels.bytes[i + 1] = static_cast<uint8_t>(std::lround(g * alpha));
+                pixels.bytes[i + 2] = static_cast<uint8_t>(std::lround(r * alpha));
+                pixels.bytes[i + 3] = static_cast<uint8_t>(std::lround(alpha));
+            }
+        }
+        WUXM::Imaging::WriteableBitmap bitmap(static_cast<int32_t>(pixels.width), static_cast<int32_t>(pixels.height));
+        auto buffer = bitmap.PixelBuffer();
+        if (buffer.Length() < pixels.bytes.size()) return nullptr;
+        memcpy(buffer.data(), pixels.bytes.data(), pixels.bytes.size());
+        bitmap.Invalidate();
+        return bitmap;
+    } catch (...) {
+        return nullptr;
+    }
+}
+} // extern "C++"
+#endif
+
+extern "C++" {
+/// The bytes of the raster a view shows, or null when it shows none it can read again (a
+/// vector, a remote image, a released bitmap).
+static std::vector<uint8_t> const* raster_bytes(ImageView const& s) {
+    if (s.raster) return s.raster.get();
+    auto it = xaml_bitmaps().find(s.bitmap);
+    return it == xaml_bitmaps().end() ? nullptr : &it->second;
+}
+
+/// An `Image` over the view's raster, recolored when the view is tinted. Null when there are
+/// no bytes or they do not load, which leaves the current content in place.
+static UIElement raster_content(ImageView const& s) {
+    auto bytes = raster_bytes(s);
+    if (!bytes || bytes->empty()) return nullptr;
+    WUXM::ImageSource source{nullptr};
+#ifdef DAY_WINUI
+    if (s.tinted == 1) source = tinted_bitmap(*bytes, s.argb);
+#endif
+    if (!source) source = bitmap_from_bytes(bytes->data(), static_cast<uint32_t>(bytes->size()));
+    if (!source) return nullptr;
+    WUXC::Image img;
+    img.Stretch(s.mode == 2 ? WUXM::Stretch::Fill
+                : s.mode == 1 ? WUXM::Stretch::UniformToFill : WUXM::Stretch::Uniform);
+    img.Source(source);
+    return img;
+}
+
+/// The bytes of a local file, or null. The system-XAML BitmapImage can't load a `file://` or
+/// bare-path Uri (a UWP restriction that carries into XAML Islands), so a bundled image is
+/// read here and fed as a stream via SetSource. `path` is a UTF-8 native path, opened wide so
+/// Unicode paths work.
+static std::shared_ptr<std::vector<uint8_t>> read_file_bytes(const char* path) {
+    try {
+        if (!path || !*path) return nullptr;
+        std::ifstream f(hs(path).c_str(), std::ios::binary);
+        if (!f) return nullptr;
+        auto bytes = std::make_shared<std::vector<uint8_t>>((std::istreambuf_iterator<char>(f)),
+                                                            std::istreambuf_iterator<char>());
+        return bytes->empty() ? nullptr : bytes;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+static bool is_remote_uri(const char* uri) {
+    std::string s = uri ? uri : "";
+    return s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0;
+}
+
+/// A new viewport over a raster: `raster` or the held bitmap `id`. An empty `Image` when
+/// neither loads, which is what an unresolved source has always shown.
+static void* raster_view(std::shared_ptr<std::vector<uint8_t>> raster, uint64_t id, int mode) {
+    ImageView s;
+    s.mode = mode;
+    s.raster = std::move(raster);
+    s.bitmap = id;
+    auto content = raster_content(s);
+    if (!content) {
+        WUXC::Image img;
+        img.Stretch(mode == 2 ? WUXM::Stretch::Fill
+                    : mode == 1 ? WUXM::Stretch::UniformToFill : WUXM::Stretch::Uniform);
+        content = img;
+    }
+    void* h = image_view(content, mode);
+    auto& state = *g_image_views[h];
+    state.raster = s.raster;
+    state.bitmap = s.bitmap;
+    return h;
+}
+
+/// Replace content inside the stable viewport, including a previous vector, keeping the
+/// view's tint. A source that cannot load leaves the current content in place.
+static void raster_set(void* w, std::shared_ptr<std::vector<uint8_t>> raster, uint64_t id) {
+    try {
+        auto it = g_image_views.find(w);
+        if (it == g_image_views.end()) return;
+        auto& s = *it->second;
+        ImageView next = s;
+        next.raster = std::move(raster);
+        next.bitmap = id;
+        auto content = raster_content(next);
+        if (!content) return;
+        replace_image(w, content);
+        s.raster = next.raster;
+        s.bitmap = next.bitmap;
+        s.spec.clear();
+    } catch (...) {}
+}
+} // extern "C++"
+
 /// An `Image` element showing raw encoded bytes (an `ImageSource::Bytes` realize).
 void* day_xaml_image_bytes_new(const unsigned char* bytes, int len, int mode) {
-    WUXC::Image img;
-    img.Stretch(mode == 2 ? WUXM::Stretch::Fill
-                : mode == 1 ? WUXM::Stretch::UniformToFill
-                            : WUXM::Stretch::Uniform);
-    if (auto bmp = bitmap_from_bytes(bytes, len > 0 ? (uint32_t)len : 0)) img.Source(bmp);
-    return image_view(img, mode);
+    std::shared_ptr<std::vector<uint8_t>> raster;
+    if (bytes && len > 0) raster = std::make_shared<std::vector<uint8_t>>(bytes, bytes + len);
+    return raster_view(raster, 0, mode);
 }
 
 /// An `Image` element showing a bitmap already held under `id` (an `ImageSource::Decoded`).
 void* day_xaml_image_bitmap_new(unsigned long long id, int mode) {
-    auto it = xaml_bitmaps().find(id);
-    if (it == xaml_bitmaps().end()) return day_xaml_image_bytes_new(nullptr, 0, mode);
-    return day_xaml_image_bytes_new(it->second.data(), (int)it->second.size(), mode);
+    return raster_view(nullptr, id, mode);
 }
 
-/// A `BitmapImage` over a resolved native path or an http(s) URI, or null: the loader behind
-/// `day_xaml_image_new`, shared with the source swap so both load exactly the same way.
-static WUXM::Imaging::BitmapImage bitmap_from_uri(const char* uri) {
-    if (!uri || !*uri) return nullptr;
+/// A `BitmapImage` over an http(s) URI, or null. A remote image loads asynchronously inside
+/// XAML, so there are no bytes here to recolor: it is shown untinted.
+static WUXM::Imaging::BitmapImage bitmap_from_remote(const char* uri) {
     try {
         WUXM::Imaging::BitmapImage bmp;
-        std::string s = uri;
-        if (s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0) {
-            bmp.UriSource(WF::Uri{ hs(uri) }); // remote — BitmapImage loads http(s) directly
-        } else if (auto stream = read_file_stream(uri)) {
-            bmp.SetSource(stream); // local bundled file — feed the bytes, not a file:// Uri
-        } else {
-            return nullptr;
-        }
+        bmp.UriSource(WF::Uri{ hs(uri) });
         return bmp;
     } catch (...) {
         return nullptr;
     }
 }
 
-/// Replace content inside the stable viewport, including a previous vector. A source that
-/// cannot load leaves the current content in place.
-static void image_set(void* w, WUXM::Imaging::BitmapImage const& bmp) {
-    if (!bmp) return;
+void day_xaml_image_set_uri(void* w, const char* uri) {
+    if (!is_remote_uri(uri)) {
+        // A local bundled file: feed the bytes, not a file:// Uri (see `read_file_bytes`).
+        if (auto raster = read_file_bytes(uri)) raster_set(w, raster, 0);
+        return;
+    }
     try {
         auto it = g_image_views.find(w);
-        if (it == g_image_views.end()) return;
+        auto bmp = bitmap_from_remote(uri);
+        if (it == g_image_views.end() || !bmp) return;
         auto& s = *it->second;
         WUXC::Image img;
         img.Stretch(s.mode == 2 ? WUXM::Stretch::Fill
@@ -524,25 +672,28 @@ static void image_set(void* w, WUXM::Imaging::BitmapImage const& bmp) {
         img.Source(bmp);
         replace_image(w, img);
         s.spec.clear();
+        s.raster = nullptr;
+        s.bitmap = 0;
     } catch (...) {}
 }
-void day_xaml_image_set_uri(void* w, const char* uri) { image_set(w, bitmap_from_uri(uri)); }
 void day_xaml_image_set_bytes(void* w, const unsigned char* bytes, int len) {
-    image_set(w, bitmap_from_bytes(bytes, len > 0 ? (uint32_t)len : 0));
+    if (!bytes || len <= 0) return;
+    raster_set(w, std::make_shared<std::vector<uint8_t>>(bytes, bytes + len), 0);
 }
 void day_xaml_image_set_bitmap(void* w, unsigned long long id) {
-    auto it = xaml_bitmaps().find(id);
-    if (it == xaml_bitmaps().end()) return;
-    image_set(w, bitmap_from_bytes(it->second.data(), (uint32_t)it->second.size()));
+    if (xaml_bitmaps().find(id) == xaml_bitmaps().end()) return;
+    raster_set(w, nullptr, id);
 }
 
 void* day_xaml_image_new(const char* uri, int mode) {
-    WUXC::Image img;
     // Scaling (§18.3): 0=fit (Uniform), 1=fill (UniformToFill, cropped), 2=stretch (Fill).
-    img.Stretch(mode == 2 ? WUXM::Stretch::Fill
-                : mode == 1 ? WUXM::Stretch::UniformToFill
-                            : WUXM::Stretch::Uniform);
-    if (auto bmp = bitmap_from_uri(uri)) img.Source(bmp);
-    return image_view(img, mode);
+    if (is_remote_uri(uri)) {
+        WUXC::Image img;
+        img.Stretch(mode == 2 ? WUXM::Stretch::Fill
+                    : mode == 1 ? WUXM::Stretch::UniformToFill
+                                : WUXM::Stretch::Uniform);
+        if (auto bmp = bitmap_from_remote(uri)) img.Source(bmp);
+        return image_view(img, mode);
+    }
+    return raster_view(read_file_bytes(uri), 0, mode);
 }
-

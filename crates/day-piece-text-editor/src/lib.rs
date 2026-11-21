@@ -128,7 +128,7 @@ pub enum EditorPatch {
     SetSelection(std::ops::Range<usize>),
     /// What the next typed character takes. Native where the toolkit has the concept, emulated on
     /// GTK and the web, which do not.
-    SetTypingStyle(RunStyle),
+    SetTypingStyle(Box<RunStyle>),
     SetEditable(bool),
     /// Insert `text` at byte offset `at` through the view's own insertion, so the platform's
     /// undo stack records it like typing and the caret lands after it. The view reports the
@@ -444,6 +444,26 @@ impl Piece for TextEditor {
             );
         }
 
+        // An appearance change: the arms that hand their view concrete colors (a GTK tag, Qt's
+        // and WinUI's character formats, the web's markup, the ArkTS and Android spans) resolved
+        // each run's inks when they applied them, so the same attributes go again, resolved
+        // against the new palette. AppKit and
+        // UIKit draw dynamic colors, which follow by themselves, and the repeat changes nothing
+        // they show. A document whose inks are all fixed has nothing to recolor.
+        {
+            let native_text = native_text.clone();
+            watch(day_core::palette, move |now, before| {
+                if before == Some(now) {
+                    return;
+                }
+                let d = doc.get_untracked();
+                if !follows_appearance(&d) || *native_text.borrow() != d.text {
+                    return;
+                }
+                with_tree(|t| t.patch(node, Box::new(EditorPatch::SetAttributes(d)), false));
+            });
+        }
+
         // The selection the native view last reported, and the same echo guard `native_text` is:
         // a caret move the user made must not be written back to the view it came from.
         //
@@ -491,7 +511,7 @@ impl Piece for TextEditor {
                     with_tree(|t| {
                         t.patch(
                             node,
-                            Box::new(EditorPatch::SetTypingStyle(s.clone())),
+                            Box::new(EditorPatch::SetTypingStyle(Box::new(s.clone()))),
                             false,
                         );
                     });
@@ -613,12 +633,13 @@ impl Piece for TextEditor {
         // own insertion at the caret the arm last reported.
         let key_submit = on_submit.clone();
         let key_sel = native_sel.clone();
-        let handle_key = move |key: &str, modifiers: u8| {
-            if single_line && key == "Enter" {
+        let handle_key = move |key: day_spec::Key, modifiers: day_spec::Modifiers| {
+            use day_spec::Key;
+            if single_line && key == Key::Enter {
                 if let Some(f) = &key_submit {
                     f();
                 }
-            } else if modifiers == 0 {
+            } else if modifiers.is_empty() {
                 // What goes in at the caret: Tab's indentation in code; and, from a dayscript
                 // `key` step only (no arm reports a printable key or an unclaimed Enter here),
                 // the character itself, or a newline in code, so a script can type one
@@ -629,14 +650,11 @@ impl Piece for TextEditor {
                     .borrow()
                     .as_ref()
                     .map_or(text.len(), |r| r.start.min(text.len()));
-                let insert = if code && key == "Tab" {
-                    tab_indent(&text, caret, indent)
-                } else if code && key == "Enter" {
-                    "\n".to_string()
-                } else if key.chars().count() == 1 {
-                    key.to_string()
-                } else {
-                    return;
+                let insert = match key {
+                    Key::Tab if code => tab_indent(&text, caret, indent),
+                    Key::Enter if code => "\n".to_string(),
+                    Key::Character(c) => c.to_string(),
+                    _ => return,
                 };
                 with_tree(|t| {
                     t.patch(
@@ -677,7 +695,7 @@ impl Piece for TextEditor {
                     return;
                 }
                 if let Some(name) = text.strip_prefix(KEY_PREFIX) {
-                    handle_key(name, 0);
+                    handle_key(day_spec::Key::from_name(name), day_spec::Modifiers::NONE);
                     return;
                 }
                 let Some(range) = parse_selection(text) else {
@@ -721,7 +739,7 @@ impl Piece for TextEditor {
                     f();
                 }
             }
-            Event::Key(k) => handle_key(&k.key, k.modifiers),
+            Event::Key(k) if k.is_press() => handle_key(k.key, k.modifiers),
             _ => {}
         });
         node
@@ -770,6 +788,20 @@ pub fn diff_edit(old: &str, new: &str) -> (usize, usize, usize) {
 // The editing rules of the two modes, as pure functions over the text, so the mock proves them
 // and every arm shares them.
 // ---------------------------------------------------------------------------
+
+/// Whether any run of `doc` carries an ink that depends on the appearance (a light/dark pair or
+/// a role), in its color, its background or a decoration's line: what an appearance change
+/// has to re-send to the arms that apply concrete colors.
+#[must_use]
+pub fn follows_appearance(doc: &StyledText) -> bool {
+    let adaptive = |ink: Option<day_spec::Ink>| ink.is_some_and(|i| i.fixed().is_none());
+    doc.runs.iter().any(|r| {
+        adaptive(r.color)
+            || adaptive(r.background)
+            || adaptive(r.underline.and_then(|d| d.color))
+            || adaptive(r.strikethrough.and_then(|d| d.color))
+    })
+}
 
 /// A single-line editor's text: every line break a space, byte for byte, so the offsets of an
 /// edit computed against the raw text still hold.
@@ -959,6 +991,57 @@ pub mod conformance {
                     },
                 )
                 .await
+            })
+    }
+
+    /// A run whose inks are a light/dark pair recolors when the appearance switches while the
+    /// editor is shown (docs/texteditor.md "Document and selection").
+    #[day_macros::test(day_core)]
+    fn texteditor_runs_follow_the_appearance() -> Case {
+        const PAIR: day_spec::Ink = day_spec::Ink::adaptive(
+            day_spec::Color::rgb(1.0, 0.0, 0.0),
+            day_spec::Color::rgb(0.0, 0.0, 1.0),
+        );
+        Case::new()
+            .proves(KIND)
+            .requires(day_spec::Cap::Appearance)
+            .requires(day_spec::Cap::Snapshot)
+            .page(|| {
+                // Full blocks in the pair over a background in the pair: the line is solid.
+                let text = "\u{2588}".repeat(24);
+                let doc = Signal::new(StyledText {
+                    runs: vec![day_spec::TextRun {
+                        range: 0..text.len(),
+                        color: Some(PAIR),
+                        background: Some(PAIR),
+                        ..Default::default()
+                    }],
+                    text,
+                    ..Default::default()
+                });
+                column((
+                    text_editor(doc)
+                        .frame(200.0, 40.0)
+                        .id(day_core::id!(texteditor::inked)),
+                    button("Light")
+                        .action(|| day_core::set_appearance(Some(false)))
+                        .id(day_core::id!(texteditor::light)),
+                    button("Dark")
+                        .action(|| day_core::set_appearance(Some(true)))
+                        .id(day_core::id!(texteditor::dark)),
+                    button("System")
+                        .action(|| day_core::set_appearance(None))
+                        .id(day_core::id!(texteditor::system)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("texteditor::light").await?;
+                d.sample_pixel("texteditor::inked", 0.25, 0.3, "#ff0000")
+                    .await?;
+                d.tap("texteditor::dark").await?;
+                d.sample_pixel("texteditor::inked", 0.25, 0.3, "#0000ff")
+                    .await?;
+                d.tap("texteditor::system").await
             })
     }
 

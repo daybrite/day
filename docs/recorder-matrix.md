@@ -11,7 +11,7 @@ ends in a catch-all, so an unmapped event is silent at runtime — the control r
 records. If a new variant should produce a step, map it in `event_to_step`; if it should not,
 the `dropped` row is the record of that decision.
 
-9 of 55 variants record.
+9 of 64 variants record.
 
 | `Event` | Step | Disposition |
 | --- | --- | --- |
@@ -29,7 +29,13 @@ the `dropped` row is the record of that decision.
 | `FocusChanged` | — | dropped |
 | `Tap` | `Tap` | recorded |
 | `LinkActivated` | — | dropped |
+| `TextSelected` | — | dropped |
 | `LongPress` | — | dropped |
+| `DoubleTap` | — | dropped |
+| `Press` | — | dropped |
+| `Touches` | — | dropped |
+| `GestureVelocity` | — | dropped |
+| `PointerKindChanged` | — | dropped |
 | `ContextMenu` | — | dropped |
 | `Drag` | — | dropped |
 | `Pinch` | — | dropped |
@@ -37,11 +43,14 @@ the `dropped` row is the record of that decision.
 | `Pan` | — | dropped |
 | `Hover` | — | dropped |
 | `ScrollChanged` | — | dropped |
+| `ScrollPhase` | — | dropped |
+| `ScrollZoomed` | — | dropped |
+| `ListViewport` | — | dropped |
+| `ListReaderScrolled` | — | dropped |
 | `FrameChanged` | — | dropped |
 | `NavBack` | `Navigate` | recorded by the nav observer (`on_nav`) |
 | `NavPresentationChanged` | — | dropped |
 | `Key` | — | dropped |
-| `Pointer` | — | dropped |
 | `WindowResized` | — | dropped |
 | `RouteRequested` | `Navigate` | recorded by the nav observer (`on_nav`) |
 | `PresentResult` | — | dropped |

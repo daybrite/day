@@ -58,3 +58,40 @@ target_link_libraries(qt-keys PRIVATE Qt6::Widgets Qt6::Svg)
 target_compile_options(qt-keys PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
 add_test(NAME qt-keys COMMAND qt-keys)
 set_tests_properties(qt-keys PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The pointer recognizers and routing under QTest's real input (docs/gestures.md).
+find_package(Qt6 REQUIRED COMPONENTS Test)
+add_executable(qt-input input.cpp ../src/shim.cpp ../src/shim-transfer.cpp)
+target_compile_features(qt-input PRIVATE cxx_std_17)
+target_link_libraries(qt-input PRIVATE Qt6::Widgets Qt6::Svg Qt6::Test)
+if(APPLE)
+    target_link_libraries(qt-input PRIVATE "-framework CoreServices")
+endif()
+target_compile_options(qt-input PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+add_test(NAME qt-input COMMAND qt-input)
+set_tests_properties(qt-input PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# Day's label: line limits, truncation, ems, reported text, direction and selection reports
+# under QTest's real input (docs/text.md).
+add_executable(qt-text text.cpp ../src/shim.cpp)
+target_compile_features(qt-text PRIVATE cxx_std_17)
+target_link_libraries(qt-text PRIVATE Qt6::Widgets Qt6::Svg Qt6::Test)
+target_compile_options(qt-text PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+add_test(NAME qt-text COMMAND qt-text)
+set_tests_properties(qt-text PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# The AnimSpec runs (docs/tween.md "The animation contract") on a hand-moved animation clock.
+add_executable(qt-anim anim.cpp ../src/shim.cpp)
+target_compile_features(qt-anim PRIVATE cxx_std_17)
+target_link_libraries(qt-anim PRIVATE Qt6::Widgets Qt6::Svg)
+target_compile_options(qt-anim PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+add_test(NAME qt-anim COMMAND qt-anim)
+set_tests_properties(qt-anim PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# A styled surface: the border over the content, radial and conic fills (docs/surfaces.md).
+add_executable(qt-surface surface.cpp ../src/shim.cpp)
+target_compile_features(qt-surface PRIVATE cxx_std_17)
+target_link_libraries(qt-surface PRIVATE Qt6::Widgets Qt6::Svg)
+target_compile_options(qt-surface PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+add_test(NAME qt-surface COMMAND qt-surface)
+set_tests_properties(qt-surface PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

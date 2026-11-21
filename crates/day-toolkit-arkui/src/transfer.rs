@@ -175,6 +175,9 @@ pub fn target(h: &AHandle, target: Target) {
         Ev::NODE_ON_DRAG_MOVE,
         Ev::NODE_ON_DRAG_LEAVE,
         Ev::NODE_ON_DROP,
+        // A session that ends while over the target (cancelled, dropped elsewhere) ends its
+        // hover too.
+        Ev::NODE_ON_DRAG_END,
     ] {
         node::register_event(h.0, ev, 0);
     }
@@ -214,6 +217,9 @@ pub fn event(ev: *mut ArkUI_NodeEvent) -> bool {
     // SAFETY: as above.
     let at = unsafe { position(n, drag) };
     if kind == Ev::NODE_ON_DRAG_END {
+        if is_target {
+            leave(n);
+        }
         ACTIVE.with(|a| a.set(0));
         release_drag_data();
         return true;
@@ -228,6 +234,7 @@ pub fn event(ev: *mut ArkUI_NodeEvent) -> bool {
         return false;
     }
     if kind == Ev::NODE_ON_DRAG_LEAVE {
+        leave(n);
         // SAFETY: a live node.
         unsafe { OH_ArkUI_AllowNodeAllDropDataTypes(n) };
         return true;
@@ -355,6 +362,7 @@ fn hover_or_drop(n: Handle, drag: *mut ArkUI_DragEvent, at: Point, is_drop: bool
         }
         OH_ArkUI_DragEvent_SetDragResult(drag, ArkUI_DragResult::FAILED);
         if !accepted {
+            leave(n);
             return;
         }
         let Some(offer) = read_offer(drag) else {
@@ -366,6 +374,14 @@ fn hover_or_drop(n: Handle, drag: *mut ArkUI_DragEvent, at: Point, is_drop: bool
         if delivered {
             OH_ArkUI_DragEvent_SetDragResult(drag, ArkUI_DragResult::SUCCESSFUL);
         }
+    }
+}
+
+/// The drag session left target `n` without dropping, or ended over it: its hover ends
+/// (`Target::leave`, idempotent).
+fn leave(n: Handle) {
+    if let Some(target) = TARGETS.with(|t| t.get(n as usize)) {
+        target.leave();
     }
 }
 

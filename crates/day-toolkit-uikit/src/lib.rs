@@ -32,6 +32,830 @@ mod textarea;
 mod toolbar_policy;
 #[cfg(target_os = "ios")]
 mod transfer;
+
+/// The pure half of the canvas painter (docs/canvas.md "Shadows", "Blend modes", "Conic
+/// gradients"): the graphics state the replay tracks beside Core Graphics' own, and the
+/// arithmetic of the conic gradient. Kept free of UIKit so host tests cover it.
+#[cfg(any(target_os = "ios", test))]
+mod canvas_state {
+    use day_spec::{BlendMode, Color, DrawOp, Shadow};
+
+    /// How many wedges the conic fallback draws for a full turn: half a degree each, which is
+    /// under a pixel of arc out to a 340-point radius at 3x.
+    pub(super) const CONIC_WEDGES: u32 = 720;
+
+    #[derive(Clone, Copy, Default, PartialEq, Debug)]
+    struct Gstate {
+        shadow: bool,
+        blend: BlendMode,
+    }
+
+    /// The shadow and blend mode in force at each point of a replay.
+    ///
+    /// Core Graphics keeps both in its own graphics state and saves and restores them itself.
+    /// This mirror exists because the context has no getter for either, and two things need
+    /// the answer: a gradient is drawn through a clip, which would cut its own shadow off
+    /// unless the draw is grouped first, and `UIImage` drawing names its blend mode per call.
+    #[derive(Default, Debug)]
+    pub(super) struct CanvasState {
+        now: Gstate,
+        saved: Vec<Gstate>,
+    }
+
+    impl CanvasState {
+        /// Follow one op. Only the four state ops change anything.
+        pub(super) fn track(&mut self, op: &DrawOp) {
+            match op {
+                DrawOp::Save => self.saved.push(self.now),
+                // An unbalanced restore keeps the current state, as the context does.
+                DrawOp::Restore => {
+                    if let Some(prev) = self.saved.pop() {
+                        self.now = prev;
+                    }
+                }
+                DrawOp::Shadow(shadow) => self.now.shadow = visible_shadow(*shadow).is_some(),
+                DrawOp::Blend(mode) => self.now.blend = *mode,
+                _ => {}
+            }
+        }
+
+        /// The blend mode drawing combines with now.
+        pub(super) fn blend(&self) -> BlendMode {
+            self.now.blend
+        }
+
+        /// Whether a draw made of several context calls (a clip and a gradient) has to be
+        /// grouped into one transparency layer first, so the shadow and the blend mode apply
+        /// to its result as a whole.
+        pub(super) fn groups(&self) -> bool {
+            self.now.shadow || self.now.blend != BlendMode::Normal
+        }
+    }
+
+    /// The shadow to set, or `None` when the op clears it: an absent shadow, and one whose
+    /// color is fully transparent ([`day_spec::OpCode::SetShadow`]'s clearing form).
+    pub(super) fn visible_shadow(shadow: Option<Shadow>) -> Option<Shadow> {
+        shadow.filter(|s| s.color.resolved().a > 0.0)
+    }
+
+    /// A conic gradient's stops as a full turn: offsets clamped to `0..=1` and ascending, with
+    /// the first color held back to `0` and the last out to `1`, which is how
+    /// [`day_spec::ConicGradient::color_at`] reads stops that do not span the turn.
+    pub(super) fn conic_stops(stops: &[(f64, Color)]) -> Vec<(f64, Color)> {
+        let mut out: Vec<(f64, Color)> = Vec::with_capacity(stops.len() + 2);
+        let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
+            return out;
+        };
+        if first.0 > 0.0 {
+            out.push((0.0, first.1));
+        }
+        let mut at = 0.0_f64;
+        for (offset, color) in stops {
+            at = offset.clamp(at, 1.0);
+            out.push((at, *color));
+        }
+        if last.0 < 1.0 {
+            out.push((1.0, last.1));
+        }
+        out
+    }
+
+    /// The edges of wedge `i` of `count` around a turn starting at `start_deg`, and the angle
+    /// its color is sampled at (the middle), all in canvas degrees. Wedge `i`'s end is wedge
+    /// `i + 1`'s start exactly, so neighbors share an edge and leave no seam.
+    pub(super) fn conic_wedge(start_deg: f64, i: u32, count: u32) -> (f64, f64, f64) {
+        let step = 360.0 / f64::from(count.max(1));
+        let from = start_deg + step * f64::from(i);
+        let to = start_deg + step * f64::from(i + 1);
+        (from, to, start_deg + step * (f64::from(i) + 0.5))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use day_spec::{ConicGradient, Rect, Shape};
+
+        fn shadow(alpha: f64) -> DrawOp {
+            DrawOp::Shadow(Some(Shadow::new(Color::rgba(0.0, 0.0, 0.0, alpha), 4.0)))
+        }
+
+        #[test]
+        fn shadow_and_blend_are_scoped_by_save_and_restore() {
+            let mut s = CanvasState::default();
+            assert!(!s.groups());
+            s.track(&DrawOp::Save);
+            s.track(&shadow(1.0));
+            assert!(s.groups());
+            s.track(&DrawOp::Save);
+            s.track(&DrawOp::Blend(BlendMode::Erase));
+            s.track(&DrawOp::Shadow(None));
+            assert_eq!(s.blend(), BlendMode::Erase);
+            assert!(s.groups());
+            s.track(&DrawOp::Restore);
+            assert_eq!(s.blend(), BlendMode::Normal);
+            assert!(s.groups(), "the outer shadow is back");
+            s.track(&DrawOp::Restore);
+            assert!(!s.groups());
+        }
+
+        #[test]
+        fn transparent_shadow_clears_and_extra_restore_is_ignored() {
+            let mut s = CanvasState::default();
+            s.track(&shadow(1.0));
+            s.track(&shadow(0.0));
+            assert!(!s.groups());
+            s.track(&DrawOp::Blend(BlendMode::Multiply));
+            s.track(&DrawOp::Restore);
+            assert_eq!(s.blend(), BlendMode::Multiply);
+            s.track(&DrawOp::Fill(
+                Shape::Rect(Rect::new(0.0, 0.0, 1.0, 1.0)),
+                Color::WHITE.into(),
+            ));
+            assert_eq!(s.blend(), BlendMode::Multiply);
+        }
+
+        #[test]
+        fn conic_stops_span_the_turn() {
+            let red = Color::rgba(1.0, 0.0, 0.0, 1.0);
+            let blue = Color::rgba(0.0, 0.0, 1.0, 1.0);
+            assert!(conic_stops(&[]).is_empty());
+            assert_eq!(
+                conic_stops(&[(0.25, red), (0.75, blue)]),
+                vec![(0.0, red), (0.25, red), (0.75, blue), (1.0, blue)]
+            );
+            assert_eq!(
+                conic_stops(&[(0.0, red), (1.0, blue)]),
+                vec![(0.0, red), (1.0, blue)]
+            );
+            // Out-of-range and descending offsets are pulled into an ascending 0..=1 run.
+            assert_eq!(
+                conic_stops(&[(-0.5, red), (0.5, blue), (0.2, red), (1.5, blue)]),
+                vec![(0.0, red), (0.5, blue), (0.5, red), (1.0, blue)]
+            );
+        }
+
+        #[test]
+        fn wedges_tile_the_turn_without_gaps() {
+            let mut end = 30.0;
+            for i in 0..CONIC_WEDGES {
+                let (from, to, mid) = conic_wedge(30.0, i, CONIC_WEDGES);
+                assert!((from - end).abs() < 1e-9);
+                assert!(from < mid && mid < to);
+                end = to;
+            }
+            assert!((end - 390.0).abs() < 1e-9);
+        }
+
+        #[test]
+        fn wedge_colors_follow_the_gradient() {
+            let red = Color::rgba(1.0, 0.0, 0.0, 1.0);
+            let blue = Color::rgba(0.0, 0.0, 1.0, 1.0);
+            let g = ConicGradient::centered(
+                day_spec::Angle::ZERO,
+                vec![(0.0, red), (0.5, red), (0.5, blue)],
+            );
+            let (_, _, first) = conic_wedge(g.start.degrees(), 0, CONIC_WEDGES);
+            let (_, _, last) = conic_wedge(g.start.degrees(), CONIC_WEDGES - 1, CONIC_WEDGES);
+            assert_eq!(g.color_at(day_spec::Angle::deg(first)), red);
+            assert_eq!(g.color_at(day_spec::Angle::deg(last)), blue);
+        }
+    }
+}
+
+/// The pure half of a label's paragraph attributes and selection reports (docs/text.md): the
+/// point values the attributes resolve to, and the conversion from the UTF-16 offsets a
+/// `UITextView` reports to the byte offsets `Event::TextSelected` carries. Kept free of UIKit
+/// so host tests cover it.
+#[cfg(any(target_os = "ios", test))]
+mod label_text {
+    /// The byte offset in `text` of the UTF-16 offset `units`. An offset that falls inside a
+    /// surrogate pair rounds down to the character's start, or past its end with `up`; one
+    /// beyond the text (`NSNotFound` included) clamps to the end.
+    pub(super) fn byte_offset(text: &str, units: usize, up: bool) -> usize {
+        let mut seen = 0;
+        for (i, c) in text.char_indices() {
+            if seen >= units {
+                return i;
+            }
+            let next = seen + c.len_utf16();
+            if next > units {
+                return if up { i + c.len_utf8() } else { i };
+            }
+            seen = next;
+        }
+        text.len()
+    }
+
+    /// A text view's selected range (UTF-16 location and length) as byte offsets into `text`,
+    /// widened to whole characters, `start <= end`.
+    pub(super) fn byte_range(text: &str, location: usize, length: usize) -> (usize, usize) {
+        let start = byte_offset(text, location, false);
+        let end = byte_offset(text, location.saturating_add(length), true).max(start);
+        (start, end)
+    }
+
+    /// The line-height multiple in force, or `None` for the font's natural line height
+    /// (`LabelProps::line_height`: zero, negative and nonfinite all mean natural).
+    pub(super) fn line_height(multiple: f64) -> Option<f64> {
+        (multiple.is_finite() && multiple > 0.0).then_some(multiple)
+    }
+
+    /// The kern in points for `ems` of letter spacing at a font of `points`, or `None` when the
+    /// font's own spacing applies (`LabelProps::letter_spacing` of zero, or nonfinite).
+    pub(super) fn kern(ems: f64, points: f64) -> Option<f64> {
+        (ems.is_finite() && ems != 0.0).then_some(ems * points)
+    }
+
+    /// How far to raise the glyphs so a line box of `line` points centers them: `TextKit` puts a
+    /// fixed line height's extra space above the glyphs, and the CSS model Day follows splits
+    /// it evenly (docs/text.md "Line height").
+    pub(super) fn baseline_offset(line: f64, natural: f64) -> f64 {
+        (line - natural) / 2.0
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn utf16_offsets_become_byte_offsets() {
+            let text = "a€😀b";
+            // a = 1 unit / 1 byte, € = 1 unit / 3 bytes, 😀 = 2 units / 4 bytes.
+            assert_eq!(byte_range(text, 0, 0), (0, 0));
+            assert_eq!(byte_range(text, 0, 1), (0, 1));
+            assert_eq!(byte_range(text, 1, 1), (1, 4));
+            assert_eq!(byte_range(text, 2, 2), (4, 8));
+            assert_eq!(byte_range(text, 4, 1), (8, 9));
+            assert_eq!(byte_range(text, 0, 5), (0, text.len()));
+        }
+
+        #[test]
+        fn a_half_surrogate_widens_to_the_character() {
+            let text = "x😀y";
+            assert_eq!(byte_range(text, 2, 0), (1, 5));
+            assert_eq!(byte_range(text, 1, 1), (1, 5));
+            assert_eq!(byte_range(text, 2, 1), (1, 5));
+        }
+
+        #[test]
+        fn offsets_past_the_end_clamp() {
+            assert_eq!(byte_range("abc", usize::MAX, 0), (3, 3));
+            assert_eq!(byte_range("abc", 1, usize::MAX), (1, 3));
+            assert_eq!(byte_range("", 0, 0), (0, 0));
+        }
+
+        #[test]
+        fn paragraph_values_resolve_to_points() {
+            assert_eq!(line_height(2.0), Some(2.0));
+            assert_eq!(line_height(0.0), None);
+            assert_eq!(line_height(-1.0), None);
+            assert_eq!(line_height(f64::NAN), None);
+            assert_eq!(kern(0.5, 20.0), Some(10.0));
+            assert_eq!(kern(-0.1, 10.0), Some(-1.0));
+            assert_eq!(kern(0.0, 20.0), None);
+            assert_eq!(kern(f64::INFINITY, 20.0), None);
+            assert!((baseline_offset(40.0, 24.0) - 8.0).abs() < 1e-9);
+            assert!((baseline_offset(20.0, 24.0) + 2.0).abs() < 1e-9);
+        }
+    }
+}
+
+/// The pure half of the animation contract on Core Animation (docs/tween.md). Kept free of
+/// UIKit so host tests cover it.
+#[cfg(any(target_os = "ios", test))]
+mod motion_curve {
+    use day_spec::Curve;
+
+    /// The control points `(x1, y1, x2, y2)` of the cubic Bézier that plays `curve` exactly.
+    /// Day's eases `t²`, `1-(1-t)²` and `t²(3-2t)` are each a Bézier whose x runs linearly
+    /// with its parameter (x controls at ⅓ and ⅔), so the y controls are the curve's own
+    /// Bernstein coefficients (linear: the straight line, ⅓ and ⅔ on both axes). A spring is
+    /// not a Bézier: it plays as a `CASpringAnimation` and gets the linear points.
+    pub(super) fn bezier_points(curve: Curve) -> (f64, f64, f64, f64) {
+        match curve {
+            Curve::EaseIn => (1.0 / 3.0, 0.0, 2.0 / 3.0, 1.0 / 3.0),
+            Curve::EaseOut => (1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 1.0),
+            Curve::EaseInOut => (1.0 / 3.0, 0.0, 2.0 / 3.0, 1.0),
+            Curve::Linear | Curve::Spring { .. } => (1.0 / 3.0, 1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0),
+        }
+    }
+
+    /// How many times Core Animation repeats a run of `cycles` cycles (`None` = forever): it
+    /// counts a forward and a backward pass as one repeat when the run autoreverses.
+    pub(super) fn repeat_count(cycles: Option<u32>, autoreverse: bool) -> f32 {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a cycle count past 2^24 plays the same as one a little off"
+        )]
+        let n = cycles.map_or(f32::INFINITY, |n| n as f32);
+        if autoreverse { n / 2.0 } else { n }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The point at parameter `s` of the cubic Bézier from (0, 0) to (1, 1).
+        fn bezier(p: (f64, f64, f64, f64), s: f64) -> (f64, f64) {
+            let (x1, y1, x2, y2) = p;
+            let u = 1.0 - s;
+            let at = |c1: f64, c2: f64| 3.0 * u * u * s * c1 + 3.0 * u * s * s * c2 + s * s * s;
+            (at(x1, x2), at(y1, y2))
+        }
+
+        #[test]
+        fn each_ease_is_its_bezier() {
+            for curve in [
+                Curve::Linear,
+                Curve::EaseIn,
+                Curve::EaseOut,
+                Curve::EaseInOut,
+            ] {
+                for i in 0..=20 {
+                    let s = f64::from(i) / 20.0;
+                    let (x, y) = bezier(bezier_points(curve), s);
+                    assert!(
+                        (x - s).abs() < 1e-12,
+                        "{curve:?}: x runs with its parameter"
+                    );
+                    let want = curve.fraction(x, 1.0);
+                    assert!((y - want).abs() < 1e-12, "{curve:?} at {x}: {y} vs {want}");
+                }
+            }
+        }
+
+        #[test]
+        fn autoreverse_counts_pairs() {
+            assert!((repeat_count(Some(3), false) - 3.0).abs() < f32::EPSILON);
+            assert!((repeat_count(Some(3), true) - 1.5).abs() < f32::EPSILON);
+            assert!((repeat_count(Some(1), true) - 0.5).abs() < f32::EPSILON);
+            assert!(repeat_count(None, true).is_infinite());
+        }
+    }
+}
+
+/// The pure half of a surface's gradient fill on a `CAGradientLayer` (docs/surfaces.md): the
+/// layer's kind, its unit-space points and its stops. Kept free of UIKit so host tests cover it.
+#[cfg(any(target_os = "ios", test))]
+mod surface_fill {
+    use day_spec::{Color, Ink, Paint};
+
+    /// The `CAGradientLayer` type a paint draws with.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum Kind {
+        Axial,
+        Radial,
+        Conic,
+    }
+
+    /// What a `CAGradientLayer` is set to for one gradient paint.
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) struct Layout {
+        pub(super) kind: Kind,
+        /// `startPoint`, in the layer's unit space (origin top left, like `UnitPoint`).
+        pub(super) start: (f64, f64),
+        /// `endPoint`, in the same space.
+        pub(super) end: (f64, f64),
+        /// `locations` and `colors`, offsets in `0..=1`.
+        pub(super) stops: Vec<(f64, Color)>,
+    }
+
+    /// `paint` as a `CAGradientLayer` in a frame of `size` points, each ink resolved by
+    /// `resolve`; `None` for a solid paint, which is a background color instead.
+    ///
+    /// - linear: an axial layer from `start` to `end`;
+    /// - radial: a radial layer, `startPoint` the center and `endPoint` the center plus the
+    ///   radius on both axes, so the ellipse is `radius` of the width across and `radius` of
+    ///   the height down, as the gradient's unit space defines it;
+    /// - conic: a conic layer around the center, `endPoint` in the start direction. Core
+    ///   Animation reads that direction in unit space, which a non-square frame stretches, so
+    ///   the point is placed where the on-screen angle is `start`. Stops span the full turn
+    ///   (`conic_stops`), as `ConicGradient::color_at` reads them.
+    pub(super) fn layout(
+        paint: &Paint,
+        size: (f64, f64),
+        resolve: impl Fn(Ink) -> Color,
+    ) -> Option<Layout> {
+        let clamped = |stops: &[(f64, Ink)]| -> Vec<(f64, Color)> {
+            stops
+                .iter()
+                .map(|&(at, ink)| (at.clamp(0.0, 1.0), resolve(ink)))
+                .collect()
+        };
+        match paint {
+            Paint::Solid(_) => None,
+            Paint::Linear(g) => Some(Layout {
+                kind: Kind::Axial,
+                start: (g.start.x, g.start.y),
+                end: (g.end.x, g.end.y),
+                stops: clamped(&g.stops),
+            }),
+            Paint::Radial(g) => Some(Layout {
+                kind: Kind::Radial,
+                start: (g.center.x, g.center.y),
+                end: (g.center.x + g.radius, g.center.y + g.radius),
+                stops: clamped(&g.stops),
+            }),
+            Paint::Conic(g) => {
+                let resolved: Vec<(f64, Color)> = g
+                    .stops
+                    .iter()
+                    .map(|&(at, ink)| (at, resolve(ink)))
+                    .collect();
+                let (sin, cos) = g.start.radians().sin_cos();
+                let (w, h) = size;
+                let (dx, dy) = if w > 0.0 && h > 0.0 {
+                    // A point `cos, sin` away on screen is `cos / w, sin / h` away in unit
+                    // space; scaled so the shorter side's half is the length.
+                    let k = w.min(h) / 2.0;
+                    (cos * k / w, sin * k / h)
+                } else {
+                    (cos / 2.0, sin / 2.0)
+                };
+                Some(Layout {
+                    kind: Kind::Conic,
+                    start: (g.center.x, g.center.y),
+                    end: (g.center.x + dx, g.center.y + dy),
+                    stops: crate::canvas_state::conic_stops(&resolved),
+                })
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use day_spec::{Angle, ConicGradient, LinearGradient, RadialGradient, UnitPoint};
+
+        const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+        const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+
+        fn fixed(ink: Ink) -> Color {
+            ink.fixed().unwrap_or(Color::BLACK)
+        }
+
+        #[test]
+        fn a_solid_paint_is_no_gradient() {
+            assert_eq!(layout(&Paint::from(RED), (10.0, 10.0), fixed), None);
+        }
+
+        #[test]
+        fn linear_keeps_its_line_and_clamps_its_stops() {
+            let g = LinearGradient::new(
+                UnitPoint::new(0.0, 0.0),
+                UnitPoint::new(1.0, 1.0),
+                [(-0.5, RED), (1.5, BLUE)],
+            );
+            let l = layout(&Paint::from(g), (10.0, 20.0), fixed).expect("a gradient");
+            assert_eq!(l.kind, Kind::Axial);
+            assert_eq!((l.start, l.end), ((0.0, 0.0), (1.0, 1.0)));
+            assert_eq!(l.stops, vec![(0.0, RED), (1.0, BLUE)]);
+        }
+
+        #[test]
+        fn radial_reaches_the_radius_on_both_axes() {
+            let g = RadialGradient::new(UnitPoint::new(0.25, 0.5), 0.5, [(0.0, RED), (1.0, BLUE)]);
+            let l = layout(&Paint::from(g), (80.0, 40.0), fixed).expect("a gradient");
+            assert_eq!(l.kind, Kind::Radial);
+            assert_eq!((l.start, l.end), ((0.25, 0.5), (0.75, 1.0)));
+        }
+
+        #[test]
+        fn conic_points_at_its_start_angle_on_screen() {
+            for (w, h) in [(80.0, 80.0), (160.0, 40.0), (30.0, 90.0)] {
+                for deg in [0.0, 30.0, 90.0, 135.0, 250.0] {
+                    let g = ConicGradient::new(
+                        UnitPoint::CENTER,
+                        Angle::deg(deg),
+                        [(0.0, RED), (1.0, BLUE)],
+                    );
+                    let l = layout(&Paint::from(g), (w, h), fixed).expect("a gradient");
+                    assert_eq!(l.kind, Kind::Conic);
+                    let (dx, dy) = ((l.end.0 - l.start.0) * w, (l.end.1 - l.start.1) * h);
+                    let shown = dy.atan2(dx).to_degrees().rem_euclid(360.0);
+                    assert!((shown - deg).abs() < 1e-9, "{w}x{h} at {deg}: {shown}");
+                }
+            }
+        }
+
+        #[test]
+        fn conic_stops_span_the_turn() {
+            let g = ConicGradient::centered(Angle::ZERO, [(0.25, RED), (0.75, BLUE)]);
+            let l = layout(&Paint::from(g), (0.0, 0.0), fixed).expect("a gradient");
+            assert_eq!(
+                l.stops,
+                vec![(0.0, RED), (0.25, RED), (0.75, BLUE), (1.0, BLUE)]
+            );
+        }
+    }
+}
+
+/// The pure half of list splices, viewport reports, scroll snapping and pager progress
+/// (docs/list.md, docs/scroll.md, docs/pager.md). Kept free of UIKit so host tests cover it.
+#[cfg(any(target_os = "ios", test))]
+mod scrolling {
+    use day_spec::props::RowDelta;
+
+    /// A run of Day's sequential row deltas as the one batch `UITableView` takes: deletions
+    /// by the index a row had before the change, insertions by the index it has after, and
+    /// moves from one to the other.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub(super) struct Batch {
+        pub deletes: Vec<usize>,
+        pub inserts: Vec<usize>,
+        pub moves: Vec<(usize, usize)>,
+    }
+
+    /// Folds `deltas`, each counted against the list the previous ones left (docs/list.md
+    /// "Splices"), over a table of `old` rows into one [`Batch`]. The deltas are replayed over
+    /// the old rows' identities; each final row is then an old row (moved, or carried along
+    /// in order) or a new one. Only rows a `Move` touched become batch moves: every other
+    /// surviving row keeps its order relative to the others, which is how `UITableView`
+    /// places the rows a batch does not name. `None` when a delta is out of range for the
+    /// list it applies to.
+    pub(super) fn fold(old: usize, deltas: &[RowDelta]) -> Option<Batch> {
+        // Per row: the old index and whether a move touched it; `None` for a new row.
+        let mut rows: Vec<Option<(usize, bool)>> = (0..old).map(|i| Some((i, false))).collect();
+        for delta in deltas {
+            match *delta {
+                RowDelta::Insert(at) => {
+                    if at > rows.len() {
+                        return None;
+                    }
+                    rows.insert(at, None);
+                }
+                RowDelta::Remove(at) => {
+                    if at >= rows.len() {
+                        return None;
+                    }
+                    rows.remove(at);
+                }
+                RowDelta::Move(from, to) => {
+                    if from >= rows.len() {
+                        return None;
+                    }
+                    let row = rows.remove(from);
+                    if to > rows.len() {
+                        return None;
+                    }
+                    rows.insert(to, row.map(|(was, _)| (was, true)));
+                }
+            }
+        }
+        let mut kept = vec![false; old];
+        let mut batch = Batch::default();
+        for (at, row) in rows.iter().enumerate() {
+            match *row {
+                None => batch.inserts.push(at),
+                Some((was, moved)) => {
+                    kept[was] = true;
+                    if moved {
+                        batch.moves.push((was, at));
+                    }
+                }
+            }
+        }
+        batch.deletes = (0..old).filter(|i| !kept[*i]).collect();
+        Some(batch)
+    }
+
+    /// Where each of a table's `old` rows ends once `deltas` land: its final index, `None`
+    /// for a row they remove. The table's rows mean the source's through this while a change
+    /// is on its way to it (`DayListData::hold`). `None` when a delta is out of range.
+    pub(super) fn final_rows(old: usize, deltas: &[RowDelta]) -> Option<Vec<Option<usize>>> {
+        let mut rows: Vec<Option<usize>> = (0..old).map(Some).collect();
+        for delta in deltas {
+            match *delta {
+                RowDelta::Insert(at) if at <= rows.len() => rows.insert(at, None),
+                RowDelta::Remove(at) if at < rows.len() => {
+                    rows.remove(at);
+                }
+                RowDelta::Move(from, to) if from < rows.len() && to < rows.len() => {
+                    let row = rows.remove(from);
+                    rows.insert(to, row);
+                }
+                _ => return None,
+            }
+        }
+        let mut finals = vec![None; old];
+        for (at, row) in rows.iter().enumerate() {
+            if let Some(was) = row {
+                finals[*was] = Some(at);
+            }
+        }
+        Some(finals)
+    }
+
+    /// How far the end of the content is below the end of the viewport, in points
+    /// (`ListViewport::end_distance`): the table's own bottom inset (a safe area, the
+    /// keyboard) is not content, and an overscroll past the end reports zero.
+    pub(super) fn end_distance(content: f64, offset: f64, viewport: f64, inset_end: f64) -> f64 {
+        (content - (offset + viewport - inset_end)).max(0.0)
+    }
+
+    /// Where a drag released toward `target` comes to rest on a grid of `interval` points
+    /// (`ScrollSnap::Interval`, docs/scroll.md "Snapping"): the stop nearest the target, never
+    /// one behind the release point against the direction of the fling, clamped to
+    /// `0..=max`. Offsets count from the start of the scroll range.
+    pub(super) fn snap_stop(
+        target: f64,
+        current: f64,
+        velocity: f64,
+        interval: f64,
+        max: f64,
+    ) -> f64 {
+        if !(interval.is_finite() && interval > 0.0 && target.is_finite()) {
+            return target;
+        }
+        let mut stop = (target / interval).round() * interval;
+        if velocity > 0.0 && stop < current {
+            stop = (current / interval).ceil() * interval;
+        } else if velocity < 0.0 && stop > current {
+            stop = (current / interval).floor() * interval;
+        }
+        stop.clamp(0.0, max.max(0.0))
+    }
+
+    /// A pager's position in reading-order pages (docs/pager.md "Progress"): the place of
+    /// the page the scroll view holds as current, plus how far the content has moved from
+    /// that page's origin toward the next, in page widths. `forward` is -1 where the next
+    /// page lies to the left (right-to-left).
+    pub(super) fn pager_position(
+        place: usize,
+        offset: f64,
+        origin: f64,
+        width: f64,
+        forward: f64,
+    ) -> f64 {
+        if !(width.is_finite() && width > 0.0) {
+            return place as f64;
+        }
+        place as f64 + forward * (offset - origin) / width
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use day_spec::props::RowDelta::{Insert, Move, Remove};
+
+        /// Plays a batch the way `UITableView` does, over labeled rows: deletions and moved
+        /// rows leave, insertions and moved rows land at their final indices, and the rest
+        /// fill the remaining slots in their old order.
+        fn play(old: &[u32], batch: &Batch, new_rows: &mut dyn Iterator<Item = u32>) -> Vec<u32> {
+            let len = old.len() - batch.deletes.len() + batch.inserts.len();
+            let mut out: Vec<Option<u32>> = vec![None; len];
+            for &at in &batch.inserts {
+                out[at] = new_rows.next();
+            }
+            for &(from, to) in &batch.moves {
+                out[to] = Some(old[from]);
+            }
+            let mut rest = (0..old.len())
+                .filter(|i| !batch.deletes.contains(i) && !batch.moves.iter().any(|m| m.0 == *i))
+                .map(|i| old[i]);
+            out.into_iter()
+                .map(|slot| slot.or_else(|| rest.next()).unwrap_or(0))
+                .collect()
+        }
+
+        /// The same deltas applied one at a time.
+        fn sequential(
+            old: &[u32],
+            deltas: &[RowDelta],
+            new_rows: &mut dyn Iterator<Item = u32>,
+        ) -> Vec<u32> {
+            let mut rows = old.to_vec();
+            for delta in deltas {
+                match *delta {
+                    Insert(at) => rows.insert(at, new_rows.next().unwrap_or(0)),
+                    Remove(at) => {
+                        rows.remove(at);
+                    }
+                    Move(from, to) => {
+                        let row = rows.remove(from);
+                        rows.insert(to, row);
+                    }
+                }
+            }
+            rows
+        }
+
+        #[test]
+        fn the_conformance_edits_fold_into_batches() {
+            // Insert at the top, last to the top, remove from the middle.
+            for (old, deltas) in [
+                (vec![1, 2, 3], vec![Insert(0)]),
+                (vec![9, 1, 2, 3], vec![Move(3, 0)]),
+                (vec![3, 9, 1, 2], vec![Remove(2)]),
+                (vec![1, 2], vec![Insert(2)]),
+            ] {
+                let batch = fold(old.len(), &deltas).expect("in range");
+                let mut a = 100..;
+                let mut b = 100..;
+                // New rows are numbered in the order the batch inserts them, top down; the
+                // sequential replay numbers them as they arrive, so compare with one insert at
+                // most per case.
+                assert_eq!(
+                    play(&old, &batch, &mut a),
+                    sequential(&old, &deltas, &mut b)
+                );
+            }
+        }
+
+        #[test]
+        fn a_run_of_appends_is_one_insert_batch() {
+            // day-core appends bottom-up: each new row lands above the one placed before it.
+            let deltas: Vec<_> = (0..5).map(|_| Insert(3)).collect();
+            let batch = fold(3, &deltas).expect("in range");
+            assert_eq!(batch.inserts, vec![3, 4, 5, 6, 7]);
+            assert!(batch.deletes.is_empty() && batch.moves.is_empty());
+        }
+
+        #[test]
+        fn mixed_runs_keep_the_untouched_rows_in_order() {
+            let old: Vec<u32> = (0..8).collect();
+            let deltas = [Remove(6), Remove(2), Move(0, 4), Move(5, 1), Remove(0)];
+            let batch = fold(old.len(), &deltas).expect("in range");
+            let mut none = std::iter::empty();
+            let mut also_none = std::iter::empty();
+            assert_eq!(
+                play(&old, &batch, &mut none),
+                sequential(&old, &deltas, &mut also_none)
+            );
+            assert_eq!(batch.deletes, vec![1, 2, 6]);
+        }
+
+        #[test]
+        fn a_moved_then_removed_row_is_a_deletion_and_a_new_row_is_never_a_move() {
+            let batch = fold(3, &[Move(0, 2), Remove(2), Insert(0), Move(0, 2)]).expect("in range");
+            assert_eq!(batch.deletes, vec![0]);
+            assert_eq!(batch.inserts, vec![2]);
+            assert!(batch.moves.is_empty());
+        }
+
+        #[test]
+        fn a_table_row_means_where_its_row_ends() {
+            // The probe's change: two rows at the top, one removed below, two swapped.
+            let deltas = [Insert(0), Insert(0), Remove(40), Move(3, 4)];
+            let finals = final_rows(50, &deltas).expect("in range");
+            // Old row 0 ends at 2, old 1 at 4 and old 2 at 3 (the swap), old 38 is removed.
+            assert_eq!(&finals[..4], &[Some(2), Some(4), Some(3), Some(5)]);
+            assert_eq!(finals[38], None);
+            assert_eq!(finals[39], Some(40));
+            // The same rows the sequential replay leaves, row for row.
+            let old: Vec<u32> = (0..50).collect();
+            let mut fresh = 100..;
+            let after = sequential(&old, &deltas, &mut fresh);
+            for (was, end) in finals.iter().enumerate() {
+                if let Some(end) = end {
+                    assert_eq!(after[*end], old[was]);
+                }
+            }
+            assert_eq!(final_rows(2, &[Remove(2)]), None);
+        }
+
+        #[test]
+        fn out_of_range_deltas_do_not_fold() {
+            assert_eq!(fold(2, &[Remove(2)]), None);
+            assert_eq!(fold(2, &[Insert(3)]), None);
+            assert_eq!(fold(2, &[Move(2, 0)]), None);
+            assert_eq!(fold(2, &[Move(0, 2)]), None);
+        }
+
+        #[test]
+        fn the_end_distance_ignores_the_bottom_inset_and_overscroll() {
+            assert!((end_distance(1000.0, 0.0, 200.0, 0.0) - 800.0).abs() < 1e-9);
+            assert!(end_distance(1000.0, 834.0, 200.0, 34.0).abs() < 1e-9);
+            assert!(end_distance(1000.0, 900.0, 200.0, 0.0).abs() < 1e-9);
+            assert!(end_distance(100.0, 0.0, 200.0, 0.0).abs() < 1e-9);
+        }
+
+        #[test]
+        fn snapping_rounds_to_the_grid_with_the_fling() {
+            // Released at 130 with no fling: the nearest stop.
+            assert!((snap_stop(130.0, 130.0, 0.0, 100.0, 1000.0) - 100.0).abs() < 1e-9);
+            // A forward fling whose projected target rounds back still moves forward.
+            assert!((snap_stop(140.0, 130.0, 0.5, 100.0, 1000.0) - 200.0).abs() < 1e-9);
+            assert!((snap_stop(120.0, 130.0, -0.5, 100.0, 1000.0) - 100.0).abs() < 1e-9);
+            // Far flings keep their projected stop, clamped to the range.
+            assert!((snap_stop(640.0, 130.0, 3.0, 100.0, 1000.0) - 600.0).abs() < 1e-9);
+            assert!((snap_stop(1240.0, 900.0, 3.0, 100.0, 950.0) - 950.0).abs() < 1e-9);
+            assert!(snap_stop(-80.0, 30.0, -1.0, 100.0, 950.0).abs() < 1e-9);
+            // No grid: the target stands.
+            assert!((snap_stop(123.0, 0.0, 0.0, 0.0, 950.0) - 123.0).abs() < 1e-9);
+        }
+
+        #[test]
+        fn pager_position_follows_the_content_in_reading_order() {
+            assert!((pager_position(1, 390.0, 390.0, 390.0, 1.0) - 1.0).abs() < 1e-9);
+            assert!((pager_position(1, 585.0, 390.0, 390.0, 1.0) - 1.5).abs() < 1e-9);
+            // Right to left: the next page lies to the left.
+            assert!((pager_position(1, 195.0, 390.0, 390.0, -1.0) - 1.5).abs() < 1e-9);
+            assert!((pager_position(2, 10.0, 0.0, 0.0, 1.0) - 2.0).abs() < 1e-9);
+        }
+    }
+}
+
 /// Set a `UITextInputTraits` integer property on a `UITextView` (0 = on/default, 1 = off) —
 /// dispatched through the raw runtime, since objc2's checked send does not see these dynamically
 /// resolved setters. Public for standalone editor pieces (docs/extending.md).
@@ -84,8 +908,7 @@ mod imp {
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
         UIColor, UIControl, UIControlEvents, UIControlState, UIEdgeInsets, UILabel,
         UIModalPresentationStyle, UIProgressView, UIRectEdge, UIScrollView, UISlider, UISwitch,
-        UITextBorderStyle, UITextField, UITextView, UIView, UIViewAnimationOptions,
-        UIViewController, UIWindow,
+        UITextBorderStyle, UITextField, UITextView, UIView, UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
         UIBarButtonItem, UIBarButtonItemStyle, UIBarPositioningDelegate,
@@ -144,6 +967,11 @@ mod imp {
         /// art. Swept on release.
         static IMAGE_MODES: day_spec::sidetable::SideTable<ImageMode> =
             day_spec::sidetable::SideTable::new();
+        /// Surfaces whose layer holds a color from an ink that follows the appearance, or a
+        /// gradient (`apply_surface`): re-resolved on a trait change and re-fitted on layout.
+        /// Swept on release.
+        static SURFACES: day_spec::sidetable::SideTable<SurfaceState> =
+            day_spec::sidetable::SideTable::new();
 
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
@@ -163,6 +991,10 @@ mod imp {
         /// The UITextField that currently owns the keyboard (editBegan/editEnded), so the
         /// keyboard handler can reveal it inside its enclosing UIScrollView.
         static FOCUSED_FIELD: RefCell<Option<Retained<UIView>>> = const { RefCell::new(None) };
+        /// Whether the software keyboard covers part of the key window, as its last
+        /// `keyboardWillChange:` said: what `KeyboardTaps::Dismiss` waits for (docs/scroll.md
+        /// "Keyboard").
+        static KEYBOARD_UP: Cell<bool> = const { Cell::new(false) };
         #[allow(clippy::type_complexity)]
         static PENDING: RefCell<Option<(Uikit, WindowOptions, Box<dyn FnOnce(Uikit, Handle, Size)>)>> =
             RefCell::new(None);
@@ -201,10 +1033,46 @@ mod imp {
             const { RefCell::new(None) };
         static TEXT_LINKS: day_spec::sidetable::SideTable<Retained<DayTextLink>> =
             day_spec::sidetable::SideTable::new();
+        /// Each label's paragraph attributes, alignment, direction and selection reports
+        /// (`LabelLook`), keyed by its backing view and moved along by the `.selectable()`
+        /// swap. Swept on release.
+        static LABEL_LOOKS: day_spec::sidetable::SideTable<LabelLook> =
+            day_spec::sidetable::SideTable::new();
 
         /// Keeps each view's gesture targets alive + records which are attached (idempotent).
         static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
             RefCell::new(HashMap::new());
+        /// Each view's press and touches observers (docs/gestures.md "Press", "Touches"), kept
+        /// alive beside the view's recognizers. Swept on release.
+        static OBSERVERS: day_spec::sidetable::SideTable<Vec<Retained<DayObserver>>> =
+            day_spec::sidetable::SideTable::new();
+        /// The area a view takes pointer input in beyond its bounds (`set_hit_slop`,
+        /// docs/gestures.md "Hit slop"). Read by the hit tests of Day's container and canvas
+        /// views. Swept on release.
+        static HIT_SLOP: day_spec::sidetable::SideTable<day_spec::Insets> =
+            day_spec::sidetable::SideTable::new();
+        /// The one axis a view's drag follows (`set_drag_axis`, docs/gestures.md "Gestures
+        /// inside a scroll view"). Swept on release.
+        static DRAG_AXIS: day_spec::sidetable::SideTable<day_spec::DragAxis> =
+            day_spec::sidetable::SideTable::new();
+        /// How many disabled groups a view roots (`set_subtree_enabled`, docs/forms.md
+        /// "Disabling a group"). Swept on release.
+        static GROUP_OFF: day_spec::sidetable::SideTable<GroupOff> =
+            day_spec::sidetable::SideTable::new();
+        /// A view inside one or more disabled groups that the walk changed: how many groups
+        /// hold it, and what it had before the first. Swept on release.
+        static HELD_OFF: day_spec::sidetable::SideTable<HeldOff> =
+            day_spec::sidetable::SideTable::new();
+        /// The hardware keys a focused view claimed the down of and has not seen come up yet
+        /// (docs/menus.md "Keys"): the release goes to the same node. Swept on release.
+        static KEYS_DOWN: day_spec::sidetable::SideTable<Vec<HeldKey>> =
+            day_spec::sidetable::SideTable::new();
+        /// The kind of device the last pointer down came from, as last reported
+        /// (`Event::PointerKindChanged`, docs/gestures.md "Input kind").
+        static POINTER_KIND: Cell<day_spec::PointerKind> =
+            const { Cell::new(day_spec::PointerKind::Touch) };
+        /// The window-level observers that report the input kind, one per window.
+        static POINTER_WATCH: RefCell<Vec<Retained<DayObserver>>> = const { RefCell::new(Vec::new()) };
         /// Per-view context-menu interaction + its delegate (kept alive; replaced on
         /// reconfigure, swept on release via `day_spec::sidetable`). The teardown detaches
         /// the interaction from its view first, so a recycled address can never serve a dead
@@ -629,6 +1497,7 @@ mod imp {
             window.setRootViewController(Some(&vc));
             window.makeKeyAndVisible();
         }
+        watch_pointer(&window);
         // Safe area as root padding (§7.7): valid once the window is key. The window's OWN
         // bounds, not the ones the holder was built with — `makeKeyAndVisible` is where a scene
         // that is smaller than it first reported settles.
@@ -846,16 +1715,16 @@ mod imp {
     fn key_modifiers(f: objc2_ui_kit::UIKeyModifierFlags) -> u8 {
         let mut m = 0u8;
         if f.contains(objc2_ui_kit::UIKeyModifierFlags::Shift) {
-            m |= day_spec::KeyEvent::SHIFT;
+            m |= day_spec::Modifiers::SHIFT.bits();
         }
         if f.contains(objc2_ui_kit::UIKeyModifierFlags::Command) {
-            m |= day_spec::KeyEvent::PRIMARY;
+            m |= day_spec::Modifiers::PRIMARY.bits();
         }
         if f.contains(objc2_ui_kit::UIKeyModifierFlags::Alternate) {
-            m |= day_spec::KeyEvent::ALT;
+            m |= day_spec::Modifiers::ALT.bits();
         }
         if f.contains(objc2_ui_kit::UIKeyModifierFlags::Control) {
-            m |= day_spec::KeyEvent::CONTROL;
+            m |= day_spec::Modifiers::CONTROL.bits();
         }
         m
     }
@@ -923,56 +1792,76 @@ mod imp {
     /// left to `super`) inserted into a canvas that took the whole keyboard: a newline is
     /// the Enter key and a tab the Tab key, anything else is text, named by itself when it
     /// is one character.
-    fn emit_inserted_text(node: NodeId, text: &str) {
+    fn emit_inserted_text(node: NodeId, text: &str, phase: day_spec::KeyPhase) {
         let event = match text {
             "\n" | "\r" => day_spec::KeyEvent::named("Enter", 0),
             "\t" => day_spec::KeyEvent::named("Tab", 0),
             "" => return,
             other => day_spec::KeyEvent::typed_text(other, 0),
         };
-        emit(node, Event::Key(event));
-    }
-    /// Apply row-level deltas as animated table updates. Indexes are sequential (each
-    /// delta describes the set as the previous ones left it), so each gets its own batch —
-    /// `UITableView`'s combined-batch index rules would re-interpret them.
-    fn apply_row_deltas(table: &objc2_ui_kit::UITableView, deltas: &[day_spec::props::RowDelta]) {
-        // Day's deltas are sequential, each counted against the list as the one before left
-        // it. UITableView counts every batch against the data source, which already answers
-        // the FINAL length. A single delta satisfies both. Several cannot: the first batch
-        // closes on a row count the source contradicts, and UIKit raises its row-count
-        // inconsistency exception. Those splices reload flat instead — the right rows, without
-        // the per-row animation — until the deltas are folded into one batch.
-        let d = match deltas {
-            [] => return,
-            [d] => d,
-            _ => {
-                unsafe { table.reloadData() };
-                return;
-            }
-        };
-        let path =
-            |row: usize| objc2_foundation::NSIndexPath::indexPathForRow_inSection(row as isize, 0);
-        unsafe {
-            table.beginUpdates();
-            match d {
-                day_spec::props::RowDelta::Insert(i) => table
-                    .insertRowsAtIndexPaths_withRowAnimation(
-                        &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
-                        objc2_ui_kit::UITableViewRowAnimation::Automatic,
-                    ),
-                day_spec::props::RowDelta::Remove(i) => table
-                    .deleteRowsAtIndexPaths_withRowAnimation(
-                        &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
-                        objc2_ui_kit::UITableViewRowAnimation::Automatic,
-                    ),
-                day_spec::props::RowDelta::Move(from, to) => {
-                    table.moveRowAtIndexPath_toIndexPath(&path(*from), &path(*to));
-                }
-            }
-            table.endUpdates();
-        }
+        emit(node, Event::Key(event.with_phase(phase)));
     }
 
+    /// Records a key whose down the view at `view` claimed, so its release reaches the same
+    /// node (docs/menus.md "Keys").
+    fn hold_key(view: usize, key: HeldKey) {
+        KEYS_DOWN.with(|t| {
+            let mut held = t.take(view).unwrap_or_default();
+            held.retain(|k| k.code != key.code);
+            held.push(key);
+            t.insert(view, held);
+        });
+    }
+
+    /// The releases among `presses` whose downs `view` claimed: each is reported as
+    /// `KeyPhase::Up` to the view's node, with the modifiers held now and no text. Returns the
+    /// presses `super` must see: every one this view did not claim, and the typing keys, whose
+    /// downs `super` saw.
+    fn release_keys(
+        view: &UIView,
+        presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+    ) -> Vec<Retained<objc2_ui_kit::UIPress>> {
+        let ptr = ptr_of(view);
+        let node = KEY_NODES.with(|t| t.get(ptr));
+        let mut rest = Vec::new();
+        for press in presses {
+            let Some(key) = (unsafe { press.key(view.mtm()) }) else {
+                rest.push(press.retain());
+                continue;
+            };
+            let code = unsafe { key.keyCode() }.0;
+            let held = KEYS_DOWN
+                .with(|t| {
+                    t.with(ptr, |held| {
+                        let i = held.iter().position(|k| k.code == code)?;
+                        Some(held.remove(i))
+                    })
+                })
+                .flatten();
+            let Some(held) = held else {
+                rest.push(press.retain());
+                continue;
+            };
+            if let Some(node) = node
+                && (!held.text || held.inserts > 0)
+            {
+                let mods = key_modifiers(unsafe { key.modifierFlags() });
+                day_spec::ffi_guard::contain((), || {
+                    emit(
+                        node,
+                        Event::Key(
+                            day_spec::KeyEvent::named(held.name.as_str(), mods)
+                                .with_phase(day_spec::KeyPhase::Up),
+                        ),
+                    );
+                });
+            }
+            if held.text {
+                rest.push(press.retain());
+            }
+        }
+        rest
+    }
     fn view_of<T: AsRef<UIView>>(x: &Retained<T>) -> Handle {
         Retained::from((**x).as_ref())
     }
@@ -3200,6 +4089,13 @@ mod imp {
                 });
                 false
             }
+
+            /// The reader's selection moved: a label that asked for reports
+            /// (`LabelProps::reports_selection`) hears it as `Event::TextSelected`.
+            #[unsafe(method(textViewDidChangeSelection:))]
+            fn selection_changed(&self, tv: &UITextView) {
+                day_spec::ffi_guard::contain((), || report_selection(tv));
+            }
         }
 
         // The tap recognizer shares the touch with the text view's own recognizers.
@@ -3297,11 +4193,22 @@ mod imp {
     }
 
     impl DayTextLink {
-        /// Make `tv` report its link taps against `node`, and keep the delegate alive with it.
-        fn attach(tv: &UITextView, node: NodeId, mtm: MainThreadMarker) {
+        /// Make `tv` report to `node` through this delegate, and keep the delegate alive with
+        /// it: its link activations and its selection changes (`report_selection` decides
+        /// whether the label wants those). `taps` adds the immediate link-tap recognizer, which
+        /// only a text view that carries links needs. Idempotent: a view that already has one
+        /// keeps it.
+        fn attach(tv: &UITextView, node: NodeId, taps: bool, mtm: MainThreadMarker) {
+            if TEXT_LINKS.with(|t| t.contains(ptr_of_view(tv))) {
+                return;
+            }
             let this = Self::alloc(mtm).set_ivars(node);
             let delegate: Retained<Self> = unsafe { msg_send![super(this), init] };
             unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+            if !taps {
+                TEXT_LINKS.with(|t| t.insert(ptr_of_view(tv), delegate));
+                return;
+            }
             let tap = unsafe {
                 UITapGestureRecognizer::initWithTarget_action(
                     UITapGestureRecognizer::alloc(mtm),
@@ -3325,42 +4232,338 @@ mod imp {
         std::ptr::from_ref::<UIView>(v) as usize
     }
 
+    // -----------------------------------------------------------------------
+    // Label paragraph attributes (docs/text.md "Line limit", "Truncation", "Letter spacing",
+    // "Line height", "Selection reports"; docs/localization.md "Direction of a subtree")
+    // -----------------------------------------------------------------------
+
+    /// What a label keeps beside its backing view: the attributes `LabelPatch::Paragraph`
+    /// replaces, the realize-only ones the paragraph is applied with, and the selection-report
+    /// state. Moved to the replacement by the `.selectable()` swap (`set_selectable`), so the
+    /// line limit, spacing and reports follow the label onto its `UITextView`.
+    #[derive(Clone)]
+    struct LabelLook {
+        node: NodeId,
+        wraps: bool,
+        align: day_spec::props::TextAlign,
+        para: day_spec::props::LabelParagraph,
+        /// The direction `set_layout_direction` gave this label; `None` follows the app.
+        rtl: Option<bool>,
+        reports: bool,
+        /// The last selection reported, in bytes; `start == end` is "nothing selected".
+        selection: (usize, usize),
+        /// Kern, a fixed line height or a base direction is on the attributed text, so a
+        /// return to the natural values has to take them off again.
+        styled: bool,
+        /// The backing view, for the Dynamic Type refresh (`refresh_label_paragraphs`).
+        view: objc2::rc::Weak<UIView>,
+        /// The label's own color (`label_ink`), which a `LabelPatch::Runs` rebuild lays under
+        /// the runs as a plain label shows it.
+        color: Option<day_spec::Ink>,
+    }
+
+    /// The color a label's text takes where no run says otherwise: its explicit color, else
+    /// its role's (`None` is the label color).
+    fn label_ink(p: &LabelProps) -> Option<day_spec::Ink> {
+        p.color.or(match p.role {
+            day_spec::props::TextRole::Secondary => {
+                Some(day_spec::Ink::system(day_spec::SystemColor::SecondaryText))
+            }
+            day_spec::props::TextRole::Primary => None,
+        })
+    }
+
+    /// Record a freshly realized label's look and apply it: the line limit, truncation,
+    /// spacing, line height and alignment all go through `apply_paragraph`, at realize and on
+    /// every patch, so there is one place that decides them.
+    fn track_label(view: &Handle, p: &LabelProps, node: NodeId) {
+        let look = LabelLook {
+            node,
+            wraps: p.wraps,
+            align: p.align,
+            para: p.paragraph(),
+            rtl: None,
+            reports: p.reports_selection,
+            selection: (0, 0),
+            styled: false,
+            view: objc2::rc::Weak::from_retained(view),
+            color: label_ink(p),
+        };
+        LABEL_LOOKS.with(|t| t.insert(ptr_of(view), look));
+        apply_paragraph(view);
+    }
+
+    /// The color a label keeps under its runs (`LabelLook::color`).
+    fn own_ink(view: &UIView) -> Option<day_spec::Ink> {
+        LABEL_LOOKS
+            .with(|t| t.with(ptr_of(view), |look| look.color))
+            .flatten()
+    }
+
+    /// Record a label's new color, for the next `LabelPatch::Runs` rebuild.
+    fn set_own_ink(view: &UIView, color: Option<day_spec::Ink>) {
+        LABEL_LOOKS.with(|t| t.with(ptr_of(view), |look| look.color = color));
+    }
+
+    /// `Truncation` as the line-break mode that ends a limited label's last line.
+    fn truncating(t: day_spec::props::Truncation) -> objc2_ui_kit::NSLineBreakMode {
+        use day_spec::props::Truncation;
+        use objc2_ui_kit::NSLineBreakMode;
+        match t {
+            Truncation::Tail => NSLineBreakMode::ByTruncatingTail,
+            Truncation::Head => NSLineBreakMode::ByTruncatingHead,
+            Truncation::Middle => NSLineBreakMode::ByTruncatingMiddle,
+        }
+    }
+
+    /// `TextAlign` as `NSTextAlignment`. Leading is `.natural` while the label follows the app,
+    /// so an RTL locale aligns right without the app asking (docs/localization.md); under a
+    /// subtree direction (`rtl`) both edges resolve against that direction, because a
+    /// `UILabel` resolves `.natural` from the app's language, not from its own
+    /// `semanticContentAttribute`.
+    fn ns_alignment(
+        align: day_spec::props::TextAlign,
+        rtl: Option<bool>,
+    ) -> objc2_ui_kit::NSTextAlignment {
+        use day_spec::props::TextAlign;
+        use objc2_ui_kit::NSTextAlignment;
+        let edge = |right: bool| {
+            if right {
+                NSTextAlignment::Right
+            } else {
+                NSTextAlignment::Left
+            }
+        };
+        match (align, rtl) {
+            (TextAlign::Leading, None) => NSTextAlignment::Natural,
+            (TextAlign::Leading, Some(rtl)) => edge(rtl),
+            (TextAlign::Trailing, rtl) => edge(!rtl.unwrap_or_else(day_core::is_rtl)),
+            (TextAlign::Center, _) => NSTextAlignment::Center,
+            (TextAlign::Justified, _) => NSTextAlignment::Justified,
+        }
+    }
+
+    /// `text` with the look's paragraph attributes over its whole range: `NSKern` for letter
+    /// spacing (ems times the label's point size), a paragraph style with the alignment, the
+    /// line-break mode, a fixed line height (`minimumLineHeight` = `maximumLineHeight` =
+    /// multiple times the point size, not `lineHeightMultiple`, which multiplies the natural
+    /// height) and the base direction, and `NSBaselineOffset` to center the glyphs in that
+    /// line box. Each attribute is set or removed, so applying it again is idempotent.
+    fn restyled(
+        text: &objc2_foundation::NSAttributedString,
+        font: &objc2_ui_kit::UIFont,
+        look: &LabelLook,
+        align: objc2_ui_kit::NSTextAlignment,
+        breaks: objc2_ui_kit::NSLineBreakMode,
+    ) -> Retained<objc2_foundation::NSAttributedString> {
+        use objc2::AllocAnyThread as _;
+        use objc2_foundation::{NSMutableAttributedString, NSNumber};
+        use objc2_ui_kit::{
+            NSBaselineOffsetAttributeName, NSKernAttributeName, NSMutableParagraphStyle,
+            NSParagraphStyleAttributeName, NSWritingDirection,
+        };
+        let s = unsafe {
+            NSMutableAttributedString::initWithAttributedString(
+                NSMutableAttributedString::alloc(),
+                text,
+            )
+        };
+        let whole = NSRange::new(0, s.length());
+        let points = unsafe { font.pointSize() };
+        let style = NSMutableParagraphStyle::new();
+        unsafe {
+            match crate::label_text::kern(look.para.letter_spacing, points) {
+                Some(k) => {
+                    s.addAttribute_value_range(NSKernAttributeName, &NSNumber::new_f64(k), whole);
+                }
+                None => s.removeAttribute_range(NSKernAttributeName, whole),
+            }
+            style.setAlignment(align);
+            style.setLineBreakMode(breaks);
+            if let Some(rtl) = look.rtl {
+                style.setBaseWritingDirection(if rtl {
+                    NSWritingDirection::RightToLeft
+                } else {
+                    NSWritingDirection::LeftToRight
+                });
+            }
+            match crate::label_text::line_height(look.para.line_height) {
+                Some(multiple) => {
+                    let line = multiple * points;
+                    style.setMinimumLineHeight(line);
+                    style.setMaximumLineHeight(line);
+                    let raise = crate::label_text::baseline_offset(line, font.lineHeight());
+                    s.addAttribute_value_range(
+                        NSBaselineOffsetAttributeName,
+                        &NSNumber::new_f64(raise),
+                        whole,
+                    );
+                }
+                None => s.removeAttribute_range(NSBaselineOffsetAttributeName, whole),
+            }
+            s.addAttribute_value_range(NSParagraphStyleAttributeName, &style, whole);
+        }
+        s.into_super()
+    }
+
+    /// Apply a label's look to its backing view (docs/text.md): idempotent, run at realize,
+    /// after every `LabelPatch`, after the `.selectable()` swap, on a direction change and when
+    /// Dynamic Type resizes the fonts (letter spacing and line height are in multiples of the
+    /// point size).
+    ///
+    /// A `UILabel` takes the limit as `numberOfLines` and the truncation as its
+    /// `lineBreakMode`, which UIKit applies to the last visible line; `sizeThatFits:` honors
+    /// both, so `measure` needs nothing more. It stays a plain-text label until a paragraph
+    /// attribute needs the attributed string. A `UITextView` takes them on its text
+    /// container (`maximumNumberOfLines`, `lineBreakMode`), and its paragraph style always
+    /// wraps by word: `TextKit` reads a truncating paragraph mode as "one line per paragraph",
+    /// which the attributed text copied from a truncating `UILabel` would otherwise carry.
+    fn apply_paragraph(view: &UIView) {
+        use objc2_ui_kit::NSLineBreakMode;
+        let key = ptr_of(view);
+        let Some(look) = LABEL_LOOKS.with(|t| t.get(key)) else {
+            return;
+        };
+        let lines = if look.wraps {
+            look.para.max_lines as usize
+        } else {
+            1
+        };
+        let align = ns_alignment(look.align, look.rtl);
+        let styled = crate::label_text::kern(look.para.letter_spacing, 1.0).is_some()
+            || crate::label_text::line_height(look.para.line_height).is_some()
+            || look.rtl.is_some();
+        if let Some(label) = view.downcast_ref::<UILabel>() {
+            // Unlimited keeps UIKit's default tail mode: the label still wraps, and ends in an
+            // ellipsis only if its frame cuts it short.
+            let mode = if lines > 0 {
+                truncating(look.para.truncation)
+            } else {
+                NSLineBreakMode::ByTruncatingTail
+            };
+            unsafe {
+                label.setNumberOfLines(lines.cast_signed());
+                if (styled || look.styled)
+                    && let (Some(text), Some(font)) = (label.attributedText(), label.font())
+                {
+                    label.setAttributedText(Some(&restyled(&text, &font, &look, align, mode)));
+                }
+                // After the attributed text, which brings its own alignment; either setter
+                // restyles the whole string, so only when the value moved.
+                if label.textAlignment() != align {
+                    label.setTextAlignment(align);
+                }
+                if label.lineBreakMode() != mode {
+                    label.setLineBreakMode(mode);
+                }
+            }
+        } else if let Some(tv) = view.downcast_ref::<UITextView>() {
+            let mode = if lines > 0 {
+                truncating(look.para.truncation)
+            } else {
+                NSLineBreakMode::ByWordWrapping
+            };
+            unsafe {
+                let container = tv.textContainer();
+                container.setMaximumNumberOfLines(lines);
+                container.setLineBreakMode(mode);
+                if let Some(font) = tv.font() {
+                    let text = tv.attributedText();
+                    let wrap = NSLineBreakMode::ByWordWrapping;
+                    tv.setAttributedText(Some(&restyled(&text, &font, &look, align, wrap)));
+                }
+                if tv.textAlignment() != align {
+                    tv.setTextAlignment(align);
+                }
+            }
+        }
+        LABEL_LOOKS.with(|t| t.with(key, |l| l.styled = styled));
+    }
+
+    /// Take a `LabelPatch::Paragraph` into the label's look; the patch arm applies it.
+    fn set_label_paragraph(view: &UIView, para: day_spec::props::LabelParagraph) {
+        LABEL_LOOKS.with(|t| t.with(ptr_of(view), |l| l.para = para));
+    }
+
+    /// Re-apply every spaced or fixed-height label's look after a Dynamic Type change: the
+    /// fonts took the new size by themselves, the kern and line height are in points.
+    fn refresh_label_paragraphs() {
+        let mut views = Vec::new();
+        LABEL_LOOKS.with(|t| {
+            t.for_each(|_, look| {
+                if look.styled
+                    && let Some(view) = look.view.load()
+                {
+                    views.push(view);
+                }
+            });
+        });
+        for view in views {
+            apply_paragraph(&view);
+        }
+    }
+
+    /// Report a reporting label's selection when it changed (`Event::TextSelected`, byte
+    /// offsets into the text the label shows). Called by the text view's delegate and after a
+    /// text patch, which discards the selection without telling the delegate.
+    fn report_selection(tv: &UITextView) {
+        let key = ptr_of_view(tv);
+        let Some(look) = LABEL_LOOKS.with(|t| t.get(key)) else {
+            return;
+        };
+        if !look.reports {
+            return;
+        }
+        // `selectedRange` is what iOS 15 has; the SDK deprecates it for iOS 26's
+        // `selectedRanges`, whose union it still is.
+        let range: NSRange = unsafe { msg_send![tv, selectedRange] };
+        let text = unsafe { tv.text() }.to_string();
+        let (start, end) = crate::label_text::byte_range(&text, range.location, range.length);
+        let (was_start, was_end) = look.selection;
+        // Once per change; a caret moving inside an empty selection is no change.
+        if (start, end) == look.selection || (start == end && was_start == was_end) {
+            return;
+        }
+        LABEL_LOOKS.with(|t| t.with(key, |l| l.selection = (start, end)));
+        emit(look.node, Event::TextSelected { start, end });
+    }
+
+    /// A `UITextView` for a label's text on `TextKit` 1, the layout a `UILabel` matches: under
+    /// `TextKit` 2 a fixed line height with `NSBaselineOffset` measures short by half the
+    /// offset (36 points for a 40-point line of 20-point text, measured on iOS 18.6), so the
+    /// label would change height when it became selectable. iOS 16 made `TextKit` 2 the default
+    /// and added `textViewUsingTextLayoutManager:` to opt out; iOS 15's text views are
+    /// `TextKit` 1 already.
+    fn label_text_view(mtm: MainThreadMarker) -> Retained<UITextView> {
+        // A class method: the class object answers for it (`AnyClass::responds_to` would
+        // look among the instance methods).
+        let class = <UITextView as objc2::ClassType>::class();
+        let opts_out: bool =
+            unsafe { msg_send![class, respondsToSelector: sel!(textViewUsingTextLayoutManager:)] };
+        if opts_out {
+            UITextView::textViewUsingTextLayoutManager(false, mtm)
+        } else {
+            UITextView::new(mtm)
+        }
+    }
+
     /// A label backing that can activate links: a read-only, non-scrolling `UITextView` laid out
     /// to measure like the `UILabel` it stands in for (zero inset, no line-fragment padding).
-    /// `TextAlign` → `NSTextAlignment` on a `UILabel` or `UITextView`, set after any attributed
-    /// text: on both, the setter re-styles the whole string, which a Markdown label's runs would
-    /// otherwise leave leading-aligned. Leading stays the view's own natural default, so an RTL
-    /// locale aligns right without the app asking (docs/localization.md).
-    fn set_text_alignment(view: &AnyObject, align: day_spec::props::TextAlign) {
-        // NSTextAlignment on iOS: Left 0, Center 1, Right 2, Natural 4.
-        let value: isize = match align {
-            day_spec::props::TextAlign::Leading => return,
-            day_spec::props::TextAlign::Center => 1,
-            day_spec::props::TextAlign::Trailing => 2,
-        };
-        unsafe {
-            let _: () = msg_send![view, setTextAlignment: value];
-        }
-    }
-
-    /// Re-apply a view's alignment after new attributed text replaced the whole string.
-    fn reapply_text_alignment(view: &AnyObject) {
-        unsafe {
-            let value: isize = msg_send![view, textAlignment];
-            let _: () = msg_send![view, setTextAlignment: value];
-        }
-    }
-
     fn link_text_view(p: &LabelProps, id: NodeId, mtm: MainThreadMarker) -> Retained<UITextView> {
-        let tv = UITextView::new(mtm);
+        let tv = label_text_view(mtm);
         let font = resolve_font(p.font);
         unsafe {
             tv.setFont(Some(&font));
             let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: true];
             if let Some(c) = p.color {
-                tv.setTextColor(Some(&uicolor(c)));
+                tv.setTextColor(Some(&uiink(c)));
             }
-            tv.setAttributedText(Some(&attributed_label(&p.text, &font, p.color, &p.runs)));
+            tv.setAttributedText(Some(&attributed_label(
+                &p.text,
+                &font,
+                label_ink(p),
+                &p.runs,
+            )));
             tv.setEditable(false);
             tv.setSelectable(true); // required for link interaction, not for selection alone
             tv.setScrollEnabled(false);
@@ -3374,8 +4577,7 @@ mod imp {
             let container: *mut AnyObject = msg_send![&*tv, textContainer];
             let _: () = msg_send![container, setLineFragmentPadding: 0.0f64];
         }
-        set_text_alignment(&tv, p.align);
-        DayTextLink::attach(&tv, id, mtm);
+        DayTextLink::attach(&tv, id, true, mtm);
         tv
     }
 
@@ -3386,6 +4588,20 @@ mod imp {
     struct GestureIvars {
         node: NodeId,
         kind: day_spec::GestureKind,
+        /// The recognizer this object is the target of: a single tap waits for a double tap
+        /// on the same view through it (`requireGestureRecognizerToFail:`).
+        recognizer: RefCell<Option<Retained<UIGestureRecognizer>>>,
+    }
+
+    /// Whether `view` has a context menu (`set_context_menu*`): its long press is the menu's.
+    fn has_context_menu(view: &UIView) -> bool {
+        let key = ptr_of(view);
+        CTX_MENUS.with(|t| t.contains(key)) || CTX_MENU_FNS.with(|t| t.borrow().contains_key(&key))
+    }
+
+    /// Whether `ancestor` is a strict ancestor of `view`.
+    fn is_strict_ancestor(ancestor: &UIView, view: &UIView) -> bool {
+        !std::ptr::eq(ancestor, view) && unsafe { view.isDescendantOfView(ancestor) }
     }
 
     define_class!(
@@ -3397,14 +4613,19 @@ mod imp {
 
         unsafe impl NSObjectProtocol for DayGesture {}
 
-        // The delegate of a rotation recognizer only: a twist and a pinch (or a two-finger
-        // pan) are one hand movement, so the rotation runs alongside Day's pinch and
-        // two-finger pan recognizers on the same view instead of excluding them. A one-finger
-        // drag is left alone; a second finger still ends it as it did.
+        // The delegate of the drag, pinch, rotation and long-press recognizers.
         unsafe impl UIGestureRecognizerDelegate for DayGesture {
+            // A twist and a pinch (or a two-finger pan) are one hand movement, so the rotation
+            // runs alongside Day's pinch and two-finger pan recognizers on the same view
+            // instead of excluding them. A one-finger drag is left alone; a second finger still
+            // ends it as it did. Every other kind keeps UIKit's exclusive arbitration: a long
+            // press that fires makes the view's tap fail.
             #[unsafe(method(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:))]
             fn simultaneous(&self, a: &UIGestureRecognizer, b: &UIGestureRecognizer) -> bool {
                 day_spec::ffi_guard::contain(false, || {
+                    if self.ivars().kind != day_spec::GestureKind::Rotate {
+                        return false;
+                    }
                     let same_view = match (unsafe { a.view() }, unsafe { b.view() }) {
                         (Some(x), Some(y)) => std::ptr::eq(&raw const *x, &raw const *y),
                         _ => false,
@@ -3419,6 +4640,64 @@ mod imp {
                             .is_some_and(|p| unsafe { p.minimumNumberOfTouches() } >= 2)
                 })
             }
+
+            // The drag axis (docs/gestures.md "Gestures inside a scroll view"): a pan that
+            // starts out across the axis is not the node's, so it fails and an enclosing
+            // scroll view's pan, which waits for it, takes the sequence. A long press on a
+            // view with a context menu is the menu's.
+            #[unsafe(method(gestureRecognizerShouldBegin:))]
+            fn should_begin(&self, g: &UIGestureRecognizer) -> bool {
+                day_spec::ffi_guard::contain(true, || {
+                    let Some(view) = (unsafe { g.view() }) else {
+                        return true;
+                    };
+                    match self.ivars().kind {
+                        day_spec::GestureKind::Drag => {
+                            let Some(axis) = DRAG_AXIS.with(|t| t.get(ptr_of(&view))) else {
+                                return true;
+                            };
+                            let obj: &AnyObject = g.as_ref();
+                            let Some(pan) = obj.downcast_ref::<UIPanGestureRecognizer>() else {
+                                return true;
+                            };
+                            let v = unsafe { pan.velocityInView(Some(&view)) };
+                            let t = unsafe { pan.translationInView(Some(&view)) };
+                            // The translation decides; the velocity breaks a tie at zero travel.
+                            let probe = if t.x == 0.0 && t.y == 0.0 { v } else { t };
+                            axis.leads(day_spec::Point::new(probe.x, probe.y))
+                        }
+                        day_spec::GestureKind::LongPress => !has_context_menu(&view),
+                        _ => true,
+                    }
+                })
+            }
+
+            // The claim rule (docs/gestures.md "Gestures inside a scroll view"): an enclosing
+            // scroll view's pan, a navigation controller's back swipe or a pager's swipe waits
+            // until the node's drag fails, so once the drag begins the sequence is the node's
+            // until it ends. A pinch holds off an enclosing zoom the same way.
+            #[unsafe(method(gestureRecognizer:shouldBeRequiredToFailByGestureRecognizer:))]
+            fn required_to_fail_by(&self, a: &UIGestureRecognizer, b: &UIGestureRecognizer) -> bool {
+                day_spec::ffi_guard::contain(false, || {
+                    let (Some(mine), Some(theirs)) = (unsafe { a.view() }, unsafe { b.view() })
+                    else {
+                        return false;
+                    };
+                    if !is_strict_ancestor(&theirs, &mine) {
+                        return false;
+                    }
+                    let other: &AnyObject = b.as_ref();
+                    match self.ivars().kind {
+                        day_spec::GestureKind::Drag => {
+                            other.downcast_ref::<UIPanGestureRecognizer>().is_some()
+                        }
+                        day_spec::GestureKind::Pinch => {
+                            other.downcast_ref::<UIPinchGestureRecognizer>().is_some()
+                        }
+                        _ => false,
+                    }
+                })
+            }
         }
 
         impl DayGesture {
@@ -3429,7 +4708,8 @@ mod imp {
                     let view = unsafe { g.view() };
                     let loc = unsafe { g.locationInView(view.as_deref()) };
                     let at = day_spec::Point::new(loc.x, loc.y);
-                    let phase = match unsafe { g.state() } {
+                    let state = unsafe { g.state() };
+                    let phase = match state {
                         UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
                         UIGestureRecognizerState::Ended
                         | UIGestureRecognizerState::Cancelled
@@ -3437,6 +4717,23 @@ mod imp {
                         _ => day_spec::DragPhase::Changed,
                     };
                     let obj: &AnyObject = g.as_ref();
+                    // The recognizer's own release velocity (docs/gestures.md "Velocity"),
+                    // sent just before a drag's or pan's `Ended`; a cancelled gesture has none.
+                    let velocity = |kind: day_spec::GestureKind| {
+                        if state != UIGestureRecognizerState::Ended {
+                            return;
+                        }
+                        if let Some(pan) = obj.downcast_ref::<UIPanGestureRecognizer>() {
+                            let v = unsafe { pan.velocityInView(view.as_deref()) };
+                            emit(
+                                node,
+                                Event::GestureVelocity {
+                                    kind,
+                                    velocity: day_spec::Point::new(v.x, v.y),
+                                },
+                            );
+                        }
+                    };
                     match self.ivars().kind {
                         day_spec::GestureKind::Drag => {
                             let translation = if let Some(pan) =
@@ -3447,6 +4744,7 @@ mod imp {
                             } else {
                                 day_spec::Point::ZERO
                             };
+                            velocity(day_spec::GestureKind::Drag);
                             emit(
                                 node,
                                 Event::Drag {
@@ -3508,6 +4806,7 @@ mod imp {
                             } else {
                                 day_spec::Point::ZERO
                             };
+                            velocity(day_spec::GestureKind::Pan);
                             emit(
                                 node,
                                 Event::Pan {
@@ -3517,6 +4816,14 @@ mod imp {
                                 },
                             );
                         }
+                        // UILongPressGestureRecognizer is continuous: the press is reported
+                        // once, when the platform's delay has passed.
+                        day_spec::GestureKind::LongPress => {
+                            if state == UIGestureRecognizerState::Began {
+                                emit(node, Event::LongPress(at));
+                            }
+                        }
+                        day_spec::GestureKind::DoubleTap => emit(node, Event::DoubleTap(at)),
                         _ => emit(node, Event::Tap(at)),
                     }
                 });
@@ -3526,8 +4833,642 @@ mod imp {
 
     impl DayGesture {
         fn new(mtm: MainThreadMarker, node: NodeId, kind: day_spec::GestureKind) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(GestureIvars { node, kind });
+            let this = Self::alloc(mtm).set_ivars(GestureIvars {
+                node,
+                kind,
+                recognizer: RefCell::new(None),
+            });
             unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// What a [`DayObserver`] reports.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Observe {
+        /// `Event::Press` (docs/gestures.md "Press").
+        Press,
+        /// `Event::Touches` (docs/gestures.md "Touches").
+        Touches,
+        /// `Event::PointerKindChanged` for the whole window (docs/gestures.md "Input kind").
+        Pointer,
+    }
+
+    struct ObserverIvars {
+        node: NodeId,
+        what: Observe,
+        /// A press is down (`Observe::Press`): its `false` is owed.
+        pressed: Cell<bool>,
+        /// The last point the press was at, in the view's coordinates.
+        last: Cell<CGPoint>,
+        /// The contacts on the view (`Observe::Touches`): each `UITouch`'s address and the id
+        /// it is reported under.
+        contacts: RefCell<Vec<(usize, u64)>>,
+        next_id: Cell<u64>,
+    }
+
+    /// The kind of device behind a touch.
+    fn touch_kind(touch: &objc2_ui_kit::UITouch) -> day_spec::PointerKind {
+        match unsafe { touch.r#type() } {
+            objc2_ui_kit::UITouchType::Pencil => day_spec::PointerKind::Stylus,
+            objc2_ui_kit::UITouchType::IndirectPointer => day_spec::PointerKind::Mouse,
+            _ => day_spec::PointerKind::Touch,
+        }
+    }
+
+    /// Reports `kind` as the primary pointer when it differs from the last one reported.
+    fn note_pointer_kind(kind: day_spec::PointerKind) {
+        if POINTER_KIND.with(Cell::get) != kind {
+            POINTER_KIND.with(|k| k.set(kind));
+            emit(WINDOW_NODE, Event::PointerKindChanged(kind));
+        }
+    }
+
+    /// `bounds` grown by the view's hit slop, the leading and trailing edges following the
+    /// view's layout direction (docs/gestures.md "Hit slop").
+    fn hit_area(view: &UIView) -> CGRect {
+        let b = view.bounds();
+        let Some(slop) = HIT_SLOP.with(|t| t.get(ptr_of(view))) else {
+            return b;
+        };
+        let rtl = view.effectiveUserInterfaceLayoutDirection()
+            == objc2_ui_kit::UIUserInterfaceLayoutDirection::RightToLeft;
+        let (left, right) = if rtl {
+            (slop.trailing, slop.leading)
+        } else {
+            (slop.leading, slop.trailing)
+        };
+        CGRect::new(
+            CGPoint::new(b.origin.x - left, b.origin.y - slop.top),
+            CGSize::new(
+                b.size.width + left + right,
+                b.size.height + slop.top + slop.bottom,
+            ),
+        )
+    }
+
+    fn rect_contains(r: CGRect, p: CGPoint) -> bool {
+        p.x >= r.origin.x
+            && p.y >= r.origin.y
+            && p.x < r.origin.x + r.size.width
+            && p.y < r.origin.y + r.size.height
+    }
+
+    /// Whether any view has a hit slop now: the hit tests below walk subtrees only then.
+    fn slop_in_use() -> bool {
+        HIT_SLOP.with(|t| {
+            let mut any = false;
+            t.for_each(|_, _| any = true);
+            any
+        })
+    }
+
+    /// Whether UIKit would hit-test into `view` at all.
+    fn hit_testable(view: &UIView) -> bool {
+        unsafe { !view.isHidden() && view.isUserInteractionEnabled() && view.alpha() >= 0.01 }
+    }
+
+    /// Whether `p` (in `view`'s coordinates) lies in the slop of `view` or of a view under it.
+    fn reaches_slop(view: &UIView, p: CGPoint) -> bool {
+        if HIT_SLOP.with(|t| t.contains(ptr_of(view))) && rect_contains(hit_area(view), p) {
+            return true;
+        }
+        unsafe { view.subviews() }.iter().any(|s| {
+            hit_testable(&s) && reaches_slop(&s, unsafe { view.convertPoint_toView(p, Some(&s)) })
+        })
+    }
+
+    /// `pointInside:withEvent:` for Day's container and canvas views: the bounds grown by the
+    /// view's own slop, and the slop of any view under it, which may reach past this one
+    /// (docs/gestures.md "Hit slop").
+    fn day_point_inside(view: &UIView, p: CGPoint) -> bool {
+        rect_contains(hit_area(view), p)
+            || (slop_in_use()
+                && unsafe { view.subviews() }.iter().any(|s| {
+                    hit_testable(&s)
+                        && reaches_slop(&s, unsafe { view.convertPoint_toView(p, Some(&s)) })
+                }))
+    }
+
+    /// Whether a Day view takes pointer input itself (docs/gestures.md "Pass-through"): a
+    /// recognizer or an interaction (context menu, drag source, drop target, pointer effect)
+    /// is attached, or `keys` says it takes focus.
+    fn takes_touches(view: &UIView, keys: bool) -> bool {
+        keys || unsafe { view.gestureRecognizers() }.is_some_and(|g| g.count() > 0)
+            || unsafe { view.interactions() }.count() > 0
+    }
+
+    /// `hitTest:withEvent:` for Day's container and canvas views. The subviews front to back,
+    /// each with its slop (a view UIKit draws, such as an image or a button, cannot grow its
+    /// own hit area, so its parent answers for it); then the view itself, only when it takes
+    /// touches: a view with nothing attached lets a press through to what is behind it.
+    fn day_hit_test(
+        view: &UIView,
+        point: CGPoint,
+        event: Option<&objc2_ui_kit::UIEvent>,
+        own: bool,
+    ) -> Option<Retained<UIView>> {
+        if !hit_testable(view) || !day_point_inside(view, point) {
+            return None;
+        }
+        let subviews = unsafe { view.subviews() }.to_vec();
+        for sub in subviews.into_iter().rev() {
+            let p = unsafe { view.convertPoint_toView(point, Some(&sub)) };
+            if let Some(hit) = unsafe { sub.hitTest_withEvent(p, event) } {
+                return Some(hit);
+            }
+            if hit_testable(&sub)
+                && HIT_SLOP.with(|t| t.contains(ptr_of(&sub)))
+                && rect_contains(hit_area(&sub), p)
+            {
+                let b = sub.bounds();
+                let inside = CGPoint::new(
+                    p.x.clamp(b.origin.x, b.origin.x + (b.size.width - 0.5).max(0.0)),
+                    p.y.clamp(b.origin.y, b.origin.y + (b.size.height - 0.5).max(0.0)),
+                );
+                return unsafe { sub.hitTest_withEvent(inside, event) }.or(Some(sub));
+            }
+        }
+        (own && rect_contains(hit_area(view), point)).then(|| view.retain())
+    }
+
+    /// Whether a recognizer on one of `view`'s ancestors has taken the touches away: a scroll
+    /// view's pan, a back swipe, a pager's swipe. Those cancel the view's touches; an observer
+    /// that runs alongside them still sees the moves, so it asks.
+    fn ancestor_took_over(view: &UIView) -> bool {
+        let mut cur = unsafe { view.superview() };
+        while let Some(v) = cur {
+            if let Some(recognizers) = unsafe { v.gestureRecognizers() } {
+                for r in &recognizers {
+                    let state = unsafe { r.state() };
+                    if unsafe { r.cancelsTouchesInView() }
+                        && (state == UIGestureRecognizerState::Began
+                            || state == UIGestureRecognizerState::Changed)
+                    {
+                        return true;
+                    }
+                }
+            }
+            cur = unsafe { v.superview() };
+        }
+        false
+    }
+
+    define_class!(
+        /// An observing recognizer (docs/gestures.md "Press", "Touches", "Input kind"). It
+        /// never recognizes, so it never delays, cancels or excludes another recognizer, a
+        /// control's own tracking or an enclosing scroll view: it stays possible while touches
+        /// are down, reports what it sees, and fails when the last one lifts.
+        #[unsafe(super(UIGestureRecognizer))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitObserver"]
+        #[ivars = ObserverIvars]
+        struct DayObserver;
+
+        unsafe impl NSObjectProtocol for DayObserver {}
+
+        unsafe impl UIGestureRecognizerDelegate for DayObserver {
+            #[unsafe(method(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:))]
+            fn simultaneous(&self, _a: &UIGestureRecognizer, _b: &UIGestureRecognizer) -> bool {
+                true
+            }
+        }
+
+        impl DayObserver {
+            #[unsafe(method(touchesBegan:withEvent:))]
+            fn touches_began(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: &objc2_ui_kit::UIEvent,
+            ) {
+                day_spec::ffi_guard::contain((), || self.observe(touches, event, 0));
+            }
+
+            #[unsafe(method(touchesMoved:withEvent:))]
+            fn touches_moved(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: &objc2_ui_kit::UIEvent,
+            ) {
+                day_spec::ffi_guard::contain((), || self.observe(touches, event, 1));
+            }
+
+            #[unsafe(method(touchesEnded:withEvent:))]
+            fn touches_ended(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: &objc2_ui_kit::UIEvent,
+            ) {
+                day_spec::ffi_guard::contain((), || self.observe(touches, event, 2));
+            }
+
+            #[unsafe(method(touchesCancelled:withEvent:))]
+            fn touches_cancelled(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: &objc2_ui_kit::UIEvent,
+            ) {
+                day_spec::ffi_guard::contain((), || self.observe(touches, event, 3));
+            }
+
+            #[unsafe(method(reset))]
+            fn reset(&self) {
+                let _: () = unsafe { msg_send![super(self), reset] };
+                day_spec::ffi_guard::contain((), || self.finish(true));
+            }
+
+            // A Mouse or trackpad pointer hovering over the window (`Observe::Pointer`).
+            #[unsafe(method(hover:))]
+            fn hover(&self, _g: &UIGestureRecognizer) {
+                day_spec::ffi_guard::contain((), || {
+                    note_pointer_kind(day_spec::PointerKind::Mouse);
+                });
+            }
+        }
+    );
+
+    impl DayObserver {
+        fn new(mtm: MainThreadMarker, node: NodeId, what: Observe) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ObserverIvars {
+                node,
+                what,
+                pressed: Cell::new(false),
+                last: Cell::new(CGPoint::new(0.0, 0.0)),
+                contacts: RefCell::new(Vec::new()),
+                next_id: Cell::new(0),
+            });
+            let this: Retained<Self> = unsafe {
+                msg_send![super(this), initWithTarget: None::<&AnyObject>, action: None::<Sel>]
+            };
+            unsafe {
+                this.setCancelsTouchesInView(false);
+                this.setDelaysTouchesBegan(false);
+                this.setDelaysTouchesEnded(false);
+                this.setDelegate(Some(ProtocolObject::from_ref(&*this)));
+            }
+            this
+        }
+
+        /// One touch callback: `step` 0 began, 1 moved, 2 ended, 3 cancelled.
+        fn observe(
+            &self,
+            touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+            event: &objc2_ui_kit::UIEvent,
+            step: u8,
+        ) {
+            let view = unsafe { self.view() };
+            match self.ivars().what {
+                Observe::Pointer => {
+                    if step == 0
+                        && let Some(touch) = touches.iter().next()
+                    {
+                        note_pointer_kind(touch_kind(&touch));
+                    }
+                }
+                Observe::Press => self.observe_press(touches, event, step, view.as_deref()),
+                Observe::Touches => self.observe_touches(touches, event, step, view.as_deref()),
+            }
+            if step >= 2 {
+                let all = unsafe { event.touchesForGestureRecognizer(self) };
+                let done = all.is_none_or(|all| {
+                    all.iter().all(|t| {
+                        let p = unsafe { t.phase() };
+                        p == objc2_ui_kit::UITouchPhase::Ended
+                            || p == objc2_ui_kit::UITouchPhase::Cancelled
+                    })
+                });
+                if done {
+                    // Possible → Failed: UIKit resets the observer for the next sequence.
+                    unsafe { self.setState(UIGestureRecognizerState::Failed) };
+                }
+            }
+        }
+
+        fn observe_press(
+            &self,
+            touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+            event: &objc2_ui_kit::UIEvent,
+            step: u8,
+            view: Option<&UIView>,
+        ) {
+            let Some(view) = view else { return };
+            let iv = self.ivars();
+            let Some(touch) = touches.iter().next() else {
+                return;
+            };
+            let at = unsafe { touch.locationInView(Some(view)) };
+            match step {
+                0 => {
+                    // The first contact only, and a pointer's primary button only.
+                    let buttons = unsafe { event.buttonMask() };
+                    let primary = buttons.0 == 0
+                        || buttons.contains(objc2_ui_kit::UIEventButtonMask::Primary);
+                    if iv.pressed.get() || !primary {
+                        return;
+                    }
+                    iv.pressed.set(true);
+                    iv.last.set(at);
+                    emit(
+                        iv.node,
+                        Event::Press {
+                            pressed: true,
+                            location: day_spec::Point::new(at.x, at.y),
+                        },
+                    );
+                }
+                1 => {
+                    if !iv.pressed.get() {
+                        return;
+                    }
+                    iv.last.set(at);
+                    // Leaving the hit area ends the press, and so does an enclosing scroll
+                    // view starting to scroll.
+                    if !rect_contains(hit_area(view), at) || ancestor_took_over(view) {
+                        self.finish(false);
+                    }
+                }
+                _ => {
+                    iv.last.set(at);
+                    self.finish(false);
+                }
+            }
+        }
+
+        fn observe_touches(
+            &self,
+            touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+            event: &objc2_ui_kit::UIEvent,
+            step: u8,
+            view: Option<&UIView>,
+        ) {
+            let iv = self.ivars();
+            let changed: Vec<usize> = touches
+                .iter()
+                .map(|t| Retained::as_ptr(&t) as usize)
+                .collect();
+            let Some(all) = (unsafe { event.touchesForGestureRecognizer(self) }) else {
+                return;
+            };
+            let mut report = Vec::new();
+            for touch in &all {
+                let key = Retained::as_ptr(&touch) as usize;
+                let id = {
+                    let mut contacts = iv.contacts.borrow_mut();
+                    if let Some(&(_, id)) = contacts.iter().find(|(k, _)| *k == key) {
+                        id
+                    } else {
+                        let id = iv.next_id.get();
+                        iv.next_id.set(id + 1);
+                        contacts.push((key, id));
+                        id
+                    }
+                };
+                let phase = if changed.contains(&key) {
+                    match step {
+                        0 => day_spec::TouchPhase::Began,
+                        1 => day_spec::TouchPhase::Moved,
+                        2 => day_spec::TouchPhase::Ended,
+                        _ => day_spec::TouchPhase::Cancelled,
+                    }
+                } else {
+                    match unsafe { touch.phase() } {
+                        objc2_ui_kit::UITouchPhase::Ended => day_spec::TouchPhase::Ended,
+                        objc2_ui_kit::UITouchPhase::Cancelled => day_spec::TouchPhase::Cancelled,
+                        _ => day_spec::TouchPhase::Stationary,
+                    }
+                };
+                let at = unsafe { touch.locationInView(view) };
+                let max = unsafe { touch.maximumPossibleForce() };
+                let pressure = if max > 0.0 {
+                    (unsafe { touch.force() }) / max
+                } else {
+                    1.0
+                };
+                report.push(
+                    day_spec::Touch::new(id, phase, day_spec::Point::new(at.x, at.y))
+                        .with_pressure(pressure)
+                        .with_kind(touch_kind(&touch)),
+                );
+                if matches!(
+                    phase,
+                    day_spec::TouchPhase::Ended | day_spec::TouchPhase::Cancelled
+                ) {
+                    iv.contacts.borrow_mut().retain(|(k, _)| *k != key);
+                }
+            }
+            if !report.is_empty() {
+                emit(iv.node, Event::Touches(report));
+            }
+        }
+
+        /// Ends what is under way: the owed `pressed: false` at the last point, and with
+        /// `cancel`, every contact still down as cancelled.
+        fn finish(&self, cancel: bool) {
+            let iv = self.ivars();
+            if iv.pressed.replace(false) {
+                let at = iv.last.get();
+                emit(
+                    iv.node,
+                    Event::Press {
+                        pressed: false,
+                        location: day_spec::Point::new(at.x, at.y),
+                    },
+                );
+            }
+            let left: Vec<(usize, u64)> = std::mem::take(&mut *iv.contacts.borrow_mut());
+            if cancel && !left.is_empty() && iv.what == Observe::Touches {
+                let at = iv.last.get();
+                let report = left
+                    .into_iter()
+                    .map(|(_, id)| {
+                        day_spec::Touch::new(
+                            id,
+                            day_spec::TouchPhase::Cancelled,
+                            day_spec::Point::new(at.x, at.y),
+                        )
+                    })
+                    .collect();
+                emit(iv.node, Event::Touches(report));
+            }
+        }
+    }
+
+    /// Watches `window` for the kind of device behind each pointer down, and for a hovering
+    /// pointer (docs/gestures.md "Input kind").
+    fn watch_pointer(window: &UIWindow) {
+        let mtm = window.mtm();
+        let observer = DayObserver::new(mtm, WINDOW_NODE, Observe::Pointer);
+        let hover = unsafe {
+            objc2_ui_kit::UIHoverGestureRecognizer::initWithTarget_action(
+                objc2_ui_kit::UIHoverGestureRecognizer::alloc(mtm),
+                Some(&observer),
+                Some(sel!(hover:)),
+            )
+        };
+        unsafe {
+            hover.setCancelsTouchesInView(false);
+            hover.setDelegate(Some(ProtocolObject::from_ref(&*observer)));
+            window.addGestureRecognizer(&observer);
+            window.addGestureRecognizer(&hover);
+        }
+        POINTER_WATCH.with(|w| w.borrow_mut().push(observer));
+    }
+
+    /// A disabled group's root (`GROUP_OFF`): how many groups it roots, and what it had before
+    /// the first.
+    #[derive(Clone, Copy)]
+    struct GroupOff {
+        groups: u32,
+        interaction: bool,
+        tint: objc2_ui_kit::UIViewTintAdjustmentMode,
+    }
+
+    /// A view a disabled group changed (`HELD_OFF`).
+    #[derive(Clone, Copy)]
+    struct HeldOff {
+        groups: u32,
+        /// A control's own `isEnabled` before the first group.
+        enabled: Option<bool>,
+        /// An accessibility element's traits before the first group.
+        traits: Option<objc2_ui_kit::UIAccessibilityTraits>,
+    }
+
+    /// A hardware key a focused view claimed the down of (`KEYS_DOWN`).
+    #[derive(Clone)]
+    struct HeldKey {
+        /// The key's HID usage, which its release carries too.
+        code: isize,
+        /// The key's name, as the down reported it.
+        name: String,
+        /// The key types: its downs and repeats arrive as text through `insertText:`, and
+        /// `super` saw its press.
+        text: bool,
+        /// How many times its text was inserted so far: every one after the first is a repeat.
+        inserts: u32,
+    }
+
+    /// Lets `view` take touches, unless a disabled group roots at it: then the group's own
+    /// restore turns them on (docs/forms.md "Disabling a group").
+    fn allow_interaction(view: &UIView) {
+        let key = ptr_of(view);
+        if GROUP_OFF
+            .with(|t| t.with(key, |g| g.interaction = true))
+            .is_none()
+        {
+            unsafe { view.setUserInteractionEnabled(true) };
+        }
+    }
+
+    /// The controls day-core sends their own `Enabled` patch (docs/forms.md "Disabling a
+    /// group"): the walk leaves their state to those patches.
+    fn day_core_enables(view: &UIView) -> bool {
+        let obj: &AnyObject = view.as_ref();
+        obj.downcast_ref::<UIButton>().is_some()
+            || obj.downcast_ref::<UISwitch>().is_some()
+            || obj.downcast_ref::<UISlider>().is_some()
+            || obj.downcast_ref::<UITextField>().is_some()
+    }
+
+    fn for_each_descendant(view: &UIView, f: &mut impl FnMut(&UIView)) {
+        for sub in unsafe { view.subviews() } {
+            f(&sub);
+            for_each_descendant(&sub, f);
+        }
+    }
+
+    /// `set_subtree_enabled` (docs/forms.md "Disabling a group"). Touches stop at the root
+    /// (`isUserInteractionEnabled`, which also takes the subtree out of focus), its tint dims
+    /// the UIKit way, focus inside resigns, every other control kind turns its own `isEnabled`
+    /// off, and the composed accessibility elements read as not enabled. Counted per root and
+    /// per view, so a view under two disabled groups stays disabled until both are enabled.
+    fn set_group_enabled(root: &UIView, enabled: bool) {
+        let mtm = root.mtm();
+        let key = ptr_of(root);
+        let current = GROUP_OFF.with(|t| t.get(key));
+        if enabled {
+            let Some(mut g) = current else { return };
+            g.groups -= 1;
+            if g.groups > 0 {
+                GROUP_OFF.with(|t| t.insert(key, g));
+                return;
+            }
+            GROUP_OFF.with(|t| t.remove(key));
+            unsafe {
+                root.setUserInteractionEnabled(g.interaction);
+                root.setTintAdjustmentMode(g.tint);
+            }
+            for_each_descendant(root, &mut |v| {
+                let vk = ptr_of(v);
+                let Some(mut held) = HELD_OFF.with(|t| t.get(vk)) else {
+                    return;
+                };
+                held.groups -= 1;
+                if held.groups > 0 {
+                    HELD_OFF.with(|t| t.insert(vk, held));
+                    return;
+                }
+                HELD_OFF.with(|t| t.remove(vk));
+                if let (Some(was), Some(control)) = (held.enabled, v.downcast_ref::<UIControl>()) {
+                    unsafe { control.setEnabled(was) };
+                }
+                if let Some(traits) = held.traits {
+                    v.setAccessibilityTraits(traits, mtm);
+                }
+            });
+            return;
+        }
+        if let Some(mut g) = current {
+            g.groups += 1;
+            GROUP_OFF.with(|t| t.insert(key, g));
+            return;
+        }
+        GROUP_OFF.with(|t| {
+            t.insert(
+                key,
+                GroupOff {
+                    groups: 1,
+                    interaction: unsafe { root.isUserInteractionEnabled() },
+                    tint: unsafe { root.tintAdjustmentMode() },
+                },
+            )
+        });
+        unsafe {
+            root.setUserInteractionEnabled(false);
+            root.setTintAdjustmentMode(objc2_ui_kit::UIViewTintAdjustmentMode::Dimmed);
+        }
+        let not_enabled = unsafe { objc2_ui_kit::UIAccessibilityTraitNotEnabled };
+        let mut resign = Vec::new();
+        if root.isFirstResponder() {
+            resign.push(root.retain());
+        }
+        for_each_descendant(root, &mut |v| {
+            let vk = ptr_of(v);
+            if v.isFirstResponder() {
+                resign.push(v.retain());
+            }
+            if let Some(mut held) = HELD_OFF.with(|t| t.get(vk)) {
+                held.groups += 1;
+                HELD_OFF.with(|t| t.insert(vk, held));
+                return;
+            }
+            let mut held = HeldOff {
+                groups: 1,
+                enabled: None,
+                traits: None,
+            };
+            if let Some(control) = v.downcast_ref::<UIControl>() {
+                if !day_core_enables(v) {
+                    held.enabled = Some(unsafe { control.isEnabled() });
+                    unsafe { control.setEnabled(false) };
+                }
+            } else if v.isAccessibilityElement(mtm) {
+                let traits = v.accessibilityTraits(mtm);
+                held.traits = Some(traits);
+                v.setAccessibilityTraits(traits | not_enabled, mtm);
+            }
+            HELD_OFF.with(|t| t.insert(vk, held));
+        });
+        for v in resign {
+            let _ = unsafe { v.resignFirstResponder() };
         }
     }
 
@@ -3787,7 +5728,7 @@ mod imp {
             });
             let _: () = msg_send![&*config, setImage: image.as_deref()];
             let props: Retained<AnyObject> = msg_send![&*config, imageProperties];
-            let tint = p.icon_tint.map(uicolor);
+            let tint = p.icon_tint.map(uiink);
             let _: () = msg_send![&*props, setTintColor: tint.as_deref()];
             let zero = objc2_ui_kit::NSDirectionalEdgeInsets {
                 top: 0.0,
@@ -4118,6 +6059,7 @@ mod imp {
         }
         dispatch2::DispatchQueue::main().exec_async(|| {
             TEXT_SIZE_PENDING.with(|p| p.set(false));
+            day_spec::ffi_guard::contain((), refresh_label_paragraphs);
             day_spec::ffi_guard::contain((), day_core::note_text_size_changed);
         });
     }
@@ -7358,7 +9300,7 @@ mod imp {
         node: NodeId,
         items: RefCell<Vec<Retained<NSString>>>,
         /// Per-row icon tint (docs/vectors.md); `None` keeps the neutral template look.
-        tints: RefCell<Vec<Option<day_spec::Color>>>,
+        tints: RefCell<Vec<Option<day_spec::Ink>>>,
         /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has none.
         /// Template mode tints them with the cell's tint color (the iOS list idiom).
         icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
@@ -7367,7 +9309,7 @@ mod imp {
         badges: RefCell<Vec<Option<String>>>,
         badge_icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
         /// Tint for `badge_icons`; `None` keeps the neutral template look.
-        badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
+        badge_tints: RefCell<Vec<Option<day_spec::Ink>>>,
         /// Per-row context menu (docs/menus.md), empty = none — served through the table
         /// delegate's row-context hook, the standard iOS long-press row menu.
         menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
@@ -7526,7 +9468,7 @@ mod imp {
                         .imageProperties()
                         .setMaximumSize(CGSize::new(28.0, 28.0));
                     if let Some(c) = tint {
-                        content.imageProperties().setTintColor(Some(&uicolor(c)));
+                        content.imageProperties().setTintColor(Some(&uiink(c)));
                     }
                     cell.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
                     // The cell's OWN default, for the same reason the content configuration is
@@ -7768,7 +9710,7 @@ mod imp {
         mtm: MainThreadMarker,
         text: Option<&str>,
         badge: Option<&objc2_ui_kit::UIImage>,
-        badge_tint: Option<day_spec::Color>,
+        badge_tint: Option<day_spec::Ink>,
     ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UICellAccessory>> {
         let mut items: Vec<Retained<objc2_ui_kit::UICellAccessory>> = Vec::new();
         if let Some(text) = text.filter(|s| !s.is_empty()) {
@@ -7788,7 +9730,7 @@ mod imp {
                 )
             };
             if let Some(c) = badge_tint {
-                unsafe { iv.setTintColor(Some(&uicolor(c))) };
+                unsafe { iv.setTintColor(Some(&uiink(c))) };
             }
             unsafe { iv.sizeToFit() };
             let acc = unsafe {
@@ -7861,11 +9803,11 @@ mod imp {
             node: NodeId,
             items: &[String],
             icons: &[Option<String>],
-            tints: &[Option<day_spec::Color>],
+            tints: &[Option<day_spec::Ink>],
             menus: &[Vec<day_spec::MenuItem>],
             badges: &[Option<String>],
             badge_icons: &[Option<String>],
-            badge_tints: &[Option<day_spec::Color>],
+            badge_tints: &[Option<day_spec::Ink>],
             sections: &[Option<String>],
         ) -> Retained<Self> {
             let resolved = resolve_nav_images(icons);
@@ -7934,11 +9876,11 @@ mod imp {
             &self,
             items: &[String],
             icons: &[Option<String>],
-            tints: &[Option<day_spec::Color>],
+            tints: &[Option<day_spec::Ink>],
             menus: &[Vec<day_spec::MenuItem>],
             badges: &[Option<String>],
             badge_icons: &[Option<String>],
-            badge_tints: &[Option<day_spec::Color>],
+            badge_tints: &[Option<day_spec::Ink>],
             sections: &[Option<String>],
         ) {
             *self.ivars().items.borrow_mut() =
@@ -8365,7 +10307,9 @@ mod imp {
             ) -> CGSize {
                 let measured = day_spec::ffi_guard::contain(None, || {
                     let data = self.list_data()?;
-                    if !data.ivars().automatic {
+                    // A supplementary row sizes to its content in a uniform list too
+                    // (docs/list.md "Header, footer and empty state").
+                    if !data.ivars().automatic && !self.is_supplement() {
                         return None;
                     }
                     let source = data.ivars().source.borrow().clone()?;
@@ -8413,6 +10357,13 @@ mod imp {
             None
         }
 
+        /// Whether this cell holds a supplementary row: those cells are queued under their own
+        /// reuse identifier, so a cell never changes kind.
+        fn is_supplement(&self) -> bool {
+            self.reuseIdentifier()
+                .is_some_and(|ident| ident.to_string() == LIST_SUPPLEMENT_CELL)
+        }
+
         fn new(
             mtm: MainThreadMarker,
             ident: &NSString,
@@ -8432,6 +10383,19 @@ mod imp {
                     reuseIdentifier: ident
                 ]
             };
+            if this.is_supplement() {
+                // Plain content (docs/list.md "Header, footer and empty state"): no selection
+                // highlight, and the separator below it pushed past the trailing edge, the
+                // way UIKit hides a single row's separator. The separator above belongs to the
+                // row before and stays.
+                this.setSelectionStyle(objc2_ui_kit::UITableViewCellSelectionStyle::None);
+                this.setSeparatorInset(UIEdgeInsets {
+                    top: 0.0,
+                    left: SEPARATOR_OFF,
+                    bottom: 0.0,
+                    right: 0.0,
+                });
+            }
             this.ivars()
                 .content
                 .set(Retained::as_ptr(&this.contentView()) as usize);
@@ -8579,6 +10543,61 @@ mod imp {
     /// The association key under which a list's table retains its `DayListData`.
     static LIST_DATA_SOURCE_KEY: u8 = 0;
 
+    /// The reuse identifier of an item row's cell.
+    const LIST_ITEM_CELL: &str = "day.cell";
+    /// The reuse identifier of a supplementary row's cell (docs/list.md "Header, footer and
+    /// empty state"): its own queue, so a cell's chrome is set once, at creation.
+    const LIST_SUPPLEMENT_CELL: &str = "day.supplement";
+    /// A separator inset wider than any screen, which hides one cell's separator.
+    const SEPARATOR_OFF: CGFloat = 100_000.0;
+    /// The most sequential deltas a splice folds into one animated batch; past it the table
+    /// reloads and keeps its offset (docs/list.md "Splices"). A batch costs a replay over the
+    /// rows per delta, and a run this long is a bulk change no row animation helps.
+    const SPLICE_BATCH_LIMIT: usize = 64;
+
+    // A list's table (docs/list.md "Visible rows"). It reports the viewport after each of its
+    // layout passes, which is when a resize, a reload or a splice has landed, and when a
+    // scroll has realized the rows it brought into view.
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UITableView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayListTable"]
+        #[ivars = ()]
+        struct DayListTable;
+
+        impl DayListTable {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                day_spec::ffi_guard::contain((), || {
+                    let key = std::ptr::from_ref(self) as usize;
+                    let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                    if let Some((table, data)) = entry {
+                        data.report_viewport(&table);
+                    }
+                });
+            }
+        }
+    );
+
+    impl DayListTable {
+        /// A list table of `style`, handed back as the plain table the list code speaks.
+        fn make(
+            mtm: MainThreadMarker,
+            style: objc2_ui_kit::UITableViewStyle,
+        ) -> Retained<objc2_ui_kit::UITableView> {
+            let this = Self::alloc(mtm).set_ivars(());
+            let this: Retained<Self> = unsafe {
+                msg_send![
+                    super(this),
+                    initWithFrame: CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
+                    style: style
+                ]
+            };
+            Retained::into_super(this)
+        }
+    }
+
     struct ListIvars {
         node: NodeId,
         source: RefCell<Option<ListSource>>,
@@ -8599,6 +10618,31 @@ mod imp {
         /// asks for its section count (a reload), so the index-path mapping always matches
         /// the rows the table believes it has.
         headers: RefCell<Vec<usize>>,
+        /// A change of rows on its way to the table ([`HeldRows`], `DayListData::hold`).
+        held: RefCell<Option<HeldRows>>,
+        /// The row count a change being applied ends on, while `apply_held` runs.
+        applying: std::cell::Cell<Option<usize>>,
+    }
+
+    /// The changes of a list's rows the table has not taken yet: every `ListPatch` arrives
+    /// inside day-core's borrow, often from a row bind's flush in the middle of the table's
+    /// own layout pass, and the table takes them together on the next main-queue turn. Until
+    /// then the table still shows the rows it had, while the source already answers in the
+    /// final state, so a row the table binds meanwhile is the source row its row ends at
+    /// (`finals`), as `NSTableView`'s held splice maps them in day-toolkit-appkit. Bound by the
+    /// source's index instead, a cell showed the row of the old index and the batch then moved
+    /// it, leaving it on a row whose item it does not show.
+    struct HeldRows {
+        /// The sequential deltas of every splice held, in order; `None` once a reload is held,
+        /// which covers every change before and after it.
+        deltas: Option<Vec<day_spec::props::RowDelta>>,
+        /// The display rows the table shows, which the deltas start from.
+        shown: usize,
+        /// The source's row count when the last splice was sent ([`DayListData::apply_splice`]).
+        after: Option<usize>,
+        /// The source row each of the table's rows ends at (`scrolling::final_rows`); `None`
+        /// once a reload is held, when each row is read at its own index.
+        finals: Option<Vec<Option<usize>>>,
     }
 
     define_class!(
@@ -8706,25 +10750,52 @@ mod imp {
 
         unsafe impl UIScrollViewDelegate for DayListData {
             #[unsafe(method(scrollViewDidScroll:))]
+            /// Every step of a scroll, the user's or a programmatic one, animated or not
+            /// (docs/list.md "Visible rows"). The full report supersedes `first_visible`,
+            /// which this host no longer calls. A step of the reader's drag is reported as
+            /// theirs first (docs/list.md "Following the end").
             fn list_did_scroll(&self, view: &objc2_ui_kit::UIScrollView) {
                 day_spec::ffi_guard::contain((), || {
-                    let source = self.ivars().source.borrow().clone();
-                    if let Some(source) = source
-                        && let Some(report) = &source.first_visible
-                    {
-                        let offset = unsafe { view.contentOffset() }.y.max(0.0);
-                        // A self-sizing list has no pitch to divide by: ask the table which row
-                        // is at the top.
-                        let row = if self.ivars().automatic || self.ivars().sections {
-                            view.downcast_ref::<objc2_ui_kit::UITableView>()
-                                .and_then(|t| unsafe {
-                                    t.indexPathForRowAtPoint(CGPoint::new(0.0, offset))
-                                })
-                                .map_or(0, |ip| self.display_of(&ip))
-                        } else {
-                            (offset / self.ivars().row_height.get().max(1.0)) as usize
-                        };
-                        report(row.min((source.len)().saturating_sub(1)));
+                    if let Some(table) = view.downcast_ref::<objc2_ui_kit::UITableView>() {
+                        if view.isDragging() {
+                            self.note_reader_scroll(table);
+                        }
+                        self.report_viewport(table);
+                    }
+                });
+            }
+
+            /// The reader started dragging the list: a scroll the app asked for that is still
+            /// on its way stops where it is (UIKit would run it on against the finger), and
+            /// the scroll is theirs (docs/list.md "Following the end").
+            #[unsafe(method(scrollViewWillBeginDragging:))]
+            fn list_will_begin_dragging(&self, view: &objc2_ui_kit::UIScrollView) {
+                day_spec::ffi_guard::contain((), || {
+                    if let Some(table) = view.downcast_ref::<objc2_ui_kit::UITableView>() {
+                        view.setContentOffset_animated(view.contentOffset(), false);
+                        self.note_reader_scroll(table);
+                    }
+                });
+            }
+
+            /// A tap on the status bar scrolls the list to its top: the reader's scroll
+            /// (docs/list.md "Following the end"). The list scrolls, as without a delegate.
+            #[unsafe(method(scrollViewShouldScrollToTop:))]
+            fn list_should_scroll_to_top(&self, view: &objc2_ui_kit::UIScrollView) -> bool {
+                day_spec::ffi_guard::contain((), || {
+                    if let Some(table) = view.downcast_ref::<objc2_ui_kit::UITableView>() {
+                        self.note_reader_scroll(table);
+                    }
+                });
+                true
+            }
+
+            /// An animated programmatic scroll came to rest: report where.
+            #[unsafe(method(scrollViewDidEndScrollingAnimation:))]
+            fn list_did_end_scrolling_animation(&self, view: &objc2_ui_kit::UIScrollView) {
+                day_spec::ffi_guard::contain((), || {
+                    if let Some(table) = view.downcast_ref::<objc2_ui_kit::UITableView>() {
+                        self.report_viewport(table);
                     }
                 });
             }
@@ -8763,7 +10834,15 @@ mod imp {
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> Retained<objc2_ui_kit::UITableViewCell> {
                 let mtm = self.mtm();
-                let ident = NSString::from_str("day.cell");
+                // The source row this table row shows: through a change still on its way to
+                // the table (`HeldRows`), which a bind's own flush can send mid-pass.
+                let source_row = self.source_row(index_path);
+                let row = source_row.unwrap_or_else(|| self.display_of(index_path));
+                let ident = NSString::from_str(if self.is_supplement(row) {
+                    LIST_SUPPLEMENT_CELL
+                } else {
+                    LIST_ITEM_CELL
+                });
                 let table = std::ptr::from_ref(tv) as usize;
                 let node = self.ivars().node;
                 let cell =
@@ -8774,8 +10853,9 @@ mod imp {
                 // runs day-core's row builder — contained (§8.5); a panicking row leaves the
                 // recycled cell blank rather than aborting.
                 let content = cell.contentView();
-                let row = self.display_of(index_path);
-                if let Some(source) = self.ivars().source.borrow().as_ref() {
+                // A row the held change removes keeps the cell it has until the change lands.
+                let source = self.ivars().source.borrow().clone();
+                if let (Some(source), Some(row)) = (source, source_row) {
                     let raw = Retained::as_ptr(&content) as RawHandle;
                     day_spec::ffi_guard::contain((), || (source.bind_row)(row, raw));
                 }
@@ -8946,12 +11026,13 @@ mod imp {
             ) {
                 day_spec::ffi_guard::contain((), || {
                     let source = self.ivars().source.borrow().clone();
-                    if let Some(source) = source {
-                        let row = self.display_of(ip);
-                        if row < (source.len)() {
-                            let content = cell.contentView();
-                            (source.bind_row)(row, Retained::as_ptr(&content) as RawHandle);
-                        }
+                    // Through a change still on its way to the table (`HeldRows`).
+                    if let Some(source) = source
+                        && let Some(row) = self.source_row(ip)
+                        && row < (source.len)()
+                    {
+                        let content = cell.contentView();
+                        (source.bind_row)(row, Retained::as_ptr(&content) as RawHandle);
                     }
                 });
             }
@@ -8960,13 +11041,46 @@ mod imp {
             fn height_for_row(
                 &self,
                 _tv: &objc2_ui_kit::UITableView,
-                _index_path: &objc2_foundation::NSIndexPath,
+                index_path: &objc2_foundation::NSIndexPath,
             ) -> CGFloat {
-                if self.ivars().automatic {
+                // A supplementary row is as tall as Day laid it, even in a uniform list
+                // (docs/list.md "Header, footer and empty state"): the cell answers.
+                let row = self.source_row(index_path).unwrap_or_else(|| self.display_of(index_path));
+                if self.ivars().automatic || self.is_supplement(row) {
                     unsafe { objc2_ui_kit::UITableViewAutomaticDimension }
                 } else {
                     self.ivars().row_height.get()
                 }
+            }
+
+            /// A supplementary row never shows the selection highlight.
+            #[unsafe(method(tableView:shouldHighlightRowAtIndexPath:))]
+            fn should_highlight(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> bool {
+                !self.is_supplement(self.display_of(index_path))
+            }
+
+            /// Nor is it ever selected.
+            #[unsafe(method_id(tableView:willSelectRowAtIndexPath:))]
+            fn will_select(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Option<Retained<objc2_foundation::NSIndexPath>> {
+                (!self.is_supplement(self.display_of(index_path))).then(|| index_path.retain())
+            }
+
+            /// Nor does focus (a hardware keyboard's row navigation) stop on it.
+            #[unsafe(method(tableView:canFocusRowAtIndexPath:))]
+            fn can_focus(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> bool {
+                !self.is_supplement(self.display_of(index_path))
             }
 
             #[unsafe(method(tableView:didSelectRowAtIndexPath:))]
@@ -9219,6 +11333,8 @@ mod imp {
                 delete_label: RefCell::new(delete_label),
                 sections,
                 headers: RefCell::new(Vec::new()),
+                held: RefCell::new(None),
+                applying: std::cell::Cell::new(None),
             });
             unsafe { msg_send![super(this), init] }
         }
@@ -9249,6 +11365,104 @@ mod imp {
                 .map_or(row, |header| header + 1 + row)
         }
 
+        /// The source row a table row at `ip` shows: its display row, or, while a change is
+        /// on its way to the table ([`HeldRows`]), the row it ends at; `None` for a row that
+        /// change removes, which keeps the cell it has.
+        fn source_row(&self, ip: &objc2_foundation::NSIndexPath) -> Option<usize> {
+            let row = self.display_of(ip);
+            match self
+                .ivars()
+                .held
+                .borrow()
+                .as_ref()
+                .and_then(|held| held.finals.as_ref())
+            {
+                // A row past the rows held means the table already counts the source's rows,
+                // and the held change reloads it once it lands.
+                Some(finals) if row < finals.len() => finals[row],
+                _ => Some(row),
+            }
+        }
+
+        /// Hold a change of the source's rows for the table: `deltas` for a
+        /// `ListPatch::Splice` (`after` is the source's row count then), `None` for a
+        /// `Reload`. The table takes every change held on the next main-queue turn, together
+        /// ([`HeldRows`]); `key` is the list's handle.
+        fn hold(
+            &self,
+            key: usize,
+            table: &objc2_ui_kit::UITableView,
+            deltas: Option<&[day_spec::props::RowDelta]>,
+            after: Option<usize>,
+        ) {
+            let first = self.ivars().held.borrow().is_none();
+            // The rows the table shows: the ones a change being applied ends on, if any.
+            let shown = if first {
+                self.ivars()
+                    .applying
+                    .get()
+                    .unwrap_or_else(|| self.table_len(table))
+            } else {
+                0
+            };
+            {
+                let mut held = self.ivars().held.borrow_mut();
+                let held = held.get_or_insert_with(|| HeldRows {
+                    deltas: Some(Vec::new()),
+                    shown,
+                    after: None,
+                    finals: None,
+                });
+                // Sequential deltas compose by concatenation; a reload covers everything.
+                match (deltas, held.deltas.as_mut()) {
+                    (Some(deltas), Some(all)) => all.extend_from_slice(deltas),
+                    _ => held.deltas = None,
+                }
+                if after.is_some() {
+                    held.after = after;
+                }
+                held.finals = held
+                    .deltas
+                    .as_deref()
+                    .and_then(|deltas| crate::scrolling::final_rows(held.shown, deltas));
+            }
+            if !first {
+                return;
+            }
+            // Outside the tree borrow the patch arrived in: the table's update realizes and
+            // binds cells synchronously.
+            <Uikit as Platform>::post(Box::new(move || {
+                let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                if let Some((table, data)) = entry {
+                    data.apply_held(&table);
+                }
+            }));
+        }
+
+        /// Give the table the change held for it ([`HeldRows`]) and lay it out, so the
+        /// viewport report counts the new rows. A change arriving meanwhile, from a bind the
+        /// update runs, is held for the next turn against the rows this one ends on.
+        fn apply_held(&self, table: &objc2_ui_kit::UITableView) {
+            let Some(held) = self.ivars().held.borrow_mut().take() else {
+                return;
+            };
+            let len = self
+                .ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .map(|s| day_spec::ffi_guard::contain(0, || (s.len)()));
+            self.ivars().applying.set(len);
+            match &held.deltas {
+                Some(deltas) => self.apply_splice(table, deltas, held.after),
+                // reloadData can retire cells synchronously, whose recycle needs the tree.
+                None => unsafe { table.reloadData() },
+            }
+            table.layoutIfNeeded();
+            self.ivars().applying.set(None);
+            self.report_viewport(table);
+        }
+
         /// The index path of a display row; `None` for a header, which is no row of the table.
         fn path_of(&self, display: usize) -> Option<Retained<objc2_foundation::NSIndexPath>> {
             if !self.ivars().sections {
@@ -9275,6 +11489,345 @@ mod imp {
                 .sum();
             let headers = if self.ivars().sections { sections } else { 0 };
             (rows + headers) as usize
+        }
+
+        /// Whether display row `row` is a supplementary row: the list's header, footer, empty
+        /// state or content padding (docs/list.md "Header, footer and empty state"). Asks the
+        /// source, which answers from its snapshot without the tree.
+        fn is_supplement(&self, row: usize) -> bool {
+            let check = self
+                .ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .and_then(|s| s.is_supplement.clone());
+            check.is_some_and(|f| day_spec::ffi_guard::contain(false, || f(row)))
+        }
+
+        /// Reports what the table shows (docs/list.md "Visible rows"): the first and last
+        /// rows with any part inside the area between its insets, and how far the content's
+        /// end lies below the viewport's. Nothing while the table holds another row count than
+        /// the source: a splice or reload is still on its way, and numbers from the old rows
+        /// under the new count would read as the new end and fire `on_end_reached` again.
+        fn report_viewport(&self, table: &objc2_ui_kit::UITableView) {
+            let source = self.ivars().source.borrow().clone();
+            let Some(source) = source else { return };
+            let Some(report) = source.viewport.clone() else {
+                return;
+            };
+            let len = day_spec::ffi_guard::contain(0, || (source.len)());
+            if len == 0 || self.table_len(table) != len {
+                return;
+            }
+            let bounds = table.bounds();
+            let inset = table.adjustedContentInset();
+            let height = bounds.size.height - inset.top - inset.bottom;
+            if height < 1.0 || bounds.size.width <= 0.0 {
+                return;
+            }
+            // Half a point in from each edge: a row that only touches an edge is not in view.
+            let area = CGRect::new(
+                CGPoint::new(0.0, bounds.origin.y + inset.top + 0.5),
+                CGSize::new(bounds.size.width, height - 1.0),
+            );
+            let paths = unsafe { table.indexPathsForRowsInRect(area) };
+            let mut span: Option<(usize, usize)> = None;
+            let mut sections = (isize::MAX, isize::MIN);
+            let mut note = |row: usize| {
+                span = Some(span.map_or((row, row), |(a, b)| (a.min(row), b.max(row))));
+            };
+            if let Some(paths) = paths {
+                for ip in &paths {
+                    note(self.display_of(&ip));
+                    let s = unsafe { ip.section() };
+                    sections = (sections.0.min(s), sections.1.max(s));
+                }
+            }
+            if self.ivars().sections {
+                // A section header in view is a row of Day's too.
+                let headers = self.ivars().headers.borrow().clone();
+                let count = unsafe { table.numberOfSections() };
+                let from = sections.0.min(count).saturating_sub(1).max(0);
+                let to = sections.1.max(from).min(count - 1);
+                for s in from..=to {
+                    let rect = unsafe { table.rectForHeaderInSection(s) };
+                    let shows = rect.size.height > 0.0
+                        && rect.origin.y < area.origin.y + area.size.height
+                        && rect.origin.y + rect.size.height > area.origin.y;
+                    if shows && let Some(&row) = headers.get(s.max(0) as usize) {
+                        note(row);
+                    }
+                }
+            }
+            let Some((first, last)) = span else { return };
+            let end_distance = crate::scrolling::end_distance(
+                table.contentSize().height,
+                table.contentOffset().y,
+                bounds.size.height,
+                inset.bottom,
+            );
+            day_spec::ffi_guard::contain((), || {
+                report(day_spec::ListViewport {
+                    first,
+                    last,
+                    end_distance,
+                });
+            });
+        }
+
+        /// The reader is moving the list (a finger or a trackpad drags it, or the status bar
+        /// sends it to the top): tell the source the scroll is theirs (docs/list.md
+        /// "Following the end"), before the viewport report that says where it went. Not
+        /// while the list is at or past its end (the rubber band of a reader pulling at the
+        /// end): the reader is still at the end, and the report that would say so is the one
+        /// already sent.
+        fn note_reader_scroll(&self, table: &objc2_ui_kit::UITableView) {
+            let reader = self
+                .ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .and_then(|s| s.reader_scroll.clone());
+            let Some(reader) = reader else { return };
+            let end_distance = crate::scrolling::end_distance(
+                table.contentSize().height,
+                table.contentOffset().y,
+                table.bounds().size.height,
+                table.adjustedContentInset().bottom,
+            );
+            if end_distance > 0.0 {
+                day_spec::ffi_guard::contain((), || reader());
+            }
+        }
+
+        /// `ListPatch::Splice` (docs/list.md "Splices"), run a turn after the patch, outside
+        /// the tree. Day's deltas are sequential; `UITableView` takes one batch counted
+        /// against the rows it holds, so the deltas are folded into that batch. The table
+        /// reloads instead, keeping its offset, wherever a batch would not agree with what it
+        /// holds and what the source answers: a sectioned table (deltas there count headers,
+        /// which are sections to UIKit), a long run, a later change already in the source
+        /// (`after` is the row count the source had when the patch was sent), or a table whose
+        /// own count is not the one the deltas start from (one that never loaded counts the
+        /// source's new rows as its old ones, which is the "invalid batch updates" exception).
+        fn apply_splice(
+            &self,
+            table: &objc2_ui_kit::UITableView,
+            deltas: &[day_spec::props::RowDelta],
+            after: Option<usize>,
+        ) {
+            if deltas.is_empty() {
+                return;
+            }
+            let now = self
+                .ivars()
+                .source
+                .borrow()
+                .as_ref()
+                .map(|s| day_spec::ffi_guard::contain(0, || (s.len)()));
+            let batch = (|| {
+                let after = after?;
+                if self.ivars().sections || deltas.len() > SPLICE_BATCH_LIMIT || now != Some(after)
+                {
+                    return None;
+                }
+                let old = self.table_len(table);
+                let batch = crate::scrolling::fold(old, deltas)?;
+                (old + batch.inserts.len() == after + batch.deletes.len()).then_some(batch)
+            })();
+            let Some(batch) = batch else {
+                Self::reload_keeping_offset(table);
+                return;
+            };
+            let paths = |rows: &[usize]| {
+                let paths: Vec<_> = rows
+                    .iter()
+                    .map(|row| {
+                        objc2_foundation::NSIndexPath::indexPathForRow_inSection(*row as isize, 0)
+                    })
+                    .collect();
+                objc2_foundation::NSArray::from_retained_slice(&paths)
+            };
+            // Rows that only arrive below the viewport go in without an animation: nobody sees
+            // them arrive, and `endUpdates` animates the table's own bounds, which turns away
+            // every touch on the table until it ends. Rows that keep arriving (a feed, a chat
+            // that follows its end) would otherwise keep the reader from taking the list
+            // (docs/list.md "Following the end").
+            if batch.deletes.is_empty()
+                && batch.moves.is_empty()
+                && Self::all_below_viewport(table, &batch.inserts)
+                && let Some(mtm) = MainThreadMarker::new()
+            {
+                let update = block2::RcBlock::new(|| unsafe {
+                    table.beginUpdates();
+                    table.insertRowsAtIndexPaths_withRowAnimation(
+                        &paths(&batch.inserts),
+                        objc2_ui_kit::UITableViewRowAnimation::None,
+                    );
+                    table.endUpdates();
+                });
+                UIView::performWithoutAnimation(&update, mtm);
+                return;
+            }
+            let animation = objc2_ui_kit::UITableViewRowAnimation::Automatic;
+            unsafe {
+                table.beginUpdates();
+                if !batch.deletes.is_empty() {
+                    table
+                        .deleteRowsAtIndexPaths_withRowAnimation(&paths(&batch.deletes), animation);
+                }
+                if !batch.inserts.is_empty() {
+                    table
+                        .insertRowsAtIndexPaths_withRowAnimation(&paths(&batch.inserts), animation);
+                }
+                for (from, to) in &batch.moves {
+                    table.moveRowAtIndexPath_toIndexPath(
+                        &objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                            *from as isize,
+                            0,
+                        ),
+                        &objc2_foundation::NSIndexPath::indexPathForRow_inSection(*to as isize, 0),
+                    );
+                }
+                table.endUpdates();
+            }
+        }
+
+        /// Whether rows inserted at `inserts` (final rows of an insert-only batch) all land
+        /// below the viewport: after every row the table shows, which reach its bottom edge.
+        fn all_below_viewport(table: &objc2_ui_kit::UITableView, inserts: &[usize]) -> bool {
+            let Some(last) = table
+                .indexPathsForVisibleRows()
+                .and_then(|paths| paths.iter().map(|ip| unsafe { ip.row() }).max())
+            else {
+                return false;
+            };
+            let Some(first_insert) = inserts.iter().min() else {
+                return false;
+            };
+            let last_path = objc2_foundation::NSIndexPath::indexPathForRow_inSection(last, 0);
+            let shown = unsafe { table.rectForRowAtIndexPath(&last_path) };
+            let bottom = table.contentOffset().y + table.bounds().size.height
+                - table.adjustedContentInset().bottom;
+            *first_insert as isize > last && shown.origin.y + shown.size.height >= bottom - 0.5
+        }
+
+        /// Reloads a table where it stands: the offset it had, clamped to the new content.
+        fn reload_keeping_offset(table: &objc2_ui_kit::UITableView) {
+            let offset = table.contentOffset();
+            unsafe { table.reloadData() };
+            table.layoutIfNeeded();
+            let inset = table.adjustedContentInset();
+            let lowest = -inset.top;
+            let highest = (table.contentSize().height + inset.bottom - table.bounds().size.height)
+                .max(lowest);
+            let y = offset.y.clamp(lowest, highest);
+            if (table.contentOffset().y - y).abs() > 0.25 {
+                table.setContentOffset(CGPoint::new(offset.x, y));
+            }
+        }
+
+        /// `Toolkit::list_scroll` (docs/list.md "Programmatic scrolling"), run a turn after the
+        /// call so it lands behind the splice or reload that made its row. `UITableView`
+        /// aligns and animates natively; a row whose bottom it cannot know yet (a self-sizing
+        /// list's estimate) is corrected after an instant jump, once the jump realized it.
+        fn scroll(&self, table: &objc2_ui_kit::UITableView, to: day_spec::ListScroll) {
+            use objc2_ui_kit::UITableViewScrollPosition as At;
+            // The reader's finger holds the list (docs/list.md "Following the end"): UIKit
+            // would run the app's scroll against it.
+            if table.isTracking() {
+                return;
+            }
+            let count = self.table_len(table);
+            if count == 0 {
+                return;
+            }
+            table.layoutIfNeeded();
+            let target = match to.row {
+                Some(row) => {
+                    let position = match to.align {
+                        day_spec::RowAlign::Nearest => At::None,
+                        day_spec::RowAlign::Start => At::Top,
+                        day_spec::RowAlign::Center => At::Middle,
+                        day_spec::RowAlign::End => At::Bottom,
+                    };
+                    self.scroll_path(table, row.min(count - 1))
+                        .map(|ip| (ip, position))
+                }
+                None => Self::last_path(table).map(|ip| (ip, At::Bottom)),
+            };
+            match target {
+                Some((ip, position)) => unsafe {
+                    table.scrollToRowAtIndexPath_atScrollPosition_animated(
+                        &ip,
+                        position,
+                        to.animated,
+                    );
+                },
+                // A header-only section: its header's rect.
+                None => {
+                    if let Some(row) = to.row {
+                        let section = self.ivars().headers.borrow().iter().position(|h| *h == row);
+                        if let Some(s) = section {
+                            let rect = unsafe { table.rectForHeaderInSection(s as isize) };
+                            table.scrollRectToVisible_animated(rect, to.animated);
+                        }
+                    } else {
+                        let inset = table.adjustedContentInset();
+                        let end = (table.contentSize().height + inset.bottom
+                            - table.bounds().size.height)
+                            .max(-inset.top);
+                        table.setContentOffset_animated(
+                            CGPoint::new(table.contentOffset().x, end),
+                            to.animated,
+                        );
+                    }
+                }
+            }
+            if to.row.is_none() && !to.animated {
+                // The very end of the content, past any inset, now that the jump has laid
+                // out the rows there at their real heights.
+                table.layoutIfNeeded();
+                let inset = table.adjustedContentInset();
+                let end = (table.contentSize().height + inset.bottom - table.bounds().size.height)
+                    .max(-inset.top);
+                table.setContentOffset(CGPoint::new(table.contentOffset().x, end));
+            }
+            if !to.animated {
+                self.report_viewport(table);
+            }
+        }
+
+        /// The index path a scroll to display row `row` aims at: the row's own, or for a
+        /// section header the first row under it (the header rides above it).
+        fn scroll_path(
+            &self,
+            table: &objc2_ui_kit::UITableView,
+            row: usize,
+        ) -> Option<Retained<objc2_foundation::NSIndexPath>> {
+            if let Some(ip) = self.path_of(row) {
+                return Some(ip);
+            }
+            let section = self
+                .ivars()
+                .headers
+                .borrow()
+                .iter()
+                .position(|h| *h == row)?;
+            (unsafe { table.numberOfRowsInSection(section as isize) } > 0).then(|| {
+                objc2_foundation::NSIndexPath::indexPathForRow_inSection(0, section as isize)
+            })
+        }
+
+        /// The table's last row, in the last section that has one.
+        fn last_path(
+            table: &objc2_ui_kit::UITableView,
+        ) -> Option<Retained<objc2_foundation::NSIndexPath>> {
+            let sections = unsafe { table.numberOfSections() };
+            (0..sections).rev().find_map(|s| {
+                let rows = unsafe { table.numberOfRowsInSection(s) };
+                (rows > 0)
+                    .then(|| objc2_foundation::NSIndexPath::indexPathForRow_inSection(rows - 1, s))
+            })
         }
 
         /// `ListPatch::RowSizeInvalidated`: a self-sizing row was re-laid at a new height.
@@ -9377,7 +11930,7 @@ mod imp {
                 )
             };
             if let Some(t) = a.tint {
-                unsafe { action.setBackgroundColor(Some(&uicolor(t))) };
+                unsafe { action.setBackgroundColor(Some(&uiink(t))) };
             }
             // The glyph, where one is declared — UIKit shows it in place of the title on
             // standard-height rows (the title stays the accessibility name), the same
@@ -9397,6 +11950,449 @@ mod imp {
     type ListEntry = (Retained<objc2_ui_kit::UITableView>, Retained<DayListData>);
 
     // -----------------------------------------------------------------------
+    // DayScrollDelegate — a `scroll` piece's offset, phase, snap and zoom (docs/scroll.md)
+    // -----------------------------------------------------------------------
+
+    /// The association key under which a scroll view retains its `DayScrollDelegate`.
+    static SCROLL_DELEGATE_KEY: u8 = 0;
+
+    /// A scroll view's offset from the content's top-leading corner: `contentOffset` less
+    /// the insets UIKit puts around the content, so the top at rest is zero.
+    fn content_offset(sv: &UIScrollView) -> day_spec::Point {
+        let at = sv.contentOffset();
+        let inset = sv.adjustedContentInset();
+        day_spec::Point::new(at.x + inset.left, at.y + inset.top)
+    }
+
+    struct ScrollIvars {
+        node: NodeId,
+        horizontal: bool,
+        /// `ScrollProps::track_offset`: send `Event::ScrollChanged`.
+        track_offset: bool,
+        /// `ScrollProps::track_phase`: send `Event::ScrollPhase`.
+        track_phase: bool,
+        /// `ScrollSnap::Interval`'s grid, in points; `None` otherwise (`Page` is UIKit's own
+        /// paging and needs no delegate).
+        interval: Option<f64>,
+        /// The zooming content (`ScrollProps::zoom`): one plain view, the scroll view's only
+        /// Day subview, that Day's children are inserted into and UIKit scales.
+        zoom_content: Option<Retained<UIView>>,
+        /// The last offset and scale sent, so a callback that moved nothing sends nothing.
+        last_offset: Cell<Option<day_spec::Point>>,
+        last_scale: Cell<Option<f64>>,
+        phase: Cell<day_spec::ScrollPhase>,
+    }
+
+    define_class!(
+        // The scroll view's delegate, installed only when the props ask for something it
+        // reports or decides; retained by the scroll view itself (an associated object), since
+        // `UIScrollView.delegate` is weak.
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayScrollDelegate"]
+        #[ivars = ScrollIvars]
+        struct DayScrollDelegate;
+
+        unsafe impl NSObjectProtocol for DayScrollDelegate {}
+
+        unsafe impl UIScrollViewDelegate for DayScrollDelegate {
+            /// Whatever moved the content: a finger, momentum, a bounce, a programmatic
+            /// scroll's every frame, a zoom (docs/scroll.md "Offset and phase"). UIKit calls
+            /// this once per frame of a scroll, and its last call has the offset at rest.
+            #[unsafe(method(scrollViewDidScroll:))]
+            fn did_scroll(&self, sv: &UIScrollView) {
+                day_spec::ffi_guard::contain((), || self.report_offset(sv));
+            }
+
+            #[unsafe(method(scrollViewWillBeginDragging:))]
+            fn will_begin_dragging(&self, _sv: &UIScrollView) {
+                day_spec::ffi_guard::contain((), || {
+                    self.enter(day_spec::ScrollPhase::Dragging);
+                });
+            }
+
+            /// `ScrollSnap::Interval`: the target UIKit projected for the release, moved to
+            /// the grid; UIKit then decelerates onto it (docs/scroll.md "Snapping").
+            #[unsafe(method(scrollViewWillEndDragging:withVelocity:targetContentOffset:))]
+            unsafe fn will_end_dragging(
+                &self,
+                sv: &UIScrollView,
+                velocity: CGPoint,
+                target: NonNull<CGPoint>,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(interval) = self.ivars().interval else {
+                        return;
+                    };
+                    let at = sv.contentOffset();
+                    let size = sv.bounds().size;
+                    let content = sv.contentSize();
+                    let inset = sv.adjustedContentInset();
+                    // SAFETY: UIKit hands a valid, writable pointer for the duration of the
+                    // call (the documented in-out parameter).
+                    let goal = unsafe { target.read() };
+                    let snapped = if self.ivars().horizontal {
+                        let range = content.width + inset.left + inset.right - size.width;
+                        let x = crate::scrolling::snap_stop(
+                            goal.x + inset.left,
+                            at.x + inset.left,
+                            velocity.x,
+                            interval,
+                            range,
+                        );
+                        CGPoint::new(x - inset.left, goal.y)
+                    } else {
+                        let range = content.height + inset.top + inset.bottom - size.height;
+                        let y = crate::scrolling::snap_stop(
+                            goal.y + inset.top,
+                            at.y + inset.top,
+                            velocity.y,
+                            interval,
+                            range,
+                        );
+                        CGPoint::new(goal.x, y - inset.top)
+                    };
+                    // SAFETY: as above.
+                    unsafe { target.write(snapped) };
+                });
+            }
+
+            #[unsafe(method(scrollViewDidEndDragging:willDecelerate:))]
+            fn did_end_dragging(&self, _sv: &UIScrollView, decelerate: bool) {
+                day_spec::ffi_guard::contain((), || {
+                    self.enter(if decelerate {
+                        day_spec::ScrollPhase::Coasting
+                    } else {
+                        day_spec::ScrollPhase::Idle
+                    });
+                });
+            }
+
+            #[unsafe(method(scrollViewDidEndDecelerating:))]
+            fn did_end_decelerating(&self, sv: &UIScrollView) {
+                day_spec::ffi_guard::contain((), || {
+                    self.report_offset(sv);
+                    self.enter(day_spec::ScrollPhase::Idle);
+                });
+            }
+
+            /// A programmatic animated scroll ended: no phase (the user did not scroll), but
+            /// the offset it rests at is reported if the last frame did not already.
+            #[unsafe(method(scrollViewDidEndScrollingAnimation:))]
+            fn did_end_scrolling_animation(&self, sv: &UIScrollView) {
+                day_spec::ffi_guard::contain((), || self.report_offset(sv));
+            }
+
+            #[unsafe(method_id(viewForZoomingInScrollView:))]
+            fn view_for_zooming(&self, _sv: &UIScrollView) -> Option<Retained<UIView>> {
+                self.ivars().zoom_content.clone()
+            }
+
+            #[unsafe(method(scrollViewDidZoom:))]
+            fn did_zoom(&self, sv: &UIScrollView) {
+                day_spec::ffi_guard::contain((), || self.report_scale(sv));
+            }
+
+            #[unsafe(method(scrollViewDidEndZooming:withView:atScale:))]
+            fn did_end_zooming(&self, sv: &UIScrollView, _view: Option<&UIView>, _scale: CGFloat) {
+                day_spec::ffi_guard::contain((), || {
+                    self.report_scale(sv);
+                    self.report_offset(sv);
+                });
+            }
+        }
+    );
+
+    impl DayScrollDelegate {
+        /// The delegate a `scroll` piece's view was realized with, if it got one.
+        fn of(sv: &UIScrollView) -> Option<Retained<Self>> {
+            let delegate: Option<Retained<AnyObject>> = unsafe { msg_send![sv, delegate] };
+            delegate?.downcast::<Self>().ok()
+        }
+
+        /// `Event::ScrollChanged`, when tracked and when the offset moved.
+        fn report_offset(&self, sv: &UIScrollView) {
+            let iv = self.ivars();
+            if !iv.track_offset {
+                return;
+            }
+            let at = content_offset(sv);
+            if iv.last_offset.replace(Some(at)) != Some(at) {
+                emit(iv.node, Event::ScrollChanged(at));
+            }
+        }
+
+        /// `Event::ScrollZoomed`, when the view zooms and the scale moved; `force` sends the
+        /// scale at rest even when it did not move (a patch that asked for the scale it has).
+        fn report_scale_with(&self, sv: &UIScrollView, force: bool) {
+            let iv = self.ivars();
+            if iv.zoom_content.is_none() {
+                return;
+            }
+            let scale = sv.zoomScale();
+            if iv.last_scale.replace(Some(scale)) != Some(scale) || force {
+                emit(iv.node, Event::ScrollZoomed(scale));
+            }
+        }
+
+        fn report_scale(&self, sv: &UIScrollView) {
+            self.report_scale_with(sv, false);
+        }
+
+        /// `Event::ScrollPhase` on a change, when tracked.
+        fn enter(&self, phase: day_spec::ScrollPhase) {
+            let iv = self.ivars();
+            if iv.track_phase && iv.phase.replace(phase) != phase {
+                emit(iv.node, Event::ScrollPhase(phase));
+            }
+        }
+
+        /// `ScrollPatch::Zoom` (docs/scroll.md "Zoom"): to `scale`, clamped to the range,
+        /// around the point at the viewport's center. `zoomToRect:animated:` is UIKit's own
+        /// zoom, animation included, and it clamps the offset to the new content.
+        fn zoom(&self, sv: &UIScrollView, scale: f64, animated: bool) {
+            if self.ivars().zoom_content.is_none() || !scale.is_finite() {
+                return;
+            }
+            let scale = scale.clamp(sv.minimumZoomScale(), sv.maximumZoomScale());
+            let now = sv.zoomScale();
+            if (now - scale).abs() < 1e-6 {
+                self.report_scale_with(sv, true);
+                return;
+            }
+            let at = sv.contentOffset();
+            let size = sv.bounds().size;
+            // The viewport's center in the content view's own (unscaled) coordinates.
+            let center = CGPoint::new(
+                (at.x + size.width / 2.0) / now,
+                (at.y + size.height / 2.0) / now,
+            );
+            let span = CGSize::new(size.width / scale, size.height / scale);
+            let rect = CGRect::new(
+                CGPoint::new(center.x - span.width / 2.0, center.y - span.height / 2.0),
+                span,
+            );
+            sv.zoomToRect_animated(rect, animated);
+            if !animated {
+                self.report_scale(sv);
+            }
+        }
+    }
+
+    /// The zooming content view of a `scroll` realized with `ScrollProps::zoom`: Day's
+    /// children go in it, and Day's content size is its unscaled size.
+    fn zoom_content(parent: &UIView) -> Option<Retained<UIView>> {
+        let sv = parent.downcast_ref::<UIScrollView>()?;
+        DayScrollDelegate::of(sv)?.ivars().zoom_content.clone()
+    }
+
+    /// The `scroll` piece's native view (docs/scroll.md): every preference UIKit's scroll
+    /// view has a property for, and the delegate for what it reports or decides.
+    fn make_scroll(p: &ScrollProps, id: NodeId, mtm: MainThreadMarker) -> Retained<UIScrollView> {
+        use day_spec::props::{KeyboardDismiss, KeyboardTaps, ScrollIndicators, ScrollSnap};
+        let sv = unsafe { UIScrollView::new(mtm) };
+        if p.indicators == ScrollIndicators::Hidden {
+            sv.setShowsVerticalScrollIndicator(false);
+            sv.setShowsHorizontalScrollIndicator(false);
+        }
+        match p.bounce {
+            Some(false) => sv.setBounces(false),
+            Some(true) => {
+                sv.setBounces(true);
+                if p.horizontal {
+                    sv.setAlwaysBounceHorizontal(true);
+                } else {
+                    sv.setAlwaysBounceVertical(true);
+                }
+            }
+            None => {}
+        }
+        let interval = match p.snap {
+            ScrollSnap::None => None,
+            // Pages of the viewport's extent, one per swipe: UIKit's paging is exactly that.
+            ScrollSnap::Page => {
+                sv.setPagingEnabled(true);
+                None
+            }
+            ScrollSnap::Interval(points) => {
+                // The fast rate is what a grid-snapping view decelerates with (Photos' strip).
+                sv.setDecelerationRate(unsafe { objc2_ui_kit::UIScrollViewDecelerationRateFast });
+                (points.is_finite() && points > 0.0).then_some(points)
+            }
+        };
+        match p.keyboard_dismiss {
+            KeyboardDismiss::Never => {}
+            KeyboardDismiss::OnDrag => {
+                sv.setKeyboardDismissMode(objc2_ui_kit::UIScrollViewKeyboardDismissMode::OnDrag);
+            }
+            KeyboardDismiss::Interactive => sv
+                .setKeyboardDismissMode(objc2_ui_kit::UIScrollViewKeyboardDismissMode::Interactive),
+        }
+        if p.keyboard_taps == KeyboardTaps::Dismiss {
+            let tap = DayKeyboardTap::new(mtm);
+            unsafe { sv.addGestureRecognizer(&tap) };
+        }
+        let zoom_content = p.zoom.map(|range| {
+            sv.setMinimumZoomScale(range.min.min(range.max));
+            sv.setMaximumZoomScale(range.max.max(range.min));
+            let content = UIView::new(mtm);
+            unsafe { sv.addSubview(&content) };
+            content
+        });
+        if p.track_offset || p.track_phase || interval.is_some() || zoom_content.is_some() {
+            let delegate = DayScrollDelegate::alloc(mtm).set_ivars(ScrollIvars {
+                node: id,
+                horizontal: p.horizontal,
+                track_offset: p.track_offset,
+                track_phase: p.track_phase,
+                interval,
+                zoom_content,
+                last_offset: Cell::new(None),
+                last_scale: Cell::new(None),
+                phase: Cell::new(day_spec::ScrollPhase::Idle),
+            });
+            let delegate: Retained<DayScrollDelegate> = unsafe { msg_send![super(delegate), init] };
+            unsafe {
+                sv.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                // SAFETY: both are live objects; the association retains the delegate for
+                // the scroll view's lifetime, which is what a weak `delegate` needs.
+                objc2::ffi::objc_setAssociatedObject(
+                    std::ptr::from_ref::<objc2::runtime::AnyObject>(&sv).cast_mut(),
+                    std::ptr::addr_of!(SCROLL_DELEGATE_KEY).cast(),
+                    std::ptr::from_ref::<objc2::runtime::AnyObject>(&delegate).cast_mut(),
+                    objc2::ffi::OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+                );
+            }
+        }
+        sv
+    }
+
+    struct KeyboardTapIvars {
+        /// Where the touch went down, in the window.
+        start: Cell<CGPoint>,
+    }
+
+    define_class!(
+        // `KeyboardTaps::Dismiss` (docs/scroll.md "Keyboard"): while the software keyboard is
+        // up, a tap in the scroll view that is not on a text input dismisses it and goes no
+        // further. A recognizer of Day's own rather than a `UITapGestureRecognizer`, because
+        // UIKit lets a button's own tap win over an ancestor's single-tap recognizer, and the
+        // tap must not reach the button. It holds the touches back from the views under it
+        // (`delaysTouchesBegan`) only while the keyboard is up: it fails at once otherwise, so
+        // taps are delivered undelayed, and it fails as soon as the touch moves, so a drag
+        // still scrolls.
+        #[unsafe(super(objc2_ui_kit::UIGestureRecognizer))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayKeyboardTap"]
+        #[ivars = KeyboardTapIvars]
+        struct DayKeyboardTap;
+
+        impl DayKeyboardTap {
+            #[unsafe(method(touchesBegan:withEvent:))]
+            fn touches_began(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: &objc2_ui_kit::UIEvent,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let all = unsafe { event.touchesForGestureRecognizer(self) };
+                    let touch = touches.iter().next();
+                    let several = all.is_some_and(|all| all.count() > 1);
+                    let on_input = touch
+                        .as_ref()
+                        .and_then(|t| unsafe { t.view() })
+                        .is_some_and(|v| is_text_input(&v));
+                    match touch {
+                        Some(t) if KEYBOARD_UP.with(Cell::get) && !several && !on_input => {
+                            let at = unsafe { t.locationInView(None) };
+                            self.ivars().start.set(at);
+                        }
+                        _ => unsafe {
+                            self.setState(objc2_ui_kit::UIGestureRecognizerState::Failed);
+                        },
+                    }
+                });
+            }
+
+            #[unsafe(method(touchesMoved:withEvent:))]
+            fn touches_moved(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                _event: &objc2_ui_kit::UIEvent,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(touch) = touches.iter().next() else {
+                        return;
+                    };
+                    let at = unsafe { touch.locationInView(None) };
+                    let start = self.ivars().start.get();
+                    if (at.x - start.x).hypot(at.y - start.y) > 10.0 {
+                        unsafe { self.setState(objc2_ui_kit::UIGestureRecognizerState::Failed) };
+                    }
+                });
+            }
+
+            #[unsafe(method(touchesEnded:withEvent:))]
+            fn touches_ended(
+                &self,
+                _touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                _event: &objc2_ui_kit::UIEvent,
+            ) {
+                // Recognized: end editing in the window, which resigns the text input and
+                // takes the keyboard down. Done here rather than through a target, which would
+                // have the recognizer hold itself.
+                day_spec::ffi_guard::contain((), || {
+                    unsafe { self.setState(objc2_ui_kit::UIGestureRecognizerState::Ended) };
+                    if let Some(window) = unsafe { self.view() }.and_then(|v| v.window()) {
+                        let _ = window.endEditing(true);
+                    }
+                });
+            }
+
+            #[unsafe(method(touchesCancelled:withEvent:))]
+            fn touches_cancelled(
+                &self,
+                _touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                _event: &objc2_ui_kit::UIEvent,
+            ) {
+                day_spec::ffi_guard::contain((), || unsafe {
+                    self.setState(objc2_ui_kit::UIGestureRecognizerState::Failed);
+                });
+            }
+        }
+    );
+
+    impl DayKeyboardTap {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(KeyboardTapIvars {
+                start: Cell::new(CGPoint::new(0.0, 0.0)),
+            });
+            let this: Retained<Self> = unsafe {
+                msg_send![super(this), initWithTarget: None::<&AnyObject>, action: None::<Sel>]
+            };
+            unsafe {
+                this.setCancelsTouchesInView(true);
+                this.setDelaysTouchesBegan(true);
+            }
+            this
+        }
+    }
+
+    /// Whether a touch on `view` lands on a text input: the view or one of its ancestors is a
+    /// text field or a text view.
+    fn is_text_input(view: &UIView) -> bool {
+        let mut cur = Some(view.retain());
+        while let Some(v) = cur {
+            if v.downcast_ref::<UITextField>().is_some() || v.downcast_ref::<UITextView>().is_some()
+            {
+                return true;
+            }
+            cur = v.superview();
+        }
+        false
+    }
+
+    // -----------------------------------------------------------------------
     // DayCanvasView — replay in drawRect (§11)
     // -----------------------------------------------------------------------
 
@@ -9407,6 +12403,30 @@ mod imp {
         #[ivars = ()]
         struct DayFocusableContainer;
         impl DayFocusableContainer {
+            // A surface's shadow is cast from a path, which the layer does not resize with its
+            // bounds (docs/surfaces.md): a frame change re-lays the view out, and the path is
+            // rebuilt here.
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                day_spec::ffi_guard::contain((), || {
+                    relayout_surface(self);
+                    sync_surface_shadow_path(self);
+                });
+            }
+
+            // Layer colors are `CGColor`s, which do not follow the appearance: set them again
+            // from the surface's inks when the traits change (color brief §1.5). Still called
+            // on iOS 17+, where it is deprecated in favor of trait registration.
+            #[unsafe(method(traitCollectionDidChange:))]
+            fn trait_collection_did_change(
+                &self,
+                previous: Option<&objc2_ui_kit::UITraitCollection>,
+            ) {
+                let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+                day_spec::ffi_guard::contain((), || refresh_surface_inks(self, previous));
+            }
+
             #[unsafe(method(canBecomeFirstResponder))]
             fn can_become_first_responder(&self) -> bool {
                 KEY_NODES.with(|t| t.get(std::ptr::from_ref::<Self>(self).cast::<UIView>() as usize)).is_some()
@@ -9429,11 +12449,81 @@ mod imp {
                 let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
                 if resigned {
                     let ptr = std::ptr::from_ref::<DayFocusableContainer>(self).cast::<UIView>() as usize;
+                    // A key held across the focus change sends no release (docs/menus.md "Keys").
+                    KEYS_DOWN.with(|t| t.remove(ptr));
                     if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                         day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
                     }
                 }
                 resigned
+            }
+
+            // Pass-through and hit slop (docs/gestures.md): a container takes a touch only
+            // when something is attached to it or it takes focus.
+            #[unsafe(method_id(hitTest:withEvent:))]
+            fn hit_test(
+                &self,
+                point: CGPoint,
+                event: Option<&objc2_ui_kit::UIEvent>,
+            ) -> Option<Retained<UIView>> {
+                let view: &UIView = self;
+                let keys = KEY_NODES.with(|t| t.contains(ptr_of(view)));
+                day_hit_test(view, point, event, takes_touches(view, keys))
+            }
+
+            #[unsafe(method(pointInside:withEvent:))]
+            fn point_inside(&self, point: CGPoint, _event: Option<&objc2_ui_kit::UIEvent>) -> bool {
+                day_point_inside(self, point)
+            }
+
+            // The focus system an iPad's hardware keyboard drives (Tab, arrows with Full
+            // Keyboard Access): a `.focusable()` view joins it and draws its focus effect, and
+            // being focused there makes it the first responder its keys arrive at.
+            #[unsafe(method(canBecomeFocused))]
+            fn can_become_focused(&self) -> bool {
+                KEY_NODES.with(|t| t.contains(ptr_of(self)))
+            }
+
+            #[unsafe(method(didUpdateFocusInContext:withAnimationCoordinator:))]
+            fn did_update_focus(&self, context: &AnyObject, coordinator: &AnyObject) {
+                unsafe {
+                    let _: () = msg_send![super(self), didUpdateFocusInContext: context, withAnimationCoordinator: coordinator];
+                }
+                let next: Option<Retained<AnyObject>> = unsafe { msg_send![context, nextFocusedItem] };
+                let this: &AnyObject = self.as_ref();
+                if next.is_some_and(|n| std::ptr::eq(&raw const *n, this)) && !self.isFirstResponder() {
+                    let _ = self.becomeFirstResponder();
+                }
+            }
+
+            #[unsafe(method(pressesEnded:withEvent:))]
+            fn presses_ended(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let rest = release_keys(self, presses);
+                if rest.len() == presses.len() {
+                    let _: () = unsafe { msg_send![super(self), pressesEnded: presses, withEvent: event] };
+                } else if !rest.is_empty() {
+                    let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    let _: () = unsafe { msg_send![super(self), pressesEnded: &*rest, withEvent: event] };
+                }
+            }
+
+            #[unsafe(method(pressesCancelled:withEvent:))]
+            fn presses_cancelled(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let rest = release_keys(self, presses);
+                if rest.len() == presses.len() {
+                    let _: () = unsafe { msg_send![super(self), pressesCancelled: presses, withEvent: event] };
+                } else if !rest.is_empty() {
+                    let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    let _: () = unsafe { msg_send![super(self), pressesCancelled: &*rest, withEvent: event] };
+                }
             }
 
             // A touch focuses the canvas, the way a press does on the desktops. The gesture
@@ -9482,6 +12572,12 @@ mod imp {
                                 key_modifiers(unsafe { key.modifierFlags() }),
                             )),
                         );
+                        hold_key(ptr, HeldKey {
+                            code: unsafe { key.keyCode() }.0,
+                            name: name.to_owned(),
+                            text: false,
+                            inserts: 0,
+                        });
                         any = true;
                     }
                     any
@@ -9494,6 +12590,30 @@ mod imp {
         }
     );
     impl DayFocusableContainer {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    define_class!(
+        /// A container whose fill is a gradient (docs/surfaces.md): the same view, backed
+        /// by a `CAGradientLayer` instead of a plain layer. The gradient being the view's OWN
+        /// layer is what keeps it the size of the view through every frame change and
+        /// animation, under the subviews, and shaped by the layer's corners and border.
+        #[unsafe(super(DayFocusableContainer))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayGradientContainer"]
+        #[ivars = ()]
+        struct DayGradientContainer;
+        impl DayGradientContainer {
+            #[unsafe(method(layerClass))]
+            fn layer_class() -> &'static objc2::runtime::AnyClass {
+                <objc2_quartz_core::CAGradientLayer as objc2::ClassType>::class()
+            }
+        }
+    );
+    impl DayGradientContainer {
         fn new(mtm: MainThreadMarker) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(());
             unsafe { msg_send![super(this), init] }
@@ -9566,7 +12686,28 @@ mod imp {
                 let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
                 let text = text.to_string();
                 if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
-                    day_spec::ffi_guard::contain((), || emit_inserted_text(node, &text));
+                    day_spec::ffi_guard::contain((), || {
+                        // The text of a held hardware key: the first insert is its down, every
+                        // later one before the release a repeat (docs/menus.md "Keys").
+                        let phase = KEYS_DOWN
+                            .with(|t| {
+                                t.with(ptr, |held| {
+                                    held.iter_mut().rev().find(|k| k.text).map(|k| {
+                                        k.inserts += 1;
+                                        k.inserts > 1
+                                    })
+                                })
+                            })
+                            .flatten()
+                            .map_or(day_spec::KeyPhase::Down, |repeat| {
+                                if repeat {
+                                    day_spec::KeyPhase::Repeat
+                                } else {
+                                    day_spec::KeyPhase::Down
+                                }
+                            });
+                        emit_inserted_text(node, &text, phase);
+                    });
                 }
             }
 
@@ -9637,6 +12778,8 @@ mod imp {
                 let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
                 if resigned {
                     let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
+                    // A key held across the focus change sends no release (docs/menus.md "Keys").
+                    KEYS_DOWN.with(|t| t.remove(ptr));
                     if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
                         day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
                     }
@@ -9657,16 +12800,46 @@ mod imp {
                 point: CGPoint,
                 event: Option<&objc2_ui_kit::UIEvent>,
             ) -> Option<Retained<UIView>> {
-                let hit: Option<Retained<UIView>> =
-                    unsafe { msg_send![super(self), hitTest: point, withEvent: event] };
-                let this = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>();
-                let is_self = hit.as_ref().is_some_and(|h| std::ptr::eq(Retained::as_ptr(h), this));
-                let recognizes = unsafe { self.gestureRecognizers() }.is_some_and(|g| g.count() > 0);
-                let interacts = unsafe { self.interactions() }.count() > 0;
-                let keys = KEY_NODES.with(|t| t.get(this as usize)).is_some_and(|node| {
+                let view: &UIView = self;
+                let keys = KEY_NODES.with(|t| t.get(ptr_of(view))).is_some_and(|node| {
                     day_spec::ffi_guard::contain(false, || day_spec::keys::handled(node))
                 });
-                if is_self && !recognizes && !interacts && !keys { None } else { hit }
+                day_hit_test(view, point, event, takes_touches(view, keys))
+            }
+
+            #[unsafe(method(pointInside:withEvent:))]
+            fn point_inside(&self, point: CGPoint, _event: Option<&objc2_ui_kit::UIEvent>) -> bool {
+                day_point_inside(self, point)
+            }
+
+            #[unsafe(method(pressesEnded:withEvent:))]
+            fn presses_ended(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let rest = release_keys(self, presses);
+                if rest.len() == presses.len() {
+                    let _: () = unsafe { msg_send![super(self), pressesEnded: presses, withEvent: event] };
+                } else if !rest.is_empty() {
+                    let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    let _: () = unsafe { msg_send![super(self), pressesEnded: &*rest, withEvent: event] };
+                }
+            }
+
+            #[unsafe(method(pressesCancelled:withEvent:))]
+            fn presses_cancelled(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let rest = release_keys(self, presses);
+                if rest.len() == presses.len() {
+                    let _: () = unsafe { msg_send![super(self), pressesCancelled: presses, withEvent: event] };
+                } else if !rest.is_empty() {
+                    let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    let _: () = unsafe { msg_send![super(self), pressesCancelled: &*rest, withEvent: event] };
+                }
             }
 
             // A touch focuses the canvas, the way a press does on the desktops. The gesture
@@ -9707,9 +12880,10 @@ mod imp {
                         let full = day_spec::keys::text(node);
                         let mut rest = Vec::new();
                         for press in presses {
-                            let claimed = match unsafe { press.key(self.mtm()) } {
-                                Some(key) if full => full_route_press(&key),
-                                Some(key) => key_name(&key).map(|name| {
+                            let key = unsafe { press.key(self.mtm()) };
+                            let claimed = match &key {
+                                Some(key) if full => full_route_press(key),
+                                Some(key) => key_name(key).map(|name| {
                                     day_spec::KeyEvent::named(
                                         name,
                                         key_modifiers(unsafe { key.modifierFlags() }),
@@ -9717,9 +12891,32 @@ mod imp {
                                 }),
                                 None => None,
                             };
-                            match claimed {
-                                Some(event) => emit(node, Event::Key(event)),
-                                None => rest.push(press.retain()),
+                            let Some(key) = key else {
+                                rest.push(press.retain());
+                                continue;
+                            };
+                            let code = unsafe { key.keyCode() }.0;
+                            if let Some(event) = claimed {
+                                hold_key(ptr, HeldKey {
+                                    code,
+                                    name: event.key.to_string(),
+                                    text: false,
+                                    inserts: 0,
+                                });
+                                emit(node, Event::Key(event));
+                            } else {
+                                // A key that types, on the full route: its text arrives
+                                // through `insertText:`, its release here.
+                                let typed = unsafe { key.charactersIgnoringModifiers() }.to_string();
+                                if full && !typed.is_empty() && !typed.chars().any(char::is_control) {
+                                    hold_key(ptr, HeldKey {
+                                        code,
+                                        name: typed,
+                                        text: true,
+                                        inserts: 0,
+                                    });
+                                }
+                                rest.push(press.retain());
                             }
                         }
                         rest
@@ -9933,8 +13130,8 @@ mod imp {
                 S::Bordered => UIButtonConfiguration::borderedButtonConfiguration(mtm),
                 S::Tinted(c) => {
                     let config = UIButtonConfiguration::filledButtonConfiguration(mtm);
-                    config.setBaseBackgroundColor(Some(&uicolor(c)));
-                    config.setBaseForegroundColor(Some(&uicolor(S::on_tint(c))));
+                    config.setBaseBackgroundColor(Some(&uiink(c)));
+                    config.setBaseForegroundColor(Some(&uiink_mapped(c, S::on_tint)));
                     config
                 }
             };
@@ -9947,19 +13144,480 @@ mod imp {
         unsafe { UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a) }
     }
 
-    /// Apply a `background`/`corner_radius` surface to a container view: `UIView` carries a native
-    /// `backgroundColor`; the corner radius / rounded clip go on its typed `CALayer`
-    /// (objc2-quartz-core). Idempotent — called at realize and on a background patch.
-    fn apply_surface(v: &UIView, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
-        unsafe {
-            match bg {
-                Some(c) => v.setBackgroundColor(Some(&uicolor(c))),
-                None => v.setBackgroundColor(None),
+    /// A `CGColor` for the layer properties and context calls that take one.
+    fn cgcolor(c: day_spec::Color) -> Retained<objc2_core_graphics::CGColor> {
+        // SAFETY: reading the color of a `UIColor` made from plain components.
+        unsafe { uicolor(c).CGColor() }
+    }
+
+    /// The `UIColor` an ink is drawn in (docs/color.md): a fixed ink is a plain color; a
+    /// light/dark pair and a role are dynamic colors, which UIKit resolves against the trait
+    /// collection of wherever they are shown. A view given one recolors on an appearance switch
+    /// by itself, with no patch: a background, a text color, a tint, an attributed-string
+    /// color and a button configuration's colors all re-resolve. A layer color (`CGColor`)
+    /// does not, so those are re-resolved on a trait change (`refresh_surface_inks`).
+    ///
+    /// A role's alpha override replaces the alpha, as `withAlphaComponent` does.
+    ///
+    /// Public for pieces with a native view of their own (an attributed string's colors, a
+    /// text view's): a color from here follows a light/dark switch with nothing re-applied.
+    #[must_use]
+    pub fn uiink(ink: day_spec::Ink) -> Retained<UIColor> {
+        use day_spec::Ink;
+        match ink {
+            Ink::Fixed(c) => uicolor(c),
+            Ink::Adaptive { light, dark } => dynamic_uicolor(move |traits| {
+                uicolor(if traits_dark(traits) { dark } else { light })
+            }),
+            Ink::System { role, alpha: None } => role_uicolor(role),
+            Ink::System {
+                role,
+                alpha: Some(alpha),
+            } => {
+                let base = role_uicolor(role);
+                dynamic_uicolor(move |traits| {
+                    base.resolvedColorWithTraitCollection(traits)
+                        .colorWithAlphaComponent(alpha.clamp(0.0, 1.0))
+                })
             }
-            let layer = v.layer();
-            layer.setCornerRadius(corner_radius);
-            layer.setMasksToBounds(clips || corner_radius > 0.0);
         }
+    }
+
+    /// A dynamic color: `provider` picks the color for each trait collection UIKit resolves
+    /// it against (iOS 13+).
+    fn dynamic_uicolor(
+        provider: impl Fn(&objc2_ui_kit::UITraitCollection) -> Retained<UIColor> + 'static,
+    ) -> Retained<UIColor> {
+        let block = block2::RcBlock::new(
+            move |traits: NonNull<objc2_ui_kit::UITraitCollection>| -> NonNull<UIColor> {
+                // SAFETY: UIKit passes a live trait collection for the duration of the call.
+                let color = provider(unsafe { traits.as_ref() });
+                // A block's object return is +0 by convention: hand back an autoreleased
+                // pointer, which a `Retained` never makes null.
+                let ptr = Retained::autorelease_ptr(color);
+                // SAFETY: `autorelease_ptr` returns the retained object's own, non-null pointer.
+                unsafe { NonNull::new_unchecked(ptr) }
+            },
+        );
+        // SAFETY: the provider returns a valid, autoreleased color for every call.
+        unsafe { UIColor::colorWithDynamicProvider(&block) }
+    }
+
+    /// Whether `traits` describe the dark appearance. High contrast keeps its light or dark
+    /// side, as the system's own colors do.
+    fn traits_dark(traits: &objc2_ui_kit::UITraitCollection) -> bool {
+        // SAFETY: reading a property of a live trait collection.
+        let style = unsafe { traits.userInterfaceStyle() };
+        style == objc2_ui_kit::UIUserInterfaceStyle::Dark
+    }
+
+    /// The platform color for a role (color brief §1.4), dynamic as UIKit's own system
+    /// colors are. What `Toolkit::system_color` answers too, resolved, so a role shows exactly
+    /// what `day::resolve` returns for it.
+    fn role_uicolor(role: day_spec::SystemColor) -> Retained<UIColor> {
+        use day_spec::SystemColor as R;
+        match role {
+            R::Accent => UIColor::systemBlueColor(),
+            R::Text => UIColor::labelColor(),
+            R::SecondaryText => UIColor::secondaryLabelColor(),
+            R::TertiaryText => UIColor::tertiaryLabelColor(),
+            R::Placeholder => UIColor::placeholderTextColor(),
+            R::Link => UIColor::linkColor(),
+            R::Separator => UIColor::separatorColor(),
+            R::ControlFill => UIColor::tertiarySystemFillColor(),
+            R::Background => UIColor::systemBackgroundColor(),
+            R::Surface => UIColor::secondarySystemBackgroundColor(),
+            R::GroupedBackground => UIColor::systemGroupedBackgroundColor(),
+            // The background a raised surface takes (a sheet, a popover): the system
+            // background in the ELEVATED interface level, which is lighter in the dark
+            // appearance and the same white in the light one.
+            R::ElevatedSurface => dynamic_uicolor(|traits| {
+                let elevated =
+                    objc2_ui_kit::UITraitCollection::traitCollectionWithUserInterfaceLevel(
+                        objc2_ui_kit::UIUserInterfaceLevel::Elevated,
+                    );
+                #[expect(
+                    deprecated,
+                    reason = "its iOS 17 replacement, traitCollectionByModifyingTraits, is not on the iOS 15 floor"
+                )]
+                let merged =
+                    objc2_ui_kit::UITraitCollection::traitCollectionWithTraitsFromCollections(
+                        &objc2_foundation::NSArray::from_slice(&[traits, &*elevated]),
+                    );
+                UIColor::systemBackgroundColor().resolvedColorWithTraitCollection(&merged)
+            }),
+            // The accent at a fifth: what UIKit's own text selection highlight is.
+            R::Selection => dynamic_uicolor(|traits| {
+                UIColor::systemBlueColor()
+                    .resolvedColorWithTraitCollection(traits)
+                    .colorWithAlphaComponent(0.2)
+            }),
+            R::Destructive => UIColor::systemRedColor(),
+            R::Success => UIColor::systemGreenColor(),
+            R::Warning => UIColor::systemOrangeColor(),
+        }
+    }
+
+    /// The sRGB components of a color that is already resolved (not dynamic).
+    fn uicolor_components(color: &UIColor) -> Option<day_spec::Color> {
+        let (mut r, mut g, mut b, mut a) = (0.0, 0.0, 0.0, 0.0);
+        // SAFETY: each out pointer refers to a live CGFloat on this stack.
+        unsafe { color.getRed_green_blue_alpha(&raw mut r, &raw mut g, &raw mut b, &raw mut a) }
+            .then(|| day_spec::Color::rgba(r, g, b, a))
+    }
+
+    /// `ink` resolved for the appearance `view` is shown in: its own trait collection, which
+    /// carries a per-window override.
+    fn ink_in(view: &UIView, ink: day_spec::Ink) -> Retained<UIColor> {
+        use objc2_ui_kit::UITraitEnvironment as _;
+        uiink(ink).resolvedColorWithTraitCollection(&view.traitCollection())
+    }
+
+    /// `ink` resolved for `view` as a `CGColor`, for a layer property: Core Animation keeps the
+    /// value, so a trait change has to set it again (`refresh_surface_inks`).
+    pub(crate) fn ink_cg(
+        view: &UIView,
+        ink: day_spec::Ink,
+    ) -> Retained<objc2_core_graphics::CGColor> {
+        // SAFETY: reading the CGColor of a resolved (non-dynamic) color.
+        unsafe { ink_in(view, ink).CGColor() }
+    }
+
+    /// A dynamic color `f` derives from `ink` in each appearance: the readable title on a
+    /// tinted fill (`ButtonStyleSpec::on_tint`).
+    fn uiink_mapped(
+        ink: day_spec::Ink,
+        f: fn(day_spec::Color) -> day_spec::Color,
+    ) -> Retained<UIColor> {
+        if let Some(c) = ink.fixed() {
+            return uicolor(f(c));
+        }
+        let base = uiink(ink);
+        dynamic_uicolor(move |traits| {
+            let shown = base.resolvedColorWithTraitCollection(traits);
+            uicolor(f(
+                uicolor_components(&shown).unwrap_or(day_spec::Color::BLACK)
+            ))
+        })
+    }
+
+    /// What a surface keeps after `apply_surface` (`SURFACES`): its props, for the layer
+    /// colors a trait change re-resolves and the conic direction a resize re-places, and the
+    /// gradient sublayer of a plain container whose fill became a gradient after realize.
+    struct SurfaceState {
+        props: ContainerProps,
+        fill_layer: Option<Retained<objc2_quartz_core::CAGradientLayer>>,
+    }
+
+    /// Apply a container's surface (docs/surfaces.md) to its view, all of it on the view's own
+    /// `CALayer`: the fill is `backgroundColor` (a dynamic color for an ink that follows the
+    /// appearance), or a gradient: the view's own layer when it is a `CAGradientLayer`
+    /// (`DayGradientContainer`, chosen at realize), else a gradient sublayer under the
+    /// subviews for a container whose fill became a gradient later. The rounding is
+    /// `cornerRadius` on the `maskedCorners` selection; the border is the layer's, which Core
+    /// Animation draws inside the bounds along those corners and OVER the sublayers, so over
+    /// the content; the shadow is the layer's, cast from a path of the same rounded rectangle
+    /// (`sync_surface_shadow_path`).
+    ///
+    /// Idempotent: realize runs it, and so does every `ContainerPatch::Surface`, so a radius
+    /// going from 0 to 12 starts clipping and a border or shadow that goes away is cleared.
+    fn apply_surface(v: &UIView, p: &ContainerProps) {
+        let layer = v.layer();
+        let key = ptr_of(v);
+        let mut fill_layer = SURFACES.with(|t| t.take(key)).and_then(|s| s.fill_layer);
+        set_fill(v, p.fill.as_ref(), &mut fill_layer);
+        let radius = p.corner_radius.max(0.0);
+        layer.setCornerRadius(radius);
+        layer.setMaskedCorners(corner_mask(p.corners));
+        layer.setBorderWidth(p.border.map_or(0.0, |b| b.width.max(0.0)));
+        if let Some(shadow) = p.shadow {
+            // `shadowRadius` is the Gaussian's standard deviation, half of the CSS blur radius
+            // `Shadow::blur` is. The color and its alpha (`shadowOpacity`) are set with the
+            // other layer colors below.
+            layer.setShadowRadius((shadow.blur / 2.0).max(0.0));
+            layer.setShadowOffset(CGSize::new(shadow.dx, shadow.dy));
+            // A mask would cut the shadow off with everything else outside the bounds. The
+            // fill, the gradient and the border follow the corners without one.
+            layer.setMasksToBounds(false);
+        } else {
+            layer.setShadowOpacity(0.0);
+            layer.setShadowPath(None);
+            layer.setMasksToBounds(p.clips || radius > 0.0);
+        }
+        let state = SurfaceState {
+            props: p.clone(),
+            fill_layer,
+        };
+        apply_surface_inks(v, &state);
+        sync_fill_layer(v, &state);
+        sync_surface_shadow_path(v);
+        if state.fill_layer.is_some() || surface_tracked(p) {
+            SURFACES.with(|t| t.insert(key, state));
+        }
+    }
+
+    /// Whether a surface keeps its props after `apply_surface`: it holds a layer color from an
+    /// ink that follows the appearance (re-resolved on a trait change), or a gradient (its
+    /// colors re-resolved, a conic one's direction re-placed on a resize).
+    fn surface_tracked(p: &ContainerProps) -> bool {
+        p.fill
+            .as_ref()
+            .is_some_and(|f| !matches!(f, day_spec::Paint::Solid(_)))
+            || p.border.is_some_and(|b| b.color.is_dynamic())
+            || p.shadow.is_some_and(|s| s.color.is_dynamic())
+    }
+
+    /// The layer's corner selection for Day's.
+    fn corner_mask(corners: day_spec::Corners) -> objc2_quartz_core::CACornerMask {
+        use day_spec::Corners as C;
+        use objc2_quartz_core::CACornerMask;
+        let mut mask = CACornerMask::empty();
+        for (corner, bit) in [
+            (C::TOP_LEFT, CACornerMask::LayerMinXMinYCorner),
+            (C::TOP_RIGHT, CACornerMask::LayerMaxXMinYCorner),
+            (C::BOTTOM_LEFT, CACornerMask::LayerMinXMaxYCorner),
+            (C::BOTTOM_RIGHT, CACornerMask::LayerMaxXMaxYCorner),
+        ] {
+            if corners.contains(corner) {
+                mask |= bit;
+            }
+        }
+        mask
+    }
+
+    /// Put a container's fill on its view: a solid ink as the background color (dynamic for an
+    /// ink that follows the appearance), nothing as no background, a gradient on the view's
+    /// own `CAGradientLayer` or on a gradient sublayer made for it. Whichever is not in use is
+    /// cleared, so a color never shows through a gradient's translucent stops. The gradient's
+    /// geometry and colors are `apply_surface_inks`'s.
+    fn set_fill(
+        v: &UIView,
+        fill: Option<&day_spec::Paint>,
+        fill_layer: &mut Option<Retained<objc2_quartz_core::CAGradientLayer>>,
+    ) {
+        use objc2_quartz_core::CAGradientLayer;
+        let layer = v.layer();
+        let own = layer.downcast_ref::<CAGradientLayer>();
+        match fill {
+            Some(day_spec::Paint::Solid(_)) | None => {
+                if let Some(own) = own {
+                    // SAFETY: nil is a valid value for `colors`, and draws no gradient.
+                    unsafe { own.setColors(None) };
+                }
+                if let Some(old) = fill_layer.take() {
+                    old.removeFromSuperlayer();
+                }
+                let color = match fill {
+                    Some(day_spec::Paint::Solid(ink)) => Some(uiink(*ink)),
+                    _ => None,
+                };
+                // SAFETY: setting a view property on the main thread.
+                unsafe { v.setBackgroundColor(color.as_deref()) };
+            }
+            Some(_) => {
+                // SAFETY: setting a view property on the main thread.
+                unsafe { v.setBackgroundColor(None) };
+                if own.is_none() && fill_layer.is_none() {
+                    let sub = CAGradientLayer::new();
+                    sub.setName(Some(&NSString::from_str("day.fill")));
+                    without_actions(|| layer.insertSublayer_atIndex(&sub, 0));
+                    *fill_layer = Some(sub);
+                }
+            }
+        }
+    }
+
+    /// `ContainerPatch::Fill`: change the fill alone, keeping the rest of the surface as it is.
+    fn patch_fill(v: &UIView, fill: Option<&day_spec::Paint>) {
+        let key = ptr_of(v);
+        let (props, mut fill_layer) = SURFACES.with(|t| t.take(key)).map_or_else(
+            || (ContainerProps::default(), None),
+            |s| (s.props, s.fill_layer),
+        );
+        set_fill(v, fill, &mut fill_layer);
+        let state = SurfaceState {
+            props: ContainerProps {
+                fill: fill.cloned(),
+                ..props
+            },
+            fill_layer,
+        };
+        apply_surface_inks(v, &state);
+        sync_fill_layer(v, &state);
+        if state.fill_layer.is_some() || surface_tracked(&state.props) {
+            SURFACES.with(|t| t.insert(key, state));
+        }
+    }
+
+    /// Run `f` with Core Animation's implicit actions off: a standalone sublayer animates every
+    /// property change for a quarter second otherwise.
+    fn without_actions(f: impl FnOnce()) {
+        objc2_quartz_core::CATransaction::begin();
+        objc2_quartz_core::CATransaction::setDisableActions(true);
+        f();
+        objc2_quartz_core::CATransaction::commit();
+    }
+
+    /// Set the surface's layer colors from its inks, resolved for the appearance the view is
+    /// shown in: the border color, the shadow's color and opacity, and the gradient (its
+    /// colors, and the geometry with them). Core Animation keeps a `CGColor`, which does not
+    /// follow the appearance, so `refresh_surface_inks` runs this again on a trait change.
+    fn apply_surface_inks(v: &UIView, state: &SurfaceState) {
+        use objc2_quartz_core::CAGradientLayer;
+        let layer = v.layer();
+        let p = &state.props;
+        if let Some(border) = p.border {
+            layer.setBorderColor(Some(&ink_cg(v, border.color)));
+        }
+        if let Some(shadow) = p.shadow {
+            // The color's alpha rides `shadowOpacity`.
+            let c = uicolor_components(&ink_in(v, shadow.color)).unwrap_or(day_spec::Color::BLACK);
+            layer.setShadowColor(Some(&cgcolor(day_spec::Color::rgba(c.r, c.g, c.b, 1.0))));
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "an opacity in 0..=1 narrows to the f32 Core Animation takes"
+            )]
+            layer.setShadowOpacity(c.a.clamp(0.0, 1.0) as f32);
+        }
+        let Some(paint) = p.fill.as_ref() else {
+            return;
+        };
+        if let Some(own) = layer.downcast_ref::<CAGradientLayer>() {
+            set_gradient(v, own, paint);
+        } else if let Some(sub) = &state.fill_layer {
+            without_actions(|| set_gradient(v, sub, paint));
+        }
+    }
+
+    /// Put a gradient paint on a `CAGradientLayer` (`surface_fill::layout`), its stops resolved
+    /// for `v`'s appearance and its geometry for `v`'s size. A solid paint clears it.
+    fn set_gradient(v: &UIView, gl: &objc2_quartz_core::CAGradientLayer, paint: &day_spec::Paint) {
+        use crate::surface_fill::{Kind, layout};
+        let size = v.bounds().size;
+        let Some(l) = layout(paint, (size.width, size.height), |ink| {
+            uicolor_components(&ink_in(v, ink)).unwrap_or(day_spec::Color::CLEAR)
+        }) else {
+            // SAFETY: nil is a valid value for `colors`, and draws no gradient.
+            unsafe { gl.setColors(None) };
+            return;
+        };
+        // SAFETY: the type constants are framework statics, valid for the process lifetime.
+        let kind = unsafe {
+            match l.kind {
+                Kind::Axial => objc2_quartz_core::kCAGradientLayerAxial,
+                Kind::Radial => objc2_quartz_core::kCAGradientLayerRadial,
+                Kind::Conic => objc2_quartz_core::kCAGradientLayerConic,
+            }
+        };
+        gl.setType(kind);
+        let colors: Vec<_> = l.stops.iter().map(|&(_, c)| cgcolor(c)).collect();
+        // SAFETY: `CGColor` is a Core Foundation type that is toll-free usable as an
+        // Objective-C object, which is how `CAGradientLayer.colors` is documented to take it;
+        // the array retains each one.
+        let objects: Vec<&AnyObject> = colors
+            .iter()
+            .map(|c| unsafe {
+                &*std::ptr::from_ref::<objc2_core_graphics::CGColor>(c).cast::<AnyObject>()
+            })
+            .collect();
+        let locations: Vec<_> = l
+            .stops
+            .iter()
+            .map(|&(at, _)| objc2_foundation::NSNumber::new_f64(at))
+            .collect();
+        // SAFETY: the array holds CGColors, the element type the property expects.
+        unsafe { gl.setColors(Some(&objc2_foundation::NSArray::from_slice(&objects))) };
+        gl.setLocations(Some(&objc2_foundation::NSArray::from_retained_slice(
+            &locations,
+        )));
+        // Layer unit space has its origin at the top left on iOS, like `UnitPoint`.
+        gl.setStartPoint(CGPoint::new(l.start.0, l.start.1));
+        gl.setEndPoint(CGPoint::new(l.end.0, l.end.1));
+    }
+
+    /// Keep a gradient sublayer the size and shape of its view, and a conic gradient's start
+    /// direction right for the view's proportions: run from `layoutSubviews`.
+    fn sync_fill_layer(v: &UIView, state: &SurfaceState) {
+        let layer = v.layer();
+        if let Some(sub) = &state.fill_layer {
+            without_actions(|| {
+                sub.setFrame(layer.bounds());
+                sub.setCornerRadius(layer.cornerRadius());
+                sub.setMaskedCorners(layer.maskedCorners());
+            });
+        }
+        if matches!(state.props.fill, Some(day_spec::Paint::Conic(_))) {
+            apply_surface_inks(v, state);
+        }
+    }
+
+    /// A container laid out again: re-fit its gradient sublayer and conic direction.
+    fn relayout_surface(v: &UIView) {
+        let key = ptr_of(v);
+        let Some(state) = SURFACES.with(|t| t.take(key)) else {
+            return;
+        };
+        sync_fill_layer(v, &state);
+        SURFACES.with(|t| t.insert(key, state));
+    }
+
+    /// A container's traits changed: when the change can change a color (the appearance,
+    /// the contrast, the interface level), set its layer colors again from its inks
+    /// (color brief §1.5). Background, text and tint colors follow by themselves.
+    fn refresh_surface_inks(v: &UIView, previous: Option<&objc2_ui_kit::UITraitCollection>) {
+        use objc2_ui_kit::UITraitEnvironment as _;
+        let key = ptr_of(v);
+        if !SURFACES.with(|t| t.contains(key)) {
+            return;
+        }
+        if previous.is_some_and(|old| {
+            !v.traitCollection()
+                .hasDifferentColorAppearanceComparedToTraitCollection(Some(old))
+        }) {
+            return;
+        }
+        let Some(state) = SURFACES.with(|t| t.take(key)) else {
+            return;
+        };
+        apply_surface_inks(v, &state);
+        SURFACES.with(|t| t.insert(key, state));
+    }
+
+    /// Keep a surface's shadow path on its layer's rounded rectangle: the bounds, the corner
+    /// radius and the corner selection the layer holds now. A layer without a shadow is left
+    /// alone, which is every container that is not a shadowed surface.
+    fn sync_surface_shadow_path(v: &UIView) {
+        use objc2_quartz_core::CACornerMask;
+        use objc2_ui_kit::UIRectCorner;
+        let layer = v.layer();
+        if layer.shadowOpacity() <= 0.0 {
+            return;
+        }
+        let bounds = v.bounds();
+        let radius = layer
+            .cornerRadius()
+            .min(bounds.size.width / 2.0)
+            .min(bounds.size.height / 2.0)
+            .max(0.0);
+        let masked = layer.maskedCorners();
+        let mut corners = UIRectCorner::empty();
+        for (bit, corner) in [
+            (CACornerMask::LayerMinXMinYCorner, UIRectCorner::TopLeft),
+            (CACornerMask::LayerMaxXMinYCorner, UIRectCorner::TopRight),
+            (CACornerMask::LayerMinXMaxYCorner, UIRectCorner::BottomLeft),
+            (CACornerMask::LayerMaxXMaxYCorner, UIRectCorner::BottomRight),
+        ] {
+            if masked.contains(bit) {
+                corners |= corner;
+            }
+        }
+        let path =
+            objc2_ui_kit::UIBezierPath::bezierPathWithRoundedRect_byRoundingCorners_cornerRadii(
+                bounds,
+                corners,
+                CGSize::new(radius, radius),
+            );
+        layer.setShadowPath(Some(&path.CGPath()));
     }
 
     fn cg(r: day_spec::Rect) -> CGRect {
@@ -10008,7 +13666,7 @@ mod imp {
         unsafe {
             match paint {
                 day_spec::Paint::Linear(g) => {
-                    let Some(grad) = cggradient(&g.stops) else {
+                    let Some(grad) = cggradient(&day_spec::resolved_stops(&g.stops)) else {
                         return;
                     };
                     let (s, e) = (g.start.resolve(bounds), g.end.resolve(bounds));
@@ -10021,7 +13679,7 @@ mod imp {
                     );
                 }
                 day_spec::Paint::Radial(g) => {
-                    let Some(grad) = cggradient(&g.stops) else {
+                    let Some(grad) = cggradient(&day_spec::resolved_stops(&g.stops)) else {
                         return;
                     };
                     CGContext::save_g_state(Some(ctx));
@@ -10039,18 +13697,193 @@ mod imp {
                     );
                     CGContext::restore_g_state(Some(ctx));
                 }
+                day_spec::Paint::Conic(g) => {
+                    let c = g.center.resolve(bounds);
+                    draw_conic(ctx, g, CGPoint::new(c.x, c.y));
+                }
                 day_spec::Paint::Solid(_) => {}
             }
         }
     }
 
-    fn draw_op(op: &day_spec::DrawOp) {
+    /// `CGContextDrawConicGradient`, where the running OS has it (iOS 17). Day deploys to
+    /// iOS 15, and a direct reference to the symbol would stop the app loading there, so it is
+    /// looked up at runtime instead; `None` sends the caller to the wedge painter.
+    fn native_conic() -> Option<
+        unsafe extern "C-unwind" fn(
+            &CGContext,
+            Option<&objc2_core_graphics::CGGradient>,
+            CGPoint,
+            CGFloat,
+        ),
+    > {
+        unsafe extern "C" {
+            fn dlsym(
+                handle: *mut std::ffi::c_void,
+                symbol: *const std::ffi::c_char,
+            ) -> *mut std::ffi::c_void;
+        }
+        /// `RTLD_DEFAULT` on Apple platforms: search every loaded image.
+        const RTLD_DEFAULT: isize = -2;
+        static SYMBOL: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+            // `DAY_UIKIT_CONIC_WEDGES` runs the iOS 15 and 16 painter on a newer system, the
+            // only way to look at it where those runtimes cannot be installed.
+            if std::env::var_os("DAY_UIKIT_CONIC_WEDGES").is_some() {
+                return 0;
+            }
+            // SAFETY: `dlsym` with the default handle and a NUL-terminated name only reads the
+            // loaded images' symbol tables.
+            unsafe {
+                dlsym(
+                    RTLD_DEFAULT as *mut std::ffi::c_void,
+                    c"CGContextDrawConicGradient".as_ptr(),
+                ) as usize
+            }
+        });
+        if *SYMBOL == 0 {
+            return None;
+        }
+        // SAFETY: a non-null result is the address of `CGContextDrawConicGradient`, whose C
+        // signature (context, gradient, center, angle) is the one named here.
+        Some(unsafe {
+            std::mem::transmute::<
+                usize,
+                unsafe extern "C-unwind" fn(
+                    &CGContext,
+                    Option<&objc2_core_graphics::CGGradient>,
+                    CGPoint,
+                    CGFloat,
+                ),
+            >(*SYMBOL)
+        })
+    }
+
+    /// Draw a conic gradient about `center` through the clip currently installed
+    /// (docs/canvas.md "Conic gradients"). Core Graphics measures the angle from +x toward +y,
+    /// which in UIKit's y-down space is the clockwise turn Day's angles take.
+    fn draw_conic(ctx: &CGContext, g: &day_spec::ConicGradient, center: CGPoint) {
+        use crate::canvas_state::{CONIC_WEDGES, conic_stops, conic_wedge};
+        if let Some(native) = native_conic() {
+            if let Some(grad) = cggradient(&conic_stops(&day_spec::resolved_stops(&g.stops))) {
+                // SAFETY: a live context and gradient, on the thread drawing into the context.
+                unsafe { native(ctx, Some(&grad), center, g.start.radians()) };
+            }
+            return;
+        }
+        // Before iOS 17: thin wedges from the center out past the clip, each one flat color.
+        // They are painted without antialiasing, so there is no seam between two of them, and
+        // into a layer of their own in COPY mode, because without antialiasing Core Graphics
+        // paints every pixel a wedge touches and neighbors overlap by a pixel: copying makes
+        // the later wedge replace the earlier one there, where compositing would count a
+        // translucent color twice. The clip, installed with antialiasing on, still gives the
+        // shape a soft edge when the layer is composited.
+        let clip = CGContext::clip_bounding_box(Some(ctx));
+        if g.stops.is_empty() || !(clip.size.width > 0.0 && clip.size.height > 0.0) {
+            return;
+        }
+        let reach = [
+            (clip.origin.x, clip.origin.y),
+            (clip.origin.x + clip.size.width, clip.origin.y),
+            (clip.origin.x, clip.origin.y + clip.size.height),
+            (clip.origin.x + clip.size.width, clip.origin.y + clip.size.height),
+        ]
+        .iter()
+        .map(|(x, y)| (x - center.x).hypot(y - center.y))
+        .fold(0.0_f64, f64::max)
+            // A chord between two edge points sits inside the circle; go a little further out.
+            * 1.01
+            + 1.0;
+        if !reach.is_finite() {
+            return;
+        }
+        let edge = |deg: f64| {
+            let (sin, cos) = deg.to_radians().sin_cos();
+            (center.x + reach * cos, center.y + reach * sin)
+        };
+        CGContext::save_g_state(Some(ctx));
+        // SAFETY: no auxiliary dictionary; the layer is ended below on the same context.
+        unsafe { CGContext::begin_transparency_layer(Some(ctx), None) };
+        CGContext::set_blend_mode(Some(ctx), objc2_core_graphics::CGBlendMode::Copy);
+        CGContext::set_should_antialias(Some(ctx), false);
+        for i in 0..CONIC_WEDGES {
+            let (from, to, mid) = conic_wedge(g.start.degrees(), i, CONIC_WEDGES);
+            let color = g.color_at(day_spec::Angle::deg(mid));
+            let (a, b) = (edge(from), edge(to));
+            CGContext::set_rgb_fill_color(Some(ctx), color.r, color.g, color.b, color.a);
+            CGContext::begin_path(Some(ctx));
+            CGContext::move_to_point(Some(ctx), center.x, center.y);
+            CGContext::add_line_to_point(Some(ctx), a.0, a.1);
+            CGContext::add_line_to_point(Some(ctx), b.0, b.1);
+            CGContext::close_path(Some(ctx));
+            CGContext::fill_path(Some(ctx));
+        }
+        CGContext::end_transparency_layer(Some(ctx));
+        CGContext::restore_g_state(Some(ctx));
+    }
+
+    /// Core Graphics' name for a Day blend mode (docs/canvas.md "Blend modes"): the separable
+    /// modes one for one, `Add` as Porter-Duff plus, `Erase` as destination-out.
+    fn cg_blend(mode: day_spec::BlendMode) -> objc2_core_graphics::CGBlendMode {
+        use day_spec::BlendMode as B;
+        use objc2_core_graphics::CGBlendMode as M;
+        match mode {
+            B::Normal => M::Normal,
+            B::Multiply => M::Multiply,
+            B::Screen => M::Screen,
+            B::Overlay => M::Overlay,
+            B::Darken => M::Darken,
+            B::Lighten => M::Lighten,
+            B::Add => M::PlusLighter,
+            B::Erase => M::DestinationOut,
+        }
+    }
+
+    /// Clip to whatever `clip` installs and draw the gradient `paint` through it, as ONE
+    /// drawing: under a shadow or a blend mode the pair is grouped into a transparency layer
+    /// first, so the shadow is cast by the gradient-filled shape (a bare clip would cut the
+    /// shadow off with everything else outside the shape) and the blend applies once.
+    fn gradient_through(
+        ctx: &CGContext,
+        state: &crate::canvas_state::CanvasState,
+        paint: &day_spec::Paint,
+        bounds: day_spec::Rect,
+        clip: impl FnOnce(),
+    ) {
+        let grouped = state.groups();
+        CGContext::save_g_state(Some(ctx));
+        if grouped {
+            // SAFETY: no auxiliary dictionary; the layer is ended below on the same context.
+            unsafe { CGContext::begin_transparency_layer(Some(ctx), None) };
+            CGContext::save_g_state(Some(ctx));
+        }
+        clip();
+        draw_gradient_in(ctx, paint, bounds);
+        if grouped {
+            CGContext::restore_g_state(Some(ctx));
+            CGContext::end_transparency_layer(Some(ctx));
+        }
+        CGContext::restore_g_state(Some(ctx));
+    }
+
+    fn draw_op(op: &day_spec::DrawOp, state: &crate::canvas_state::CanvasState) {
         use day_spec::DrawOp;
         unsafe {
             match op {
                 // One path for the whole batch, then one fill or stroke — the AppKit twin
                 // (docs/canvas.md "Stamping"). `apply` is UIBezierPath's own transform, so each
                 // copy is the template translated without touching the graphics state.
+                // A gradient resolves against each copy's own bounding box, so a gradient
+                // stamp is its copies drawn one at a time.
+                DrawOp::Stamp(st) if !matches!(st.paint, day_spec::Paint::Solid(_)) => {
+                    for p in &st.at {
+                        let shape = st.shape.translated(p.x, p.y);
+                        let copy = match &st.stroke {
+                            None => DrawOp::Fill(shape, st.paint.clone()),
+                            Some(style) => DrawOp::Stroke(shape, st.paint.clone(), style.clone()),
+                        };
+                        draw_op(&copy, state);
+                    }
+                }
                 DrawOp::Stamp(st) => {
                     let batch = unsafe { objc2_ui_kit::UIBezierPath::bezierPath() };
                     for p in &st.at {
@@ -10059,7 +13892,7 @@ mod imp {
                         }
                     }
                     let color = match &st.paint {
-                        day_spec::Paint::Solid(c) => *c,
+                        day_spec::Paint::Solid(c) => c.resolved(),
                         _ => day_spec::Color::WHITE,
                     };
                     match &st.stroke {
@@ -10076,58 +13909,19 @@ mod imp {
                 }
                 DrawOp::Fill(shape, paint) => match paint {
                     day_spec::Paint::Solid(color) => {
-                        uicolor(*color).setFill();
+                        uicolor((*color).resolved()).setFill();
                         if let Some(p) = bezier(shape) {
                             p.fill();
                         }
                     }
-                    day_spec::Paint::Linear(g) => {
-                        // Native linear gradient: clip to the shape's path, CGGradient along
-                        // the line resolved from the unit points in the shape's bounds.
+                    // Native gradients: clip to the shape's path and draw the CGGradient
+                    // through it, resolved from the unit points in the shape's bounds.
+                    day_spec::Paint::Linear(_)
+                    | day_spec::Paint::Radial(_)
+                    | day_spec::Paint::Conic(_) => {
                         let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
-                        if let (Some(p), Some(ctx), Some(grad)) =
-                            (bezier(shape), ctx, cggradient(&g.stops))
-                        {
-                            let b = shape.bounds();
-                            let (s, e) = (g.start.resolve(b), g.end.resolve(b));
-                            CGContext::save_g_state(Some(&ctx));
-                            p.addClip();
-                            CGContext::draw_linear_gradient(
-                                Some(&ctx),
-                                Some(&grad),
-                                CGPoint::new(s.x, s.y),
-                                CGPoint::new(e.x, e.y),
-                                objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
-                                    | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation,
-                            );
-                            CGContext::restore_g_state(Some(&ctx));
-                        }
-                    }
-                    day_spec::Paint::Radial(g) => {
-                        // Native radial gradient: clip to the path, map unit space onto the
-                        // bounds via the CTM (elliptical in non-square bounds), draw circular
-                        // in unit coordinates.
-                        let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
-                        if let (Some(p), Some(ctx), Some(grad)) =
-                            (bezier(shape), ctx, cggradient(&g.stops))
-                        {
-                            let b = shape.bounds();
-                            CGContext::save_g_state(Some(&ctx));
-                            p.addClip();
-                            CGContext::translate_ctm(Some(&ctx), b.origin.x, b.origin.y);
-                            CGContext::scale_ctm(Some(&ctx), b.size.width, b.size.height);
-                            let c = CGPoint::new(g.center.x, g.center.y);
-                            CGContext::draw_radial_gradient(
-                                Some(&ctx),
-                                Some(&grad),
-                                c,
-                                0.0,
-                                c,
-                                g.radius,
-                                objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
-                                    | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation,
-                            );
-                            CGContext::restore_g_state(Some(&ctx));
+                        if let (Some(p), Some(ctx)) = (bezier(shape), ctx) {
+                            gradient_through(&ctx, state, paint, shape.bounds(), || p.addClip());
                         }
                     }
                 },
@@ -10136,7 +13930,7 @@ mod imp {
                     apply_stroke_style(&p, style);
                     match paint {
                         day_spec::Paint::Solid(color) => {
-                            uicolor(*color).setStroke();
+                            uicolor((*color).resolved()).setStroke();
                             p.stroke();
                         }
                         // A gradient stroke has no CoreGraphics primitive: convert the stroke
@@ -10144,16 +13938,20 @@ mod imp {
                         // `bezierPathByStrokingPath` is unavailable here), clip to it, and draw
                         // the gradient through. `replacePathWithStrokedPath` on the context is
                         // the documented way to get exactly that region.
-                        day_spec::Paint::Linear(_) | day_spec::Paint::Radial(_) => {
+                        day_spec::Paint::Linear(_)
+                        | day_spec::Paint::Radial(_)
+                        | day_spec::Paint::Conic(_) => {
                             let Some(ctx) = objc2_ui_kit::UIGraphicsGetCurrentContext() else {
                                 return;
                             };
-                            CGContext::save_g_state(Some(&ctx));
-                            CGContext::add_path(Some(&ctx), Some(&p.CGPath()));
-                            CGContext::replace_path_with_stroked_path(Some(&ctx));
-                            CGContext::clip(Some(&ctx));
-                            draw_gradient_in(&ctx, paint, shape.bounds());
-                            CGContext::restore_g_state(Some(&ctx));
+                            gradient_through(&ctx, state, paint, shape.bounds(), || {
+                                // The stroked region is cut with the CONTEXT's line width,
+                                // cap, join and dash, not the path object's.
+                                cg_stroke_style(&ctx, style);
+                                CGContext::add_path(Some(&ctx), Some(&p.CGPath()));
+                                CGContext::replace_path_with_stroked_path(Some(&ctx));
+                                CGContext::clip(Some(&ctx));
+                            });
                         }
                     }
                 }
@@ -10206,11 +14004,12 @@ mod imp {
                             CGSize::new(rect.size.width, rect.size.height),
                         );
                         // UIImage's plain drawInRect always draws at full opacity, even if
-                        // CGContext's alpha was set. Use its explicit compositing overload.
+                        // CGContext's alpha was set. Use its explicit compositing overload,
+                        // which also names the blend mode: the one the replay is in.
                         match source {
                             None => img.drawInRect_blendMode_alpha(
                                 dest,
-                                objc2_core_graphics::CGBlendMode::Normal,
+                                cg_blend(state.blend()),
                                 *opacity,
                             ),
                             // A region (in the bitmap's pixels): clip to the rect and draw the
@@ -10236,7 +14035,7 @@ mod imp {
                                     );
                                     img.drawInRect_blendMode_alpha(
                                         full,
-                                        objc2_core_graphics::CGBlendMode::Normal,
+                                        cg_blend(state.blend()),
                                         *opacity,
                                     );
                                     CGContext::restore_g_state(ctx.as_deref());
@@ -10244,6 +14043,37 @@ mod imp {
                             }
                         }
                     }
+                }
+                // The shadow and the blend mode are Core Graphics graphics state: `Save` and
+                // `Restore` below scope them with the clip and the transform, and every fill,
+                // stroke, text and image drawn while a shadow is set casts its own. The
+                // offset and the blur are in the context's base space (points here, y down
+                // in a UIKit context), which the current transform does not touch: Day's
+                // contract exactly. Core Graphics' blur is the CSS blur radius.
+                DrawOp::Shadow(shadow) => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    match crate::canvas_state::visible_shadow(*shadow) {
+                        Some(s) => CGContext::set_shadow_with_color(
+                            ctx.as_deref(),
+                            CGSize::new(s.dx, s.dy),
+                            s.blur.max(0.0),
+                            Some(&cgcolor(s.color.resolved())),
+                        ),
+                        // No color is Core Graphics' "shadowing off".
+                        None => CGContext::set_shadow_with_color(
+                            ctx.as_deref(),
+                            CGSize::new(0.0, 0.0),
+                            0.0,
+                            None,
+                        ),
+                    }
+                }
+                // The backdrop is this canvas's own bitmap: the view's layer on screen (never
+                // opaque, so `Erase` leaves real transparency and the view behind shows), the
+                // renderer's image in an export.
+                DrawOp::Blend(mode) => {
+                    let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                    CGContext::set_blend_mode(ctx.as_deref(), cg_blend(*mode));
                 }
                 DrawOp::Save => {
                     let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
@@ -10303,11 +14133,8 @@ mod imp {
                     UIBezierPath::bezierPathWithRoundedRect_cornerRadius(cg(*r), *rad)
                 }
                 Shape::Ellipse(r) => UIBezierPath::bezierPathWithOvalInRect(cg(*r)),
-                Shape::Arc {
-                    rect,
-                    start_deg,
-                    sweep_deg,
-                } => {
+                Shape::Arc { rect, start, sweep } => {
+                    let (start_deg, sweep_deg) = (start.degrees(), sweep.degrees());
                     let center = CGPoint::new(
                         rect.origin.x + rect.size.width / 2.0,
                         rect.origin.y + rect.size.height / 2.0,
@@ -10510,16 +14337,19 @@ mod imp {
     /// on-screen `drawRect:` and both exports share (docs/canvas.md "Exporting").
     fn paint_ops(ops: &[day_spec::DrawOp]) {
         // SAFETY: reading the current graphics context on the thread that set it.
+        let mut state = crate::canvas_state::CanvasState::default();
         let Some(cg) = (unsafe { objc2_ui_kit::UIGraphicsGetCurrentContext() }) else {
             for op in ops {
-                draw_op(op);
+                state.track(op);
+                draw_op(op, &state);
             }
             return;
         };
         cg_begin_replay(&cg);
         for op in ops {
+            state.track(op);
             if !cg_fast_op(&cg, op) {
-                draw_op(op);
+                draw_op(op, &state);
             }
         }
     }
@@ -10539,7 +14369,12 @@ mod imp {
                 let Some(even_odd) = cg_add_shape(cg, shape) else {
                     return false;
                 };
-                let c = [color.r, color.g, color.b, color.a];
+                let c = [
+                    color.resolved().r,
+                    color.resolved().g,
+                    color.resolved().b,
+                    color.resolved().a,
+                ];
                 // SAFETY: four components for the sRGB fill space set at the start of the replay.
                 unsafe { CGContext::set_fill_color(Some(cg), c.as_ptr()) };
                 if even_odd {
@@ -10553,7 +14388,12 @@ mod imp {
                 if cg_add_shape(cg, shape).is_none() {
                     return false;
                 }
-                let c = [color.r, color.g, color.b, color.a];
+                let c = [
+                    color.resolved().r,
+                    color.resolved().g,
+                    color.resolved().b,
+                    color.resolved().a,
+                ];
                 // SAFETY: four components for the sRGB stroke space set at the start of the replay.
                 unsafe { CGContext::set_stroke_color(Some(cg), c.as_ptr()) };
                 cg_stroke_style(cg, style);
@@ -11075,54 +14915,266 @@ mod imp {
         }
     }
 
-    /// Run `body` (which mutates one or more animatable view properties) inside a UIKit animation
-    /// matching `anim`, or immediately when `anim` is `None`. Backend-executed animation (§8.4):
-    /// UIKit diffs the changes made in the block and animates them on the render server (off the
-    /// main thread), so Day never ticks frames for native widgets.
-    fn with_uikit_anim(anim: Option<&AnimSpec>, body: impl Fn() + 'static) {
-        let Some(a) = anim else {
-            body();
-            return;
-        };
-        let animations = block2::RcBlock::new(body);
-        let delay = a.delay_secs().max(0.0);
-        unsafe {
-            match a.curve {
-                Curve::Spring { damping, .. } => {
-                    // The specified duration is authoritative; `damping` still shapes the bounce.
-                    UIView::animateWithDuration_delay_usingSpringWithDamping_initialSpringVelocity_options_animations_completion(
-                        a.duration_secs().max(0.05),
-                        delay,
-                        damping.clamp(0.05, 1.0),
-                        0.0,
-                        UIViewAnimationOptions(0),
-                        &animations,
-                        None,
-                        mtm(),
-                    );
-                }
-                curve => {
-                    UIView::animateWithDuration_delay_options_animations_completion(
-                        a.duration_secs().max(0.01),
-                        delay,
-                        uiview_anim_options(curve),
-                        &animations,
-                        None,
-                        mtm(),
-                    );
-                }
+    /// One animatable channel of a view as the duties set it (docs/tween.md "The animation
+    /// contract"): the `CALayer` key paths UIKit's own setter writes.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Channel {
+        /// `alpha`: the layer's `opacity`.
+        Opacity,
+        /// `transform`: the layer's 3D `transform`.
+        Transform,
+        /// The view's frame: the layer's `position` and `bounds`.
+        Frame,
+        /// A container's fill: the layer's `backgroundColor`.
+        Background,
+        /// A whole surface (`ContainerPatch::Surface`): the fill, the corner radius, the
+        /// border's width and color, and the shadow's color and opacity.
+        Surface,
+    }
+
+    impl Channel {
+        /// The layer key paths this channel animates.
+        fn key_paths(self) -> &'static [&'static str] {
+            match self {
+                Channel::Opacity => &["opacity"],
+                Channel::Transform => &["transform"],
+                Channel::Frame => &["position", "bounds"],
+                Channel::Background => &["backgroundColor"],
+                Channel::Surface => &[
+                    "backgroundColor",
+                    "cornerRadius",
+                    "borderWidth",
+                    "borderColor",
+                    "shadowColor",
+                    "shadowOpacity",
+                ],
             }
         }
     }
 
-    fn uiview_anim_options(curve: Curve) -> UIViewAnimationOptions {
-        match curve {
-            Curve::EaseIn => UIViewAnimationOptions::CurveEaseIn,
-            Curve::EaseOut => UIViewAnimationOptions::CurveEaseOut,
-            Curve::Linear => UIViewAnimationOptions::CurveLinear,
-            // EaseInOut is the 0 default; springs never reach here.
-            Curve::EaseInOut | Curve::Spring { .. } => UIViewAnimationOptions::CurveEaseInOut,
+    /// The name Day's run on `path` is added under. Its own, so a run UIKit adds for the same
+    /// property (a `UIView` animation block keys by the bare path) is never replaced by it, and
+    /// a new set replaces Day's run in flight.
+    fn anim_key(path: &str) -> Retained<NSString> {
+        NSString::from_str(&format!("day.{path}"))
+    }
+
+    /// Whether a run on `channel` is in flight on `layer`: Day's own (`anim_key`) or one a
+    /// `UIView` animation block added under the bare key path.
+    fn channel_running(layer: &objc2_quartz_core::CALayer, channel: Channel) -> bool {
+        channel.key_paths().iter().any(|path| {
+            // SAFETY: looking up an animation by name only reads the layer's animation list.
+            unsafe {
+                layer.animationForKey(&anim_key(path)).is_some()
+                    || layer.animationForKey(&NSString::from_str(path)).is_some()
+            }
+        })
+    }
+
+    /// The value `layer` holds for `path`, boxed the way Core Animation boxes it (`NSNumber`,
+    /// `NSValue`, `CGColorRef`); `None` for a nil color.
+    fn layer_value(layer: &objc2_quartz_core::CALayer, path: &str) -> Option<Retained<AnyObject>> {
+        let key = NSString::from_str(path);
+        // SAFETY: every path here names an animatable `CALayer` property, which key-value
+        // coding answers with an object, or nil for a missing color.
+        unsafe { msg_send![layer, valueForKey: &*key] }
+    }
+
+    /// The exact Bézier for a Day easing curve (`motion_curve::bezier_points`).
+    fn timing_function(curve: Curve) -> Retained<objc2_quartz_core::CAMediaTimingFunction> {
+        let (x1, y1, x2, y2) = crate::motion_curve::bezier_points(curve);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Core Animation takes the control points as floats"
+        )]
+        objc2_quartz_core::CAMediaTimingFunction::functionWithControlPoints(
+            x1 as f32, y1 as f32, x2 as f32, y2 as f32,
+        )
+    }
+
+    /// Set one channel of `view` (docs/tween.md "The animation contract"). `apply` runs UIKit's
+    /// own setters, which write the layer's model values at once; with `anim`, an explicit Core
+    /// Animation run then plays from the value displayed now to the new model value:
+    ///
+    /// - delay: `beginTime` in the future with a backwards fill, so the start shows through it;
+    /// - repeat and autoreverse: `repeatCount` and `autoreverses` (Core Animation counts a
+    ///   forward and a backward pass as one repeat, so an autoreversing run counts halves);
+    /// - a spring: `CASpringAnimation` with mass 1 and `Curve::spring_constants`, released at
+    ///   rest, over the spec's duration (its settle time); an easing curve: its exact Bézier;
+    /// - retarget: the start is read from the presentation layer before the run in flight is
+    ///   removed; a plain set removes Day's run, one that repeats forever included;
+    /// - rest: the model value is the target from the start, so once a finite run ends (and is
+    ///   removed) the target shows, after a backward last cycle too.
+    fn animate_channel(
+        view: &UIView,
+        channel: Channel,
+        anim: Option<&AnimSpec>,
+        apply: impl FnOnce(),
+    ) {
+        use objc2_quartz_core::CAMediaTiming as _;
+        let layer = view.layer();
+        let paths = channel.key_paths();
+        let shown: Vec<Option<Retained<AnyObject>>> = if anim.is_some() {
+            // SAFETY: the presentation layer is a read-only copy of what is on screen.
+            let presentation = unsafe { layer.presentationLayer() };
+            let source = presentation.as_deref().unwrap_or(&layer);
+            paths.iter().map(|p| layer_value(source, p)).collect()
+        } else {
+            Vec::new()
+        };
+        for path in paths {
+            layer.removeAnimationForKey(&anim_key(path));
         }
+        apply();
+        let Some(spec) = anim else {
+            return;
+        };
+        if spec.duration_ms == 0 && spec.delay_ms == 0 {
+            return;
+        }
+        let now = layer.convertTime_fromLayer(objc2_quartz_core::CACurrentMediaTime(), None);
+        for (path, from) in paths.iter().zip(shown) {
+            // A fill appearing or going away (nil on either side) applies at once.
+            let (Some(from), Some(to)) = (from, layer_value(&layer, path)) else {
+                continue;
+            };
+            let run = channel_run(path, &from, &to, spec);
+            run.setBeginTime(
+                now + if spec.duration_ms == 0 {
+                    0.0
+                } else {
+                    spec.delay_secs()
+                },
+            );
+            // SAFETY: a framework constant.
+            run.setFillMode(unsafe { objc2_quartz_core::kCAFillModeBackwards });
+            run.setRemovedOnCompletion(true);
+            layer.addAnimation_forKey(&run, Some(&anim_key(path)));
+        }
+    }
+
+    /// The run for `path` from `from` to `to`: one cycle's animation with the repeat applied.
+    fn channel_run(
+        path: &str,
+        from: &AnyObject,
+        to: &AnyObject,
+        spec: &AnimSpec,
+    ) -> Retained<objc2_quartz_core::CAAnimation> {
+        use objc2_quartz_core::{CABasicAnimation, CAMediaTiming as _, CASpringAnimation};
+        let key = NSString::from_str(path);
+        if spec.duration_ms == 0 {
+            // No cycle, only a delay: hold the start for it, then the model value shows.
+            let hold = CABasicAnimation::animationWithKeyPath(Some(&key));
+            // SAFETY: the start is the layer's own boxed value for `path`.
+            unsafe {
+                hold.setFromValue(Some(from));
+                hold.setToValue(Some(from));
+            }
+            hold.setDuration(spec.delay_secs());
+            return Retained::into_super(Retained::into_super(hold));
+        }
+        let run: Retained<objc2_quartz_core::CAAnimation> = match spec.curve.spring_constants() {
+            // A spring on a color is sampled with its progress held to 0..=1, so every
+            // color shown lies between the two ends (docs/tween.md rule 8).
+            Some(_) if path.ends_with("Color") => color_keyframes(&key, from, to, spec),
+            Some((stiffness, damping)) => {
+                let spring = CASpringAnimation::animationWithKeyPath(Some(&key));
+                spring.setMass(1.0);
+                spring.setStiffness(stiffness);
+                spring.setDamping(damping);
+                spring.setInitialVelocity(0.0);
+                // Over-damped (ratio above 1) needs iOS 17's switch; below it Core
+                // Animation plays such a spring critically damped.
+                if spring.respondsToSelector(sel!(setAllowsOverdamping:)) {
+                    spring.setAllowsOverdamping(true);
+                }
+                // SAFETY: both ends are the layer's own boxed values for `path`.
+                unsafe {
+                    spring.setFromValue(Some(from));
+                    spring.setToValue(Some(to));
+                }
+                Retained::into_super(Retained::into_super(Retained::into_super(spring)))
+            }
+            None => {
+                let basic = CABasicAnimation::animationWithKeyPath(Some(&key));
+                // SAFETY: both ends are the layer's own boxed values for `path`.
+                unsafe {
+                    basic.setFromValue(Some(from));
+                    basic.setToValue(Some(to));
+                }
+                basic.setTimingFunction(Some(&timing_function(spec.curve)));
+                Retained::into_super(Retained::into_super(basic))
+            }
+        };
+        run.setDuration(spec.duration_secs());
+        run.setAutoreverses(spec.autoreverse);
+        run.setRepeatCount(crate::motion_curve::repeat_count(
+            spec.cycles(),
+            spec.autoreverse,
+        ));
+        run
+    }
+
+    /// The sRGB components of a boxed `CGColorRef`, as UIKit reads any color.
+    fn boxed_color(value: &AnyObject) -> Option<day_spec::Color> {
+        // SAFETY: the value came from a `backgroundColor` key, which Core Animation boxes as a
+        // `CGColorRef`, a CF object bridged to `id`.
+        let cg = unsafe { &*std::ptr::from_ref(value).cast::<objc2_core_graphics::CGColor>() };
+        cgcolor_components(cg)
+    }
+
+    /// The sRGB components of `cg`, as UIKit reads any color.
+    fn cgcolor_components(cg: &objc2_core_graphics::CGColor) -> Option<day_spec::Color> {
+        uicolor_components(&UIColor::colorWithCGColor(cg))
+    }
+
+    /// A sampled color run: one keyframe per [`AnimSpec::keyframes`] entry, blended in sRGB
+    /// with the progress held to `0..=1`.
+    fn color_keyframes(
+        key: &NSString,
+        from: &AnyObject,
+        to: &AnyObject,
+        spec: &AnimSpec,
+    ) -> Retained<objc2_quartz_core::CAAnimation> {
+        let frames = objc2_quartz_core::CAKeyframeAnimation::animationWithKeyPath(Some(key));
+        let samples = spec.keyframes();
+        let ends = boxed_color(from).zip(boxed_color(to));
+        let colors: Vec<_> = samples
+            .iter()
+            .map(|k| {
+                let p = k.progress.clamp(0.0, 1.0);
+                let c = ends.map_or(day_spec::Color::rgba(0.0, 0.0, 0.0, 0.0), |(a, b)| {
+                    day_spec::Color::rgba(
+                        a.r + (b.r - a.r) * p,
+                        a.g + (b.g - a.g) * p,
+                        a.b + (b.b - a.b) * p,
+                        a.a + (b.a - a.a) * p,
+                    )
+                });
+                cgcolor(c)
+            })
+            .collect();
+        let values: Vec<&AnyObject> = colors
+            .iter()
+            // SAFETY: a CGColor is a CF object, bridged to `id`.
+            .map(|c| unsafe {
+                &*std::ptr::from_ref::<objc2_core_graphics::CGColor>(c).cast::<AnyObject>()
+            })
+            .collect();
+        let times: Vec<Retained<objc2_foundation::NSNumber>> = samples
+            .iter()
+            .map(|k| objc2_foundation::NSNumber::new_f64(k.offset))
+            .collect();
+        if ends.is_some() {
+            // SAFETY: the values are colors for a `backgroundColor` run.
+            unsafe { frames.setValues(Some(&objc2_foundation::NSArray::from_slice(&values))) };
+            frames.setKeyTimes(Some(&objc2_foundation::NSArray::from_retained_slice(
+                &times,
+            )));
+        }
+        // SAFETY: a framework constant.
+        frames.setCalculationMode(unsafe { objc2_quartz_core::kCAAnimationLinear });
+        Retained::into_super(Retained::into_super(frames))
     }
 
     /// Build UIKit's `CGAffineTransform` for a Day [`Transform`], composed scale → rotate →
@@ -11130,7 +15182,7 @@ mod imp {
     /// anchor). Non-center anchors approximate: translation is exact, scale/rotation stay about
     /// center (§8.4 — arbitrary-anchor transforms need a layer anchorPoint change, a later refinement).
     fn cgaffine(t: Transform) -> CGAffineTransform {
-        let th = t.rotate_deg.to_radians();
+        let th = t.rotation.radians();
         let (s, c) = th.sin_cos();
         CGAffineTransform {
             a: t.sx * c,
@@ -11469,10 +15521,61 @@ mod imp {
             reason = "1.0 is the exact unscaled default of `FontSpec::scale`"
         )]
         let unscaled = spec.scale == 1.0;
-        if unscaled {
+        let font = if unscaled {
             font
         } else {
             unsafe { font.fontWithSize(spec.resolved_points(font.pointSize())) }
+        };
+        with_font_features(font, spec)
+    }
+
+    /// Small capitals and oldstyle figures (docs/text-runs.md "Font features"): AAT feature
+    /// settings on the font descriptor, `kLowerCaseType`/`kLowerCaseSmallCapsSelector` (37/1)
+    /// and `kNumberCaseType`/`kLowerCaseNumbersSelector` (21/0), appended to the settings the
+    /// face already carries (the monospaced-digit setting of a tabular face). A face without
+    /// the feature draws its ordinary glyphs; nothing is synthesized.
+    fn with_font_features(
+        font: Retained<objc2_ui_kit::UIFont>,
+        spec: day_spec::FontSpec,
+    ) -> Retained<objc2_ui_kit::UIFont> {
+        use objc2_foundation::{NSArray, NSDictionary, NSNumber};
+        use objc2_ui_kit::{
+            UIFont, UIFontDescriptorFeatureSettingsAttribute, UIFontFeatureSelectorIdentifierKey,
+            UIFontFeatureTypeIdentifierKey,
+        };
+        let wanted: Vec<(i64, i64)> =
+            [(spec.small_caps, (37, 1)), (spec.oldstyle_figures, (21, 0))]
+                .into_iter()
+                .filter_map(|(on, pair)| on.then_some(pair))
+                .collect();
+        if wanted.is_empty() {
+            return font;
+        }
+        unsafe {
+            let desc = font.fontDescriptor();
+            let mut settings: Vec<Retained<AnyObject>> = desc
+                .objectForKey(UIFontDescriptorFeatureSettingsAttribute)
+                .and_then(|v| v.downcast::<NSArray>().ok())
+                .map_or_else(Vec::new, |a| a.to_vec());
+            for (kind, selector) in wanted {
+                let (kind, selector) = (NSNumber::new_i64(kind), NSNumber::new_i64(selector));
+                let setting = NSDictionary::<NSString, NSNumber>::from_slices(
+                    &[
+                        UIFontFeatureTypeIdentifierKey,
+                        UIFontFeatureSelectorIdentifierKey,
+                    ],
+                    &[&*kind, &*selector],
+                );
+                settings.push(setting.into());
+            }
+            let settings = NSArray::from_retained_slice(&settings);
+            let attrs = NSDictionary::<NSString, AnyObject>::from_slices(
+                &[UIFontDescriptorFeatureSettingsAttribute],
+                &[settings.as_ref()],
+            );
+            let desc = desc.fontDescriptorByAddingAttributes(&attrs);
+            // Size 0 keeps the descriptor's own size.
+            UIFont::fontWithDescriptor_size(&desc, 0.0)
         }
     }
 
@@ -11483,7 +15586,7 @@ mod imp {
     fn attributed_label(
         text: &str,
         base_font: &objc2_ui_kit::UIFont,
-        color: Option<day_spec::Color>,
+        color: Option<day_spec::Ink>,
         runs: &[day_spec::TextRun],
     ) -> Retained<objc2_foundation::NSAttributedString> {
         use objc2::AllocAnyThread as _;
@@ -11498,7 +15601,7 @@ mod imp {
             // Always a foreground: a UITextView draws an attributed range with no color
             // attribute in black, which is invisible in dark mode. `labelColor` is the adaptive
             // default a plain label would have used.
-            let fg = color.map_or_else(UIColor::labelColor, uicolor);
+            let fg = color.map_or_else(UIColor::labelColor, uiink);
             s.addAttribute_value_range(objc2_ui_kit::NSForegroundColorAttributeName, &fg, whole);
         }
         for r in runs {
@@ -11514,32 +15617,48 @@ mod imp {
                 if let Some(c) = r.color {
                     s.addAttribute_value_range(
                         objc2_ui_kit::NSForegroundColorAttributeName,
-                        &uicolor(c),
+                        &uiink(c),
                         range,
                     );
                 }
                 if let Some(c) = r.background {
                     s.addAttribute_value_range(
                         objc2_ui_kit::NSBackgroundColorAttributeName,
-                        &uicolor(c),
+                        &uiink(c),
                         range,
                     );
                 }
-                if r.underline.is_on() {
-                    let style = objc2_foundation::NSNumber::new_i64(ns_underline(r.underline));
+                // A line's color is its own attribute; without one UIKit draws the line in
+                // the run's text color, which is what `color: None` means.
+                if let Some(d) = r.underline {
+                    let style = objc2_foundation::NSNumber::new_i64(ns_underline(d));
                     s.addAttribute_value_range(
                         objc2_ui_kit::NSUnderlineStyleAttributeName,
                         &style,
                         range,
                     );
+                    if let Some(c) = d.color {
+                        s.addAttribute_value_range(
+                            objc2_ui_kit::NSUnderlineColorAttributeName,
+                            &uiink(c),
+                            range,
+                        );
+                    }
                 }
-                if r.strikethrough {
-                    let one = objc2_foundation::NSNumber::new_i64(1);
+                if let Some(d) = r.strikethrough {
+                    let style = objc2_foundation::NSNumber::new_i64(ns_underline(d));
                     s.addAttribute_value_range(
                         objc2_ui_kit::NSStrikethroughStyleAttributeName,
-                        &one,
+                        &style,
                         range,
                     );
+                    if let Some(c) = d.color {
+                        s.addAttribute_value_range(
+                            objc2_ui_kit::NSStrikethroughColorAttributeName,
+                            &uiink(c),
+                            range,
+                        );
+                    }
                 }
                 if let Some(url) = r.link.as_deref() {
                     // Drawn as a link. ACTIVATION needs a UITextView (a UILabel has no hit
@@ -11552,12 +15671,13 @@ mod imp {
         s.into_super()
     }
 
-    /// [`Underline`](day_spec::Underline) as an `NSUnderlineStyle` bitmask — the line style in
-    /// the low byte, the pattern in the second, the same encoding AppKit uses.
-    fn ns_underline(u: day_spec::Underline) -> i64 {
-        use day_spec::Underline as U;
-        match u {
-            U::None => 0,
+    /// A [`Decoration`](day_spec::Decoration)'s style as an `NSUnderlineStyle` bitmask, for an
+    /// underline or a strikethrough alike — the line style in the low byte, the pattern in the
+    /// second, the same encoding AppKit uses. UIKit has no public wave pattern, so wavy keeps
+    /// the dash-dot-dot pattern (`0x0400`) this backend has always drawn for it.
+    fn ns_underline(d: day_spec::Decoration) -> i64 {
+        use day_spec::DecorationStyle as U;
+        match d.style {
             U::Single => 0x01,
             U::Double => 0x09,
             U::Dotted => 0x01 | 0x0100,
@@ -11721,9 +15841,48 @@ mod imp {
                 Cap::Cursor => Support::Emulated,
                 // `UIFont.familyNames` + `fontNamesForFamilyName:` (docs/fonts.md).
                 Cap::FontList => Support::Native,
+                // Hit slop grows the hit test of Day's container and canvas views, which also
+                // answer for the UIKit views placed in them (docs/gestures.md "Hit slop").
+                Cap::HitSlop => Support::Native,
+                // `pressesEnded:` for the release; a held key that types repeats as text
+                // through `insertText:`. A held arrow does not repeat: UIKit sends one
+                // `pressesBegan:` per press (docs/menus.md "Keys").
+                Cap::KeyPhases => Support::Native,
+                // A first-responder container in the hardware-keyboard focus system
+                // (`canBecomeFocused`), focused by a touch, with focus reports both ways.
+                Cap::Focusable => Support::Native,
                 // `UIListContentView` with the cell's default content configuration
                 // (docs/list.md "List items").
                 Cap::ListItem => Support::Native,
+                // The table's own layout pass and `scrollViewDidScroll:` report the rows
+                // between its insets and the distance to the content's end (docs/list.md
+                // "Visible rows").
+                Cap::ListViewport => Support::Native,
+                // `scrollViewDidScroll:` while the table `isDragging` (a finger, or a trackpad
+                // or mouse on iPadOS) and `scrollViewShouldScrollToTop:` (a status bar tap)
+                // mark the reader's scrolls; a hardware keyboard's scroll keys cannot be told
+                // from the app's own animated scroll (docs/list.md "Following the end").
+                Cap::ListReaderScroll => Support::Native,
+                // `scrollToRowAtIndexPath:atScrollPosition:animated:` with `.none` / `.top` /
+                // `.middle` / `.bottom` (docs/list.md "Programmatic scrolling").
+                Cap::ListScrollAlign => Support::Native,
+                // The scroll view's delegate: `scrollViewDidScroll:` for the offset, the
+                // dragging and decelerating callbacks for the phase (docs/scroll.md "Offset
+                // and phase").
+                Cap::ScrollOffset | Cap::ScrollPhases => Support::Native,
+                // `pagingEnabled` for pages; a grid through the target offset UIKit hands
+                // `scrollViewWillEndDragging:withVelocity:targetContentOffset:`, with the fast
+                // deceleration rate (docs/scroll.md "Snapping").
+                Cap::ScrollSnap => Support::Native,
+                // `minimumZoomScale`/`maximumZoomScale` over one content view, and
+                // `zoomToRect:animated:` for the patch (docs/scroll.md "Zoom").
+                Cap::ScrollZoom => Support::Native,
+                // `keyboardDismissMode` `.onDrag` / `.interactive`, and a tap recognizer of
+                // Day's own for `KeyboardTaps::Dismiss` (docs/scroll.md "Keyboard").
+                Cap::ScrollKeyboardDismiss => Support::Native,
+                // The page view controller's own scroll view, observed (docs/pager.md
+                // "Progress").
+                Cap::PagerProgress => Support::Native,
                 // `UIImage(data:)` reads every container ImageIO knows, and UIKit writes back
                 // PNG and JPEG (docs/images.md). `Cap::ImageProperties` is deliberately NOT here:
                 // reading EXIF would mean linking ImageIO and going through `CGImageSource`, and
@@ -11747,6 +15906,9 @@ mod imp {
                 // (docs/text-runs.md).
                 Cap::TextRuns
                 | Cap::TextLinks
+                // A selectable label is a read-only UITextView, whose delegate hears every
+                // selection change (`textViewDidChangeSelection:`, docs/text.md).
+                | Cap::LabelSelection
                 // The window toolbar docks under the navigation controller's pages
                 // (docs/toolbars.md): the phone's second bar, beside the navigation bar.
                 | Cap::Toolbar
@@ -11862,10 +16024,23 @@ mod imp {
             let mtm = mtm();
             match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
-                    let v: Retained<UIView> = Retained::into_super(DayFocusableContainer::new(mtm));
                     // A mismatched payload still yields a usable (undecorated) container;
                     // `props_of` reports it.
-                    if let Some(p) = day_spec::props_of::<ContainerProps>(kind, "uikit", props) {
+                    let p = day_spec::props_of::<ContainerProps>(kind, "uikit", props);
+                    let card =
+                        p.is_some_and(|p| p.role == Some(day_spec::SurfaceRole::SectionCard));
+                    // A gradient fill is the view's own layer, so it picks the view's class.
+                    let v: Retained<UIView> = if p.is_some_and(|p| {
+                        p.fill
+                            .as_ref()
+                            .is_some_and(|f| !matches!(f, day_spec::Paint::Solid(_)))
+                    }) && !card
+                    {
+                        Retained::into_super(Retained::into_super(DayGradientContainer::new(mtm)))
+                    } else {
+                        Retained::into_super(DayFocusableContainer::new(mtm))
+                    };
+                    if let Some(p) = p {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                             // The card half of the grouped pair (`DayNavPageView`): a card is
                             // what LIFTS off the grouped ground, so it takes the lighter of the
@@ -11881,8 +16056,13 @@ mod imp {
                                 layer.setCornerRadius(p.corner_radius);
                                 layer.setMasksToBounds(true);
                             }
-                        } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
-                            apply_surface(&v, p.background, p.corner_radius, p.clips);
+                        } else if p.fill.is_some()
+                            || p.corner_radius > 0.0
+                            || p.clips
+                            || p.border.is_some()
+                            || p.shadow.is_some()
+                        {
+                            apply_surface(&v, p);
                         }
                     }
                     view_of(&v)
@@ -12444,17 +16624,14 @@ mod imp {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
                     };
-                    let table = unsafe {
-                        objc2_ui_kit::UITableView::initWithFrame_style(
-                            objc2_ui_kit::UITableView::alloc(mtm),
-                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
-                            if p.inset_grouped {
-                                objc2_ui_kit::UITableViewStyle::InsetGrouped
-                            } else {
-                                objc2_ui_kit::UITableViewStyle::Plain
-                            },
-                        )
-                    };
+                    let table = DayListTable::make(
+                        mtm,
+                        if p.inset_grouped {
+                            objc2_ui_kit::UITableViewStyle::InsetGrouped
+                        } else {
+                            objc2_ui_kit::UITableViewStyle::Plain
+                        },
+                    );
                     let automatic = p.row_height == RowHeight::Automatic;
                     let data = DayListData::new(
                         mtm,
@@ -12528,7 +16705,12 @@ mod imp {
                     view
                 }
                 Some(Builtin::Scroll) => {
-                    let sv = unsafe { UIScrollView::new(mtm) };
+                    // A scroll without props (a piece realizing `kinds::SCROLL` itself) is the
+                    // plain scroll view Day always made.
+                    let sv = match day_spec::props_of::<ScrollProps>(kind, "uikit", props) {
+                        Some(p) => make_scroll(p, id, mtm),
+                        None => unsafe { UIScrollView::new(mtm) },
+                    };
                     view_of(&sv)
                 }
                 Some(Builtin::Label) => {
@@ -12541,33 +16723,31 @@ mod imp {
                     // (docs/text-runs.md). A link that first appears in a later patch cannot
                     // upgrade the backing: `patch` has no way to hand back a new handle.
                     if p.runs.iter().any(|r| r.link.is_some()) {
-                        let tv = link_text_view(p, id, mtm);
-                        return view_of(&tv);
+                        let view = view_of(&link_text_view(p, id, mtm));
+                        track_label(&view, p, id);
+                        return view;
                     }
                     let label = unsafe { UILabel::new(mtm) };
-                    unsafe {
-                        label.setText(Some(&NSString::from_str(&p.text)));
-                        label.setNumberOfLines(if p.wraps { p.max_lines as isize } else { 1 });
-                        if !p.wraps || p.max_lines > 0 {
-                            label.setLineBreakMode(objc2_ui_kit::NSLineBreakMode::ByTruncatingTail);
-                        }
-                    }
+                    unsafe { label.setText(Some(&NSString::from_str(&p.text))) };
                     apply_font(&label, p.font);
                     // An explicit color wins; otherwise the ROLE chooses which adaptive system
                     // color applies, so a de-emphasized label stays legible in both appearances.
                     match (p.color, p.role) {
-                        (Some(c), _) => unsafe { label.setTextColor(Some(&uicolor(c))) },
+                        (Some(c), _) => unsafe { label.setTextColor(Some(&uiink(c))) },
                         (None, day_spec::props::TextRole::Secondary) => unsafe {
                             label.setTextColor(Some(&UIColor::secondaryLabelColor()));
                         },
                         (None, day_spec::props::TextRole::Primary) => {}
                     }
                     if !p.runs.is_empty() {
-                        let s = attributed_label(&p.text, &resolve_font(p.font), p.color, &p.runs);
+                        let s =
+                            attributed_label(&p.text, &resolve_font(p.font), label_ink(p), &p.runs);
                         unsafe { label.setAttributedText(Some(&s)) };
                     }
-                    set_text_alignment(&label, p.align);
-                    view_of(&label)
+                    // Line limit, truncation, spacing, line height, alignment (docs/text.md).
+                    let view = view_of(&label);
+                    track_label(&view, p, id);
+                    view
                 }
                 Some(Builtin::Button) => {
                     let Some(p) = day_spec::props_of::<ButtonProps>(kind, "uikit", props) else {
@@ -12687,6 +16867,9 @@ mod imp {
                 Some(Builtin::Divider) => {
                     let v = unsafe { UIView::new(mtm) };
                     unsafe { v.setBackgroundColor(Some(&UIColor::separatorColor())) };
+                    // A rule takes no touches until a recognizer asks for them, so a press
+                    // on it reaches what is behind it (docs/gestures.md "Pass-through").
+                    unsafe { v.setUserInteractionEnabled(false) };
                     view_of(&v)
                 }
                 Some(Builtin::Progress) => {
@@ -12747,7 +16930,7 @@ mod imp {
                         unsafe { iv.setImage(Some(&templ)) };
                     }
                     if let Some(t) = p.tint {
-                        unsafe { iv.setTintColor(Some(&uicolor(t))) };
+                        unsafe { iv.setTintColor(Some(&uiink(t))) };
                     }
                     IMAGE_MODES.with(|t| {
                         t.insert(
@@ -12844,7 +17027,9 @@ mod imp {
                                     let next = unsafe { img.imageWithRenderingMode(mode) };
                                     unsafe { iv.setImage(Some(&next)) };
                                 }
-                                unsafe { iv.setTintColor(c.map(uicolor).as_deref()) };
+                                unsafe {
+                                    iv.setTintColor(c.map(uiink).as_deref());
+                                };
                             }
                             // A source swap repaints the same view (docs/images.md), so an
                             // `image()` bound to a signal shows new pixels without rebuilding
@@ -12879,20 +17064,21 @@ mod imp {
                         }
                     }
                 }
-                kinds::CONTAINER => {
-                    if let Some(ContainerPatch::Background(c)) =
-                        patch.downcast_ref::<ContainerPatch>()
-                    {
-                        let v = h.clone();
-                        let c = *c;
-                        with_uikit_anim(anim, move || unsafe {
-                            match c {
-                                Some(c) => v.setBackgroundColor(Some(&uicolor(c))),
-                                None => v.setBackgroundColor(None),
-                            }
+                // A reactive fill or surface (docs/surfaces.md "Reactive surfaces"). A solid
+                // fill to a solid fill animates its color with `anim`; to or from a gradient it
+                // applies at once (a nil background on either side). A whole surface animates
+                // its radius, border width and colors and shadow with it.
+                kinds::CONTAINER => match patch.downcast_ref::<ContainerPatch>() {
+                    Some(ContainerPatch::Fill(fill)) => {
+                        animate_channel(h, Channel::Background, anim, || {
+                            patch_fill(h, fill.as_ref());
                         });
                     }
-                }
+                    Some(ContainerPatch::Surface(p)) => {
+                        animate_channel(h, Channel::Surface, anim, || apply_surface(h, p));
+                    }
+                    None => {}
+                },
                 // Data-driven sidebar rows (docs/navigation.md): rebuild the UITableView rows.
                 kinds::NAV_MENU => {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::RefreshPatch>() {
@@ -13087,7 +17273,9 @@ mod imp {
                                 dismiss_disabled,
                             } => {
                                 if let (Some(c), Some(view)) = (background, vc.view()) {
-                                    unsafe { view.setBackgroundColor(Some(&uicolor(*c))) };
+                                    unsafe {
+                                        view.setBackgroundColor(Some(&uiink(*c)));
+                                    };
                                 }
                                 // Inert under .fullScreen, but honored if the presentation
                                 // style ever becomes a sheet.
@@ -13269,6 +17457,8 @@ mod imp {
                         (**h).downcast_ref::<UILabel>(),
                     ) {
                         match p {
+                            // Applied below with everything else the look decides.
+                            LabelPatch::Paragraph(para) => set_label_paragraph(h, *para),
                             LabelPatch::Text(t) => unsafe {
                                 label.setText(Some(&NSString::from_str(t)));
                             },
@@ -13276,18 +17466,20 @@ mod imp {
                             LabelPatch::Runs(text, runs) => {
                                 let base = unsafe { label.font() };
                                 if let Some(f) = base {
-                                    let s = attributed_label(text, &f, None, runs);
+                                    let s = attributed_label(text, &f, own_ink(h), runs);
                                     unsafe { label.setAttributedText(Some(&s)) };
-                                    reapply_text_alignment(label);
                                 }
                             }
                             // `None` restores the adaptive default (labelColor tracks dark mode).
-                            LabelPatch::Color(c) => unsafe {
-                                match c {
-                                    Some(c) => label.setTextColor(Some(&uicolor(*c))),
-                                    None => label.setTextColor(Some(&UIColor::labelColor())),
+                            LabelPatch::Color(c) => {
+                                set_own_ink(h, *c);
+                                unsafe {
+                                    match c {
+                                        Some(c) => label.setTextColor(Some(&uiink(*c))),
+                                        None => label.setTextColor(Some(&UIColor::labelColor())),
+                                    }
                                 }
-                            },
+                            }
                         }
                     } else if let (Some(p), Some(tv)) = (
                         patch.downcast_ref::<LabelPatch>(),
@@ -13296,6 +17488,7 @@ mod imp {
                         // A `.selectable()` label rides a read-only UITextView (the
                         // `set_selectable` swap); the same patches route there.
                         match p {
+                            LabelPatch::Paragraph(para) => set_label_paragraph(h, *para),
                             LabelPatch::Text(t) => unsafe {
                                 tv.setText(Some(&NSString::from_str(t)));
                             },
@@ -13312,19 +17505,29 @@ mod imp {
                                 // text the same way — and, unlike UILabel, could hit-test its
                                 // links (Phase 4).
                                 if let Some(f) = unsafe { tv.font() } {
-                                    let s = attributed_label(text, &f, None, runs);
+                                    let s = attributed_label(text, &f, own_ink(h), runs);
                                     unsafe { tv.setAttributedText(Some(&s)) };
-                                    reapply_text_alignment(tv);
                                 }
                             }
-                            LabelPatch::Color(c) => unsafe {
-                                match c {
-                                    Some(c) => tv.setTextColor(Some(&uicolor(*c))),
-                                    None => tv.setTextColor(Some(&UIColor::labelColor())),
+                            LabelPatch::Color(c) => {
+                                set_own_ink(h, *c);
+                                unsafe {
+                                    match c {
+                                        Some(c) => tv.setTextColor(Some(&uiink(*c))),
+                                        None => tv.setTextColor(Some(&UIColor::labelColor())),
+                                    }
                                 }
-                            },
+                            }
+                        }
+                        // New text discards the selection without telling the delegate.
+                        if matches!(p, LabelPatch::Text(_) | LabelPatch::Runs(..)) {
+                            report_selection(tv);
                         }
                     }
+                    // Every patch: new text, a new font or new runs replace the attributed
+                    // string the kern and line height were on, and change the point size they
+                    // are multiples of; the setters re-style the whole string too.
+                    apply_paragraph(h);
                 }
                 kinds::BUTTON => {
                     if let (Some(p), Some(btn)) = (
@@ -13546,30 +17749,37 @@ mod imp {
                     }
                     None => {}
                 },
-                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Splice(deltas)) => {
-                        let (key, deltas) = (ptr_of(h), deltas.clone());
-                        // Deferred like reload realization: row updates realize cells
-                        // synchronously, which must happen outside this tree borrow.
-                        <Uikit as Platform>::post(Box::new(move || {
-                            LIST_STATE.with(|m| {
-                                if let Some((table, _)) = m.borrow().get(&key) {
-                                    apply_row_deltas(table, &deltas);
-                                }
-                            });
-                        }));
+                kinds::SCROLL => {
+                    if let Some(ScrollPatch::Zoom { scale, animated }) =
+                        patch.downcast_ref::<ScrollPatch>()
+                        && let Some(sv) = (**h).downcast_ref::<UIScrollView>()
+                        && let Some(delegate) = DayScrollDelegate::of(sv)
+                    {
+                        // UIKit's zoom calls back only the delegate, which enqueues; nothing
+                        // here re-enters the tree.
+                        delegate.zoom(sv, *scale, *animated);
                     }
-
+                }
+                kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    // Held for the table and applied a turn later, outside this tree borrow
+                    // (`DayListData::hold`): row updates realize and retire cells
+                    // synchronously, and both need the tree.
+                    Some(ListPatch::Splice(deltas)) => {
+                        let key = ptr_of(h);
+                        let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                        if let Some((table, data)) = entry {
+                            // The row count these deltas end on, read now: by the time the
+                            // held batch runs, a later change may have moved the source on.
+                            let after = data.ivars().source.borrow().as_ref().map(|s| (s.len)());
+                            data.hold(key, &table, Some(deltas), after);
+                        }
+                    }
                     Some(ListPatch::Reload) => {
                         let key = ptr_of(h);
-                        // reloadData can synchronously retire cells. Their recycle callbacks
-                        // need the tree borrow to park ids, just as realization needs it to bind.
-                        <Uikit as Platform>::post(Box::new(move || {
-                            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
-                            if let Some((table, _)) = entry {
-                                unsafe { table.reloadData() };
-                            }
-                        }));
+                        let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                        if let Some((table, data)) = entry {
+                            data.hold(key, &table, None, None);
+                        }
                     }
                     Some(scroll @ (ListPatch::ScrollToEnd | ListPatch::ScrollToRow(_))) => {
                         let key = ptr_of(h);
@@ -13696,6 +17906,12 @@ mod imp {
             GESTURES.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            // A press under way on a view leaving the tree ends here: its `false` is owed.
+            if let Some(observers) = OBSERVERS.with(|t| t.get(ptr_of(&h))) {
+                for o in observers {
+                    o.finish(true);
+                }
+            }
             // One sweep clears every `day_spec::sidetable::SideTable` on this thread —
             // CTX_MENUS (whose teardown detaches the interaction from the view first),
             // PAGE_PANE, canvas OPS, and the picker/textarea state tables — present and
@@ -13706,6 +17922,12 @@ mod imp {
         }
 
         fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+            // A zooming scroll's children go in the one view UIKit scales (docs/scroll.md
+            // "Zoom").
+            if let Some(content) = zoom_content(parent) {
+                unsafe { content.addSubview(child) };
+                return;
+            }
             let document = DOCUMENT_HOSTS.with(|m| {
                 let mut m = m.borrow_mut();
                 let Some(state) = m.get_mut(&ptr_of(parent)) else {
@@ -14005,6 +18227,10 @@ mod imp {
         }
 
         fn move_child(&mut self, parent: &Handle, child: &Handle, _to: usize) {
+            if let Some(content) = zoom_content(parent) {
+                unsafe { content.addSubview(child) };
+                return;
+            }
             unsafe { parent.addSubview(child) };
         }
 
@@ -14129,6 +18355,12 @@ mod imp {
             // A backing that already is a text view (an earlier swap): flip the flag in place.
             if let Some(tv) = (**h).downcast_ref::<UITextView>() {
                 unsafe { tv.setSelectable(selectable) };
+                // A link label's view already has its delegate; this covers any other.
+                if let Some(look) = LABEL_LOOKS.with(|t| t.get(ptr_of(h)))
+                    && look.reports
+                {
+                    DayTextLink::attach(tv, look.node, false, mtm());
+                }
                 return None;
             }
             // UIKit reserves selection for UITextInput views, so a UILabel has no flag to flip
@@ -14141,7 +18373,7 @@ mod imp {
             if !selectable {
                 return None; // a plain UILabel is already unselectable
             }
-            let tv = UITextView::new(mtm());
+            let tv = label_text_view(mtm());
             unsafe {
                 tv.setFont(label.font().as_deref());
                 tv.setTextColor(label.textColor().as_deref());
@@ -14186,7 +18418,20 @@ mod imp {
                     label.removeFromSuperview();
                 }
             }
-            Some(view_of(&tv))
+            let view = view_of(&tv);
+            // The look moves with the label: the line limit becomes the text container's,
+            // the spacing and line height go back on the copied text, and a label that asked
+            // for selection reports gets the delegate that hears them (docs/text.md).
+            if let Some(mut look) = LABEL_LOOKS.with(|t| t.take(ptr_of(h))) {
+                look.view = objc2::rc::Weak::from_retained(&view);
+                let reports = look.reports.then_some(look.node);
+                LABEL_LOOKS.with(|t| t.insert(ptr_of(&view), look));
+                apply_paragraph(&view);
+                if let Some(node) = reports {
+                    DayTextLink::attach(&tv, node, false, mtm());
+                }
+            }
+            Some(view)
         }
 
         fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
@@ -14286,6 +18531,15 @@ mod imp {
                 }
             }?;
             let (ascender, line_height) = unsafe { (font.ascender(), font.lineHeight()) };
+            // A fixed line height (docs/text.md "Line height"): the glyphs sit centered in the
+            // first line box, half the difference from the natural height down.
+            let fixed = LABEL_LOOKS
+                .with(|t| t.get(ptr_of(h)))
+                .and_then(|look| crate::label_text::line_height(look.para.line_height));
+            if let Some(multiple) = fixed {
+                let line = multiple * unsafe { font.pointSize() };
+                return Some((line - line_height) / 2.0 + ascender);
+            }
             Some(((size.height - line_height) / 2.0).max(0.0) + ascender)
         }
 
@@ -14298,8 +18552,8 @@ mod imp {
                 CGPoint::new(frame.origin.x, frame.origin.y),
                 CGSize::new(frame.size.width, frame.size.height),
             );
-            let v = h.clone();
-            with_uikit_anim(anim, move || unsafe {
+            let v = h;
+            animate_channel(h, Channel::Frame, anim, || unsafe {
                 // `frame` is undefined under a transform (`set_transform`): setting it fits the
                 // transformed box into the rect, which cancels the scale and the offset. Size
                 // and center are independent of the transform, so a transformed view takes
@@ -14332,8 +18586,9 @@ mod imp {
         }
 
         fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
-            let v = h.clone();
-            with_uikit_anim(anim, move || unsafe { v.setAlpha(opacity as CGFloat) });
+            animate_channel(h, Channel::Opacity, anim, || unsafe {
+                h.setAlpha(opacity as CGFloat);
+            });
         }
 
         fn set_transform(
@@ -14343,15 +18598,31 @@ mod imp {
             _size: Size,
             anim: Option<&AnimSpec>,
         ) {
-            let v = h.clone();
             let tf = cgaffine(t);
-            with_uikit_anim(anim, move || unsafe { v.setTransform(tf) });
+            animate_channel(h, Channel::Transform, anim, || unsafe {
+                h.setTransform(tf);
+            });
         }
 
         fn set_scroll_content(&mut self, h: &Handle, content: Size) {
-            if let Some(sv) = (**h).downcast_ref::<UIScrollView>() {
+            let Some(sv) = (**h).downcast_ref::<UIScrollView>() else {
+                return;
+            };
+            let Some(zoomed) = zoom_content(sv) else {
                 unsafe { sv.setContentSize(CGSize::new(content.width, content.height)) };
-            }
+                return;
+            };
+            // Day lays the content out at its natural size; UIKit scales the view by the zoom
+            // transform, under which `frame` is undefined, so the view takes its size as
+            // bounds and its place as center, and the scroll range is the scaled size.
+            let scale = sv.zoomScale();
+            let (w, h) = (content.width * scale, content.height * scale);
+            zoomed.setBounds(CGRect::new(
+                CGPoint::new(0.0, 0.0),
+                CGSize::new(content.width, content.height),
+            ));
+            zoomed.setCenter(CGPoint::new(w / 2.0, h / 2.0));
+            unsafe { sv.setContentSize(CGSize::new(w, h)) };
         }
 
         /// UIKit's own row: the table's layout margins at the sides (16 or 20pt, by width), and
@@ -14409,6 +18680,32 @@ mod imp {
                     );
                 }
             }
+            true
+        }
+
+        /// The content offset from the content's top-leading corner (docs/scroll.md "Offset
+        /// and phase"): the scroll view's own offset, less the insets UIKit adds around the
+        /// content (a bar or safe area the content scrolls under), so a view at rest at its
+        /// top answers zero.
+        fn scroll_offset(&mut self, h: &Handle) -> day_spec::Point {
+            (**h)
+                .downcast_ref::<UIScrollView>()
+                .map_or(day_spec::Point::ZERO, content_offset)
+        }
+
+        /// Queued behind the splices and reloads posted before it, which may be what made its
+        /// row (DESIGN.md §10), then aligned and animated by the table itself.
+        fn list_scroll(&mut self, h: &Handle, to: day_spec::ListScroll) -> bool {
+            let key = ptr_of(h);
+            if !LIST_STATE.with(|m| m.borrow().contains_key(&key)) {
+                return false;
+            }
+            <Uikit as Platform>::post(Box::new(move || {
+                let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                if let Some((table, data)) = entry {
+                    data.scroll(&table, to);
+                }
+            }));
             true
         }
 
@@ -14490,6 +18787,36 @@ mod imp {
                 return;
             }
             let mtm = mtm();
+            // Press and touches observe (docs/gestures.md "Press", "Touches"): a recognizer
+            // that never recognizes, so nothing else on the view or around it changes.
+            if matches!(
+                kind,
+                day_spec::GestureKind::Press | day_spec::GestureKind::Touches
+            ) {
+                let what = if kind == day_spec::GestureKind::Press {
+                    Observe::Press
+                } else {
+                    Observe::Touches
+                };
+                let observers = OBSERVERS.with(|t| t.get(key)).unwrap_or_default();
+                if observers.iter().any(|o| o.ivars().what == what) {
+                    return;
+                }
+                let observer = DayObserver::new(mtm, node, what);
+                unsafe {
+                    if what == Observe::Touches {
+                        h.setMultipleTouchEnabled(true);
+                    }
+                    allow_interaction(h);
+                    h.addGestureRecognizer(&observer);
+                }
+                OBSERVERS.with(|t| {
+                    let mut list = t.take(key).unwrap_or_default();
+                    list.push(observer);
+                    t.insert(key, list);
+                });
+                return;
+            }
             let target = DayGesture::new(mtm, node, kind);
             unsafe {
                 let recognizer: Retained<UIGestureRecognizer> = match kind {
@@ -14499,6 +18826,9 @@ mod imp {
                             Some(&target),
                             Some(sel!(fire:)),
                         );
+                        // Weak; `target` is kept alive in GESTURES below. The axis hint and
+                        // the claim on an enclosing scroll view ride on it.
+                        pan.setDelegate(Some(ProtocolObject::from_ref(&*target)));
                         Retained::into_super(pan)
                     }
                     day_spec::GestureKind::Pinch => {
@@ -14507,7 +18837,29 @@ mod imp {
                             Some(&target),
                             Some(sel!(fire:)),
                         );
+                        pinch.setDelegate(Some(ProtocolObject::from_ref(&*target)));
                         Retained::into_super(pinch)
+                    }
+                    day_spec::GestureKind::LongPress => {
+                        // The platform's delay and movement allowance (0.5 s, 10 pt). A tap
+                        // on the same view fails once this recognizes.
+                        let press =
+                            objc2_ui_kit::UILongPressGestureRecognizer::initWithTarget_action(
+                                objc2_ui_kit::UILongPressGestureRecognizer::alloc(mtm),
+                                Some(&target),
+                                Some(sel!(fire:)),
+                            );
+                        press.setDelegate(Some(ProtocolObject::from_ref(&*target)));
+                        Retained::into_super(press)
+                    }
+                    day_spec::GestureKind::DoubleTap => {
+                        let tap = UITapGestureRecognizer::initWithTarget_action(
+                            UITapGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        tap.setNumberOfTapsRequired(2);
+                        Retained::into_super(tap)
                     }
                     day_spec::GestureKind::Rotate => {
                         let rotate = UIRotationGestureRecognizer::initWithTarget_action(
@@ -14552,10 +18904,132 @@ mod imp {
                         Retained::into_super(tap)
                     }
                 };
-                h.setUserInteractionEnabled(true);
+                allow_interaction(h);
                 h.addGestureRecognizer(&recognizer);
+                // A single tap waits for the double tap on the same view to fail, whichever
+                // of the two was enabled first (docs/gestures.md "Double tap").
+                let partner = match kind {
+                    day_spec::GestureKind::Tap => Some(day_spec::GestureKind::DoubleTap),
+                    day_spec::GestureKind::DoubleTap => Some(day_spec::GestureKind::Tap),
+                    _ => None,
+                };
+                if let Some(partner) = partner {
+                    let other = GESTURES.with(|m| {
+                        m.borrow().get(&key).and_then(|v| {
+                            v.iter()
+                                .find(|t| t.ivars().kind == partner)
+                                .and_then(|t| t.ivars().recognizer.borrow().clone())
+                        })
+                    });
+                    if let Some(other) = other {
+                        let (single, double) = if kind == day_spec::GestureKind::Tap {
+                            (&recognizer, &other)
+                        } else {
+                            (&other, &recognizer)
+                        };
+                        single.requireGestureRecognizerToFail(double);
+                    }
+                }
+                target.ivars().recognizer.replace(Some(recognizer));
             }
             GESTURES.with(|m| m.borrow_mut().entry(key).or_default().push(target));
+        }
+
+        /// Dynamic Type's factor for `style` (docs/text.md "Text scale"): the style's
+        /// preferred size now over its size at the default `.large` category, so a small style
+        /// that grows faster than a large one answers for itself. Sized styles (`System`,
+        /// `Custom`) scale through the body metrics, as `resolve_font` scales them.
+        fn text_scale(&mut self, style: Font) -> f64 {
+            use objc2_ui_kit::{
+                UIContentSizeCategoryLarge, UIFont, UIFontMetrics, UITraitCollection,
+            };
+            let scale = match ui_text_style(style) {
+                Some(ts) => unsafe {
+                    let now = UIFont::preferredFontForTextStyle(ts).pointSize();
+                    let large = UITraitCollection::traitCollectionWithPreferredContentSizeCategory(
+                        UIContentSizeCategoryLarge,
+                    );
+                    let default = UIFont::preferredFontForTextStyle_compatibleWithTraitCollection(
+                        ts,
+                        Some(&large),
+                    )
+                    .pointSize();
+                    now / default
+                },
+                None => unsafe { UIFontMetrics::defaultMetrics().scaledValueForValue(1.0) },
+            };
+            if scale.is_finite() && scale > 0.0 {
+                scale
+            } else {
+                1.0
+            }
+        }
+
+        /// A subtree's reading direction on one widget (docs/localization.md "Direction of a
+        /// subtree"): `semanticContentAttribute` forced on the control, which flips what is
+        /// inside it (a switch's on side, a slider's fill, a segmented control's order, a
+        /// field's natural alignment). Leaf controls only: Day places every child by frame,
+        /// and a forced attribute on a list or collection view would mirror its own layout.
+        /// A label also takes the direction as its base writing direction and as the edge
+        /// `Leading`/`Trailing` resolve to (`apply_paragraph`).
+        fn set_layout_direction(
+            &mut self,
+            h: &Handle,
+            kind: PieceKind,
+            direction: day_spec::LayoutDirection,
+        ) {
+            use objc2_ui_kit::UISemanticContentAttribute;
+            if !matches!(
+                kind,
+                kinds::LABEL
+                    | kinds::BUTTON
+                    | kinds::TOGGLE
+                    | kinds::SLIDER
+                    | kinds::TEXT_FIELD
+                    | kinds::TEXT_AREA
+                    | kinds::PICKER
+                    | kinds::PROGRESS
+            ) {
+                return;
+            }
+            let rtl = direction == day_spec::LayoutDirection::Rtl;
+            unsafe {
+                h.setSemanticContentAttribute(if rtl {
+                    UISemanticContentAttribute::ForceRightToLeft
+                } else {
+                    UISemanticContentAttribute::ForceLeftToRight
+                });
+            }
+            if kind == kinds::LABEL {
+                LABEL_LOOKS.with(|t| t.with(ptr_of(h), |l| l.rtl = Some(rtl)));
+                apply_paragraph(h);
+            }
+        }
+
+        fn gesture_support(&self, _kind: day_spec::GestureKind) -> Support {
+            // Every kind is UIKit's own recognizer: UILongPressGestureRecognizer, a two-tap
+            // UITapGestureRecognizer, and an observing recognizer subclass for press and for
+            // multi-touch contacts (docs/gestures.md "Recognizers").
+            Support::Native
+        }
+
+        fn set_hit_slop(&mut self, h: &Handle, _node: NodeId, slop: day_spec::Insets) {
+            if slop == day_spec::Insets::ZERO {
+                HIT_SLOP.with(|t| t.remove(ptr_of(h)));
+            } else {
+                HIT_SLOP.with(|t| t.insert(ptr_of(h), slop));
+            }
+        }
+
+        fn set_drag_axis(&mut self, h: &Handle, _node: NodeId, axis: Option<day_spec::DragAxis>) {
+            match axis {
+                Some(axis) => DRAG_AXIS.with(|t| t.insert(ptr_of(h), axis)),
+                None => DRAG_AXIS.with(|t| t.remove(ptr_of(h))),
+            };
+        }
+
+        fn set_subtree_enabled(&mut self, h: &Handle, _node: NodeId, enabled: bool) {
+            set_group_enabled(h, enabled);
         }
 
         fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
@@ -14573,7 +19047,7 @@ mod imp {
                 )
             };
             unsafe {
-                h.setUserInteractionEnabled(true);
+                allow_interaction(h);
                 h.addInteraction(ProtocolObject::from_ref(&*interaction));
             }
             CTX_MENU_FNS.with(|t| t.borrow_mut().insert(key, (interaction, delegate)));
@@ -14640,7 +19114,7 @@ mod imp {
                 )
             };
             unsafe {
-                h.setUserInteractionEnabled(true);
+                allow_interaction(h);
                 h.addInteraction(ProtocolObject::from_ref(&*interaction));
             }
             CTX_MENUS.with(|t| t.insert(key, (interaction, delegate)));
@@ -14798,6 +19272,48 @@ mod imp {
                         Some(&queued),
                     );
                 }
+            }
+        }
+
+        /// What the view shows now, mid-animation included (docs/tween.md "Mid-flight
+        /// read-back"). A channel with a run in flight is read from Core Animation's
+        /// presentation layer; one at rest from the model layer, which is what the next frame
+        /// shows: the presentation layer catches up with a plain set (and with a run removed
+        /// by one) only at the next commit, so reading it right after a set answers the value
+        /// before it.
+        fn read_displayed(&self, h: &Handle) -> day_spec::Displayed {
+            let layer = h.layer();
+            // SAFETY: the presentation layer is a read-only copy of what is on screen.
+            let presentation = unsafe { layer.presentationLayer() };
+            let source = |channel: Channel| match &presentation {
+                Some(p) if channel_running(&layer, channel) => p.clone(),
+                _ => layer.clone(),
+            };
+            // The frame before any transform: the shown position less the anchor's share of
+            // the shown bounds, in the parent, converted to the window as `read_native` does.
+            let frame = h.window().and(h.superview()).map(|parent| {
+                let shown = source(Channel::Frame);
+                let bounds = shown.bounds();
+                let position = shown.position();
+                let anchor = shown.anchorPoint();
+                let local = CGRect::new(
+                    CGPoint::new(
+                        position.x - anchor.x * bounds.size.width,
+                        position.y - anchor.y * bounds.size.height,
+                    ),
+                    bounds.size,
+                );
+                let r = parent.convertRect_toView(local, None);
+                Rect::new(r.origin.x, r.origin.y, r.size.width, r.size.height)
+            });
+            let t = source(Channel::Transform).transform();
+            day_spec::Displayed {
+                opacity: Some(f64::from(source(Channel::Opacity).opacity())),
+                frame,
+                translation: Some(day_spec::Point::new(t.m41, t.m42)),
+                background: source(Channel::Background)
+                    .backgroundColor()
+                    .and_then(|c| cgcolor_components(&c)),
             }
         }
 
@@ -15754,8 +20270,9 @@ mod imp {
             objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
         }
 
+        /// All sixteen roles from UIKit's own adaptive colors (`role_uicolor`), resolved for
+        /// the app's appearance: the same colors a role ink shows in a view.
         fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
-            use day_spec::SystemColor;
             use objc2_ui_kit::{UITraitCollection, UIUserInterfaceStyle};
             let dark = self.dark_mode();
             let traits = UITraitCollection::traitCollectionWithUserInterfaceStyle(if dark {
@@ -15763,23 +20280,8 @@ mod imp {
             } else {
                 UIUserInterfaceStyle::Light
             });
-            let color = match role {
-                SystemColor::Accent => UIColor::systemBlueColor(),
-                SystemColor::Text => UIColor::labelColor(),
-                SystemColor::SecondaryText => UIColor::secondaryLabelColor(),
-                SystemColor::Background => UIColor::systemBackgroundColor(),
-                SystemColor::Surface => UIColor::secondarySystemBackgroundColor(),
-            }
-            .resolvedColorWithTraitCollection(&traits);
-            let (mut r, mut g, mut b, mut a) = (0.0, 0.0, 0.0, 0.0);
-            // SAFETY: each out pointer refers to a live CGFloat on this stack.
-            if unsafe {
-                color.getRed_green_blue_alpha(&raw mut r, &raw mut g, &raw mut b, &raw mut a)
-            } {
-                day_spec::Color::rgba(r, g, b, a)
-            } else {
-                role.fallback(dark)
-            }
+            let color = role_uicolor(role).resolvedColorWithTraitCollection(&traits);
+            uicolor_components(&color).unwrap_or_else(|| role.fallback(dark))
         }
 
         fn dark_mode(&mut self) -> bool {
@@ -16688,6 +21190,7 @@ mod imp {
                     // The holder fills the window, so the root's frame is in window == screen
                     // coordinates; a hidden keyboard reports an off-screen frame (top >= bottom).
                     let base_bottom = base.origin.y + base.size.height;
+                    KEYBOARD_UP.with(|up| up.set(kb.origin.y < base_bottom && kb.size.height > 0.0));
                     let new_h = if kb.origin.y < base_bottom {
                         (kb.origin.y - base.origin.y).max(0.0)
                     } else {

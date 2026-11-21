@@ -1161,7 +1161,7 @@ fn open_as_cover(
         t.patch(
             cover,
             Box::new(CoverPatch::Present {
-                background: composed_sheet.then_some(day_spec::Color::CLEAR),
+                background: composed_sheet.then_some(day_spec::Ink::CLEAR),
                 dismiss_disabled: false,
             }),
             false,

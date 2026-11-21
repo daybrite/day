@@ -1,0 +1,10 @@
+{
+  "vectors": {
+    "social_github": "icons/social/github.svg",
+    "social_mastodon": "icons/social/mastodon.svg",
+    "social_twitter": "icons/social/twitter.svg"
+  },
+  "images": {
+    "social_card": "og-card.png"
+  }
+}

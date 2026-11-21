@@ -79,6 +79,11 @@ character runs, and paragraph runs. Character styles include font, color, backgr
 underline, strikethrough, and links. Paragraph styles include alignment, indentation, list
 markers, and spacing. Labels can render the same document; see [Styled text](/docs/reference/text-runs).
 
+A run's color, background, and decoration colors are [inks](/docs/reference/color), so a
+light/dark pair or a role follows an appearance switch while the editor is shown. AppKit and
+UIKit draw them as dynamic colors; the other toolkits receive the document's attributes again,
+resolved for the new appearance. The typing style holds fixed colors.
+
 Selections are byte ranges into the Rust string, including on platforms that use other index
 units internally. A collapsed range is a caret. Bind the range with
 [`.selection(binding)`](https://docs.rs/day-piece-text-editor/latest/day_piece_text_editor/trait.TextEditorBuilder.html#tymethod.selection)

@@ -420,6 +420,45 @@ root title and a [`nav`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav.htm
 not recompute the launch-time layout direction. A direction change requires relaunching. Real right-to-left locales, such as Arabic, are used
 for layout verification; Day does not provide an `ar-XB` pseudolocale.
 
+### Direction of a subtree
+
+[`.layout_direction(direction)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.layout_direction) gives one piece and everything inside it a reading direction
+of its own, whatever the app's is:
+
+```rust
+// A phone number and a media transport read left to right in every locale.
+label(phone).layout_direction(LayoutDirection::Ltr)
+row((rewind(), play(), forward())).layout_direction(LayoutDirection::Ltr)
+
+// A preview of right-to-left content inside a left-to-right app.
+message_bubble(text).layout_direction(LayoutDirection::Rtl)
+
+// Follow the content's language, per row.
+row_content(slot).layout_direction(move || slot.field(|m| m.direction))
+```
+
+Inside the subtree, leading means that direction's start edge: rows run the other way, leading
+and trailing insets swap sides, and alignments flip. The piece keeps its place in its parent,
+which follows the parent's direction. A nested [`.layout_direction`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.layout_direction) overrides an outer one, and
+a signal or closure re-lays the subtree out when it changes.
+
+Day's layout engine does the mirroring, the same x-flip it applies for a right-to-left locale,
+decided per node. Each native widget in the subtree is also told its direction through
+[`Toolkit::set_layout_direction`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_layout_direction), so a label takes that base writing direction and
+`TextAlign::Leading` means that start edge, and a control draws its insides to match (the side
+a slider fills from, which way a disclosure arrow points). Widgets added to the subtree later
+are told on their first layout, and rows of a `list` or `tree` inside it follow the list.
+
+A canvas draws in its own coordinates and is not mirrored. [`day::is_rtl()`](https://docs.rs/day-core/latest/day_core/fn.is_rtl.html) answers for the
+app, so a drawing that should follow a subtree takes the direction as an argument.
+
+| Toolkit | What `set_layout_direction` sets |
+|---|---|
+
+Rows are added per toolkit as each implements the duty. Until a toolkit has a row, placement in
+the subtree is mirrored and its widgets keep the app's direction internally: a label's
+natural alignment and base writing direction follow the app's locale.
+
 ## Pseudolocale
 
 The `-XA` suffix accents and expands messages from the locale beneath it. `en-XA` exercises

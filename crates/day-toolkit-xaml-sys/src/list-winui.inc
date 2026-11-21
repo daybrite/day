@@ -37,6 +37,13 @@ struct WinuiList {
     void* host = nullptr;
     int count = 0, focus = 0, pending = -2;
     bool pending_nearest = false;
+    // A row scroll's alignment (docs/list.md "Scrolling to a row"): 0 nearest, 1 start, 2 center,
+    // 3 end; and whether it animates. An animated scroll is asked for once, not retried per frame.
+    int pending_align = 1;
+    bool pending_animated = false;
+    // Supplementary rows (a list's header, footer, empty state and padding): row chrome like a
+    // section header's (none), but never pinned.
+    std::set<int> plain;
     winrt::event_token reveal_frame{};
     std::weak_ptr<WinuiListCell> drag;
     uint64_t drag_generation = 0;
@@ -59,7 +66,27 @@ struct WinuiList {
     void (*action)(void*, int, uint64_t, int, int) = nullptr;
     int (*can_move)(void*, int, int) = nullptr;
     void (*moved)(void*, int, int) = nullptr;
+    // The reader's own scrolls (docs/list.md "Following the end"). A wheel notch or a scrolling
+    // key arms the list; the first view change that moves it within a moment is the reader's,
+    // so an input that moves nothing (a wheel at the end) reports nothing. A touch or pen pan is
+    // a DirectManipulation started under a contact; the scroll bar raises Scroll only for the
+    // user. The list's own BringIntoView raises none of these.
+    void (*reader)(void*) = nullptr;
+    ULONGLONG armed_at = 0;
+    double armed_offset = 0;
+    bool contact = false, bar_hooked = false;
+    // The list's own animated scroll is running (BringIntoView with animation, until the view
+    // settles). A key the reader presses meanwhile stops it before revealing its row: the
+    // running animation would otherwise carry on over the key's jump.
+    bool gliding = false;
     void notify() { if (host) changed(host); }
+    void stop_glide() {
+        if (!gliding) return;
+        gliding = false;
+        scroll.ChangeView(nullptr, WF::IReference<double>(scroll.VerticalOffset()), nullptr, true);
+    }
+    void reader_scroll() { if (host && reader) reader(host); }
+    void arm() { armed_at = GetTickCount64(); armed_offset = scroll.VerticalOffset(); }
     ~WinuiList() { if (pin_handle) day_xaml_delete(pin_handle); }
 };
 std::map<void*, std::shared_ptr<WinuiList>> winui_lists;
@@ -83,6 +110,10 @@ static bool winui_list_embedded(WF::IInspectable const& source, WinuiListCell co
     }
     return false;
 }
+// A row with no row chrome: a section header or a supplementary row.
+static bool winui_list_bare(WinuiList const& l, int row) {
+    return l.headers.count(row) != 0 || l.plain.count(row) != 0;
+}
 // Under a pinned header (docs/list.md "Sections") a row is only in view below it, so a
 // reveal brings the row plus that much space above it into view.
 static double winui_list_reveal_inset(WinuiList const& list, int row) {
@@ -100,7 +131,8 @@ static bool winui_list_reveal_landed(WinuiList const& list, int row, bool neares
         return (bounds.Y >= -.5 && bounds.Y + bounds.Height <= viewport + .5) ||
             (bounds.Y <= 0 && bounds.Y + bounds.Height >= viewport);
     }
-    double alignment = list.pending < 0 ? viewport - bounds.Height : 0;
+    const int align = list.pending < 0 ? 3 : list.pending_align;
+    double alignment = align == 3 ? viewport - bounds.Height : align == 2 ? (viewport - bounds.Height) / 2 : 0;
     double offset = list.scroll.VerticalOffset();
     double destination = std::clamp(offset + bounds.Y - alignment, 0.0,
         list.scroll.ScrollableHeight());
@@ -113,8 +145,11 @@ static void winui_list_reveal(WinuiList& list) {
     auto element = list.repeater.GetOrCreateElement(row);
     list.repeater.UpdateLayout();
     WUX::BringIntoViewOptions options;
-    options.AnimationDesired(false);
-    if (!list.pending_nearest) options.VerticalAlignmentRatio(list.pending < 0 ? 1.0 : 0.0);
+    options.AnimationDesired(list.pending_animated);
+    if (!list.pending_nearest) {
+        const int align = list.pending < 0 ? 3 : list.pending_align;
+        options.VerticalAlignmentRatio(align == 3 ? 1.0 : align == 2 ? 0.5 : 0.0);
+    }
     if (double inset = winui_list_reveal_inset(list, row); inset > 0) {
         if (auto fe = element.try_as<WUX::FrameworkElement>()) {
             options.TargetRect(WF::IReference<WF::Rect>(WF::Rect{
@@ -124,6 +159,15 @@ static void winui_list_reveal(WinuiList& list) {
     int request = list.pending;
     bool nearest = list.pending_nearest;
     element.StartBringIntoView(options);
+    if (list.pending_animated) {
+        // The platform's own scroll animation runs from here; asking again every frame would
+        // restart it. Its ViewChanged frames report the viewport as it goes.
+        list.gliding = true;
+        list.pending = -2;
+        list.pending_animated = false;
+        list.notify();
+        return;
+    }
     // A queued keyboard jump may not have a container until this request runs.
     if (nearest) if (auto c = element.try_as<WUXC::Control>()) c.Focus(WUX::FocusState::Keyboard);
     // ItemsRepeater retains its bring-into-view anchor until Rendering. Another request
@@ -148,9 +192,9 @@ static void winui_list_reveal(WinuiList& list) {
 // Keyboard travel lands on rows, never headers: keep going the way the key moved, and turn
 // back at the end of the list (a header precedes every section, so some row is always near).
 static int winui_list_skip_headers(WinuiList const& l, int target, int dir) {
-    if (l.headers.empty() || dir == 0 || !l.headers.count(target)) return target;
-    for (int r = target; r >= 0 && r < l.count; r += dir) if (!l.headers.count(r)) return r;
-    for (int r = target - dir; r >= 0 && r < l.count; r -= dir) if (!l.headers.count(r)) return r;
+    if ((l.headers.empty() && l.plain.empty()) || dir == 0 || !winui_list_bare(l, target)) return target;
+    for (int r = target; r >= 0 && r < l.count; r += dir) if (!winui_list_bare(l, r)) return r;
+    for (int r = target - dir; r >= 0 && r < l.count; r -= dir) if (!winui_list_bare(l, r)) return r;
     return target;
 }
 // The pinned header's ground: opaque, so rows scrolling under it never show through. The
@@ -195,6 +239,37 @@ static void winui_list_pin_install(WinuiList& l) {
     l.pin.Margin(presenter.Margin());
     panel.Children().InsertAt(index + 1, l.pin);
     l.pin_installed = true;
+}
+// The template's vertical scroll bar raises Scroll only when the user drags its thumb or
+// presses its track or arrows; the view changes it makes are the reader's (docs/list.md
+// "Following the end"). The bar exists once the template is applied.
+static void winui_list_hook_bar(std::shared_ptr<WinuiList> const& list) {
+    if (list->bar_hooked) return;
+    list->scroll.ApplyTemplate();
+    std::vector<std::pair<WUX::DependencyObject, int>> stack{{list->scroll, 0}};
+    while (!stack.empty()) {
+        auto [at, depth] = stack.back();
+        stack.pop_back();
+        int n = WUXM::VisualTreeHelper::GetChildrenCount(at);
+        for (int i = 0; i < n; ++i) {
+            auto child = WUXM::VisualTreeHelper::GetChild(at, i);
+            auto bar = child.try_as<WUXCP::ScrollBar>();
+            if (bar && bar.Orientation() == WUXC::Orientation::Vertical) {
+                std::weak_ptr<WinuiList> weak = list;
+                bar.Scroll([weak](auto const&, WUXCP::ScrollEventArgs const& a) {
+                    auto l = weak.lock();
+                    if (l && a.ScrollEventType() != WUXCP::ScrollEventType::EndScroll &&
+                        std::abs(a.NewValue() - l->scroll.VerticalOffset()) > .5) {
+                        l->stop_glide();
+                        l->reader_scroll();
+                    }
+                });
+                list->bar_hooked = true;
+                return;
+            }
+            if (!bar && depth < 5) stack.push_back({child, depth + 1});
+        }
+    }
 }
 // A realized row's top edge in viewport coordinates.
 static bool winui_list_row_top(WinuiList const& l, int row, double& top) {
@@ -356,7 +431,7 @@ struct WinuiListFactory : winrt::implements<WinuiListFactory, WUX::IElementFacto
         auto l = list.lock();
         if (!l) return nullptr;
         int row = winrt::unbox_value<int>(args.Data());
-        bool header = l->headers.count(row) != 0;
+        bool header = winui_list_bare(*l, row);
         std::shared_ptr<WinuiListCell> cell;
         for (auto const& c : l->cells) if (c->row < 0 && c->header == header) { cell = c; break; }
         if (!cell) cell = winui_list_make_cell(l, header);
@@ -403,12 +478,12 @@ struct DayWinuiListCell {
 void* day_winui_list_new(double pitch, int selectable, int activatable, int reorderable,
     void (*changed)(void*), void (*selected)(void*, int, int),
     void (*offer)(void*, void*, int), void (*action)(void*, int, uint64_t, int, int),
-    int (*can_move)(void*, int, int), void (*moved)(void*, int, int)) {
+    int (*can_move)(void*, int, int), void (*moved)(void*, int, int), void (*reader)(void*)) {
     auto l = std::make_shared<WinuiList>();
     l->pitch = pitch; l->selectable = selectable != 0; l->activatable = activatable != 0;
     l->reorderable = reorderable != 0;
     l->changed = changed; l->selected = selected; l->offer = offer; l->action = action;
-    l->can_move = can_move; l->moved = moved;
+    l->can_move = can_move; l->moved = moved; l->reader = reader;
     l->layout.Orientation(WUXC::Orientation::Vertical);
     l->repeater.Layout(l->layout);
     l->repeater.ItemTemplate(winrt::make<WinuiListFactory>(l));
@@ -423,13 +498,56 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
     winui_lists.emplace(l->host, l);
     std::weak_ptr<WinuiList> weak = l;
     // The pinned header moves here, in step with the scroll; Day's pass only rebinds it.
-    l->scroll.ViewChanged([weak](auto const&, auto const&) {
-        if (auto l = weak.lock()) { winui_list_pin(*l); l->notify(); }
+    l->scroll.ViewChanged([weak](auto const&, WUXC::ScrollViewerViewChangedEventArgs const& a) {
+        if (auto l = weak.lock()) {
+            // A wheel or key armed the list and the view moved: the reader's scroll, reported
+            // before the viewport report this change schedules.
+            if (l->armed_at && GetTickCount64() - l->armed_at < 250 &&
+                std::abs(l->scroll.VerticalOffset() - l->armed_offset) > .5) {
+                l->armed_at = 0;
+                l->reader_scroll();
+            }
+            if (!a.IsIntermediate()) l->gliding = false;
+            winui_list_pin(*l);
+            l->notify();
+        }
     });
     l->scroll.SizeChanged([weak](auto const&, auto const&) {
         if (auto l = weak.lock()) { winui_list_pin(*l); l->notify(); }
     });
-    l->scroll.Loaded([weak](auto const&, auto const&) { if (auto l = weak.lock()) l->notify(); });
+    l->scroll.Loaded([weak](auto const&, auto const&) {
+        if (auto l = weak.lock()) { winui_list_hook_bar(l); l->notify(); }
+    });
+    // A mouse wheel or a touchpad's wheel messages. The ScrollViewer handles the event, so the
+    // handler hears handled ones too; a horizontal wheel or Ctrl (zoom) moves no rows.
+    day_observe(l->scroll, UIElement::PointerWheelChangedEvent(),
+        [weak](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) {
+            auto l = weak.lock();
+            if (!l) return;
+            auto props = a.GetCurrentPoint(l->scroll).Properties();
+            if (props.IsHorizontalMouseWheel() || props.MouseWheelDelta() == 0 ||
+                (a.KeyModifiers() & WS::VirtualKeyModifiers::Control) != WS::VirtualKeyModifiers::None)
+                return;
+            l->arm();
+        });
+    // A finger or pen on the list: the DirectManipulation that starts under it is the reader's
+    // pan. The system cancels the pointer when the pan takes over, so the contact ends with the
+    // release or with the manipulation, not with the cancel.
+    day_observe(l->scroll, UIElement::PointerPressedEvent(),
+        [weak](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) {
+            if (auto l = weak.lock())
+                if (a.Pointer().PointerDeviceType() != DayPointerDeviceType::Mouse) l->contact = true;
+        });
+    day_observe(l->scroll, UIElement::PointerReleasedEvent(),
+        [weak](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const&) {
+            if (auto l = weak.lock()) l->contact = false;
+        });
+    l->scroll.DirectManipulationStarted([weak](auto const&, auto const&) {
+        if (auto l = weak.lock(); l && l->contact) l->reader_scroll();
+    });
+    l->scroll.DirectManipulationCompleted([weak](auto const&, auto const&) {
+        if (auto l = weak.lock()) l->contact = false;
+    });
     l->scroll.PreviewKeyDown([weak](auto const&, WUXIn::KeyRoutedEventArgs const& e) {
         auto l = weak.lock();
         if (!l || !l->host || l->count == 0) return;
@@ -453,8 +571,12 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
             else if (key == WS::VirtualKey::PageDown) target += (std::max)(1, int(l->scroll.ViewportHeight() / l->pitch)), dir = 1;
             else if (key != WS::VirtualKey::Space || !l->selectable) return;
             target = winui_list_skip_headers(*l, std::clamp(target, 0, l->count - 1), dir);
+            // A key that brings a row out of view into it scrolls for the reader.
+            l->stop_glide();
+            l->arm();
             l->focus = target; l->pending = target;
             l->pending_nearest = true;
+            l->pending_animated = false;
             winui_list_reveal(*l);
             if (l->selectable && (!(mods & 1) || key == WS::VirtualKey::Space)) l->selected(l->host, target, mods);
         }
@@ -524,7 +646,7 @@ void day_winui_list_cell_size(void* host, void* cell, uint64_t generation, doubl
         auto l = winui_list(host); if (!l) return;
         auto c = winui_cell(*l, cell); if (!c || c->generation != generation) return;
         c->content.Width(width); c->content.Height(height);
-        if (c->header) l->header_pitch = height;
+        if (c->header && l->headers.count(c->row)) l->header_pitch = height;
         auto e = c->element();
         if (std::abs(e.Height() - height) > .25) { e.Height(height); l->notify(); }
     });
@@ -534,8 +656,43 @@ void day_winui_list_scroll(void* host, int row) {
         if (auto l = winui_list(host)) {
             l->pending = row;
             l->pending_nearest = false;
+            l->pending_align = 1;
+            l->pending_animated = false;
             winui_list_reveal(*l);
         }
+    });
+}
+// A row scroll with an alignment (0 nearest, 1 start, 2 center, 3 end) and the platform's
+// scroll animation or none; `row` -1 is the end of the content (docs/list.md).
+void day_winui_list_scroll_to(void* host, int row, int align, int animated) {
+    guard([&] {
+        if (auto l = winui_list(host)) {
+            l->pending = row;
+            l->pending_nearest = row >= 0 && align == 0;
+            l->pending_align = align;
+            l->pending_animated = animated != 0;
+            winui_list_reveal(*l);
+        }
+    });
+}
+// The scroll extent, offset and viewport height in DIPs (the extent is the repeater's estimate
+// for rows it has not realized), for the viewport report.
+void day_winui_list_metrics(void* host, double* extent, double* offset, double* viewport) {
+    *extent = *offset = *viewport = 0;
+    guard([&] {
+        if (auto l = winui_list(host)) {
+            *extent = l->scroll.ExtentHeight();
+            *offset = l->scroll.VerticalOffset();
+            *viewport = l->scroll.ViewportHeight();
+        }
+    });
+}
+// The list's supplementary rows, sent before each reload like the section headers.
+void day_winui_list_plain(void* host, int const* rows, int len) {
+    guard([&] {
+        auto l = winui_list(host); if (!l) return;
+        l->plain.clear();
+        for (int i = 0; i < len; ++i) l->plain.insert(rows[i]);
     });
 }
 void day_winui_list_select(void* host, int const* rows, int len) {

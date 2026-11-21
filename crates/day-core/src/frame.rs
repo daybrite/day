@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Window-scoped display scheduling (docs/frames.md). Native frame requests are shared by
-//! one-shot clients, continuous subscriptions and the legacy `frame_clock` piece. No timers,
+//! one-shot clients and continuous subscriptions. No timers,
 //! no implicit physics clamp, and no native request when there is no demand.
 
 use std::cell::RefCell;
@@ -413,26 +413,10 @@ pub(crate) fn forget_window(root: RNode) {
     }
 }
 
-/// Legacy `frame_clock` registration. New code should own a [`FrameHandle`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FrameConsumer(u64);
-pub fn add_frame_consumer(mut cb: impl FnMut(Duration) + 'static) -> FrameConsumer {
-    let mut first = true;
-    let handle = subscribe(move |frame| {
-        // Preserve the original first-frame and <=100ms simulation contract for existing games.
-        cb(if std::mem::take(&mut first) {
-            Duration::from_secs_f64(1.0 / 60.0)
-        } else {
-            frame.delta.min(Duration::from_millis(100))
-        });
-        ControlFlow::Continue(())
-    });
-    let id = handle.id;
-    std::mem::forget(handle);
-    FrameConsumer(id)
-}
-pub fn remove_frame_consumer(c: FrameConsumer) {
-    remove(c.0);
+/// Whether this thread's frame registry still exists. At thread teardown it may be gone before
+/// the last frame callback is dropped; a destructor asks before touching reactive state.
+pub(crate) fn alive() -> bool {
+    DRIVER.try_with(|_| ()).is_ok()
 }
 /// Number of active subscriptions and pending single-frame clients (paused handles excluded).
 #[must_use]

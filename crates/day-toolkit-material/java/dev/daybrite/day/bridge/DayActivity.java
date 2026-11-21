@@ -267,6 +267,23 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     /** Whether the Activity is currently resumed (foreground + interactive). */
     private boolean resumed = false;
 
+    // Every touch the window receives reaches Day's input observers after the views had it:
+    // the input kind and the presses (docs/gestures.md "Press", "Input kind").
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        boolean handled = super.dispatchTouchEvent(ev);
+        DayBridge.observeTouch(ev);
+        return handled;
+    }
+    @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent ev) {
+        DayBridge.observeGenericMotion(ev);
+        return super.dispatchGenericMotionEvent(ev);
+    }
+    /** A press does not outlast its window's focus (a dialog, a menu, another app). */
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) DayBridge.cancelPresses();
+    }
+
     // Activity lifecycle → day lifecycle phases (docs/lifecycle.md). Codes match day_spec::Lifecycle.
     @Override protected void onStart() { super.onStart(); DayBridge.lifecycle(4); }   // WillEnterForeground
     @Override protected void onResume() {

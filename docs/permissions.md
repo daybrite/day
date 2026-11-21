@@ -242,6 +242,9 @@ ohos    = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", w
 A library can declare the machine-facing half itself (`[package.metadata.day.permissions] uses =
 ["camera"]`) but never the reason, which is app copy. A contribution with no reason in the app's
 Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and the lines to paste.
+`<name> = false` in the app's Day.toml (or in a [flavor](/docs/flavors)'s `[permissions]`)
+refuses a contribution: the permission is not declared, and the feature that wanted it reports
+itself unavailable at run time.
 
 ### Where each file is written, and what Day owns in it
 

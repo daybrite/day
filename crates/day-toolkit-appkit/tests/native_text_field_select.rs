@@ -121,9 +121,9 @@ fn main() {
             assert_eq!(
                 *keys.borrow(),
                 [
-                    (BAR, "ArrowDown".to_owned()),
-                    (BAR, "ArrowUp".to_owned()),
-                    (BAR, "Escape".to_owned()),
+                    (BAR, day_spec::Key::ArrowDown),
+                    (BAR, day_spec::Key::ArrowUp),
+                    (BAR, day_spec::Key::Escape),
                 ]
             );
             assert_eq!(

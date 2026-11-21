@@ -30,7 +30,7 @@ pub struct Image {
     /// The tint the view is REALIZED with (`sidebar_image`'s rows): a patch sent before the node
     /// has a native view is dropped, so a row built in a not-yet-realized cell would otherwise
     /// come up in the template default until its tint next changed.
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
 }
 
 /// Draw an image from any [`ImageSource`](day_spec::ImageSource): a staged asset name, encoded
@@ -164,8 +164,16 @@ impl Image {
         self.template = true;
         self
     }
+    /// Recolor the image to `color`, keeping only its alpha: every pixel becomes `color` at
+    /// the opacity the image had there (docs/images.md "Tinting"). What turns a white-on-clear
+    /// logo or a scanned signature into the theme's ink; on a photo with no transparency it is
+    /// a flat block of color.
+    pub fn tint(mut self, color: impl Into<day_spec::Ink>) -> Self {
+        self.tint = Some(color.into());
+        self
+    }
     /// The tint to realize with; later changes go through `ImagePatch::Tint` (docs/vectors.md).
-    pub(crate) fn initial_tint(mut self, tint: Option<day_spec::Color>) -> Self {
+    pub(crate) fn initial_tint(mut self, tint: Option<day_spec::Ink>) -> Self {
         self.tint = tint;
         self
     }
@@ -187,7 +195,9 @@ impl Piece for Image {
             Some(ratio) => cx.native(
                 kinds::IMAGE,
                 &props,
-                std::rc::Rc::new(AspectRatioLayout { ratio }),
+                std::rc::Rc::new(AspectRatioLayout {
+                    ratio: std::cell::Cell::new(ratio),
+                }),
                 Flex::default(),
                 day_core::Boundary::No,
             ),
@@ -223,7 +233,7 @@ impl Piece for Image {
 #[must_use]
 pub struct Vector {
     source: crate::Reactive<day_spec::VectorName>,
-    tint: Option<crate::Reactive<day_spec::Color>>,
+    tint: Option<crate::Reactive<day_spec::Ink>>,
     weight: VectorWeight,
     decorative: bool,
     template: bool,
@@ -257,7 +267,7 @@ impl Vector {
     /// Takes a plain [`Color`](day_spec::Color) or anything reactive: a signal or closure repaints
     /// the realized glyph through [`ImagePatch::Tint`](day_spec::props::ImagePatch) instead of
     /// rebuilding it, so a glyph that follows the selection or the theme keeps its native view.
-    pub fn tint<M>(mut self, color: impl crate::IntoReactive<day_spec::Color, M>) -> Self {
+    pub fn tint<M>(mut self, color: impl crate::IntoReactive<day_spec::Ink, M>) -> Self {
         self.tint = Some(color.into_reactive());
         self
     }
@@ -327,7 +337,7 @@ impl Piece for Vector {
             day_reactive::bind_seeded(
                 seed,
                 move || tint.get(),
-                move |c: &day_spec::Color| {
+                move |c: &day_spec::Ink| {
                     day_core::with_tree(|t| {
                         t.patch(
                             node,
@@ -385,6 +395,26 @@ pub(crate) mod conformance {
                 d.assert_size("image", 120.0, 60.0).await?;
                 d.sample_pixel("image", 0.2, 0.5, "#ff0000").await?;
                 d.sample_pixel("image", 0.8, 0.5, "#0000ff").await
+            })
+    }
+
+    /// A tinted raster image draws in the tint, not in its own colors.
+    #[day_macros::test(day_core)]
+    fn image_tint_recolors_raster() -> Case {
+        Case::new()
+            .proves(kinds::IMAGE)
+            .requires(Cap::ImageDecode)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                image(RED_BLUE.to_vec())
+                    .stretch()
+                    .tint(day_spec::Color::rgb(0.0, 1.0, 0.0))
+                    .id(day_core::id!(image))
+                    .frame(120.0, 60.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("image", 0.2, 0.5, "#00ff00").await?;
+                d.sample_pixel("image", 0.8, 0.5, "#00ff00").await
             })
     }
 

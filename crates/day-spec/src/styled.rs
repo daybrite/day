@@ -14,41 +14,81 @@
 //! the ranges over an edit the native editor already made. That is what lets the same logic run
 //! on nine backends and be tested on the headless one.
 
-use crate::{Color, Font, FontSpec, FontWeight, TextRun, runs_are_valid};
+use crate::props::TextAlign;
+use crate::{Color, Font, FontSpec, FontWeight, Ink, TextRun, runs_are_valid};
 
 // ---------------------------------------------------------------------------
 // Character attributes
 // ---------------------------------------------------------------------------
 
-/// A line under a run.
+/// How a [`Decoration`] line is drawn.
 ///
-/// An enum rather than a `bool` because every toolkit distinguishes at least single from double,
-/// and because a wavy underline is how an app draws its diagnostics (a spelling or grammar
-/// mark of its own making) without fighting the platform's checker for the same pixels.
+/// A toolkit with no native form of a style draws `Single`, so the text still reads as
+/// decorated (docs/text-runs.md lists who draws what).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Underline {
+pub enum DecorationStyle {
+    /// One solid line.
     #[default]
-    None,
     Single,
+    /// Two solid lines.
     Double,
+    /// A dotted line.
     Dotted,
-    /// The squiggle. A backend with no wavy style draws `Single`.
+    /// The squiggle an app draws its own diagnostics with (a spelling or grammar mark).
     Wavy,
 }
 
-impl Underline {
+/// A line under or through a run: [`TextRun::underline`] and [`TextRun::strikethrough`].
+///
+/// One type for both lines because every text system gives them the same two knobs: how the
+/// line is drawn and what color it takes. `color: None` draws the line in the run's text color.
+///
+/// ```ignore
+/// TextRun { underline: Some(Decoration::wavy().color(Color::RED)), ..TextRun::default() }
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Decoration {
+    /// How the line is drawn.
+    pub style: DecorationStyle,
+    /// The line's color; `None` follows the text color.
+    pub color: Option<Ink>,
+}
+
+impl Decoration {
+    /// One solid line in the text color, what a toolbar's underline button turns on.
+    pub const SINGLE: Decoration = Decoration::new(DecorationStyle::Single);
+
+    /// A line of `style` in the text color.
     #[must_use]
-    pub fn is_on(self) -> bool {
-        self != Underline::None
+    pub const fn new(style: DecorationStyle) -> Self {
+        Decoration { style, color: None }
     }
-    /// The toolbar's on/off toggle: `Single` when turning it on, `None` when off.
+    /// Two solid lines.
     #[must_use]
-    pub fn toggled(self) -> Self {
-        if self.is_on() {
-            Underline::None
-        } else {
-            Underline::Single
-        }
+    pub const fn double() -> Self {
+        Decoration::new(DecorationStyle::Double)
+    }
+    /// A dotted line.
+    #[must_use]
+    pub const fn dotted() -> Self {
+        Decoration::new(DecorationStyle::Dotted)
+    }
+    /// A wavy line.
+    #[must_use]
+    pub const fn wavy() -> Self {
+        Decoration::new(DecorationStyle::Wavy)
+    }
+    /// This line in `color` instead of the text color.
+    #[must_use]
+    pub fn color(mut self, color: impl Into<Ink>) -> Self {
+        self.color = Some(color.into());
+        self
+    }
+}
+
+impl From<DecorationStyle> for Decoration {
+    fn from(style: DecorationStyle) -> Self {
+        Decoration::new(style)
     }
 }
 
@@ -59,8 +99,10 @@ pub struct RunStyle {
     pub font: FontSpec,
     pub color: Option<Color>,
     pub background: Option<Color>,
-    pub underline: Underline,
-    pub strikethrough: bool,
+    /// A line under the text.
+    pub underline: Option<Decoration>,
+    /// A line through the text.
+    pub strikethrough: Option<Decoration>,
     pub link: Option<String>,
 }
 
@@ -88,23 +130,19 @@ impl RunStyle {
     pub fn set_italic(&mut self, on: bool) {
         self.font.italic = on;
     }
+    /// The toolbar's underline toggle: one solid line when turning it on, none when off.
+    pub fn set_underline(&mut self, on: bool) {
+        self.underline = on.then_some(Decoration::SINGLE);
+    }
+    /// The toolbar's strikethrough toggle.
+    pub fn set_strikethrough(&mut self, on: bool) {
+        self.strikethrough = on.then_some(Decoration::SINGLE);
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Paragraph attributes
 // ---------------------------------------------------------------------------
-
-/// How a paragraph's lines sit in the width they are given.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ParagraphAlign {
-    /// The reading direction's start edge: left under LTR, right under RTL.
-    #[default]
-    Natural,
-    Center,
-    /// The reading direction's end edge.
-    Trailing,
-    Justified,
-}
 
 /// A paragraph's list decoration, if it is a list item.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -121,7 +159,7 @@ pub enum ListStyle {
 /// A [`ParagraphRun`]'s attributes with no range attached.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ParagraphStyle {
-    pub align: ParagraphAlign,
+    pub align: TextAlign,
     /// Leading indent in points, from the reading direction's start edge. A list item's total
     /// indent is this plus whatever the platform reserves for its marker.
     pub indent: f64,
@@ -144,7 +182,7 @@ pub struct ParagraphStyle {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ParagraphRun {
     pub range: std::ops::Range<usize>,
-    pub align: ParagraphAlign,
+    pub align: TextAlign,
     pub indent: f64,
     pub space_before: f64,
     pub space_after: f64,
@@ -539,6 +577,8 @@ fn merge_style(acc: Option<RunStyle>, b: &RunStyle) -> RunStyle {
             italic: a.font.italic && b.font.italic,
             tabular: a.font.tabular && b.font.tabular,
             monospace: a.font.monospace && b.font.monospace,
+            small_caps: a.font.small_caps && b.font.small_caps,
+            oldstyle_figures: a.font.oldstyle_figures && b.font.oldstyle_figures,
             scale: if a.font.scale == b.font.scale {
                 a.font.scale
             } else {
@@ -554,9 +594,13 @@ fn merge_style(acc: Option<RunStyle>, b: &RunStyle) -> RunStyle {
         underline: if a.underline == b.underline {
             a.underline
         } else {
-            Underline::None
+            None
         },
-        strikethrough: a.strikethrough && b.strikethrough,
+        strikethrough: if a.strikethrough == b.strikethrough {
+            a.strikethrough
+        } else {
+            None
+        },
         link: if a.link == b.link { a.link } else { None },
     }
 }
@@ -799,14 +843,14 @@ mod tests {
     #[test]
     fn apply_paragraph_styles_the_whole_paragraph_a_caret_sits_in() {
         let mut d = StyledText::plain("one\ntwo\nthree");
-        d.apply_paragraph(5..5, |p| p.align = ParagraphAlign::Center);
+        d.apply_paragraph(5..5, |p| p.align = TextAlign::Center);
         assert_eq!(d.paragraphs.len(), 1);
         assert_eq!(d.paragraphs[0].range, 4..8, "the whole second paragraph");
-        assert_eq!(d.paragraphs[0].align, ParagraphAlign::Center);
-        assert_eq!(d.paragraph_style_of(5..5).align, ParagraphAlign::Center);
+        assert_eq!(d.paragraphs[0].align, TextAlign::Center);
+        assert_eq!(d.paragraph_style_of(5..5).align, TextAlign::Center);
         assert_eq!(
             d.paragraph_style_of(0..13).align,
-            ParagraphAlign::Natural,
+            TextAlign::Leading,
             "a mixed selection reports the default"
         );
         assert!(d.validate().is_ok());

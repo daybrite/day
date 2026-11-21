@@ -19,7 +19,11 @@ public final class DayTransfer {
     static final String BUNDLE="application/vnd.day.transfer";
     static final Map<View,State> states=new WeakHashMap<>();
     static final ExecutorService reads=Executors.newSingleThreadExecutor();
-    static final class State {long token; boolean alive=true;float x,y;}
+    static final class State {long token; boolean alive=true;float x,y;
+        /** A drop on this target is being read: its delivery ends the hover, not ENDED. */
+        boolean dropping;}
+    /** End the target's hover (Target::leave): the session left it or ended. */
+    private static void leave(State s) {if(s.alive)nativeCall(3,s.token,0,0,new byte[0],false);}
     private static native byte[] nativeCall(int kind,long token,double x,double y,byte[] bytes,boolean local);
     private static State state(View v,long token) {State s=states.get(v);if(s==null){s=new State();s.token=token;states.put(v,s);}return s;}
     public static void release(View v) {State s=states.remove(v);if(s!=null)s.alive=false;}
@@ -95,11 +99,14 @@ public final class DayTransfer {
                 case DragEvent.ACTION_DRAG_STARTED:return description!=null;
                 case DragEvent.ACTION_DRAG_ENTERED:
                 case DragEvent.ACTION_DRAG_LOCATION:return accept(view,s,event,types.toString());
-                case DragEvent.ACTION_DRAG_EXITED:
-                case DragEvent.ACTION_DRAG_ENDED:return true;
+                // The session left without dropping, or ended (dropped elsewhere, cancelled):
+                // the hover is over. A drop here ends it itself, once its data is read.
+                case DragEvent.ACTION_DRAG_EXITED:leave(s);return true;
+                case DragEvent.ACTION_DRAG_ENDED:if(!s.dropping)leave(s);return true;
                 case DragEvent.ACTION_DROP:
-                    if(!accept(view,s,event,types.toString()))return false;
-                    final ClipData clip=event.getClipData();if(clip==null||clip.getItemCount()<1||clip.getItemCount()>256)return false;
+                    if(!accept(view,s,event,types.toString())){leave(s);return false;}
+                    final ClipData clip=event.getClipData();if(clip==null||clip.getItemCount()<1||clip.getItemCount()>256){leave(s);return false;}
+                    s.dropping=true;
                     Activity a=activity(view.getContext());
                     final DragAndDropPermissions permission=a==null?null:a.requestDragAndDropPermissions(event);
                     final float density=view.getResources().getDisplayMetrics().density;
@@ -114,10 +121,12 @@ public final class DayTransfer {
                         try { payload=receive(resolver,clip,description,cancel,opened); }
                         catch(Exception error) {android.util.Log.w("DayTransfer", "Unable to read drop", error);}
                         final byte[] result=payload;
-                        DayBridge.main.post(()->{if(!finished.compareAndSet(false,true))return;try{if(s.alive&&result!=null)nativeCall(2,token,x,y,result,local);}finally{if(permission!=null)permission.release();}});
+                        DayBridge.main.post(()->{if(!finished.compareAndSet(false,true))return;s.dropping=false;try{if(s.alive&&result!=null)nativeCall(2,token,x,y,result,local);else leave(s);}finally{if(permission!=null)permission.release();}});
                     });
                     DayBridge.main.postDelayed(()->{
                         if(finished.compareAndSet(false,true)){
+                            s.dropping=false;
+                            leave(s);
                             cancel.cancel();
                             AssetFileDescriptor fd=opened.getAndSet(null);
                             if(fd!=null)try{fd.close();}catch(IOException ignored){}

@@ -21,11 +21,11 @@ are needed.
 ```rust
 use day::{
     prelude::*,
-    transfer::{Item, Offer, Operation, Representation, Target},
+    transfer::{Item, Offer, Operation, Representation},
 };
-use std::rc::Rc;
 
 let received = Signal::new(String::new());
+let hovering = Signal::new(false);
 let source = label(res::str::drag()).drag_source(|_| {
     Some(Offer {
         items: vec![Item::new(vec![Representation::new(
@@ -34,27 +34,62 @@ let source = label(res::str::drag()).drag_source(|_| {
         )])],
     })
 });
-let target = label(move || received.get()).drop_target(Target {
-    types: vec!["application/vnd.example.card".into()],
-    accept: Rc::new(|location| {
-        if location.position.x >= 24. && location.has("application/vnd.example.card") {
-            Operation::Copy
-        } else {
-            Operation::None
-        }
-    }),
-    receive: Rc::new(move |drop| {
-        if drop.items.len() != 1 {
-            return false;
-        }
-        let Some(bytes) = drop.items[0].get("application/vnd.example.card") else {
-            return false;
-        };
-        received.set(res::str::received_bytes(bytes.len() as i64).format());
-        true
-    }),
-});
+let target = label(move || received.get())
+    .background(move || if hovering.get() { HIGHLIGHT } else { REST })
+    .drop_target(
+        DropTarget::new(["application/vnd.example.card"])
+            .accept(|location| {
+                if location.position.x >= 24. {
+                    Operation::Copy
+                } else {
+                    Operation::None
+                }
+            })
+            .on_enter(move |_| hovering.set(true))
+            .on_leave(move || hovering.set(false))
+            .on_drop(move |drop| {
+                let [item] = drop.items.as_slice() else {
+                    return false;
+                };
+                let Some(bytes) = item.get("application/vnd.example.card") else {
+                    return false;
+                };
+                received.set(res::str::received_bytes(bytes.len() as i64).format());
+                true
+            }),
+    );
 ```
+
+## Accepting drops
+
+A [`DropTarget`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Target.html) is one
+value: the MIME types it takes and what runs during a drag.
+
+| Method | Runs | Notes |
+|---|---|---|
+| [`DropTarget::new(types)`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Target.html#method.new) | | the types registered with the platform; [`DropTarget::files()`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Target.html#method.files) is `text/uri-list` |
+| [`.accept(policy)`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Target.html#method.accept) | during hover and again at the drop | returns the `Operation`; omit it to copy any offer that carries one of the types |
+| [`.on_enter(f)`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Target.html#method.on_enter) | when a drag the target accepts comes over it | receives the `Location` |
+| [`.on_leave(f)`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Target.html#method.on_leave) | when that hover ends | the drag left, the session was cancelled, or the drop was delivered |
+| [`.on_drop(f)`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Target.html#method.on_drop) | at the drop | receives the owned `Drop`; return whether the data was taken |
+
+Every `on_enter` is followed by exactly one `on_leave`, including after a drop, so a highlight
+needs the pair and nothing else. A drag that the policy refuses never enters; a policy that
+starts refusing mid-hover (the pointer moved to a forbidden position) leaves.
+
+For dropped files, the short form hands over the local paths:
+
+```rust
+drop_zone.on_files_dropped(move |paths: Vec<PathBuf>| import(paths))
+```
+
+[`Drop::file_paths()`](https://docs.rs/day-spec/latest/day_spec/transfer/struct.Drop.html#method.file_paths) reads the same list inside a full target's `on_drop`. Paths under a
+sandbox or a document provider still need the platform's access lease ([files](files.md)).
+
+Enter and leave reporting by toolkit:
+
+| Toolkit | Limitation |
+|---|---|
 
 Localize user-facing strings in real applications. Apply a canvas's gesture/test [`.id(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.id)
 before [`.drop_target(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.drop_target) when the identifier must still address the canvas itself: the
@@ -68,7 +103,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 The synchronous policy receives target-local logical coordinates, advertised types, native
 allowed operations, and native locality. It is called during hover and again before delivery.
 Return `None` for a forbidden position or disabled destination. Policy cannot escalate the
-native operation mask. Validate actual bytes in `receive`; a type name is not proof of content.
+native operation mask. Validate actual bytes in `on_drop`; a type name is not proof of content.
 Callbacks run on the UI thread inside their owning piece scope and become inactive when that
 scope is disposed. An asynchronous task must capture any scene state it uses after an await;
 enter the captured scope for model operations that resolve ambient state at commit time.

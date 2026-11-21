@@ -8,6 +8,12 @@
 // cell guards the programmatic sync in `update` from echoing back as an Event::TextChanged. `measure`
 // grows the editor's height with its content between `min_lines` and `max_lines`, then the scrolled
 // window scrolls.
+//
+// GtkTextView has no selection switch, so `selectable = false` is emulated (Cap::TextSelectable
+// `Emulated`, docs/textarea.md): every selection the buffer reports through `mark-set` collapses to
+// the insertion point, the copy/cut/select-all keybinding signals stop before their default
+// handlers, and the context menu (right click, the Menu key, the app's extra menu) is set aside.
+// Typing is untouched; editability is its own native property.
 // ---------------------------------------------------------------------------
 
 use day_spec::Event;
@@ -33,6 +39,10 @@ struct TAState {
     line_h: f64,
     min_lines: u32,
     max_lines: u32,
+    /// `TextAreaProps::selectable`, read by the emulation's handlers.
+    selectable: Rc<Cell<bool>>,
+    /// The app's extra context-menu model, held aside while selection is off.
+    extra_menu: Option<gtk4::gio::MenuModel>,
 }
 
 day_core::tls_group! {
@@ -53,8 +63,8 @@ fn buffer_text(b: &gtk4::TextBuffer) -> String {
 fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
     let textview = gtk4::TextView::new();
     textview.set_wrap_mode(gtk4::WrapMode::WordChar);
-    // GtkTextView honors editability; it's always selectable and has no built-in spell-check
-    // (Cap::TextSelectable / Cap::TextSpellCheck are Unsupported here), so those props are no-ops.
+    // GtkTextView honors editability natively; selection off is emulated (`emulate_unselectable`)
+    // and there is no built-in spell-check (Cap::TextSpellCheck is Unsupported here).
     textview.set_editable(p.editable);
     textview.set_top_margin(MARGIN_V);
     textview.set_bottom_margin(MARGIN_V);
@@ -125,21 +135,93 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
         });
     });
 
+    let selectable = Rc::new(Cell::new(true));
+    emulate_unselectable(&textview, &buffer, &selectable);
+
     let w: gtk4::Widget = overlay.upcast();
-    STATE.with(|m| {
-        m.insert(
-            key(&w),
-            TAState {
-                textview,
-                buffer,
-                suppress,
-                line_h,
-                min_lines: p.min_lines,
-                max_lines: p.max_lines,
-            },
-        )
-    });
+    let mut state = TAState {
+        textview,
+        buffer,
+        suppress,
+        line_h,
+        min_lines: p.min_lines,
+        max_lines: p.max_lines,
+        selectable,
+        extra_menu: None,
+    };
+    set_selectable(&mut state, p.selectable);
+    STATE.with(|m| m.insert(key(&w), state));
     w
+}
+
+/// Wire the selection-off emulation. Each handler acts only while `selectable` is off.
+///
+/// - `mark-set`: a selection (a drag, a double click, Shift+arrows, a programmatic one)
+///   collapses to the insertion point as soon as the buffer reports it, before the buffer's own
+///   handler offers it as the PRIMARY selection.
+/// - `copy-clipboard`, `cut-clipboard`, `select-all`: the keybinding signals behind Ctrl+C,
+///   Ctrl+X and Ctrl+A stop before their default handlers run.
+/// - A capture-phase secondary click claims its press, so the view's own menu never opens.
+fn emulate_unselectable(
+    textview: &gtk4::TextView,
+    buffer: &gtk4::TextBuffer,
+    selectable: &Rc<Cell<bool>>,
+) {
+    let sel = selectable.clone();
+    // `place_cursor` moves `insert` before `selection_bound`, so the nested `mark-set` for
+    // `insert` still sees a selection: without the guard the collapse recurses until the stack
+    // overflows (a drag in GtkTextView selects from an anonymous mark on every motion).
+    let collapsing = Cell::new(false);
+    buffer.connect_mark_set(move |b, _, _| {
+        ffi_guard::contain((), || {
+            if !sel.get() && !collapsing.get() && b.has_selection() {
+                collapsing.set(true);
+                b.place_cursor(&b.iter_at_mark(&b.get_insert()));
+                collapsing.set(false);
+            }
+        });
+    });
+    for signal in ["copy-clipboard", "cut-clipboard", "select-all"] {
+        let sel = selectable.clone();
+        textview.connect_local(signal, false, move |args| {
+            if !sel.get()
+                && let Some(Ok(view)) = args.first().map(gtk4::glib::Value::get::<gtk4::TextView>)
+            {
+                view.stop_signal_emission_by_name(signal);
+            }
+            None
+        });
+    }
+    let menu = gtk4::GestureClick::new();
+    menu.set_button(gtk4::gdk::BUTTON_SECONDARY);
+    menu.set_propagation_phase(gtk4::PropagationPhase::Capture);
+    let sel = selectable.clone();
+    menu.connect_pressed(move |g, _, _, _| {
+        if !sel.get() {
+            g.set_state(gtk4::EventSequenceState::Claimed);
+        }
+    });
+    textview.add_controller(menu);
+}
+
+/// Turn selection on or off (`TextAreaProps::selectable`, `TextAreaPatch::SetSelectable`).
+/// Turning it off collapses the current selection and sets the context menu aside: the
+/// `menu.popup` action (the Menu key, Shift+F10) is disabled and the app's extra menu held.
+fn set_selectable(st: &mut TAState, on: bool) {
+    if st.selectable.replace(on) == on {
+        return;
+    }
+    st.textview.action_set_enabled("menu.popup", on);
+    if on {
+        st.textview.set_extra_menu(st.extra_menu.take().as_ref());
+    } else {
+        st.extra_menu = st.textview.extra_menu();
+        st.textview.set_extra_menu(None::<&gtk4::gio::MenuModel>);
+        if st.buffer.has_selection() {
+            st.buffer
+                .place_cursor(&st.buffer.iter_at_mark(&st.buffer.get_insert()));
+        }
+    }
 }
 
 fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TextPatch) {
@@ -153,8 +235,9 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TextPatch) {
                 }
             }
             TextPatch::SetEditable(v) => st.textview.set_editable(*v),
-            // GtkTextView has no selectable/spell-check toggle (see the make() note).
-            TextPatch::SetSelectable(_) | TextPatch::SetSpellCheck(_) => {}
+            TextPatch::SetSelectable(v) => set_selectable(st, *v),
+            // GtkTextView has no spell-check (see the make() note).
+            TextPatch::SetSpellCheck(_) => {}
         });
     });
 }

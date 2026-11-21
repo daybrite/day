@@ -57,11 +57,22 @@ pub struct TextRun {
     pub font: FontSpec,          // style + weight + italic + monospace + tabular + scale
     pub color: Option<Color>,
     pub background: Option<Color>,
-    pub underline: Underline,    // None | Single | Double | Dotted | Wavy
-    pub strikethrough: bool,
+    pub underline: Option<Decoration>,
+    pub strikethrough: Option<Decoration>,
     pub link: Option<String>,
 }
+
+pub struct Decoration {
+    pub style: DecorationStyle,  // Single | Double | Dotted | Wavy
+    pub color: Option<Color>,    // None = the text color
+}
 ```
+
+The underline and the strikethrough are the same type because every text system gives the two
+lines the same two properties: how the line is drawn and what color it takes.
+`Decoration::SINGLE` is the plain line, [`Decoration::double()`](https://docs.rs/day-spec/latest/day_spec/styled/struct.Decoration.html#method.double),
+[`dotted()`](https://docs.rs/day-spec/latest/day_spec/styled/struct.Decoration.html#method.dotted) and [`wavy()`](https://docs.rs/day-spec/latest/day_spec/styled/struct.Decoration.html#method.wavy) are the other styles, and
+[`.color(c)`](https://docs.rs/day-spec/latest/day_spec/styled/struct.Decoration.html#method.color) gives a line a color of its own.
 
 Runs must be ascending, non-overlapping, inside the string, and on character boundaries.
 `runs_are_valid` checks that once in the pieces layer, so no toolkit has to: overlapping ranges
@@ -72,6 +83,13 @@ check are dropped with a warning and the text renders unstyled.
 Text and runs travel together, in `LabelPatch::Runs(String, Vec<TextRun>)`, because a range only
 means something against a particular string; patching one without the other would break on the
 next edit.
+
+[`FontSpec::small_caps`](https://docs.rs/day-spec/latest/day_spec/struct.FontSpec.html#structfield.small_caps) and
+[`FontSpec::oldstyle_figures`](https://docs.rs/day-spec/latest/day_spec/struct.FontSpec.html#structfield.oldstyle_figures) ask for the font's small capitals and
+its oldstyle figures (the OpenType `smcp` and `onum` features), on a run or on a whole label
+([`.small_caps()`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.small_caps)).
+[`FontSpec::feature_tags()`](https://docs.rs/day-spec/latest/day_spec/struct.FontSpec.html#method.feature_tags) lists the tags a descriptor asks for, so every
+toolkit that takes a feature string spells the same set.
 
 `FontSpec::monospace` asks for the platform's fixed-pitch face. It rides the ordinary font path,
 so it works on a whole label ([`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(res::str::loading())`[`.monospace`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.monospace)`()`) as well as on a run.
@@ -94,13 +112,31 @@ both places.
 | [`.emphasis(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.emphasis) | italic |
 | [`.code(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.code) | the fixed-pitch face |
 | [`.colored(s, c)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.colored) | a color |
-| [`.underline(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.underline) | underlined |
+| [`.underline(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.underline) | underlined with one line in the text color |
+| [`.underline_styled(s, d)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.underline_styled) | underlined with a `Decoration`: [`Decoration::wavy().color(red)`](https://docs.rs/day-spec/latest/day_spec/styled/struct.Decoration.html#method.wavy), `DecorationStyle::Double` |
+| [`.small_caps(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.small_caps) | lowercase letters as small capitals |
 | [`.highlight(s, c)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.highlight) | a background, with a readable foreground over it |
 | [`.sized(s, k)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.sized) | `k` times the base size (relative, so it still scales) |
 | [`.strikethrough(s)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.strikethrough) | struck through |
+| [`.strikethrough_styled(s, d)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.strikethrough_styled) | struck through with a `Decoration` |
 | [`.link(s, url)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.link) | drawn as a link (see below) |
 
 [`.base(font)`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextBuilder.html#method.base) sets the font the runs vary from; without it, runs sit on the label's own font.
+
+A diagnostic mark, a price that was, and a defined term:
+
+```rust
+TextBuilder::new()
+    .text("Symbol ")
+    .underline_styled("frobnicate", Decoration::wavy().color(Color::hex(0xD0021B)))
+    .text(" is unresolved. Was ")
+    .strikethrough_styled("$40", Decoration::SINGLE.color(Color::hex(0x8E8E93)))
+    .text(", now $32 under the ")
+    .underline_styled("early rate", DecorationStyle::Dotted)
+```
+
+To decorate a whole label, [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(t)`[`.underline(d)`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.underline) and [`.strikethrough(d)`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.strikethrough) take the same
+values and follow a reactive text ([docs/text](./text.md#decorations)).
 
 ## Toolkit implementations
 
@@ -122,13 +158,25 @@ or CJK in the string makes the two disagree.
 
 | attribute | where it degrades |
 | --- | --- |
-| `Underline::Double` | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") draws a single rule; [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") draws a single rule |
-| `Underline::Dotted` | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") draws a single rule (Pango has no dotted); [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") draws a single rule |
-| `Underline::Wavy` | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") draws the spell-check squiggle (`Underline::Error`); [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") draws a single rule |
-| `background` | everywhere except where noted below; [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") needs a [`TextHighlighter`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.documents.texthighlighter), since a `Run` has no background |
+| `DecorationStyle::Double` | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") draw a single rule; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") draws a double underline but a single strikethrough (Pango has one strikethrough) |
+| `DecorationStyle::Dotted` | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") and [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") draw a single rule; [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") draws a dotted underline but a single strikethrough |
+| `DecorationStyle::Wavy` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") and [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") draw a dash-dot-dot line (Apple text has no wavy pattern); [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") draws its spell-check squiggle under the text and a single strikethrough; [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") draws a wavy underline but a single strikethrough; [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") draws a single rule |
+| [`Decoration::color`](https://docs.rs/day-spec/latest/day_spec/styled/struct.Decoration.html#structfield.color) | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") draws both lines in the text color; [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") draws a strikethrough in the text color |
+| an underline and a strikethrough on one run | [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") draws the strikethrough only, since a span takes one decoration |
+| `small_caps` on a run | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") draws the run's ordinary lowercase, since its rich text can only synthesize small capitals; a whole label's `small_caps` uses the face's `smcp` from Qt 6.7 |
+| `small_caps`, `oldstyle_figures` | a face without the glyphs draws its ordinary lowercase and figures on every toolkit |
+| `background` | [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") draws it through a [`TextHighlighter`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.documents.texthighlighter), since a `Run` has no background |
 | `scale` | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") takes an absolute Pango size in 1/1024 pt; the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label empty. [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") takes points too: its CSS subset ignores a percentage |
 
-Everything else draws on all eight.
+Everything else draws on all eight, [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") and the [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") included: Android draws a styled or colored line itself over each line of the range.
+
+GTK and Qt receive runs as markup from one shared function,
+[`day_spec::runs_to_markup`](https://docs.rs/day-spec/latest/day_spec/fn.runs_to_markup.html). For
+Pango it writes a styled or colored line as span attributes (`underline="double"`,
+`underline="error"` for the wavy line, `underline_color`, `strikethrough_color`) and the font
+features as `font_features`. For Qt it writes `text-decoration-color`; the Qt toolkit wraps a
+double, dotted or wavy underline in a span with Qt's `text-underline-style` and leaves out a
+run's small capitals.
 
 Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 
@@ -224,9 +272,9 @@ Anything unrecognized is text. An unclosed `**`, a stray `_` inside a word, or a
 `](…)` after it stays exactly as typed. That is markdown's own rule, and it keeps a half-typed
 string in a live editor from flickering between readings on every keystroke.
 
-**Block constructs are not parsed.** Headings, lists, quotes, tables and paragraph breaks are
-layout, and layout in Day is [`column`](https://docs.rs/day-pieces/latest/day_pieces/fn.column.html), [`form`](https://docs.rs/day-pieces/latest/day_pieces/fn.form.html), [`list`](https://docs.rs/day-pieces/latest/day_pieces/fn.list.html). A label is one paragraph; this is the
-markup that fits inside one.
+**A label is one paragraph**, and this is the markup that fits inside one. Headings, lists,
+quotes, code blocks and rules belong to the [Markdown view](./markdown-view.md),
+[`markdown(text)`](https://docs.rs/day-pieces/latest/day_pieces/fn.markdown.html), which lays a document out as a column of these labels.
 
 ### Links
 

@@ -16,8 +16,8 @@
 use std::fmt::Write as _;
 
 use crate::{
-    Color, Font, FontWeight, ListStyle, ParagraphAlign, ParagraphRun, ParagraphStyle, RunStyle,
-    StyledText, TextRun, Underline, coalesce_runs, paragraph_bounds,
+    Color, Decoration, DecorationStyle, Font, FontWeight, ListStyle, ParagraphRun, ParagraphStyle,
+    RunStyle, StyledText, TextRun, coalesce_runs, paragraph_bounds, props::TextAlign,
 };
 
 /// A document's base style: the font a run says nothing about, and the size everything else is
@@ -315,7 +315,7 @@ fn markdown_markers(s: &RunStyle, bold: bool) -> (String, String) {
         open.push('*');
         close.insert(0, '*');
     }
-    if s.strikethrough {
+    if s.strikethrough.is_some() {
         open.push_str("~~");
         close.insert_str(0, "~~");
     }
@@ -361,10 +361,10 @@ pub fn styled_to_html(doc: &StyledText, style: DocStyle) -> String {
         out.push_str(open_tag);
         let mut css = String::new();
         match para.align {
-            ParagraphAlign::Natural => {}
-            ParagraphAlign::Center => css.push_str("text-align:center;"),
-            ParagraphAlign::Trailing => css.push_str("text-align:end;"),
-            ParagraphAlign::Justified => css.push_str("text-align:justify;"),
+            TextAlign::Leading => {}
+            TextAlign::Center => css.push_str("text-align:center;"),
+            TextAlign::Trailing => css.push_str("text-align:end;"),
+            TextAlign::Justified => css.push_str("text-align:justify;"),
         }
         let indent = para.indent + f64::from(para.list_level) * 24.0;
         if indent > 0.0 {
@@ -431,10 +431,10 @@ fn write_html_run(s: &RunStyle, text: &str, out: &mut String) {
     if s.font.italic {
         tags.push("i");
     }
-    if s.underline.is_on() {
+    if s.underline.is_some() {
         tags.push("u");
     }
-    if s.strikethrough {
+    if s.strikethrough.is_some() {
         tags.push("s");
     }
     if s.font.monospace {
@@ -670,8 +670,8 @@ impl HtmlParser<'_> {
         match name {
             "b" | "strong" => s.set_bold(true),
             "i" | "em" => s.set_italic(true),
-            "u" | "ins" => s.underline = Underline::Single,
-            "s" | "del" | "strike" => s.strikethrough = true,
+            "u" | "ins" => s.underline = Some(Decoration::SINGLE),
+            "s" | "del" | "strike" => s.strikethrough = Some(Decoration::SINGLE),
             "code" | "kbd" | "samp" | "tt" => s.font.monospace = true,
             "a" => s.link = attr(body, "href").map(str::to_string),
             _ => {}
@@ -791,10 +791,10 @@ fn apply_inline_css(s: &mut RunStyle, body: &str, doc: DocStyle) {
             "font-style" => s.set_italic(v == "italic" || v == "oblique"),
             "text-decoration" | "text-decoration-line" => {
                 if v.contains("underline") {
-                    s.underline = Underline::Single;
+                    s.underline = Some(Decoration::SINGLE);
                 }
                 if v.contains("line-through") {
-                    s.strikethrough = true;
+                    s.strikethrough = Some(Decoration::SINGLE);
                 }
             }
             "font-family" => s.font.monospace = v.contains("monospace") || v.contains("Courier"),
@@ -844,10 +844,10 @@ fn apply_block_css(para: &mut ParagraphStyle, body: &str) {
         match k.as_str() {
             "text-align" => {
                 para.align = match v {
-                    "center" => ParagraphAlign::Center,
-                    "right" | "end" => ParagraphAlign::Trailing,
-                    "justify" => ParagraphAlign::Justified,
-                    _ => ParagraphAlign::Natural,
+                    "center" => TextAlign::Center,
+                    "right" | "end" => TextAlign::Trailing,
+                    "justify" => TextAlign::Justified,
+                    _ => TextAlign::Leading,
                 }
             }
             "margin-inline-start" | "margin-left" | "padding-inline-start" => {
@@ -913,10 +913,10 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
             .map_or_default(super::styled::ParagraphRun::style);
         body.push_str("\\pard");
         match para.align {
-            ParagraphAlign::Natural => body.push_str("\\ql"),
-            ParagraphAlign::Center => body.push_str("\\qc"),
-            ParagraphAlign::Trailing => body.push_str("\\qr"),
-            ParagraphAlign::Justified => body.push_str("\\qj"),
+            TextAlign::Leading => body.push_str("\\ql"),
+            TextAlign::Center => body.push_str("\\qc"),
+            TextAlign::Trailing => body.push_str("\\qr"),
+            TextAlign::Justified => body.push_str("\\qj"),
         }
         let indent = para.indent + f64::from(para.list_level) * 24.0;
         if indent > 0.0 {
@@ -958,14 +958,14 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
             if s.font.italic {
                 body.push_str("\\i");
             }
-            match s.underline {
-                Underline::None => {}
-                Underline::Double => body.push_str("\\uldb"),
-                Underline::Dotted => body.push_str("\\uld"),
-                Underline::Wavy => body.push_str("\\ulwave"),
-                Underline::Single => body.push_str("\\ul"),
+            match s.underline.map(|d| d.style) {
+                None => {}
+                Some(DecorationStyle::Double) => body.push_str("\\uldb"),
+                Some(DecorationStyle::Dotted) => body.push_str("\\uld"),
+                Some(DecorationStyle::Wavy) => body.push_str("\\ulwave"),
+                Some(DecorationStyle::Single) => body.push_str("\\ul"),
             }
-            if s.strikethrough {
+            if s.strikethrough.is_some() {
                 body.push_str("\\strike");
             }
             // Half-points, which is RTF's unit.
@@ -1307,18 +1307,12 @@ impl RtfParser<'_> {
             | "listtable" | "listoverridetable" => st.skip = true,
             "b" => st.run.set_bold(on),
             "i" => st.run.set_italic(on),
-            "ul" => {
-                st.run.underline = if on {
-                    Underline::Single
-                } else {
-                    Underline::None
-                }
-            }
-            "ulnone" => st.run.underline = Underline::None,
-            "uldb" => st.run.underline = Underline::Double,
-            "uld" => st.run.underline = Underline::Dotted,
-            "ulwave" => st.run.underline = Underline::Wavy,
-            "strike" | "striked" => st.run.strikethrough = on,
+            "ul" => st.run.underline = on.then_some(Decoration::SINGLE),
+            "ulnone" => st.run.underline = None,
+            "uldb" => st.run.underline = Some(Decoration::double()),
+            "uld" => st.run.underline = Some(Decoration::dotted()),
+            "ulwave" => st.run.underline = Some(Decoration::wavy()),
+            "strike" | "striked" => st.run.strikethrough = on.then_some(Decoration::SINGLE),
             "plain" => st.run = self.style.plain(),
             "fs" => {
                 if let Some(half) = param {
@@ -1369,10 +1363,10 @@ impl RtfParser<'_> {
                 }
             }
             "pard" => self.para = ParagraphStyle::default(),
-            "ql" => self.para.align = ParagraphAlign::Natural,
-            "qc" => self.para.align = ParagraphAlign::Center,
-            "qr" => self.para.align = ParagraphAlign::Trailing,
-            "qj" => self.para.align = ParagraphAlign::Justified,
+            "ql" => self.para.align = TextAlign::Leading,
+            "qc" => self.para.align = TextAlign::Center,
+            "qr" => self.para.align = TextAlign::Trailing,
+            "qj" => self.para.align = TextAlign::Justified,
             "li" => self.para.indent = param.unwrap_or(0) as f64 / 20.0,
             "sb" => self.para.space_before = param.unwrap_or(0) as f64 / 20.0,
             "sa" => self.para.space_after = param.unwrap_or(0) as f64 / 20.0,
@@ -1632,21 +1626,21 @@ mod tests {
         let mut doc = StyledText::plain("hello world");
         doc.apply(0..5, Font::Body, |s| {
             s.set_bold(true);
-            s.underline = Underline::Single;
+            s.underline = Some(Decoration::SINGLE);
             s.color = Some(Color::hex(0x00ff_0000));
         });
         doc.apply(6..11, Font::Body, |s| {
-            s.strikethrough = true;
+            s.strikethrough = Some(Decoration::SINGLE);
             s.background = Some(Color::hex(0x0000_ff00));
         });
         let html = styled_to_html(&doc, style());
         let back = html_to_styled(&html, style());
         assert_eq!(back.text, "hello world");
         let a = back.style_of(0..5, Font::Body);
-        assert!(a.bold() && a.underline.is_on());
+        assert!(a.bold() && a.underline.is_some());
         assert_eq!(a.color, Some(Color::hex(0x00ff_0000)));
         let b = back.style_of(6..11, Font::Body);
-        assert!(b.strikethrough);
+        assert!(b.strikethrough.is_some());
         assert_eq!(b.background, Some(Color::hex(0x0000_ff00)));
     }
 
@@ -1658,7 +1652,7 @@ mod tests {
         );
         assert_eq!(doc.text, "Title\nmid");
         assert_eq!(doc.style_of(0..5, Font::Body).font.scale, 1.5);
-        assert_eq!(doc.paragraph_style_of(6..9).align, ParagraphAlign::Center);
+        assert_eq!(doc.paragraph_style_of(6..9).align, TextAlign::Center);
     }
 
     #[test]
@@ -1690,8 +1684,12 @@ mod tests {
         let mut doc = StyledText::plain("bold italic under strike big red");
         doc.apply(0..4, Font::Body, |s| s.set_bold(true));
         doc.apply(5..11, Font::Body, |s| s.set_italic(true));
-        doc.apply(12..17, Font::Body, |s| s.underline = Underline::Single);
-        doc.apply(18..24, Font::Body, |s| s.strikethrough = true);
+        doc.apply(12..17, Font::Body, |s| {
+            s.underline = Some(Decoration::SINGLE);
+        });
+        doc.apply(18..24, Font::Body, |s| {
+            s.strikethrough = Some(Decoration::SINGLE);
+        });
         doc.apply(25..28, Font::Body, |s| s.font.scale = 1.5);
         doc.apply(29..32, Font::Body, |s| {
             s.color = Some(Color::hex(0x00cc_0000));
@@ -1702,8 +1700,8 @@ mod tests {
         assert_eq!(back.text, doc.text);
         assert!(back.style_of(0..4, Font::Body).bold());
         assert!(back.style_of(5..11, Font::Body).font.italic);
-        assert!(back.style_of(12..17, Font::Body).underline.is_on());
-        assert!(back.style_of(18..24, Font::Body).strikethrough);
+        assert!(back.style_of(12..17, Font::Body).underline.is_some());
+        assert!(back.style_of(18..24, Font::Body).strikethrough.is_some());
         assert_eq!(
             back.style_of(29..32, Font::Body).color,
             Some(Color::hex(0x00cc_0000))
@@ -1716,11 +1714,11 @@ mod tests {
     #[test]
     fn rtf_paragraph_attributes_round_trip() {
         let mut doc = StyledText::plain("one\ntwo");
-        doc.apply_paragraph(0..1, |p| p.align = ParagraphAlign::Center);
+        doc.apply_paragraph(0..1, |p| p.align = TextAlign::Center);
         doc.apply_paragraph(5..5, |p| p.indent = 36.0);
         let back = rtf_to_styled(&styled_to_rtf(&doc, style()), style());
         assert_eq!(back.text, "one\ntwo");
-        assert_eq!(back.paragraph_style_of(0..1).align, ParagraphAlign::Center);
+        assert_eq!(back.paragraph_style_of(0..1).align, TextAlign::Center);
         assert_eq!(back.paragraph_style_of(5..5).indent, 36.0);
     }
 

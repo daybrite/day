@@ -20,7 +20,7 @@ const canonicalPath = Astro.url.pathname.replace(/\/$/, '') || '/';
 const canonical = Astro.site ? new URL(canonicalPath, Astro.site).href : undefined;
 // og:image must be an ABSOLUTE URL (scrapers don't resolve relative ones) — built from the
 // configured site origin + base. public/og-card.png is the 1200×630 share card.
-const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : undefined;
+const ogImage = Astro.site ? new URL(url(res.images.social_card), Astro.site).href : undefined;
 ---
 <!doctype html>
 <html lang="en">
@@ -45,14 +45,25 @@ const ogImage = Astro.site ? new URL(url('og-card.png'), Astro.site).href : unde
     {hasLlmGuide(canonicalPath) && <link rel="alternate" type="text/markdown" href={url(markdownRoute(canonicalPath))} />}
     <link rel="icon" type="image/svg+xml" href={url('favicon.svg')} />
     {canonical && <link rel="canonical" href={canonical} />}
+    <link rel="me" href={site.mastodon} />
+    <meta name="fediverse:creator" content={site.fediverseCreator} />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:locale" content="en_US" />
+    {canonical && <meta property="og:url" content={canonical} />}
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
     {ogImage && <meta property="og:image" content={ogImage} />}
     {ogImage && <meta property="og:image:width" content="1200" />}
     {ogImage && <meta property="og:image:height" content="630" />}
+    {ogImage && <meta property="og:image:type" content="image/png" />}
+    {ogImage && <meta property="og:image:alt" content={res.str.social_card_alt()} />}
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content={site.twitterHandle} />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
     {ogImage && <meta name="twitter:image" content={ogImage} />}
+    {ogImage && <meta name="twitter:image:alt" content={res.str.social_card_alt()} />}
     <meta name="theme-color" content="#090c15" />
     {import.meta.env.PROD && (
       <script

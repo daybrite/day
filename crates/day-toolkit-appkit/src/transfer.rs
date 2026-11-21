@@ -71,6 +71,19 @@ pub fn moved(old: &NSView, new: &NSView) {
         self::target(new, target);
     }
 }
+/// Whether `view` is a drag source or a drop target: such a view takes the pointer
+/// (docs/gestures.md "Pass-through").
+pub fn involved(view: &NSView) -> bool {
+    let k = key(view);
+    SOURCES.with(|t| t.contains(k)) || TARGETS.with(|t| t.contains(k))
+}
+/// The drag session left `view` without dropping, or ended while over it (Escape, a drop
+/// elsewhere): the target's hover ends (docs/drag-and-drop.md "Accepting drops").
+pub fn leave(view: &NSView) {
+    if let Some(target) = TARGETS.with(|t| t.get(key(view))) {
+        target.leave();
+    }
+}
 pub fn pressed(view: &NSView, event: &NSEvent) -> bool {
     if SOURCES.with(|t| t.get(key(view))).is_none() {
         return false;

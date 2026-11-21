@@ -94,6 +94,10 @@ export const site = {
   description:
     'Build native desktop and mobile apps in Rust. Share UI and logic, use platform controls, and keep translations, UI tests, and packaging in one project.',
   repo: 'https://github.com/daybrite/day',
+  mastodon: 'https://fosstodon.org/@daybrite',
+  fediverseCreator: '@daybrite@fosstodon.org',
+  twitter: 'https://x.com/@day_brite',
+  twitterHandle: '@day_brite',
   /** The showcase app's repository — it is its own project, released and deployed from there. */
   showcaseRepo: 'https://github.com/daybrite/Day-Showcase',
   /** The live web-dom build, on the showcase's own subdomain. Deployed by the showcase's OWN CI,

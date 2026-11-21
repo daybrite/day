@@ -172,10 +172,18 @@ A [`Shortcut`] is a key plus modifiers. `primary` is the platform's command modi
 Ctrl elsewhere), so one spec is correct everywhere:
 
 ```rust
-menu_item(res::str::save()).key("s")                       // ⌘S / Ctrl+S   (primary + key, the common case)
-menu_item(res::str::save_as()).shortcut(Shortcut::primary("s").shift())   // ⇧⌘S / Ctrl+Shift+S
-menu_item(res::str::delete()).shortcut(Shortcut::plain("Delete"))      // no primary modifier
+menu_item(res::str::save()).key('s')                       // ⌘S / Ctrl+S   (primary + key, the common case)
+menu_item(res::str::save_as()).shortcut(Shortcut::primary('s').shift())   // ⇧⌘S / Ctrl+Shift+S
+menu_item(res::str::delete()).shortcut(Shortcut::plain(Key::Delete))   // no primary modifier
 ```
+
+A shortcut's key is a `char`, a typed [`Key`](https://docs.rs/day-spec/latest/day_spec/enum.Key.html)
+(`Key::Enter`, `Key::ArrowLeft`, `Key::F(5)`), or its name in the menu vocabulary (`"Return"`,
+`"Left"`, `"F5"`), which is the form a menu model stores.
+[`Shortcut::matches(&key_event)`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.matches)
+compares one with a key event, for a piece that handles the same chord through
+[`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) where
+there is no menu bar.
 
 [`Shortcut::primary(key)`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.primary) sets `primary`; [`Shortcut::plain(key)`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.plain) sets no modifiers; [`.shift()`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.shift), [`.alt()`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.alt),
 [`.control()`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.control) add the others ([`.control()`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.control) is the physical Control key, distinct from `primary` on
@@ -267,20 +275,79 @@ work on every target; a clip from another app is still what the platform answers
 always wins.
 
 Two companions round out the platform's input idioms. [`day::modifiers()`](https://docs.rs/day-app/latest/day/fn.modifiers.html) answers the keyboard
-modifiers held right now (`shift`, `primary`, which is ⌘ on Apple platforms and Ctrl elsewhere,
-and `alt`), for interactions whose meaning they change: shift-click adding to a selection instead
+modifiers held right now as a [`Modifiers`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html)
+set ([`.shift()`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#method.shift), [`.primary()`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#method.primary), which is ⌘ on Apple platforms and Ctrl
+elsewhere, and [`.alt()`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#method.alt)),
+for interactions whose meaning they change: shift-click adding to a selection instead
 of replacing it. It is a live query, not an event field, so it is right wherever it is asked. A
-toolkit that cannot answer reports all-false, which is correct for touch platforms and something
+toolkit that cannot answer reports `Modifiers::NONE`, which is correct for touch platforms and something
 to check before relying on it elsewhere ([the `modifiers` row of the duty
 matrix](duty-matrix.md)). A dayscript `tap:` or `drag:` step's declared `modifiers:` take
 precedence while it dispatches.
 
-[`.on_key(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) handles the non-text keys, under the web `KeyboardEvent.key` names and with the
-held modifiers on the event ([`ev.shift()`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.shift) scales a nudge from 1px to 10). The four arrows
-arrive everywhere, and so do the ten digits, `"0"` through `"9"` from the main row or the
+### Keys
+
+[`.on_key(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) handles the non-text keys. The handler receives a
+[`KeyEvent`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html): a typed
+[`Key`](https://docs.rs/day-spec/latest/day_spec/enum.Key.html), the held
+[`Modifiers`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html) and the phase of the press.
+
+```rust
+use day::{Key, KeyEvent};
+
+canvas(draw).on_key(move |k: &KeyEvent| {
+    let step = if k.shift() { 10.0 } else { 1.0 };
+    match k.key {
+        Key::ArrowLeft => nudge(-step, 0.0),
+        Key::ArrowRight => nudge(step, 0.0),
+        Key::Character(' ') if !k.is_repeat() => fire(),   // once per press
+        Key::Backspace | Key::Delete => remove_selection(),
+        _ => {}
+    }
+})
+```
+
+`Key` has a variant for each key that types nothing (the arrows, `Enter`, `Tab`, `Escape`,
+`Backspace`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`, `Insert`, `F(1)` through `F(12)`)
+and `Character(char)` for a key that types. `Modifiers` answers [`shift()`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#method.shift),
+[`primary()`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#method.primary), [`alt()`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#method.alt) and [`control()`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#method.control), and combines with `|` (`Modifiers::PRIMARY | Modifiers::SHIFT`).
+Import `Key` from `day` by name: in the prelude, `Key` is the model's row key.
+
+A key has three phases. [`.on_key`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key) hears `KeyPhase::Down` and, while the key is held,
+`KeyPhase::Repeat` for each repeat the platform sends;
+[`k.is_repeat()`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#method.is_repeat) tells them apart, so an
+action that should fire once per press skips the repeats.
+[`.on_key_up(f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key_up)
+hears the release, which is what held-key movement waits for:
+
+```rust
+canvas(draw)
+    .on_key(move |k| if k.key == Key::ArrowRight && !k.is_repeat() { moving.set(true) })
+    .on_key_up(move |k| if k.key == Key::ArrowRight { moving.set(false) })
+```
+
+[`capability(Cap::KeyPhases)`](https://docs.rs/day-core/latest/day_core/fn.capability.html) reports whether the toolkit sends releases and marks repeats.
+Where it answers `Unsupported`, every event is a `Down` and [`.on_key_up`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.on_key_up) never fires: step per
+press there. A piece that loses focus while a key is held does not hear its release, so stop
+held-key movement on focus loss too.
+
+The names a toolkit, a menu or a dayscript `key:` step uses stay text at those boundaries, in
+the web `KeyboardEvent.key` vocabulary; [`Key::from_name`](https://docs.rs/day-spec/latest/day_spec/enum.Key.html#method.from_name) and
+[`Key::name`](https://docs.rs/day-spec/latest/day_spec/enum.Key.html#method.name) convert.
+
+Key phases by toolkit:
+
+| Toolkit | Limitation |
+|---|---|
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | A held key that types nothing, such as an arrow, does not repeat: UIKit sends one `pressesBegan:` per press. A held key that types repeats as text. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | With an input method that commits text outside the key press (IBus), a typed character on the full route reports no `Up`. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | The C key event has no repeat flag, so a repeat is a second down of a key Day already holds. |
+
+The four arrows
+arrive everywhere, and so do the ten digits, `'0'` through `'9'` from the main row or the
 numeric keypad ([`ev.digit()`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#method.digit) reads the value). A digit arrives only while neither primary nor
 alt is held (nor a Mac's Control), since ⌘1 and Ctrl+1 are accelerators. Most toolkits name
-the digit a keypress types, so a layout that needs Shift for digits reports `"1"` with
+the digit a keypress types, so a layout that needs Shift for digits reports `'1'` with
 [`ev.shift()`](https://docs.rs/day-spec/latest/day_spec/struct.Shortcut.html#method.shift) set; WinUI and ArkUI read the physical key instead. `Delete` and `Backspace` arrive
 only where [`Cap::AppMenu`](duty-matrix.md) is unsupported, where there is no menu bar and so
 no accelerator that could own them.
@@ -333,28 +400,28 @@ canvas(draw)
     .keyboard()                              // the whole keyboard, not the arrows and digits
     .on_key(move |k| match k.typed() {       // Some(text) for a press that typed, None for one that did not
         Some(text) => term.write(text),
-        None => term.press(&k.key, k.modifiers), // "Enter", "Tab", "F5", or "c" under Control …
+        None => term.press(k.key, k.modifiers), // Key::Enter, Key::Tab, Key::F(5), or 'c' under Control …
     })
 ```
 
 A key press carries two things, and keeps them apart. Its
-[`key`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#structfield.key) names the
-key: a key that types nothing by its web name
-([`KeyEvent::NAMED`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#associatedconstant.NAMED):
-"Enter", "Tab", "Escape", "Backspace", "Delete", "Home", "End", "PageUp", "PageDown", "Insert",
-the arrows and "F1" through "F12"), a key that types by its unmodified character ("a", "A" under
-Shift, "8", "ü" on a layout that has one). Its
+[`key`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#structfield.key) is the
+key: a named variant for a key that types nothing (`Key::Enter`, `Key::Tab`, `Key::Escape`,
+`Key::Backspace`, `Key::Delete`, `Key::Home`, `Key::End`, `Key::PageUp`, `Key::PageDown`,
+`Key::Insert`, the arrows and `Key::F(1)` through `Key::F(12)`), and `Key::Character` with the
+unmodified character for a key that types (`'a'`, `'A'` under Shift, `'8'`, `'ü'` on a layout
+that has one). Its
 [`text`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#structfield.text) is what
 the press typed, once the platform and the input method are done with it: the character, an
 accented one after a dead key, or the whole phrase an input method committed; and
 [`KeyEvent::typed`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#method.typed)
 reads it. The two never blur into each other: an input method that commits the word "Enter"
-delivers text, with no key behind it, and the Enter key delivers a key and no text, so a piece
-that acts on `k.key == "Enter"` is never fooled by typing. A composition in progress types
+delivers text with `Key::Unidentified`, and the Enter key delivers a key and no text, so a piece
+that acts on `k.key == Key::Enter` is never fooled by typing. A composition in progress types
 nothing until it is committed.
 
-A chord names its key and types nothing: Ctrl+C arrives as "c" with
-[`KeyEvent::CONTROL`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#associatedconstant.CONTROL)
+A chord names its key and types nothing: Ctrl+C arrives as `Key::Character('c')` with
+[`Modifiers::CONTROL`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#associatedconstant.CONTROL)
 set and no text, never as the control code it would type, so the piece decides what the chord
 means. The Control bit names the physical Control key everywhere; where Ctrl is also the primary
 key (Linux, Windows, Android, Web) a chord sets both bits, and on a Mac ⌃ sets `CONTROL` while
@@ -364,7 +431,7 @@ quits, while a Mac's ⌃C reaches the terminal. Every other chord is the focused
 is the menu's: a Linux terminal's Ctrl+C interrupts the program, and the Edit menu's Copy is
 reached from the menu itself. Alt follows the layout: on a Mac ⌥ types (⌥8 is "{" on a German
 keyboard), so the press arrives with its text and the
-[`ALT`](https://docs.rs/day-spec/latest/day_spec/struct.KeyEvent.html#associatedconstant.ALT) bit
+[`ALT`](https://docs.rs/day-spec/latest/day_spec/struct.Modifiers.html#associatedconstant.ALT) bit
 and the piece chooses between the two; on Windows and Linux Alt chords, except where the layout's
 AltGr types a character, which arrives as that text. Everything else is claimed, Tab included: a
 piece that took the whole keyboard leaves the platform's focus walking, and a press on another

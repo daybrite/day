@@ -13,24 +13,126 @@ use gtk4::glib::translate::*;
 use gtk4::prelude::*;
 use gtk4::{gdk, glib, graphene};
 
-/// Icon-theme widgets require a symbolic bitmap. Select the SVG decoder explicitly:
-/// gdk-pixbuf's format sniffing misses SVGs with long leading license comments.
+/// Icon-theme widgets require a symbolic bitmap: `source` rendered so its longer side is
+/// `size` pixels, straight (not premultiplied) RGBA. Rendered by librsvg directly rather than
+/// through a gdk-pixbuf loader: the loader sniffs the content even when the type is named, and
+/// librsvg 2.60's loader rejects an SVG whose `<svg` start tag sits past the sniff window
+/// behind a long license comment ("Unsupported image format"), which bundled icons have.
 pub(super) fn symbolic_pixbuf(source: &[u8], size: i32) -> Option<gtk4::gdk_pixbuf::Pixbuf> {
-    let loader = gtk4::gdk_pixbuf::PixbufLoader::with_type("svg").ok()?;
-    loader.connect_size_prepared(move |loader, width, height| {
-        if width > 0 && height > 0 {
-            let scale = f64::from(size) / f64::from(width.max(height));
-            loader.set_size(
-                (f64::from(width) * scale).round().max(1.0) as i32,
-                (f64::from(height) * scale).round().max(1.0) as i32,
-            );
+    use gtk4::cairo;
+    let mut error = std::ptr::null_mut();
+    // SAFETY: `source` is live for the call and librsvg copies it. A successful handle is a
+    // full GObject reference.
+    let document: glib::Object = unsafe {
+        let handle = rsvg_handle_new_from_data(source.as_ptr(), source.len(), &raw mut error);
+        if handle.is_null() {
+            if !error.is_null() {
+                let error: glib::Error = from_glib_full(error);
+                log::warn!("SVG decode failed: {error}");
+            }
+            return None;
         }
-    });
-    let written = loader.write(source);
-    let closed = loader.close();
-    written.ok()?;
-    closed.ok()?;
-    loader.pixbuf()
+        from_glib_full(handle)
+    };
+    let (width, height) = intrinsic_size(&document)?;
+    let scale = f64::from(size) / width.max(height);
+    let pixel_width = (width * scale).round().max(1.0) as i32;
+    let pixel_height = (height * scale).round().max(1.0) as i32;
+    let mut surface =
+        cairo::ImageSurface::create(cairo::Format::ARgb32, pixel_width, pixel_height).ok()?;
+    {
+        let cr = cairo::Context::new(&surface).ok()?;
+        let viewport = Rectangle {
+            width: f64::from(pixel_width),
+            height: f64::from(pixel_height),
+            ..Default::default()
+        };
+        let mut error = std::ptr::null_mut();
+        // SAFETY: the owned librsvg GObject and Cairo context outlive this synchronous call.
+        let rendered = unsafe {
+            rsvg_handle_render_document(
+                document.as_ptr(),
+                cr.to_raw_none(),
+                &raw const viewport,
+                &raw mut error,
+            )
+        };
+        if rendered == 0 {
+            if !error.is_null() {
+                // SAFETY: librsvg hands over ownership of the error it set.
+                let error: glib::Error = unsafe { from_glib_full(error) };
+                log::warn!("SVG render failed: {error}");
+            }
+            return None;
+        }
+    }
+    surface.flush();
+    let stride = usize::try_from(surface.stride()).ok()?;
+    let row_bytes = usize::try_from(pixel_width).ok()? * 4;
+    let rgba = unpremultiply_argb32(&surface.data().ok()?, stride, row_bytes);
+    Some(gtk4::gdk_pixbuf::Pixbuf::from_bytes(
+        &glib::Bytes::from_owned(rgba),
+        gtk4::gdk_pixbuf::Colorspace::Rgb,
+        true,
+        8,
+        pixel_width,
+        pixel_height,
+        i32::try_from(row_bytes).ok()?,
+    ))
+}
+
+/// Cairo's `ARGB32` rows (native-endian premultiplied words, `stride` bytes apart) as tightly
+/// packed straight-alpha RGBA bytes, `row_bytes` per row.
+fn unpremultiply_argb32(data: &[u8], stride: usize, row_bytes: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(row_bytes * data.len().div_ceil(stride.max(1)));
+    for row in data.chunks(stride.max(1)) {
+        for word in row[..row_bytes.min(row.len())].as_chunks::<4>().0 {
+            let argb = u32::from_ne_bytes(*word);
+            let [a, r, g, b] = argb.to_be_bytes();
+            let straight = |c: u8| {
+                if a == 0 {
+                    0
+                } else {
+                    ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8
+                }
+            };
+            out.extend_from_slice(&[straight(r), straight(g), straight(b), a]);
+        }
+    }
+    out
+}
+
+/// The document's intrinsic size in CSS pixels: its width and height when it states them in
+/// absolute units, else its view box. `None` for a document with neither.
+fn intrinsic_size(document: &glib::Object) -> Option<(f64, f64)> {
+    let (mut width, mut height) = (0.0, 0.0);
+    // SAFETY: all outputs are live; unneeded optional outputs may be NULL per librsvg's API.
+    unsafe {
+        if rsvg_handle_get_intrinsic_size_in_pixels(
+            document.as_ptr(),
+            &raw mut width,
+            &raw mut height,
+        ) == 0
+        {
+            let mut has_viewbox = 0;
+            let mut viewbox = Rectangle::default();
+            rsvg_handle_get_intrinsic_dimensions(
+                document.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &raw mut has_viewbox,
+                &raw mut viewbox,
+            );
+            if has_viewbox == 0 {
+                return None;
+            }
+            width = viewbox.width;
+            height = viewbox.height;
+        }
+    }
+    (width > 0.0 && height > 0.0).then_some((width, height))
 }
 
 #[repr(C)]
@@ -45,6 +147,11 @@ struct Rectangle {
 unsafe extern "C" {
     fn rsvg_handle_new_from_file(
         filename: *const std::ffi::c_char,
+        error: *mut *mut glib::ffi::GError,
+    ) -> *mut glib::gobject_ffi::GObject;
+    fn rsvg_handle_new_from_data(
+        data: *const u8,
+        data_len: usize,
         error: *mut *mut glib::ffi::GError,
     ) -> *mut glib::gobject_ffi::GObject;
     fn rsvg_handle_get_intrinsic_size_in_pixels(
@@ -181,36 +288,7 @@ impl SvgPaintable {
             }
             from_glib_full(handle)
         };
-        let (mut width, mut height) = (0.0, 0.0);
-        // SAFETY: all outputs are live; unneeded optional outputs may be NULL per librsvg's API.
-        unsafe {
-            if rsvg_handle_get_intrinsic_size_in_pixels(
-                document.as_ptr(),
-                &raw mut width,
-                &raw mut height,
-            ) == 0
-            {
-                let mut has_viewbox = 0;
-                let mut viewbox = Rectangle::default();
-                rsvg_handle_get_intrinsic_dimensions(
-                    document.as_ptr(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    std::ptr::null_mut(),
-                    &raw mut has_viewbox,
-                    &raw mut viewbox,
-                );
-                if has_viewbox == 0 {
-                    return None;
-                }
-                width = viewbox.width;
-                height = viewbox.height;
-            }
-        }
-        if width <= 0.0 || height <= 0.0 {
-            return None;
-        }
+        let (width, height) = intrinsic_size(&document)?;
         let obj: Self = glib::Object::new();
         let imp = obj.imp();
         // Icons occupy a logical-size box; device pixels never become GTK layout units.
@@ -234,6 +312,22 @@ impl SvgPaintable {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn unpremultiply_drops_row_padding_and_restores_straight_color() {
+        // Two rows of one pixel each, stride 8: half-transparent red, then fully clear.
+        let half_red = 0x8080_0000_u32.to_ne_bytes();
+        let clear = 0_u32.to_ne_bytes();
+        let mut data = Vec::new();
+        data.extend_from_slice(&half_red);
+        data.extend_from_slice(&[9; 4]);
+        data.extend_from_slice(&clear);
+        data.extend_from_slice(&[9; 4]);
+        assert_eq!(
+            super::unpremultiply_argb32(&data, 8, 4),
+            vec![255, 0, 0, 128, 0, 0, 0, 0]
+        );
+    }
+
     #[test]
     fn symbolic_svg_with_long_header_preserves_aspect_ratio_and_alpha() {
         let source = format!(

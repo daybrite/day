@@ -126,29 +126,104 @@ width-change layout and dirty-cell sweeps. `bind_row` reactivates and lays them 
 redisplay. Resize work therefore follows the active viewport rather than every physical
 cell accumulated in the native reuse pool.
 
-### Imperative scroll-to-end (chat timelines)
+### Following the end
 
-A chat timeline wants to stick to the newest message. Two additive builder options drive the
-native list's own scroller (not a Day-side scroll view):
+A chat timeline or a log keeps its newest row in view, until the reader scrolls up to read
+something older.
 
 ```rust
-let follow = day_reactive::Trigger::new();
-list(items(move || messages.get(), |m| m.id), row_builder)
-    .scroll_to_end(follow)   // each `follow.notify()` scrolls so the last row is fully visible
-    .stick_to_bottom()       // convenience: auto-scroll to end after every data reload
-// … after appending a message:
-follow.notify();
+list(items(move || messages.get(), |m| m.id), message_row)
+    .follow_end(40.0)
 ```
 
-- [`.scroll_to_end(Trigger)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end): a [`watch`](https://docs.rs/day-reactive/latest/day_reactive/fn.watch.html) on the trigger applies a new `ListPatch::ScrollToEnd`, which
-  each toolkit maps to its native "make the last row visible" call
-  ([`NSTableView::scrollRowToVisible`](https://developer.apple.com/documentation/appkit/nstableview) · [`UITableView::scrollToRowAtIndexPath(.bottom)`](https://developer.apple.com/documentation/uikit/uitableview) ·
-  [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) vadjustment→max · [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) scrollbar→max ·
-  `ListView::smoothScrollToPosition`). day-core guards the
-  empty-list case (no patch is sent), and building the list never auto-scrolls.
-- [`.stick_to_bottom()`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.stick_to_bottom): best-effort convenience that scrolls to the end after each data reload.
-  It does not check whether the user is already near the bottom (no cross-toolkit scroll-position
-  read exists yet); for that finer behavior drive [`scroll_to_end`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) from your own logic instead.
+[`.follow_end(threshold)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.follow_end) scrolls the list to its new end whenever the rows
+change while the end is within `threshold` points of the bottom of the viewport. A reader who
+has scrolled further up than that is left where they are. They rejoin by scrolling back down,
+or with a button:
+
+```rust
+let latest = day_reactive::Trigger::new();
+zstack((
+    list(items(move || messages.get(), |m| m.id), message_row)
+        .follow_end(40.0)
+        .scroll_to_end(latest),
+    button(res::str::jump_to_latest()).action(move || latest.notify()),
+))
+```
+
+[`.scroll_to_end(Trigger)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) scrolls to the end each time the trigger fires,
+wherever the list is. Building the list never scrolls, and an empty list ignores both.
+
+New rows scroll into view with the platform's scroll animation. A row that only grows (a reply
+streamed into the last row) is kept in view without one, so thirty updates a second do not
+start thirty animations. While a followed scroll is still on its way, the positions the list
+reports are not read as the reader leaving. The moment the reader takes the list themselves
+(a drag, the scroll wheel or trackpad, the scroll bar, or a key that scrolls), following stops,
+even mid-animation, and the next row leaves them where they are until they come back within
+the threshold. The native list tells the reader's scrolls from the app's
+(`Cap::ListReaderScroll`); where it cannot, following stops only once the list reports the
+reader further from the end than the threshold.
+
+| Toolkit | The reader's scrolls (`Cap::ListReaderScroll`, all `Native`) |
+| --- | --- |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | A trackpad or Magic Mouse gesture with its momentum, the scroller, the mouse wheel, and the arrow, Home and End keys in a focused list. The app's own scroll waits while a gesture or a scroller drag holds the list. |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | A finger drag (and an iPad's trackpad or mouse, through the same pan) and a tap on the status bar. Scrolling with a hardware keyboard looks like the app's own scroll and is not reported. The app's scroll waits while a finger is on the list. |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `RecyclerView`'s drag, and the scroll a mouse wheel, a scrolling key or an accessibility scroll action starts, each as it first moves the list. A touch that only stops a followed scroll without moving the list is not reported. |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | A wheel or touchpad step that moves the list, the list moving while a finger holds the content or the pointer holds the scroll bar, and a scrolling key (arrows, Page Up/Down, Home/End) that moves it. The key also stops a followed scroll. |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | The scroll bar's own actions when they move the list (wheel, trackpad, thumb drag, a click in the trough) and a key whose cursor move scrolled it. Qt lists have no touch scrolling. |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | A wheel or scrolling key that moves the view, a DirectManipulation that starts under a touch or pen contact, and the scroll bar. A key stops the list's own animated scroll first. A precision touchpad that arrives without a pointer press is not reported. |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | A scroll under a finger, while the scroll bar is held, or right after a wheel or a scrolling key. Input that lands on the list's own smooth scroll stops it where it is. Middle-click autoscroll is not reported. |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | The scroll source ArkUI gives each scroll: a drag, other user input (wheel, keys) or the scroll bar, reported with the first viewport report it changes. A touch that only stops an animation is not reported. |
+
+The distance to the end comes from the native list (`Cap::ListViewport`). On a toolkit that
+does not report it, `follow_end` follows every change.
+
+### Reaching the end
+
+[`.on_end_reached(threshold, f)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_end_reached) calls `f` when the reader comes within
+`threshold` points of the end of the list, which is the moment to load the next page:
+
+```rust
+list(rows, row_view)
+    .on_end_reached(400.0, move || feed.load_more())
+    .footer(move || spinner().padding(Space::L))
+```
+
+It fires once on the way in. It fires again after the end has left that distance and come
+back, or after the number of rows has changed, so a handler that appends rows is called again
+when the reader reaches the new end. The check runs on the list's next viewport report, and a
+toolkit reports one once the new rows are laid out: when a page leaves the end within
+`threshold` (a first page shorter than the viewport), `f` runs again without a scroll, and
+again after each page, until the end is farther than `threshold`. A call that adds no rows
+re-arms nothing, so a feed that has run out is not called in a loop. An empty list does not
+fire it. It needs `Cap::ListViewport`.
+
+### Header, footer and empty state
+
+```rust
+list(rows, row_view)
+    .header(move || search_summary(query))
+    .footer(|| label(res::str::end_of_results()).secondary().padding(Space::L))
+    .empty(|| label(res::str::no_results()).secondary())
+    .content_padding(Insets { top: 0.0, leading: 0.0, bottom: 88.0, trailing: 0.0 })
+```
+
+- [`.header(build)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.header) and [`.footer(build)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.footer) put content above the first
+  row and below the last. Both scroll with the rows.
+- [`.empty(build)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.empty) shows content in place of the rows while the list has none,
+  centered in the viewport (between the header and the footer when the list has them). It goes
+  when the first row arrives and returns when the last one leaves.
+- [`.content_padding(insets)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.content_padding) adds space around the content, inside the
+  scrolling area. The top and bottom scroll with the rows, so the last row can clear a
+  floating composer or tab bar. The sides inset every row.
+
+None of these is a row. Nothing selects, activates, swipes or drags them, and every row index
+(selection, swipe offers, `selected_rows`, `scroll_to_row`, `visible_rows`) counts rows only.
+
+They work the same on every toolkit, because day-core adds them as rows of their own around
+the items: the host binds them like any row. `ListSource::is_supplement` tells the host which
+rows they are, so that it sizes them to their content in a `Uniform` list and draws no
+separator, selection or swipe affordance on them.
 
 ### Sections
 
@@ -172,7 +247,7 @@ header pushes it up.
 
 - A header is never selected, activated or swiped, and keyboard navigation steps over it.
 - Row indices everywhere count rows only: selection reports, `selected_rows`, `scroll_to_row`,
-  swipe offers, `first_visible_row` and dayscript's `select`, `swipe_row`, `reorder` and
+  swipe offers, `visible_rows` and dayscript's `select`, `swipe_row`, `reorder` and
   `delete_row`.
 - A header sizes to its content, even in a [`Uniform`](https://docs.rs/day-spec/latest/day_spec/props/enum.RowHeight.html)
   list, and takes the platform's side insets but not its vertical insets or minimum row height.
@@ -206,20 +281,34 @@ carries no element ids, so a dayscript lookup of an id inside a header finds the
 the list, never its pinned copy.
 
 Inside day-core the host sees display rows, headers included: `ListSource::is_header` says which,
-and `len`, `token_at`, `bind_row`, the selection and scroll patches and the toolkit's selection
-events all count headers. day-core translates between display rows and the app's rows, so a
+and `len`, `token_at`, `bind_row`, the selection patch, the row scroll and the toolkit's
+selection events all count headers. day-core translates between display rows and the app's rows, so a
 toolkit needs no section logic beyond drawing headers and keeping them out of selection.
 
-### First visible row
+### Visible rows
 
-[`.first_visible_row(Signal<usize>)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.first_visible_row)
-receives the first actually visible row, excluding overscan and counting rows only (a header
-reports its section's first row). It is opt-in and event-driven: native callbacks enqueue a
-deduplicated report, and the event pump updates the signal when the tree is available (a report
-during layout waits for the current borrow to end). AppKit, UIKit, Android, GTK, Qt, WinUI, DOM
-and ArkUI report scroll changes; mock exposes `list_first_visible` for tests. The initial index
-is zero; clamp it when data shrinks. For section headers that float, use
-[`.sections`](#sections) instead of an overlay driven by this index.
+[`.visible_rows(binding)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.visible_rows) follows the rows in view, as a half-open range of
+row indices:
+
+```rust
+let visible = Signal::new(0..0);
+list(rows, row_view).visible_rows(visible);
+let heading = move || section_title(visible.get().start);
+```
+
+`start` is the first row with any part showing, overscan excluded, and `end` is one past the
+last. The range is empty while no row is in view. Section headers and the list's own header
+and footer are not rows: a header at the top of the viewport reports its section's first row.
+The report is opt-in and event-driven: native scroll callbacks enqueue a deduplicated report,
+and the event pump updates the binding when the tree is available. No timer is involved.
+Clamp the range when the data shrinks. For section headers that float, use
+[`.sections`](#sections) instead of an overlay driven by this range.
+
+`visible_rows`, `follow_end` and `on_end_reached` all read one report from the host,
+`ListSource::viewport`: the first and last visible rows and the distance from the bottom of
+the viewport to the end of the content. A host calls it after a scroll, after a resize, and
+after a reload or splice has been laid out; day-core translates its rows to items and drops
+repeats. Where `Cap::ListViewport` is unsupported the range holds the first visible row only.
 
 ## Row lifetime
 
@@ -232,8 +321,39 @@ Leaving the viewport does not necessarily dispose a row. Toolkits may keep spare
 reuse; a discarded cell or removed list disposes its row scope. Element IDs for recycled rows
 must follow the slot's current identity. See [element IDs](/docs/reference/element-ids).
 
-A plain items closure refreshes the list when its dependencies change. Sources that supply
-row deltas, such as persistence queries, can apply insertions, removals, and moves directly.
+A plain items closure re-runs when its dependencies change, and the list applies the
+difference as row insertions, removals and moves (see [Keyed updates](#keyed-updates)).
+Sources that supply their own row deltas, such as persistence queries, apply those directly.
+
+## Keyed updates
+
+A list knows each row by the key its source gives ([`items(rows, |row| row.id)`](https://docs.rs/day-pieces/latest/day_pieces/fn.items.html)). When the rows
+change, the list compares the old keys with the new ones and tells the native list exactly
+what happened:
+
+| change | what the native list gets |
+| --- | --- |
+| a row added, removed or moved | a splice: one insert, remove or move per row, animated where the toolkit animates them |
+| the same rows, some values changed | nothing; the rows on screen are rebound in place |
+| rows that share nothing with the old ones, or the list becoming empty or non-empty | a reload |
+| a key that appears twice | a reload |
+| more than 512 changed rows at once | a reload |
+
+Appending one message to a 5,000-row timeline is therefore one inserted row, and a reply
+streamed into a row thirty times a second touches that row and no other. The scroll position
+and the native selection survive a splice; a reload keeps neither on some toolkits.
+
+The moves are the fewest that produce the new order: the rows of the longest run that kept
+its order stay where they are, and each other row moves once. Section headers and the list's
+header, footer and empty state are part of the same comparison, so a sectioned list splices
+too: a row that opens a new section brings its header in with it.
+
+Keys must be unique within a list. A repeated key cannot say which of its rows moved, so the
+list reloads; `each` treats the same mistake as a bug and panics in debug builds.
+
+[`day_core::diff_rows`](https://docs.rs/day-core/latest/day_core/list/fn.diff_rows.html) is the
+comparison, and [`day_core::list_sync`](https://docs.rs/day-core/latest/day_core/list/fn.list_sync.html)
+applies it to a list node.
 
 ## Toolkit implementations
 
@@ -408,18 +528,79 @@ Reloads are deferred outside the tree borrow: UIKit may retire cells synchronous
 
 ## Programmatic scrolling
 
-[`.scroll_to_end(Trigger)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) follows the last row (above); [`.scroll_to_row(Signal<Option<usize>>)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_row)
-jumps to any row: set the signal to `Some(row)` and the native list scrolls it into view,
-realizing it if it was virtualized away (`ListPatch::ScrollToRow`, clamped to the count). The
-signal is the row rail's counterpart to [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html)`(...)`[`.scroll_target`](https://docs.rs/day-pieces/latest/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_target)`(...)`. Toolkits without a native
-scroll-to-index (GTK, web) position by uniform row pitch; prefer
-`RowHeight::Uniform` when jumping programmatically there.
+[`.scroll_to_end(Trigger)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_end) scrolls to the end of the list (above).
+[`.scroll_to_row(binding)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_row) scrolls to any row:
 
-A Reload whose rows are the same set in a new order (a shuffle, a programmatic sort) animates
-as native row moves on AppKit (`moveRowAtIndex` batch, the same animation a drag commit gets);
-other toolkits apply it instantly. A `Splice` from a source that reports row events animates its
-inserts and removals as native row changes on AppKit, UIKit (one delta at a time; a splice of
-several reloads) and Qt; the other toolkits and every content change reload flat.
+```rust
+let jump = Signal::new(None);
+list(rows, row_view).scroll_to_row(jump);
+
+button(res::str::first_unread()).action(move || jump.set(Some(unread_index())));
+```
+
+Each `Some` written to the binding scrolls there, realizing the row if it was virtualized
+away, and the binding then resets to `None`, so the same row can be sent twice in a row. This
+is the same contract as [`scroll`](https://docs.rs/day-pieces/latest/day_pieces/fn.scroll.html)`(...)`[`.scroll_target`](https://docs.rs/day-pieces/latest/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_target)`(...)`:
+a write is a command, and the list consumes it. The row is clamped to the list.
+
+A binding of plain indices reveals the row with the least movement, animated. A
+[`RowTarget`](https://docs.rs/day-pieces/latest/day_pieces/struct.RowTarget.html) says more:
+
+```rust
+let jump: Signal<Option<RowTarget>> = Signal::new(None);
+jump.set(Some(RowTarget::new(250).align(RowAlign::Center)));
+jump.set(Some(RowTarget::new(0).align(RowAlign::Start).instant()));
+```
+
+| `RowAlign` | where the row lands |
+| --- | --- |
+| `Nearest` (default) | the least movement that shows the whole row; a row already in view stays put |
+| `Start` | its top edge at the top of the viewport |
+| `Center` | centered in the viewport |
+| `End` | its bottom edge at the bottom of the viewport |
+
+A scroll is animated with the platform's own scroll animation unless the target says
+[`.instant()`](https://docs.rs/day-pieces/latest/day_pieces/struct.RowTarget.html#method.instant), and never while the system's reduce-motion setting is on. Alignment and the
+choice of animation need `Cap::ListScrollAlign`; where it is unsupported the row is revealed
+where the platform's own "scroll to row" puts it. GTK and the web aim at a row from the heights
+of the rows they have laid out and estimate the rest, so a jump to a far row with an automatic
+height lands by estimate and settles on the row once it is laid out (see the table below).
+
+Inside day-core a row scroll is one duty,
+[`Toolkit::list_scroll(handle, ListScroll { row, align, animated })`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.list_scroll),
+with `row: None` for the end.
+
+The dayscript `scroll_to` step goes through the same duty. `edge: top` scrolls a list to its
+first row (a header above the items included) and `edge: bottom` to the end of its content;
+a list has no `leading`, `trailing` or offset target. `scroll_to` with the id of an element
+inside a row reveals that row with the least movement. A row must be realized to have an id, so
+reach a row far from the viewport with an edge first, or with [`.scroll_to_row`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.scroll_to_row) from the app.
+
+A `Splice` (see [Keyed updates](#keyed-updates)) animates its inserts, removals and moves as
+native row changes on AppKit, UIKit and Android; the other toolkits apply it without
+animation. A toolkit that applies a splice as row changes first checks it against the rows the
+native list holds, and reloads, keeping the scroll position, when the two disagree. The source
+already answers in the final state while the deltas land one at a time, so whatever the native
+list asks about a row part way through (its height, whether it is a header, its content) is
+answered for the row that index holds at that moment: AppKit maps each in-between row to the
+source row it ends at, and GTK binds the rows it shows again once a splice of several runs has
+landed. Otherwise a sectioned `Uniform` list sizes an inserted row as the header that ends up
+at its index. A Reload whose rows are the same set in a new
+order animates as native row moves on AppKit (`moveRowAtIndex` batch, the same animation a
+drag commit gets).
+
+### Toolkit support
+
+| Toolkit | Viewport report (`Cap::ListViewport`) | Aligned and instant row scrolls (`Cap::ListScrollAlign`) | Supplementary rows | Animated splice |
+| --- | --- | --- | --- | --- |
+| [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") | `Native`: the clip view's bounds and frame changes, and each realize pass | `Native`: the row's `rectOfRow:` aligned in the clip view, animated through its animator | their own reuse identifier, sized by `heightOfRow:`, never selected or dragged, no separator | yes, up to 64 deltas; a larger splice applies without animation. A change that arrives while the table is updating its visible rows is held and applied on the next main-loop turn |
+| [UIKit](https://daybrite.dev/docs/reference/platforms/ios-uikit "toolkit:ios-uikit") | `Native`: the table's layout pass and `scrollViewDidScroll:` | `Native`: `scrollToRowAtIndexPath:atScrollPosition:animated:` | their own reuse identifier, self-sizing, never highlighted or selected, no separator | yes, as one batch of up to 64 deltas on the next main-queue turn, while the table shows each row's item where its row will land; a sectioned list or a larger splice reloads, keeping the offset |
+| [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | `Native`: the scroll listener and each layout pass, one report per main-loop turn | `Native`: `scrollToPositionWithOffset`, or `smoothScrollBy` over the aligned distance | a view type of their own sized to the content, with no ripple, click, selection or drag | yes, through `RecyclerView`'s item animator |
+| [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `Native`, after each frame from the rows GTK laid out, so one frame behind the scroll | `Native`: a 250 ms glide on the frame clock. A row with an automatic height that is not laid out yet lands by estimate and settles a frame or two later; an instant scroll asks GTK 4.12 and later to lay the row out first | marked like section headers: no hover, press, selection or separator | no: model changes on the next main-loop turn |
+| [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | `Native`: the scroll bar's value and range and the rows at the viewport's edges | `Native`: aimed per pixel on the scroll bar, a 250 ms glide when animated; a wheel turn stops the glide | painted empty by the delegate, out of clicks, keys and drags | no: model row changes, which `QListView` draws without animation |
+| [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui") | `Native`: the `ItemsRepeater`'s realized rows and the scroll viewer's extent | `Native`: brought into view with an alignment ratio and the platform's animation | cells without row chrome, never selected or activated | no: a splice reloads from the source |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `Native`: the list's scroll-index event | `Native`: `NODE_LIST_SCROLL_TO_INDEX`. A jump farther than three screens is not animated, because ArkUI builds every row it scrolls through | a cell pool of their own, inert | no: a splice reloads the adapter |
+| [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | `Native`: the list's own row table, after every scroll, resize and data change | `Native`: the browser's smooth scrolling | sized like section headers, with no role, separator or hover | no |
 
 ## Drag-to-reorder
 

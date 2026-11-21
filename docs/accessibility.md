@@ -132,14 +132,15 @@ or because animation distracts them. Day honors it in one place: a gate in day-c
 animation Day drives consults.
 
 - **What it covers.** [`with_animation`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html), implicit [`.animation()`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.animation), enter and exit pairs,
-  `set_frame`/`set_opacity`/`set_transform` transitions, canvas `Tweened` values, [`animate`](https://docs.rs/day-core/latest/day_core/tween/fn.animate.html)
+  `set_frame`/`set_opacity`/`set_transform` transitions, `day::motion` animations ([`Animation`](https://docs.rs/day-core/latest/day_core/motion/struct.Animation.html), [`Animated::animate_to`](https://docs.rs/day-core/latest/day_core/motion/struct.Animated.html#method.animate_to))
   and programmatic scrolls. Under the gate each finite transition lands at its destination,
   and a tween already in flight finishes on its next frame. Nothing cross-fades: the
   destination is applied as it is.
-- **What keeps moving.** An endless tween (`repeat: u32::MAX`): a spinner or a pulse that is
+- **What keeps moving.** An animation that never ends by itself (a spec with
+  `repeat: u32::MAX`, a [`looped()`](https://docs.rs/day-core/latest/day_core/motion/struct.Animation.html#method.looped) `day::motion` animation): a spinner or a pulse that is
   the only sign of work. Native transitions a toolkit owns (a navigation push) are the
   toolkit's, and the toolkits that animate them read the gate before doing so.
-- **What is the app's.** Motion driven from `day::frame` (a simulation, a chart's easing) is
+- **What is the app's.** Motion stepped by hand from `day::frame` (a simulation) is
   the app's own, and Day cannot know which of it is decoration. [`day::reduce_motion()`](https://docs.rs/day-app/latest/day/fn.reduce_motion.html) is the
   reactive read: a closure reading it re-runs when the setting flips, so the app settles or
   slows what it drives.

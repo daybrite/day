@@ -2,6 +2,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import Logo from './Logo.astro';
+import SocialLinks from './SocialLinks.astro';
 import { url, site } from '../lib/site';
 import { res } from '../generated/strings.mjs';
 ---
@@ -10,6 +11,7 @@ import { res } from '../generated/strings.mjs';
     <div class="foot-brand">
       <a class="brand" href={url()} aria-label="Day home"><Logo size={22} /><span>Day</span></a>
       <p class="foot-tag">{site.tagline}</p>
+      <SocialLinks labels />
     </div>
     <nav class="foot-cols" aria-label="Footer">
       <div>

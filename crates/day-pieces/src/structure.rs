@@ -902,9 +902,14 @@ pub struct List<S: RowSource> {
     selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
     selection: Option<ListSelection<S::Ref>>,
     scroll_to_end: Option<day_reactive::Trigger>,
-    scroll_to_row: Option<AnyBinding<Option<usize>>>,
-    first_visible_row: Option<AnyBinding<usize>>,
-    stick_to_bottom: bool,
+    scroll_to_row: Option<RowCommand>,
+    visible_rows: Option<AnyBinding<std::ops::Range<usize>>>,
+    follow_end: Option<f64>,
+    end_reached: Option<(f64, Rc<dyn Fn()>)>,
+    header: Option<SlotBuild>,
+    footer: Option<SlotBuild>,
+    empty: Option<SlotBuild>,
+    content_padding: day_spec::Insets,
     reorder: Option<Reorder>,
     delete: Option<Delete>,
     swipe_leading: Option<SwipeProvider>,
@@ -924,6 +929,63 @@ struct ListSections<Slot> {
 
 /// The full-set selection callback, aliased for the field above.
 type SelectionFn<R> = Rc<dyn Fn(Vec<R>)>;
+
+/// [`List::scroll_to_row`]'s binding, erased over what it holds (a bare index or a
+/// [`RowTarget`]): a tracked read of the pending command, and the write that consumes it.
+struct RowCommand {
+    pending: Rc<dyn Fn() -> Option<RowTarget>>,
+    consume: Rc<dyn Fn()>,
+}
+
+/// A list's header, footer or empty-state builder: called once per cell the host gives it.
+type SlotBuild = Rc<dyn Fn() -> AnyPiece>;
+
+/// One programmatic scroll of a [`list()`], written to its
+/// [`scroll_to_row`](ListBuilder::scroll_to_row) binding: the row, where it lands, and whether
+/// the list animates there (docs/list.md "Programmatic scrolling").
+///
+/// ```ignore
+/// jump.set(Some(RowTarget::new(250)));                               // reveal, animated
+/// jump.set(Some(RowTarget::new(0).align(RowAlign::Start).instant())); // snap to the top
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowTarget {
+    row: usize,
+    align: day_spec::RowAlign,
+    animated: bool,
+}
+
+impl RowTarget {
+    /// Scroll to `row` (an item index, clamped to the list) with the least movement that
+    /// shows it, animated.
+    #[must_use]
+    pub fn new(row: usize) -> Self {
+        RowTarget {
+            row,
+            align: day_spec::RowAlign::Nearest,
+            animated: true,
+        }
+    }
+    /// Where the row lands in the viewport (probe `Cap::ListScrollAlign`; where it is
+    /// unsupported the row is revealed where the platform puts it).
+    #[must_use]
+    pub fn align(mut self, align: day_spec::RowAlign) -> Self {
+        self.align = align;
+        self
+    }
+    /// Jump there without the scroll animation.
+    #[must_use]
+    pub fn instant(mut self) -> Self {
+        self.animated = false;
+        self
+    }
+}
+
+impl From<usize> for RowTarget {
+    fn from(row: usize) -> Self {
+        RowTarget::new(row)
+    }
+}
 
 /// A row reference that names its row by a key: what [`List::selection`] binds. A day-model
 /// store's rows (an `Elem`) answer their key, which is also the row's identity token.
@@ -970,7 +1032,7 @@ pub struct ListItem {
     subtitle: Option<TextSource>,
     detail: Option<TextSource>,
     icon: Option<ItemIcon>,
-    icon_tint: Option<Reactive<day_spec::Color>>,
+    icon_tint: Option<Reactive<day_spec::Ink>>,
     checked: Option<Reactive<bool>>,
 }
 
@@ -1025,7 +1087,7 @@ impl ListItem {
         self
     }
     /// The leading glyph's color.
-    pub fn icon_tint<M>(mut self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
+    pub fn icon_tint<M>(mut self, color: impl IntoReactive<day_spec::Ink, M>) -> Self {
         self.icon_tint = Some(color.into_reactive());
         self
     }
@@ -1175,7 +1237,7 @@ type SwipeProvider = Rc<dyn Fn(usize) -> Vec<SwipeAction>>;
 pub struct SwipeAction {
     label: TextSource,
     destructive: bool,
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
     symbol: Option<day_spec::Symbol>,
     handler: Rc<dyn Fn()>,
 }
@@ -1204,8 +1266,8 @@ impl SwipeAction {
     }
     /// The button's background color, where the platform honors one. Left unset, the platform
     /// picks its own default (gray, with red for destructive actions, on the Apple toolkits).
-    pub fn tint(mut self, color: day_spec::Color) -> Self {
-        self.tint = Some(color);
+    pub fn tint(mut self, color: impl Into<day_spec::Ink>) -> Self {
+        self.tint = Some(color.into());
         self
     }
     /// A glyph for the button where the platform draws one: above the label on macOS, in
@@ -1356,8 +1418,13 @@ where
         selection: None,
         scroll_to_end: None,
         scroll_to_row: None,
-        first_visible_row: None,
-        stick_to_bottom: false,
+        visible_rows: None,
+        follow_end: None,
+        end_reached: None,
+        header: None,
+        footer: None,
+        empty: None,
+        content_padding: day_spec::Insets::ZERO,
         reorder: None,
         delete: None,
         swipe_leading: None,
@@ -1430,38 +1497,124 @@ impl<S: RowSource + 'static> List<S> {
         });
         self
     }
-    /// Scroll the list so its last row is fully visible whenever `trigger` fires, e.g. a chat
-    /// timeline sticking to the newest message. Fire it with [`day_reactive::Trigger::notify`]
-    /// after appending. No-op while the list is empty. The scroll targets the native list
+    /// Scroll the list to its end whenever `trigger` fires, e.g. a "jump to latest" button on a
+    /// chat timeline. Fire it with [`day_reactive::Trigger::notify`]. No-op while the list is
+    /// empty. The scroll targets the native list
     /// (`NSTableView`/`UITableView`/`GtkListView`/`QListView`/`RecyclerView`), so it respects the
-    /// platform's own scroll physics.
+    /// platform's own scroll physics. To keep following new rows by itself, see
+    /// [`Self::follow_end`].
     pub fn scroll_to_end(mut self, trigger: day_reactive::Trigger) -> Self {
         self.scroll_to_end = Some(trigger);
         self
     }
-    /// Best-effort auto-stick: after a data reload, scroll to the end so freshly appended rows stay
-    /// visible. Convenience over [`Self::scroll_to_end`] for feeds that always follow the newest
-    /// row; for finer control (only stick when the user is already near the bottom) drive
-    /// `scroll_to_end` from your own logic instead. Off by default.
-    pub fn stick_to_bottom(mut self) -> Self {
-        self.stick_to_bottom = true;
+
+    /// Follow the end of the list (docs/list.md "Following the end"): when the rows change
+    /// while the list's end is within `threshold` points of the bottom of the viewport, the
+    /// list scrolls to its new end, so a chat timeline or a log keeps its newest row in view.
+    /// A reader who has scrolled further up than `threshold` is left where they are; they
+    /// rejoin by scrolling back down, or through [`Self::scroll_to_end`].
+    ///
+    /// The distance comes from the native list (`Cap::ListViewport`). A toolkit that does
+    /// not report it follows every change.
+    ///
+    /// ```ignore
+    /// list(items(move || messages.get(), |m| m.id), message_row).follow_end(40.0)
+    /// ```
+    pub fn follow_end(mut self, threshold: f64) -> Self {
+        self.follow_end = Some(threshold.max(0.0));
         self
     }
 
-    /// Programmatic scroll-to-row (docs/list.md): set the signal to `Some(row)` and the native
-    /// list scrolls that row into view, realizing it if it was virtualized away: the row rail's
-    /// counterpart to `scroll(...).scroll_target(...)`. The signal is left as written; setting
-    /// the same row again re-fires. Takes a `Signal<Option<usize>>` or any other binding.
-    pub fn scroll_to_row(mut self, target: impl Binding<Option<usize>>) -> Self {
-        self.scroll_to_row = Some(AnyBinding::new(target));
+    /// Call `f` when the user comes within `threshold` points of the end of the list: the
+    /// moment to load the next page (docs/list.md "Reaching the end"). It fires once on the
+    /// way in, and again only after the end has left that distance and returned, or after
+    /// the number of rows changed, so a handler that appends rows is called again when the
+    /// reader reaches the new end. A page that leaves the end within `threshold` fires it
+    /// again once its rows are laid out, with no scroll; a call that adds no rows re-arms
+    /// nothing, so it is never called in a loop. An empty list does not fire it.
+    /// Needs `Cap::ListViewport`.
+    ///
+    /// ```ignore
+    /// list(rows, row_view).on_end_reached(400.0, move || feed.load_more())
+    /// ```
+    pub fn on_end_reached(mut self, threshold: f64, f: impl Fn() + 'static) -> Self {
+        self.end_reached = Some((threshold.max(0.0), Rc::new(f)));
         self
     }
 
-    /// The first actually visible article/item index, reported by native scrolling into
-    /// `first` (a `Signal<usize>` or any other binding). Use with a heading overlay for
-    /// floating group headers. No periodic timer is used.
-    pub fn first_visible_row(mut self, first: impl Binding<usize>) -> Self {
-        self.first_visible_row = Some(AnyBinding::new(first));
+    /// Programmatic scroll-to-row (docs/list.md "Programmatic scrolling"): each
+    /// `Some(target)` written to the binding scrolls there, realizing the row if it was
+    /// virtualized away, and the binding then resets to `None`, so the same row can be sent
+    /// twice in a row. The same contract as `scroll(..).scroll_target(..)`. A [`RowTarget`]
+    /// names the row, where it lands and whether the scroll animates; a binding of plain
+    /// indices works too, each one a `RowTarget::new(row)`.
+    ///
+    /// ```ignore
+    /// let jump = Signal::new(None);
+    /// list(rows, row_view).scroll_to_row(jump);
+    /// button(res::str::newest()).action(move || jump.set(Some(0)));
+    /// // With options:
+    /// jump.set(Some(RowTarget::new(250).align(RowAlign::Center).instant()));
+    /// ```
+    pub fn scroll_to_row<T>(mut self, target: impl Binding<Option<T>>) -> Self
+    where
+        T: Into<RowTarget> + Clone + 'static,
+    {
+        let target = AnyBinding::new(target);
+        let consume = target;
+        self.scroll_to_row = Some(RowCommand {
+            pending: Rc::new(move || target.get().map(Into::into)),
+            consume: Rc::new(move || consume.set(None)),
+        });
+        self
+    }
+
+    /// The rows in view (docs/list.md "Visible rows"), written to `rows` as the list scrolls:
+    /// a half-open range of row indices, `rows.start` the first row with any part showing and
+    /// `rows.end` one past the last, empty while no row is in view. Section headers and the
+    /// list's own header and footer are not rows. Use `rows.start` with a heading overlay for
+    /// a floating group header. No periodic timer is used. Where `Cap::ListViewport` is
+    /// unsupported the range holds the first visible row only.
+    pub fn visible_rows(mut self, rows: impl Binding<std::ops::Range<usize>>) -> Self {
+        self.visible_rows = Some(AnyBinding::new(rows));
+        self
+    }
+
+    /// Content above the first row that scrolls with the rows (docs/list.md "Header, footer
+    /// and empty state"): a search summary, a hero, a banner. `build` runs when the list
+    /// first shows it. It is not a row: nothing selects, swipes or counts it.
+    pub fn header<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
+        self.header = Some(Rc::new(move || AnyPiece::new(build())));
+        self
+    }
+
+    /// Content below the last row that scrolls with the rows: a "loading more" spinner, a
+    /// count, a sign-off. The same contract as [`Self::header`].
+    pub fn footer<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
+        self.footer = Some(Rc::new(move || AnyPiece::new(build())));
+        self
+    }
+
+    /// What the list shows in place of its rows while it has none (docs/list.md "Header,
+    /// footer and empty state"), centered in the viewport, between the header and the footer
+    /// if the list has them. It goes when the first row arrives and returns when the last
+    /// one leaves.
+    ///
+    /// ```ignore
+    /// list(rows, row_view).empty(|| label(res::str::no_messages()).secondary())
+    /// ```
+    pub fn empty<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
+        self.empty = Some(Rc::new(move || {
+            AnyPiece::new(build().aligned(Alignment::Center).grow(Dimension::Both))
+        }));
+        self
+    }
+
+    /// Space around the list's content, inside the scrolling area: the top and bottom
+    /// scroll with the rows (the last row clears a floating composer or tab bar), the sides
+    /// inset every row. Takes a number for all four sides or an `Insets`.
+    pub fn content_padding(mut self, insets: impl Into<day_spec::Insets>) -> Self {
+        self.content_padding = insets.into();
         self
     }
 
@@ -1549,7 +1702,7 @@ impl<S: RowSource + 'static> List<S> {
     /// to the top of the list while their section scrolls under them; the other toolkits pin
     /// a copy of the current header the same way (`Cap::ListSections`). A header is never
     /// selected, activated or swiped, and row indices everywhere (selection, swipe offers,
-    /// `selected_rows`, `scroll_to_row`, `first_visible_row`) still count rows only. A header
+    /// `selected_rows`, `scroll_to_row`, `visible_rows`) still count rows only. A header
     /// sizes to its content even when the rows are `Uniform`.
     ///
     /// A row drags only within its own section, the platforms' rule for grouped tables: a
@@ -1587,6 +1740,23 @@ impl<S: RowSource + 'static> List<S> {
         self.editing = on.into_reactive();
         self
     }
+}
+
+/// The driver's build closure for a supplementary row (the list's header, footer or empty
+/// state): build the piece in a scope of its own, with no item to bind.
+fn slot_builder_plain(build: SlotBuild) -> day_core::SupplementBuild {
+    Box::new(move |anchor| {
+        let scope = Scope::child();
+        let build = build.clone();
+        scope.enter(move || {
+            let mut cx = BuildCx::new(anchor);
+            build().build(&mut cx);
+        });
+        BuiltRow {
+            scope,
+            rebind: Rc::new(|_: usize| {}),
+        }
+    })
 }
 
 /// The driver's build closure for a row or a section header: build `builder`'s piece from a
@@ -1730,7 +1900,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 day_reactive::on_main(move || {
                     day_core::list_set_selected(node, row.into_iter().collect());
                     if let Some(row) = scroll {
-                        list_scroll_to_row(node, row);
+                        list_scroll_to_row(node, row, day_spec::RowAlign::Nearest, true);
                     }
                 });
             }) as Rc<dyn Fn()>
@@ -1799,21 +1969,72 @@ impl<S: RowSource + 'static> Piece for List<S> {
             });
         }
 
-        // The type-erased driver day-core drives on cell pulls.
-        if let Some(signal) = self.first_visible_row {
+        // The viewport, as the native list reports it (docs/list.md "Visible rows"): the
+        // visible range for the app, the distance to the end for `follow_end`, and the
+        // end-reached edge.
+        let track_viewport =
+            self.visible_rows.is_some() || self.follow_end.is_some() || self.end_reached.is_some();
+        // The last distance from the viewport's end to the content's end; `None` until a host
+        // says, which a host without `Cap::ListViewport` never does.
+        let end_distance: Rc<Cell<Option<f64>>> = Rc::new(Cell::new(None));
+        // `follow_end` scrolled to the end and the list has not reported arriving yet: the
+        // distances it reports on the way there must not read as the reader leaving.
+        let following = Rc::new(Cell::new(false));
+        // `on_end_reached` fires on the way in, then waits for the end to leave or the rows
+        // to change.
+        let end_armed = Rc::new(Cell::new(true));
+        if track_viewport {
+            let visible = self.visible_rows.take();
+            let follow = self.follow_end;
+            let reached = self.end_reached.take();
+            let (distance, following, armed) =
+                (end_distance.clone(), following.clone(), end_armed.clone());
+            let conn = conn.clone();
             cx.on(node, move |event| {
-                if let Event::Custom { tag, num, text } = event
-                    && (*tag == "day-list-first-visible"
-                        || (tag.is_empty() && text == "day-list-first-visible"))
-                    && num.is_finite()
-                    && *num >= 0.0
-                {
-                    signal.set_if_changed(*num as usize);
+                let (rows, end_distance) = match event {
+                    Event::ListViewport { rows, end_distance } => (rows, end_distance),
+                    // The reader took the list (docs/list.md "Following the end"): a followed
+                    // scroll they interrupted is over, and until the list says where they
+                    // stopped they count as away from the end.
+                    Event::ListReaderScrolled => {
+                        following.set(false);
+                        distance.set(Some(f64::INFINITY));
+                        return;
+                    }
+                    _ => return,
+                };
+                if let Some(visible) = &visible {
+                    visible.set_if_changed(rows.clone());
+                }
+                let Some(now) = *end_distance else {
+                    return;
+                };
+                let near = follow.is_some_and(|threshold| now <= threshold);
+                if near {
+                    following.set(false);
+                }
+                if near || !following.get() {
+                    distance.set(Some(now));
+                }
+                if let Some((threshold, reached)) = &reached {
+                    if now > *threshold {
+                        armed.set(true);
+                    } else if !conn.is_empty() && armed.replace(false) {
+                        reached();
+                    }
                 }
             });
         }
+        let has_empty = self.empty.is_some();
         let driver = ListDriver {
-            track_viewport: self.first_visible_row.is_some(),
+            track_viewport,
+            track_reader: self.follow_end.is_some(),
+            supplements: day_core::ListSupplements {
+                header: self.header.take().map(slot_builder_plain),
+                footer: self.footer.take().map(slot_builder_plain),
+                empty: self.empty.take().map(slot_builder_plain),
+                padding: self.content_padding,
+            },
             row_height: self.row_height,
             len: {
                 let conn = conn.clone();
@@ -1944,33 +2165,49 @@ impl<S: RowSource + 'static> Piece for List<S> {
         };
         install_list(node, driver);
 
+        // With `follow_end`, the explicit jump to the end below is a followed scroll too.
+        let jump_follows = (self.follow_end.is_some(), following.clone());
         // Keep the snapshot current and tell the native host to re-query on changes. The compute
         // is the tracked refresh; for a store source whose values flow through per-field
         // notifications, an unchanged row set skips the native reload entirely: a field edit
         // costs the one control it patched, not a visible-rows rebind.
         {
-            let (conn, echo, stick) = (conn.clone(), pending_echo.clone(), self.stick_to_bottom);
+            let conn = conn.clone();
+            let follow = self.follow_end;
+            let sectioned = self.sections.is_some();
             let reselect = apply_selection.clone();
             let initial = {
                 let refresh = refresh.clone();
                 day_reactive::untrack(move || refresh())
             };
             // The native host attached against an empty snapshot (install_list ran before this
-            // prime), so tell it the real row set now: reload, without the auto-scroll a later
-            // sticky change gets. Skipping this rendered every list blank until its first data
+            // prime), so tell it the real row set now: reload, without the scroll a later
+            // followed change gets. Skipping this rendered every list blank until its first data
             // change, while the synthetic rail kept passing: the walkthrough drove the driver
             // directly and never noticed.
             list_reload(node);
+            // The rows the native host shows: what the next change is diffed against.
             let last: RefCell<(Vec<u64>, Vec<u64>)> = RefCell::new(initial);
             watch(
                 move || refresh(),
                 move |rows: &(Vec<u64>, Vec<u64>), _| {
                     let toks = &rows.0;
                     let pending = pending_echo.borrow_mut().take();
-                    let is_echo = pending.as_ref().is_some_and(|e| e == toks);
+                    // A native delete that emptied a list with an empty state is no echo: the
+                    // host has to be told about the row that takes the items' place.
+                    let is_echo = pending.as_ref().is_some_and(|e| e == toks)
+                        && !(has_empty && toks.is_empty());
+                    let old = last.replace(rows.clone());
                     // A row moving to another section changes its header rows, not its tokens.
-                    let unchanged = !conn.values_flow_by_reload() && *last.borrow() == *rows;
-                    *last.borrow_mut() = rows.clone();
+                    let unchanged = !conn.values_flow_by_reload() && old == *rows;
+                    if old.0.len() != toks.len() {
+                        end_armed.set(true);
+                    }
+                    // Where the reader was before this change (`follow_end`): a list that
+                    // never reported is taken to be at its end.
+                    let at_end = follow.is_some_and(|threshold| {
+                        following.get() || end_distance.get().is_none_or(|d| d <= threshold)
+                    });
                     if !is_echo && pending.is_some() {
                         // The native rows took a move or delete the app answered with some
                         // other order. The source's deltas describe the change from its order
@@ -1981,15 +2218,36 @@ impl<S: RowSource + 'static> Piece for List<S> {
                             apply();
                         }
                     } else if !is_echo && !unchanged {
-                        match conn.take_row_events() {
-                            Some(deltas) if !deltas.is_empty() => list_splice(node, deltas),
-                            Some(_) => {}
-                            None => list_reload(node),
+                        // A source that maintains its set incrementally says what changed;
+                        // for any other, the old and new tokens are diffed into the same
+                        // deltas (docs/list.md "Keyed updates").
+                        let sync = match conn.take_row_events() {
+                            Some(deltas) if !deltas.is_empty() => {
+                                let count = deltas.len();
+                                list_splice(node, deltas);
+                                day_core::ListSync::Spliced(count)
+                            }
+                            Some(_) => day_core::ListSync::Unchanged,
+                            None => day_core::list_sync(
+                                node,
+                                day_core::ListRows {
+                                    tokens: &old.0,
+                                    sections: sectioned.then_some(&old.1),
+                                },
+                                day_core::ListRows {
+                                    tokens: toks,
+                                    sections: sectioned.then_some(&rows.1),
+                                },
+                            ),
+                        };
+                        if at_end {
+                            // New rows scroll into view; a row that only grew (a streamed
+                            // reply) is kept in view without an animation per update.
+                            following.set(true);
+                            list_scroll_to_end(node, sync != day_core::ListSync::Unchanged);
                         }
-                        if stick {
-                            list_scroll_to_end(node);
-                        }
-                        // A reload drops the native selection; put the bound row back.
+                        // A reload drops the native selection, and a splice may have moved
+                        // the bound row; put it back.
                         if let Some(apply) = &reselect {
                             apply();
                         }
@@ -2000,28 +2258,40 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     }
                 },
             );
-            let _ = echo;
         }
 
         // Imperative scroll-to-end: each `trigger.notify()` re-runs this watch (the trigger's
         // signal is the only tracked dep), whose callback scrolls the native list to its last row.
         // `watch` never fires for the initial run, so building the list does not force a scroll.
         if let Some(trigger) = self.scroll_to_end {
+            let (follows, following) = jump_follows;
             watch(
                 move || trigger.track(),
-                move |(): &(), _| list_scroll_to_end(node),
+                move |(): &(), _| {
+                    // A row that arrives while the jump is on its way is followed, as it is
+                    // during a followed scroll: the reader asked for the end.
+                    if follows {
+                        following.set(true);
+                    }
+                    list_scroll_to_end(node, true);
+                },
             );
         }
 
-        // Programmatic scroll-to-row: every `Some(row)` write scrolls that row into view
-        // (`watch` fires per write, so repeats of the same row re-fire; the initial build never
-        // scrolls).
-        if let Some(sig) = self.scroll_to_row {
+        // Programmatic scroll-to-row: every `Some(target)` write scrolls there and is then
+        // consumed, the `scroll_target` contract (the initial build never scrolls).
+        if let Some(command) = self.scroll_to_row {
+            let RowCommand { pending, consume } = command;
             watch(
-                move || sig.get(),
-                move |row: &Option<usize>, _| {
-                    if let Some(row) = row {
-                        list_scroll_to_row(node, *row);
+                move || pending(),
+                move |target: &Option<RowTarget>, _| {
+                    if let Some(to) = *target {
+                        // Deferred one main-loop turn, as `scroll_target` is: a row appended
+                        // in the same batch reaches the host before the scroll does.
+                        day_reactive::on_main(move || {
+                            list_scroll_to_row(node, to.row, to.align, to.animated);
+                        });
+                        consume(); // ready for the next command
                     }
                 },
             );
@@ -3276,10 +3546,10 @@ impl Piece for TreeRowShell {
         let w = cx.native(
             kinds::CONTAINER,
             &ContainerProps {
-                background: None,
                 corner_radius: 0.0,
                 clips: false,
                 role: None,
+                ..Default::default()
             },
             Rc::new(TreeIndent {
                 depth: self.depth,
@@ -3789,7 +4059,7 @@ pub fn guarded_page(case: day_core::conformance::Case) -> AnyPiece {
 
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
-    use day_core::conformance::{Case, Drive, Fail};
+    use day_core::conformance::{Case, Drive, Fail, FrameExpect};
     use day_geometry::Insets;
     use day_reactive::Signal;
     use day_spec::props::RowHeight;
@@ -4232,6 +4502,31 @@ pub(crate) mod conformance {
             })
     }
 
+    /// The dayscript `scroll_to` step drives a native list through its row scrolling: `bottom`
+    /// reaches the last row, `top` the first, and a row's id reveals the row it names.
+    #[day_macros::test(day_core)]
+    fn list_scroll_to_edges_and_rows_from_dayscript() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_duty("list_scroll")
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..300).map(|n| format!("Row {n}")).collect());
+                names_list(rows).id(day_core::id!(list)).height(200.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_missing("conformance_row:Row%20299").await?;
+                d.scroll_to("list", "bottom").await?;
+                d.assert_text("conformance_row:Row%20299", "Row 299")
+                    .await?;
+                d.reveal("conformance_row:Row%20297").await?;
+                d.scroll_to("list", "top").await?;
+                d.assert_text("conformance_row:Row%200", "Row 0").await?;
+                d.reveal("conformance_row:Row%202").await?;
+                d.assert_text("conformance_row:Row%202", "Row 2").await
+            })
+    }
+
     /// Scrolling a long list to a row realizes it, even where rows are recycled.
     #[day_macros::test(day_core)]
     fn list_scroll_to_row() -> Case {
@@ -4531,6 +4826,590 @@ pub(crate) mod conformance {
                     .await?;
                 d.assert_text("conformance_row:New%20last", "New last")
                     .await
+            })
+    }
+
+    /// One row of the keyed cases: a key the list tracks and a text it shows.
+    type Keyed = (u32, String);
+
+    /// The swatch a keyed row leads with, by key: how a case reads the order of the rows.
+    fn key_color(key: u32) -> day_spec::Color {
+        match key {
+            1 => day_spec::Color::rgb(1.0, 0.0, 0.0),
+            2 => day_spec::Color::rgb(0.0, 1.0, 0.0),
+            3 => day_spec::Color::rgb(0.0, 0.0, 1.0),
+            _ => day_spec::Color::rgb(1.0, 1.0, 0.0),
+        }
+    }
+
+    /// A list keyed by number, 240 by 160 points, of rows 32 points tall: a swatch in the
+    /// key's color, 60 points wide, then a label with the id `keyed:<key>` showing the text;
+    /// the row itself has the id `keyed_row:<key>`.
+    fn keyed_list(rows: Signal<Vec<Keyed>>) -> Decorated<List<Items<Keyed, u32>>> {
+        list(
+            items(move || rows.get(), |r: &Keyed| r.0),
+            |slot: ItemSlot<Keyed, u32>| {
+                row((
+                    rectangle()
+                        .fill(move || key_color(slot.field(|r| r.0)))
+                        .frame(60.0, 24.0),
+                    label(move || slot.field(|r| r.1.clone()))
+                        .id_of(move || day_core::id!(keyed, slot.field(|r| r.0))),
+                ))
+                .spacing(8.0)
+                .id_of(move || day_core::id!(keyed_row, slot.field(|r| r.0)))
+            },
+        )
+        .row_height(RowHeight::Uniform(32.0))
+        .frame(240.0, 160.0)
+    }
+
+    fn keyed(rows: &[(u32, &str)]) -> Signal<Vec<Keyed>> {
+        Signal::new(rows.iter().map(|(k, t)| (*k, (*t).to_owned())).collect())
+    }
+
+    /// Row `index` of the keyed list `id` shows the swatch `color`: sampled 40 points in,
+    /// inside the swatch under every platform's row margin, at the row's middle.
+    async fn row_shows(d: &Drive, id: &str, index: u32, color: &str) -> Result<(), Fail> {
+        let y = (f64::from(index) + 0.5) * 32.0 / 160.0;
+        d.sample_pixel(id, 40.0 / 240.0, y, color).await
+    }
+
+    /// A plain items list applies an insert, a move, a removal and a changed value as row
+    /// deltas (docs/list.md "Keyed updates"): every row ends where the data puts it, showing
+    /// its own item.
+    #[day_macros::test(day_core)]
+    fn list_keyed_changes_land_in_order() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            // Twelve whole-window pixel samples: 12 to 19 s on a loaded desktop toolkit.
+            .timeout(60.0)
+            .page(|| {
+                let rows = keyed(&[(1, "One"), (2, "Two"), (3, "Three")]);
+                column((
+                    row((
+                        button("Top")
+                            .action(move || rows.update(|v| v.insert(0, (9, "Nine".into()))))
+                            .id(day_core::id!(top)),
+                        button("Move")
+                            .action(move || {
+                                rows.update(|v| {
+                                    if let Some(last) = v.pop() {
+                                        v.insert(0, last);
+                                    }
+                                });
+                            })
+                            .id(day_core::id!(lift)),
+                        button("Edit")
+                            .action(move || {
+                                rows.update(|v| {
+                                    if let Some(two) = v.iter_mut().find(|r| r.0 == 2) {
+                                        two.1 = "Deux".into();
+                                    }
+                                });
+                            })
+                            .id(day_core::id!(edit)),
+                        button("Drop")
+                            .action(move || rows.update(|v| v.retain(|r| r.0 != 1)))
+                            .id(day_core::id!(drop)),
+                    )),
+                    keyed_list(rows).id(day_core::id!(list)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("keyed:1", "One").await?;
+                row_shows(&d, "list", 0, "#ff0000").await?;
+                row_shows(&d, "list", 2, "#0000ff").await?;
+                // An insert at the top pushes every row down one.
+                d.tap("top").await?;
+                d.assert_text("keyed:9", "Nine").await?;
+                row_shows(&d, "list", 0, "#ffff00").await?;
+                row_shows(&d, "list", 1, "#ff0000").await?;
+                row_shows(&d, "list", 3, "#0000ff").await?;
+                // The last row moves to the top; the others keep their order under it.
+                d.tap("lift").await?;
+                d.wait_idle().await?;
+                row_shows(&d, "list", 0, "#0000ff").await?;
+                row_shows(&d, "list", 1, "#ffff00").await?;
+                row_shows(&d, "list", 3, "#00ff00").await?;
+                // A changed value with the same key reaches its row in place.
+                d.tap("edit").await?;
+                d.assert_text("keyed:2", "Deux").await?;
+                row_shows(&d, "list", 3, "#00ff00").await?;
+                // A removal from the middle closes the gap.
+                d.tap("drop").await?;
+                d.assert_missing("keyed:1").await?;
+                d.assert_text("keyed:3", "Three").await?;
+                row_shows(&d, "list", 0, "#0000ff").await?;
+                row_shows(&d, "list", 1, "#ffff00").await?;
+                row_shows(&d, "list", 2, "#00ff00").await
+            })
+    }
+
+    /// `follow_end` leaves a reader at the top where they are and follows a reader at the end
+    /// (docs/list.md "Following the end").
+    #[day_macros::test(day_core)]
+    fn list_follow_end_follows_only_at_the_end() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_cap(Cap::ListViewport)
+            .requires(Cap::ListViewport)
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..300).map(|n| format!("Row {n}")).collect());
+                let end = day_reactive::Trigger::new();
+                column((
+                    row((
+                        button("Add")
+                            .action(move || {
+                                rows.update(|v| v.push(format!("New {}", v.len() - 300)));
+                            })
+                            .id(day_core::id!(add)),
+                        button("End")
+                            .action(move || end.notify())
+                            .id(day_core::id!(end)),
+                    )),
+                    names_list(rows)
+                        .follow_end(40.0)
+                        .scroll_to_end(end)
+                        .id(day_core::id!(list))
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("conformance_row:Row%200", "Row 0").await?;
+                d.wait_idle().await?;
+                // At the top, far from the end: the new row arrives out of view.
+                d.tap("add").await?;
+                d.wait_idle().await?;
+                d.assert_missing("conformance_row:New%200").await?;
+                d.assert_text("conformance_row:Row%200", "Row 0").await?;
+                // At the end: the next row is followed into view.
+                d.tap("end").await?;
+                d.assert_text("conformance_row:New%200", "New 0").await?;
+                d.wait_idle().await?;
+                d.tap("add").await?;
+                d.assert_text("conformance_row:New%201", "New 1").await
+            })
+    }
+
+    /// Rows arriving while a followed scroll is still on its way are followed too: the list's
+    /// own scrolls are never taken for the reader's (docs/list.md "Following the end",
+    /// `Cap::ListReaderScroll`). The reader's own scrolls need real input, which a case cannot
+    /// make; each backend proves them by hand.
+    #[day_macros::test(day_core)]
+    fn list_follow_end_keeps_up_with_rows_in_flight() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_cap(Cap::ListReaderScroll)
+            .requires(Cap::ListViewport)
+            .timeout(30.0)
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..300).map(|n| format!("Row {n}")).collect());
+                let end = day_reactive::Trigger::new();
+                column((
+                    row((
+                        button("Burst")
+                            .action(move || {
+                                day_core::task(async move {
+                                    for n in 0..12 {
+                                        rows.update(|v| v.push(format!("Burst {n}")));
+                                        day_core::sleep(40).await;
+                                    }
+                                });
+                            })
+                            .id(day_core::id!(burst)),
+                        button("End")
+                            .action(move || end.notify())
+                            .id(day_core::id!(end)),
+                    )),
+                    names_list(rows)
+                        .follow_end(40.0)
+                        .scroll_to_end(end)
+                        .id(day_core::id!(list))
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("conformance_row:Row%200", "Row 0").await?;
+                d.wait_idle().await?;
+                d.tap("end").await?;
+                d.assert_text("conformance_row:Row%20299", "Row 299")
+                    .await?;
+                d.wait_idle().await?;
+                // Twelve rows, one every 40 ms: each lands while the scroll to the one before
+                // is still animating, and the last is in view at the end.
+                d.tap("burst").await?;
+                d.assert_text("conformance_row:Burst%2011", "Burst 11")
+                    .await?;
+                d.wait_idle().await?;
+                d.assert_text("conformance_row:Burst%2011", "Burst 11")
+                    .await
+            })
+    }
+
+    /// `on_end_reached` fires when the list comes to its end, once, and again at the new end
+    /// after the handler added rows (docs/list.md "Reaching the end").
+    #[day_macros::test(day_core)]
+    fn list_end_reached_fires_once_per_end() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_cap(Cap::ListViewport)
+            .requires(Cap::ListViewport)
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..60).map(|n| format!("Row {n}")).collect());
+                let loads = Signal::new(0_u32);
+                let end = day_reactive::Trigger::new();
+                column((
+                    button("End")
+                        .action(move || end.notify())
+                        .id(day_core::id!(end)),
+                    label(move || format!("loads {}", loads.get())).id(day_core::id!(loads)),
+                    names_list(rows)
+                        .on_end_reached(100.0, move || {
+                            loads.update(|n| *n += 1);
+                            rows.update(|v| {
+                                let from = v.len();
+                                v.extend((from..from + 40).map(|n| format!("Row {n}")));
+                            });
+                        })
+                        .scroll_to_end(end)
+                        .id(day_core::id!(list))
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("conformance_row:Row%200", "Row 0").await?;
+                d.wait_idle().await?;
+                d.assert_text("loads", "loads 0").await?;
+                d.tap("end").await?;
+                d.assert_text("loads", "loads 1").await?;
+                // The handler's rows moved the end away: it does not fire again by itself.
+                d.pause(0.3).await?;
+                d.assert_text("loads", "loads 1").await?;
+                d.tap("end").await?;
+                d.assert_text("loads", "loads 2").await
+            })
+    }
+
+    /// A short first page leaves the end within the threshold: `on_end_reached` fires again
+    /// once the rows it added are laid out, with no scroll, and a call that adds no rows ends
+    /// the chain (docs/list.md "Reaching the end").
+    #[day_macros::test(day_core)]
+    fn list_end_reached_fills_a_short_list() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_cap(Cap::ListViewport)
+            .requires(Cap::ListViewport)
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..4).map(|n| format!("Row {n}")).collect());
+                let loads = Signal::new(0_u32);
+                column((
+                    label(move || format!("loads {}", loads.get())).id(day_core::id!(loads)),
+                    names_list(rows)
+                        .on_end_reached(200.0, move || {
+                            loads.update(|n| *n += 1);
+                            // A source with 12 rows in all: past them a call adds nothing.
+                            rows.update(|v| {
+                                let from = v.len();
+                                v.extend((from..(from + 4).min(12)).map(|n| format!("Row {n}")));
+                            });
+                        })
+                        .id(day_core::id!(list))
+                        .height(300.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                // Every page leaves the end within 200 pt of a 300 pt viewport (4 rows fit,
+                // 8 rows fit, 12 rows are 84 pt past it), so three calls come with no scroll:
+                // the third adds nothing, and nothing re-arms after it.
+                d.assert_text("loads", "loads 3").await?;
+                // A row of the third page, inside the viewport.
+                d.assert_text("conformance_row:Row%208", "Row 8").await?;
+                d.pause(0.3).await?;
+                d.assert_text("loads", "loads 3").await
+            })
+    }
+
+    /// A row scroll lands where its alignment says, and the visible range follows the
+    /// viewport (docs/list.md "Visible rows", "Programmatic scrolling").
+    #[day_macros::test(day_core)]
+    fn list_visible_rows_follow_an_aligned_scroll() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_cap(Cap::ListViewport)
+            .proves_cap(Cap::ListScrollAlign)
+            .proves_duty("list_scroll")
+            .requires(Cap::ListViewport)
+            .requires(Cap::ListScrollAlign)
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..300).map(|n| format!("Row {n}")).collect());
+                let jump: Signal<Option<RowTarget>> = Signal::new(None);
+                let visible = Signal::new(0_usize..0);
+                column((
+                    row((
+                        button("Start")
+                            .action(move || {
+                                jump.set(Some(
+                                    RowTarget::new(100)
+                                        .align(day_spec::RowAlign::Start)
+                                        .instant(),
+                                ));
+                            })
+                            .id(day_core::id!(to_start)),
+                        button("End")
+                            .action(move || {
+                                jump.set(Some(
+                                    RowTarget::new(200).align(day_spec::RowAlign::End).instant(),
+                                ));
+                            })
+                            .id(day_core::id!(to_end)),
+                    )),
+                    label(move || format!("first {}", visible.get().start))
+                        .id(day_core::id!(first)),
+                    label(move || format!("last {}", visible.get().end.max(1) - 1))
+                        .id(day_core::id!(last)),
+                    label(move || {
+                        if visible.get().len() > 1 {
+                            "several"
+                        } else {
+                            "one or none"
+                        }
+                    })
+                    .id(day_core::id!(span)),
+                    names_list(rows)
+                        .scroll_to_row(jump)
+                        .visible_rows(visible)
+                        .id(day_core::id!(list))
+                        .height(160.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("first", "first 0").await?;
+                d.assert_text("span", "several").await?;
+                // Row 100 at the top of the viewport is the first visible row.
+                d.tap("to_start").await?;
+                d.assert_text("first", "first 100").await?;
+                d.assert_text("conformance_row:Row%20100", "Row 100")
+                    .await?;
+                // Row 200 at the bottom of the viewport is the last.
+                d.tap("to_end").await?;
+                d.assert_text("last", "last 200").await?;
+                d.assert_text("conformance_row:Row%20200", "Row 200").await
+            })
+    }
+
+    /// The list's header and footer scroll with its rows, and the empty state stands in for
+    /// the rows while there are none (docs/list.md "Header, footer and empty state").
+    #[day_macros::test(day_core)]
+    fn list_header_footer_and_empty_state() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = names(&[]);
+                column((
+                    row((
+                        button("Add")
+                            .action(move || rows.update(|v| v.push(format!("Item {}", v.len()))))
+                            .id(day_core::id!(add)),
+                        button("Clear")
+                            .action(move || rows.set(Vec::new()))
+                            .id(day_core::id!(clear)),
+                    )),
+                    names_list(rows)
+                        .header(|| {
+                            label("Inbox")
+                                .id(day_core::id!(list_header))
+                                .padding(Insets::symmetric(12.0, 6.0))
+                        })
+                        .footer(|| {
+                            label("End of list")
+                                .id(day_core::id!(list_footer))
+                                .padding(Insets::symmetric(12.0, 6.0))
+                        })
+                        .empty(|| label("Nothing yet").id(day_core::id!(list_empty)))
+                        .id(day_core::id!(list))
+                        .height(260.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("list_header", "Inbox").await?;
+                d.assert_text("list_empty", "Nothing yet").await?;
+                d.assert_text("list_footer", "End of list").await?;
+                // The first row takes the empty state's place, under the header.
+                d.tap("add").await?;
+                d.assert_text("conformance_row:Item%200", "Item 0").await?;
+                d.assert_missing("list_empty").await?;
+                d.assert_text("list_header", "Inbox").await?;
+                d.tap("add").await?;
+                d.assert_text("conformance_row:Item%201", "Item 1").await?;
+                d.assert_text("list_footer", "End of list").await?;
+                // And it returns when the last row leaves.
+                d.tap("clear").await?;
+                d.assert_missing("conformance_row:Item%200").await?;
+                d.assert_text("list_empty", "Nothing yet").await
+            })
+    }
+
+    /// Content padding insets every row from the side, beyond the platform's own margins,
+    /// and puts its top inset above the first row.
+    #[day_macros::test(day_core)]
+    fn list_content_padding_insets_rows() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let plain = keyed(&[(1, "Plain")]);
+                let padded = keyed(&[(2, "Padded")]);
+                column((
+                    keyed_list(plain),
+                    keyed_list(padded)
+                        .content_padding(Insets {
+                            top: 16.0,
+                            leading: 24.0,
+                            bottom: 16.0,
+                            trailing: 24.0,
+                        })
+                        .id(day_core::id!(padded_list)),
+                ))
+                .spacing(0.0)
+                .align(HAlign::Leading)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("keyed:1", "Plain").await?;
+                d.assert_text("keyed:2", "Padded").await?;
+                // The same row, 24 points further in than the plain list's.
+                d.assert_frame(
+                    "keyed_row:2",
+                    FrameExpect {
+                        x: Some(24.0),
+                        relative_to: Some("keyed_row:1".into()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                // And 16 points down: its middle is at 32, its swatch 24 further in.
+                d.sample_pixel("padded_list", 64.0 / 240.0, 32.0 / 160.0, "#00ff00")
+                    .await
+            })
+    }
+
+    /// The rows of [`list_sectioned_rows_keep_their_height_after_a_splice`] once loaded:
+    /// `(section, key)`, three sections of three.
+    const SECTIONED: [(&str, u32); 9] = [
+        ("A", 1),
+        ("A", 2),
+        ("A", 3),
+        ("B", 4),
+        ("B", 5),
+        ("B", 6),
+        ("C", 7),
+        ("C", 8),
+        ("C", 9),
+    ];
+
+    /// The native top of each `sectioned:` row's label, in window points, in row order.
+    fn sectioned_tops() -> Result<Vec<f64>, Fail> {
+        day_core::try_with_tree(|t| {
+            SECTIONED
+                .iter()
+                .map(|(_, key)| {
+                    let id = format!("sectioned:{key}");
+                    let node = t
+                        .find_by_id(&id)
+                        .ok_or_else(|| Fail(format!("no element {id:?}")))?;
+                    t.read_native(node)
+                        .and_then(|n| n.frame)
+                        .map(|f| f.origin.y)
+                        .ok_or_else(|| Fail(format!("{id:?} has no native frame")))
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| Err(Fail("the tree is busy".into())))
+    }
+
+    /// A sectioned `Uniform` list that grows by a keyed splice keeps every row at the uniform
+    /// height and every header at its own (docs/list.md "Sections", "Keyed updates"). The
+    /// splice inserts rows and headers among the ones shown, so a platform that sizes an
+    /// inserted row before the splice has finished sizes it as whatever row ends up at that
+    /// index: an item row the height of a header clips its content.
+    #[day_macros::test(day_core)]
+    fn list_sectioned_rows_keep_their_height_after_a_splice() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = Signal::new(vec![SECTIONED[0], SECTIONED[3]]);
+                column((
+                    button("Load")
+                        .action(move || rows.set(SECTIONED.to_vec()))
+                        .id(day_core::id!(load)),
+                    list(
+                        items(move || rows.get(), |r: &(&str, u32)| r.1),
+                        |slot: ItemSlot<(&'static str, u32), u32>| {
+                            label(move || format!("Row {}", slot.field(|r| r.1)))
+                                .id_of(move || day_core::id!(sectioned, slot.field(|r| r.1)))
+                                .padding(Insets::symmetric(12.0, 6.0))
+                        },
+                    )
+                    .sections(
+                        move |i| rows.with(|r| r.get(i).map(|r| r.0)),
+                        |slot: ItemSlot<(&'static str, u32), u32>| {
+                            label(move || format!("Section {}", slot.field(|r| r.0)))
+                                .font(Font::Caption)
+                                .padding(Insets::symmetric(12.0, 2.0))
+                        },
+                    )
+                    .row_height(RowHeight::Uniform(32.0))
+                    .id(day_core::id!(list))
+                    .width(240.0)
+                    .height(480.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("sectioned:4", "Row 4").await?;
+                d.tap("load").await?;
+                d.assert_text("sectioned:9", "Row 9").await?;
+                d.wait_idle().await?;
+                d.pause(0.3).await?;
+                d.shot("sectioned-splice").await?;
+                let tops = sectioned_tops()?;
+                // Rows of one section follow each other at one pitch, at least the row height.
+                let pitch = tops[1] - tops[0];
+                d.check(
+                    pitch >= 31.5,
+                    &format!("the first row is {pitch:.1} tall, under its 32-point height"),
+                )?;
+                let mut step = None;
+                for (i, pair) in tops.windows(2).enumerate() {
+                    let gap = pair[1] - pair[0];
+                    if SECTIONED[i].0 == SECTIONED[i + 1].0 {
+                        d.check(
+                            (gap - pitch).abs() <= 1.0,
+                            &format!(
+                                "row {} starts {gap:.1} below row {} where every row of a \
+                                 section is {pitch:.1} below the one before",
+                                SECTIONED[i + 1].1,
+                                SECTIONED[i].1
+                            ),
+                        )?;
+                    } else {
+                        // Across a header: the row plus one header, the same at every header.
+                        let step = *step.get_or_insert(gap);
+                        d.check(
+                            gap > pitch && (gap - step).abs() <= 1.0,
+                            &format!(
+                                "row {} starts {gap:.1} below row {} across a header, where \
+                                 the first header's step was {step:.1}",
+                                SECTIONED[i + 1].1,
+                                SECTIONED[i].1
+                            ),
+                        )?;
+                    }
+                }
+                Ok(())
             })
     }
 

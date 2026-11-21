@@ -287,6 +287,24 @@ pub(crate) fn update_any(b: &mut AppKit, h: &crate::Handle, patch: &dyn std::any
     }
 }
 
+/// The editor's reading direction (`Toolkit::set_layout_direction`): the text view's base
+/// writing direction, which its natural alignment follows, and the view's layout direction.
+/// The placeholder follows too. The scroll view is left alone: Day places it.
+pub(crate) fn set_direction(
+    h: &crate::Handle,
+    ui: objc2_app_kit::NSUserInterfaceLayoutDirection,
+    writing: objc2_app_kit::NSWritingDirection,
+) {
+    STATE.with(|t| {
+        t.with(key(h), |st| {
+            st.tv.setUserInterfaceLayoutDirection(ui);
+            st.tv.setBaseWritingDirection(writing);
+            st.placeholder.setUserInterfaceLayoutDirection(ui);
+            st.placeholder.setBaseWritingDirection(writing);
+        });
+    });
+}
+
 pub(crate) fn measure_any(
     b: &mut AppKit,
     h: &crate::Handle,

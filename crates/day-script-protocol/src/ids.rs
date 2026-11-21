@@ -148,6 +148,7 @@ impl crate::Step {
             | Self::AssertText { .. }
             | Self::AssertValue { .. }
             | Self::AssertFrame { .. }
+            | Self::AssertDisplayed { .. }
             | Self::AssertNative { .. }
             | Self::AssertFocused { .. } => Some(Assertion),
             Self::WebEval { text, contains, .. } => {

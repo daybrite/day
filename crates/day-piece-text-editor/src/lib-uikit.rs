@@ -16,9 +16,10 @@
 
 use super::*;
 
+use day_spec::props::TextAlign;
 use day_spec::sidetable::SideTable;
-use day_spec::{NodeId, ParagraphAlign, Proposal, Size, Underline, ffi_guard};
-use day_toolkit_uikit::Uikit;
+use day_spec::{Decoration, DecorationStyle, NodeId, Proposal, Size, ffi_guard};
+use day_toolkit_uikit::{Uikit, uiink};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
@@ -40,7 +41,7 @@ const INSET: f64 = 8.0;
 
 struct EdIvars {
     node: NodeId,
-    /// The empty-state prompt, held so the change delegate can show and hide it (UITextView has
+    /// The empty-state prompt, held so the change delegate can show and hide it (`UITextView` has
     /// no placeholder of its own).
     placeholder: Retained<UILabel>,
     /// The two modes whose keys the delegate claims: Return in a single line, Tab in code.
@@ -67,7 +68,7 @@ define_class!(
                 let text = tv.text().to_string();
                 self.ivars().placeholder.setHidden(!text.is_empty());
                 day_toolkit_uikit::emit(self.ivars().node, Event::TextChanged(text));
-            })
+            });
         }
 
         // The keys the two modes claim, reported as the key events a dayscript `key` step
@@ -110,7 +111,7 @@ define_class!(
                     self.ivars().node,
                     Event::custom("texteditor:sel", selection_payload(start, end)),
                 );
-            })
+            });
         }
     }
 );
@@ -199,13 +200,13 @@ fn run_font(spec: day_spec::FontSpec) -> Retained<UIFont> {
 }
 
 /// `Underline` as an `NSUnderlineStyle` bitmask, identical to AppKit's; the constants are shared.
-fn underline_bits(u: Underline) -> i64 {
-    match u {
-        Underline::None => 0,
-        Underline::Single => 0x01,
-        Underline::Double => 0x09,
-        Underline::Dotted => 0x01 | 0x0100,
-        Underline::Wavy => 0x01 | 0x0400,
+fn underline_bits(u: Option<Decoration>) -> i64 {
+    match u.map(|d| d.style) {
+        None => 0,
+        Some(DecorationStyle::Single) => 0x01,
+        Some(DecorationStyle::Double) => 0x09,
+        Some(DecorationStyle::Dotted) => 0x01 | 0x0100,
+        Some(DecorationStyle::Wavy) => 0x01 | 0x0400,
     }
 }
 
@@ -243,31 +244,47 @@ fn attributed(doc: &StyledText, base: Font) -> Retained<NSAttributedString> {
                 &run_font(r.font),
                 range,
             );
-            if let Some(c) = r.color {
+            // Inks become dynamic colors, which UIKit resolves against the text view's trait
+            // collection, so a light/dark switch recolors the runs with no patch.
+            if let Some(ink) = r.color {
                 s.addAttribute_value_range(
                     objc2_ui_kit::NSForegroundColorAttributeName,
-                    &uicolor(c),
+                    &uiink(ink),
                     range,
                 );
             }
-            if let Some(c) = r.background {
+            if let Some(ink) = r.background {
                 s.addAttribute_value_range(
                     objc2_ui_kit::NSBackgroundColorAttributeName,
-                    &uicolor(c),
+                    &uiink(ink),
                     range,
                 );
             }
-            if r.underline.is_on() {
+            if r.underline.is_some() {
                 s.addAttribute_value_range(
                     objc2_ui_kit::NSUnderlineStyleAttributeName,
                     &NSNumber::new_i64(underline_bits(r.underline)),
                     range,
                 );
             }
-            if r.strikethrough {
+            if let Some(ink) = r.underline.and_then(|d| d.color) {
+                s.addAttribute_value_range(
+                    objc2_ui_kit::NSUnderlineColorAttributeName,
+                    &uiink(ink),
+                    range,
+                );
+            }
+            if r.strikethrough.is_some() {
                 s.addAttribute_value_range(
                     objc2_ui_kit::NSStrikethroughStyleAttributeName,
                     &NSNumber::new_i64(1),
+                    range,
+                );
+            }
+            if let Some(ink) = r.strikethrough.and_then(|d| d.color) {
+                s.addAttribute_value_range(
+                    objc2_ui_kit::NSStrikethroughColorAttributeName,
+                    &uiink(ink),
                     range,
                 );
             }
@@ -286,10 +303,10 @@ fn attributed(doc: &StyledText, base: Font) -> Retained<NSAttributedString> {
         };
         let ps = NSMutableParagraphStyle::new();
         ps.setAlignment(match p.align {
-            ParagraphAlign::Natural => NSTextAlignment::Natural,
-            ParagraphAlign::Center => NSTextAlignment::Center,
-            ParagraphAlign::Trailing => NSTextAlignment::Right,
-            ParagraphAlign::Justified => NSTextAlignment::Justified,
+            TextAlign::Leading => NSTextAlignment::Natural,
+            TextAlign::Center => NSTextAlignment::Center,
+            TextAlign::Trailing => NSTextAlignment::Right,
+            TextAlign::Justified => NSTextAlignment::Justified,
         });
         // The list marker sits in the gap between the first-line indent and the head indent.
         let indent = p.indent + f64::from(p.list_level) * 24.0;
@@ -323,19 +340,19 @@ fn typing_attributes(style: &RunStyle) -> Retained<NSDictionary<NSString, objc2:
         objs.push(Retained::cast_unchecked(run_font(style.font)));
         keys.push(objc2_ui_kit::NSForegroundColorAttributeName);
         objs.push(Retained::cast_unchecked(
-            style.color.map(uicolor).unwrap_or_else(UIColor::labelColor),
+            style.color.map_or_else(UIColor::labelColor, uicolor),
         ));
         if let Some(c) = style.background {
             keys.push(objc2_ui_kit::NSBackgroundColorAttributeName);
             objs.push(Retained::cast_unchecked(uicolor(c)));
         }
-        if style.underline.is_on() {
+        if style.underline.is_some() {
             keys.push(objc2_ui_kit::NSUnderlineStyleAttributeName);
             objs.push(Retained::cast_unchecked(NSNumber::new_i64(underline_bits(
                 style.underline,
             ))));
         }
-        if style.strikethrough {
+        if style.strikethrough.is_some() {
             keys.push(objc2_ui_kit::NSStrikethroughStyleAttributeName);
             objs.push(Retained::cast_unchecked(NSNumber::new_i64(1)));
         }
@@ -374,7 +391,7 @@ fn make(backend: &mut Uikit, p: &EditorProps, id: NodeId) -> Retained<UIView> {
     });
     // Spell-check and autocorrect, and never the smart substitutions: replacing a typed quote
     // would be an edit Day never asked for in a document an app may be re-parsing.
-    let no = if p.spellcheck { 0isize } else { 1isize };
+    let no = isize::from(!p.spellcheck);
     day_toolkit_uikit::set_text_input_trait(&tv, objc2::sel!(setSpellCheckingType:), no);
     day_toolkit_uikit::set_text_input_trait(&tv, objc2::sel!(setAutocorrectionType:), no);
     day_toolkit_uikit::set_text_input_trait(&tv, objc2::sel!(setSmartQuotesType:), 1);
@@ -472,7 +489,7 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &EditorPatch) {
             }
             // SAFETY: as at realize; `typing_attributes` builds only documented pairings.
             EditorPatch::SetTypingStyle(style) => unsafe {
-                st.tv.setTypingAttributes(&typing_attributes(style))
+                st.tv.setTypingAttributes(&typing_attributes(style));
             },
             EditorPatch::SetEditable(v) => st.tv.setEditable(*v),
             EditorPatch::Insert { at, text } => {
@@ -499,9 +516,9 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
         t.with(key(h), |st| {
             let avail_w = wanted_w.max(width_floor(st.max_lines));
             let pad = 2.0 * INSET;
-            let min_h = (st.min_lines as f64) * st.line_h + pad;
+            let min_h = f64::from(st.min_lines) * st.line_h + pad;
             let max_h = if st.max_lines > 0 {
-                (st.max_lines as f64) * st.line_h + pad
+                f64::from(st.max_lines) * st.line_h + pad
             } else {
                 f64::MAX
             };
@@ -514,7 +531,7 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
 
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     STATE.with(|t| {
-        t.remove(key(h));
+        let _ = t.remove(key(h));
     });
 }
 

@@ -134,7 +134,7 @@ child sequences ([`row(stars)`](https://docs.rs/day-pieces/latest/day_pieces/fn.
 
 **Deferring to build time is not such a boundary.** A constructor whose body must wait for the
 build (it reads an ambient [`environment`](https://docs.rs/day-pieces/latest/day_pieces/fn.environment.html), a scope, or the laid-out size) defers through
-[`piece_fn`](https://docs.rs/day-core/latest/day_core/fn.piece_fn.html), which returns the concrete `PieceFn<F>`, so [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html), [`frame_clock`](https://docs.rs/day-pieces/latest/day_pieces/fn.frame_clock.html), [`shape_group`](https://docs.rs/day-pieces/latest/day_pieces/fn.shape_group.html),
+[`piece_fn`](https://docs.rs/day-core/latest/day_core/fn.piece_fn.html), which returns the concrete `PieceFn<F>`, so [`canvas`](https://docs.rs/day-pieces/latest/day_pieces/fn.canvas.html), [`shape_group`](https://docs.rs/day-pieces/latest/day_pieces/fn.shape_group.html),
 [`shape_group_fn`](https://docs.rs/day-pieces/latest/day_pieces/fn.shape_group_fn.html), [`each`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) and [`with_environment`](https://docs.rs/day-pieces/latest/day_pieces/fn.with_environment.html) return `impl Piece` and cost no box. Where the
 deferred piece is worth a name, it defers inside its own [`build`](https://docs.rs/day-core/latest/day_core/trait.Piece.html#tymethod.build) instead and stays a struct:
 [`labeled`](https://docs.rs/day-pieces/latest/day_pieces/fn.labeled.html) reads the enclosing form's shared label column at build time and still returns
@@ -180,15 +180,23 @@ the obvious target (a stepper's field, a list's scroller) says so in its docs; [
 
 ## Tokens
 
-Two value vocabularies keep configuration semantic where a literal would be a magic number.
+Value vocabularies keep configuration semantic where a literal would be a magic number.
 
 - **`Space`** is the spacing scale: `XS` (4), `S` (8), `M` (12), `L` (16), `XL` (24) points,
-  accepted wherever a container or modifier takes a gap or an inset ([`.spacing(Space::S)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ColumnBuilder.html#tymethod.spacing),
+  accepted wherever a container or modifier takes a gap, an inset or a length (`.frame(Space::XL,
+  Space::XL)`, `.min_width(Space::XL)`, [`.spacing(Space::S)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ColumnBuilder.html#tymethod.spacing),
   [`.padding(Space::L)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.padding), [`Insets::symmetric(Space::L.into(), Space::XS.into())`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.symmetric)). Fonts are
   semantic (`Font::Headline`) and the house rule forbids point sizes; spacing is the same kind of
   thing, with room for the platforms to resolve a step differently. A raw `f64` stays accepted,
   and `Insets::{`[`all`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.all), [`symmetric`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.symmetric), [`horizontal`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.horizontal), [`vertical`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.vertical), [`top`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.top), [`bottom`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.bottom), [`leading`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.leading), [`trailing`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.trailing)`}` build an
   inset without a struct literal ([`horizontal_total()`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.horizontal_total) / [`vertical_total()`](https://docs.rs/day-geometry/latest/day_geometry/struct.Insets.html#method.vertical_total) sum a pair).
+- **`Radius`** is the corner scale beside it: `XS` (4), `S` (6), `M` (10), `L` (14), `XL` (20)
+  points, accepted wherever a corner radius is (`.corner_radius(Radius::M)`,
+  `Surface::corner_radius`, `rounded_rectangle`), with `Corner::CAPSULE` and
+  `Corner::Fraction(f)` for a radius that follows the frame.
+- **`Ink`** is the color vocabulary: a fixed color, a light/dark pair or a `SystemColor` role,
+  `const` and accepted by every color parameter ([color.md](color.md)). A palette is a set of `const`
+  inks, never a function that reads `day::dark_mode()`.
 - **`TextPreset`** names a text style once: `const CAPTION: TextPreset =
 `[`TextPreset::new`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextPreset.html#method.new)`(Font::Caption)`[`.secondary`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.secondary)`();` then [`label`](https://docs.rs/day-pieces/latest/day_pieces/fn.label.html)`(t)`[`.preset`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.preset)`(&CAPTION)`. Every
   `TextPreset` builder is `const`, so a preset is a constant, and [`.preset`](https://docs.rs/day-pieces/latest/day_pieces/trait.LabelBuilder.html#tymethod.preset) applies the same

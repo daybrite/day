@@ -44,7 +44,11 @@ block2 = { workspace = true }
 dispatch2 = { workspace = true }
 objc2-core-foundation = { workspace = true, default-features = true, features = ["CFCGTypes"] }
 objc2-core-graphics = { workspace = true, features = ["CGImage", "CGBitmapContext", "CGColorSpace", "CGContext", "CGDataConsumer", "CGPDFContext"] }
-objc2-quartz-core = { workspace = true, features = ["CAMediaTimingFunction", "CATransaction", "CADisplayLink"] }
+objc2-quartz-core = { workspace = true, features = ["CAMediaTimingFunction", "CATransaction", "CADisplayLink",
+    # Explicit layer animations that play the whole AnimSpec (docs/tween.md): keyframes, springs,
+    # delay/repeat timing, and the transaction's completion block.
+    "CAAnimation", "CABase", "CALayer", "CAMediaTiming", "CATransform3D", "block2",
+] }
 objc2-foundation = { workspace = true, features = ["NSCalendar", "NSDate", "NSTimeZone", "NSLocale",
     "NSString", "NSUndoManager", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults", "NSRange",
@@ -99,6 +103,10 @@ name = "native_toolbar_search"
 harness = false
 
 [[test]]
+name = "native_label_text"
+harness = false
+
+[[test]]
 name = "native_palette"
 harness = false
 
@@ -106,9 +114,39 @@ harness = false
 name = "native_text_field_select"
 harness = false
 
+[[test]]
+name = "native_hit_testing"
+harness = false
+
+[[test]]
+name = "native_scroll_views"
+harness = false
+
+[[test]]
+name = "native_list_reader_scroll"
+harness = false
+
+[[test]]
+name = "native_list_splice_in_layout"
+harness = false
+
+[[test]]
+name = "native_tree_reload_in_layout"
+harness = false
+
+[[test]]
+name = "native_motion"
+harness = false
+
+[[test]]
+name = "native_color"
+harness = false
+
 [dev-dependencies]
 # tests/native_list_scroll.rs builds a list with the piece vocabulary.
 day-pieces = { path = "../day-pieces" }
+# tests/native_list_reader_scroll.rs makes wheel and gesture events through Core Graphics.
+objc2-core-graphics = { workspace = true, features = ["CGEvent", "CGEventSource", "CGEventTypes"] }
 
 [lints]
 workspace = true

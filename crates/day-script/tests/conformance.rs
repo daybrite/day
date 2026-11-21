@@ -370,3 +370,129 @@ fn a_disabled_menu_item_is_retried_not_failed() {
     day_reactive::flush_sync();
     assert!(day_script::step(choose).ok);
 }
+
+/// The animation cases catch each way an animator can fall short of the `AnimSpec` contract
+/// (docs/tween.md "The animation contract"). The mock's animator is the contract itself, and
+/// `AnimFlaw` breaks it one field at a time: every case passes on the faithful animator with
+/// nothing left unread, and each flaw fails the cases that exist to notice it and no others.
+#[test]
+fn the_animation_cases_catch_a_faulty_animator() {
+    use day_mock::AnimFlaw;
+    const CASES: [&str; 8] = [
+        "animation-autoreverse-plays-back",
+        "animation-background-passes-between",
+        "animation-delay-holds-the-start",
+        "animation-frame-passes-between",
+        "animation-repeat-plays-every-cycle",
+        "animation-repeats-forever-until-set",
+        "animation-retargets-from-the-value-shown",
+        "animation-spring-overshoots-and-settles",
+    ];
+    let probe = boot();
+    let verdicts = |flaw: Option<AnimFlaw>| -> Vec<(String, bool)> {
+        probe.set_animation_flaw(flaw);
+        let report = run(&["animation-*"]);
+        let names: Vec<&str> = report.tests.iter().map(|t| t.name.as_str()).collect();
+        for case in CASES {
+            assert!(names.contains(&case), "{case} did not run: {names:?}");
+        }
+        report
+            .tests
+            .iter()
+            .filter(|t| CASES.contains(&t.name.as_str()))
+            .map(|t| {
+                assert!(
+                    t.native_unread.is_empty(),
+                    "{}: {:?}",
+                    t.name,
+                    t.native_unread
+                );
+                (t.name.clone(), t.verdict == "pass")
+            })
+            .collect()
+    };
+    let failed = |flaw: AnimFlaw| -> Vec<String> {
+        verdicts(Some(flaw))
+            .into_iter()
+            .filter(|(_, passed)| !passed)
+            .map(|(name, _)| name)
+            .collect()
+    };
+
+    let faithful = verdicts(None);
+    assert!(faithful.iter().all(|(_, passed)| *passed), "{faithful:?}");
+
+    assert_eq!(
+        failed(AnimFlaw::IgnoresDelay),
+        ["animation-delay-holds-the-start"]
+    );
+    assert_eq!(
+        failed(AnimFlaw::IgnoresRepeat),
+        [
+            "animation-autoreverse-plays-back",
+            "animation-repeat-plays-every-cycle",
+            "animation-repeats-forever-until-set",
+        ]
+    );
+    assert_eq!(
+        failed(AnimFlaw::IgnoresAutoreverse),
+        [
+            "animation-autoreverse-plays-back",
+            "animation-repeats-forever-until-set",
+        ]
+    );
+    assert_eq!(
+        failed(AnimFlaw::FlattensSprings),
+        ["animation-spring-overshoots-and-settles"]
+    );
+    assert_eq!(
+        failed(AnimFlaw::SnapsBackground),
+        ["animation-background-passes-between"]
+    );
+    assert_eq!(failed(AnimFlaw::Instant), CASES);
+    probe.set_animation_flaw(None);
+}
+
+/// The mock records each animated change it is asked for, and shows the value in between at
+/// its own clock, which moves only as sleeps are served.
+#[test]
+fn the_mock_records_and_plays_requested_animations() {
+    use day_mock::AnimProperty;
+    use day_spec::AnimSpec;
+    let level = day_reactive::Signal::global(1.0);
+    let probe = boot_with(move || {
+        day_core::AnyPiece::new(
+            day_pieces::rectangle()
+                .frame(40.0, 40.0)
+                .id(day_core::id!(faded))
+                .opacity(level),
+        )
+    });
+    let spec = AnimSpec::linear(400).delay(200).repeat(1, true);
+    day_core::with_animation(spec, || level.set(0.0));
+    let layer = {
+        let state = probe.state.borrow();
+        let (id, widget) = state
+            .widgets
+            .iter()
+            .find(|(_, w)| !w.animations.is_empty())
+            .expect("a widget was asked to animate");
+        let asked = widget.animations[0];
+        assert_eq!((asked.property, asked.spec), (AnimProperty::Opacity, spec));
+        assert_eq!(widget.opacity, Some(0.0), "the model value is the target");
+        day_mock::MockHandle(*id)
+    };
+    let shown = |ms: u32| {
+        probe.advance(ms);
+        probe.widget(layer).shown_opacity()
+    };
+    assert!((shown(100) - 1.0).abs() < 1e-9, "held through the delay");
+    assert!((shown(300) - 0.5).abs() < 1e-9, "half way out");
+    assert!((shown(400) - 0.5).abs() < 1e-9, "half way back");
+    assert!((shown(300) - 0.0).abs() < 1e-9, "at rest on the target");
+    // A change with no animation cancels the flight.
+    day_core::with_animation(spec, || level.set(1.0));
+    level.set(0.25);
+    day_reactive::flush_sync();
+    assert!((shown(0) - 0.25).abs() < 1e-9);
+}

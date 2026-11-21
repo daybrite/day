@@ -15,8 +15,9 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
+use day_spec::props::TextAlign;
 use day_spec::sidetable::SideTable;
-use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size, Underline};
+use day_spec::{Decoration, DecorationStyle, ListStyle, NodeId, Proposal, Size};
 use day_toolkit_winui::{WinHandle, Xaml};
 
 unsafe extern "C" {
@@ -159,13 +160,13 @@ fn pack(c: day_spec::Color) -> u32 {
     (q(c.a) << 24) | (q(c.r) << 16) | (q(c.g) << 8) | q(c.b)
 }
 
-fn underline_code(u: Underline) -> c_int {
-    match u {
-        Underline::None => 0,
-        Underline::Single => 1,
-        Underline::Double => 2,
-        Underline::Dotted => 3,
-        Underline::Wavy => 4,
+fn underline_code(u: Option<Decoration>) -> c_int {
+    match u.map(|d| d.style) {
+        None => 0,
+        Some(DecorationStyle::Single) => 1,
+        Some(DecorationStyle::Double) => 2,
+        Some(DecorationStyle::Dotted) => 3,
+        Some(DecorationStyle::Wavy) => 4,
     }
 }
 
@@ -182,24 +183,24 @@ fn apply_attributes(h: *mut c_void, text: &str, runs: &[TextRun], paragraphs: &[
                 start as c_int,
                 (start + len) as c_int,
                 match s.align {
-                    ParagraphAlign::Natural => 0,
-                    ParagraphAlign::Center => 1,
-                    ParagraphAlign::Trailing => 2,
-                    ParagraphAlign::Justified => 3,
+                    TextAlign::Leading => 0,
+                    TextAlign::Center => 1,
+                    TextAlign::Trailing => 2,
+                    TextAlign::Justified => 3,
                 },
                 s.indent + f64::from(s.list_level) * LEVEL_INDENT,
                 s.space_before,
                 s.space_after,
                 c_int::from(s.list != ListStyle::None),
-            )
-        };
+            );
+        }
     }
     for r in runs {
         let Some((start, len)) = utf16_range(text, &r.range) else {
             continue;
         };
-        let (has_fg, fg) = r.color.map(|c| (1, pack(c))).unwrap_or((0, 0));
-        let (has_bg, bg) = r.background.map(|c| (1, pack(c))).unwrap_or((0, 0));
+        let (has_fg, fg) = r.color.map_or((0, 0), |c| (1, pack(c.resolved())));
+        let (has_bg, bg) = r.background.map_or((0, 0), |c| (1, pack(c.resolved())));
         let bold = r
             .font
             .weight
@@ -214,13 +215,13 @@ fn apply_attributes(h: *mut c_void, text: &str, runs: &[TextRun], paragraphs: &[
                 c_int::from(r.font.italic),
                 c_int::from(r.font.monospace),
                 underline_code(r.underline),
-                c_int::from(r.strikethrough),
+                c_int::from(r.strikethrough.is_some()),
                 has_fg,
                 fg,
                 has_bg,
                 bg,
-            )
-        };
+            );
+        }
     }
     unsafe { day_texteditor_xaml_end_attrs(h) };
 }
@@ -279,13 +280,13 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &EditorPatch) {
             let text = text_of(node);
             if let Some((start, len)) = utf16_range(&text, r) {
                 unsafe {
-                    day_texteditor_xaml_set_selection(h.0, start as c_int, (start + len) as c_int)
-                };
+                    day_texteditor_xaml_set_selection(h.0, start as c_int, (start + len) as c_int);
+                }
             }
         }
         EditorPatch::SetTypingStyle(s) => {
-            let (has_fg, fg) = s.color.map(|c| (1, pack(c))).unwrap_or((0, 0));
-            let (has_bg, bg) = s.background.map(|c| (1, pack(c))).unwrap_or((0, 0));
+            let (has_fg, fg) = s.color.map_or((0, 0), |c| (1, pack(c)));
+            let (has_bg, bg) = s.background.map_or((0, 0), |c| (1, pack(c)));
             let bold = s
                 .font
                 .weight
@@ -298,16 +299,16 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &EditorPatch) {
                     c_int::from(s.font.italic),
                     c_int::from(s.font.monospace),
                     underline_code(s.underline),
-                    c_int::from(s.strikethrough),
+                    c_int::from(s.strikethrough.is_some()),
                     has_fg,
                     fg,
                     has_bg,
                     bg,
-                )
-            };
+                );
+            }
         }
         EditorPatch::SetEditable(v) => unsafe {
-            day_texteditor_xaml_set_editable(h.0, c_int::from(*v))
+            day_texteditor_xaml_set_editable(h.0, c_int::from(*v));
         },
         EditorPatch::Insert { at, text } => {
             let current = text_of(node);
@@ -326,7 +327,7 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
         .unwrap_or((3, 0));
     let avail_w = p.width.unwrap_or(320.0).max(width_floor(max_lines));
     let (mut w, mut hh) = (0.0, 0.0);
-    unsafe { day_xaml_measure(h.0, avail_w, f64::MAX, &mut w, &mut hh) };
+    unsafe { day_xaml_measure(h.0, avail_w, f64::MAX, &raw mut w, &raw mut hh) };
     // The control reports its content height; the band is the piece's own promise, and past
     // `max_lines` the RichEditBox scrolls inside it.
     let line_h = BASE_POINTS * 1.4;
@@ -346,7 +347,7 @@ fn release(_backend: &mut Xaml, h: &WinHandle) {
                 m.borrow_mut().remove(&node);
             });
         }
-        t.remove(h.0 as usize);
+        let _ = t.remove(h.0 as usize);
     });
     unsafe { day_texteditor_xaml_release(h.0) };
 }

@@ -21,9 +21,12 @@ pub use controls::datetime::{DayDate, DayTime, now_epoch_millis, now_epoch_secs}
 
 pub mod applications;
 pub mod capture;
-/// Inline markdown → styled runs (docs/markdown.md). Lives here rather than in day-pieces
-/// because it produces `TextRun`s, and every format codec beside it reads the same model.
+pub mod ink;
+/// Markdown: inline text to styled runs (docs/text-runs.md) and documents to blocks
+/// (docs/markdown-view.md). Lives here rather than in day-pieces because it produces
+/// `TextRun`s, and every format codec beside it reads the same model.
 pub mod markdown;
+pub use ink::{Ink, Palette, SystemColor, resolved_stops};
 pub mod render;
 pub use render::fill_measure;
 /// Bundled-resource random-access API + the per-backend `ResourceOpener` hook (§18.3).
@@ -40,7 +43,7 @@ pub use resource::{
     resolve_asset_dir, resolve_image_file, resource, set_resource_opener,
 };
 pub use styled::{
-    ListStyle, ParagraphAlign, ParagraphRun, ParagraphStyle, RunStyle, StyledText, Underline,
+    Decoration, DecorationStyle, ListStyle, ParagraphRun, ParagraphStyle, RunStyle, StyledText,
     coalesce_runs, paragraph_bounds, paragraphs_are_valid,
 };
 pub use styled_codec::{
@@ -584,12 +587,12 @@ pub mod keys {
     pub const FIELD_KEYS: [&str; 3] = ["ArrowUp", "ArrowDown", "Escape"];
 
     /// Whether a focused text field at `node` claims the key named `key` (web name, see
-    /// [`super::KeyEvent::key`]) pressed with `modifiers`: one of [`FIELD_KEYS`], no modifier
+    /// [`super::Key::from_name`]) pressed with `modifiers`: one of [`FIELD_KEYS`], no modifier
     /// held, and a handler declared for the field. A backend that answers yes reports
     /// `Event::Key` for `node` and keeps the key from the native field.
     #[must_use]
-    pub fn field_claims(node: NodeId, key: &str, modifiers: u8) -> bool {
-        modifiers == 0 && FIELD_KEYS.contains(&key) && handled(node)
+    pub fn field_claims(node: NodeId, key: &str, modifiers: impl Into<super::Modifiers>) -> bool {
+        modifiers.into().is_empty() && FIELD_KEYS.contains(&key) && handled(node)
     }
 
     /// Drop both marks for a node that left the tree (day-core calls it from its removal
@@ -644,7 +647,12 @@ pub mod bridge {
         PresentText = 9,
         /// Modal dismissed.
         PresentDismissed = 10,
-        /// Gesture; `num` = phase (0 tap, 1 began, 2 changed, 3 ended), `text` = `"x,y,tx,ty"` px.
+        /// Gesture; `num` = the code, `text` = the payload in px (Rust divides by density).
+        /// Codes 0 to 3 are a tap and a drag's three phases (0 tap, 1 began, 2 changed,
+        /// 3 ended) with `text` = `"x,y,tx,ty"`. The rest are the [`gesture`] constants:
+        /// long press, double tap, press in and out (`"x,y"`), a drag's or a pan's release
+        /// velocity (`"vx,vy"` in px per second), a touch list ([`gesture::TOUCHES`]) and the
+        /// pointer kind (`text` = [`crate::PointerKind::name`]).
         Gesture = 11,
         /// Piece-defined open channel (`Event::Custom` with an empty tag): the piece reads the
         /// raw `num`/`text` payload.
@@ -711,8 +719,10 @@ pub mod bridge {
         /// what the input method or the key typed, `num` = the modifier mask. Decodes to an
         /// [`crate::Event::Key`] whose `text` is set; a key that typed nothing rides `Key`.
         Text = 36,
-        /// A non-text key reached the focused node (docs/menus.md); `text` = the day key name
-        /// (`"ArrowLeft"`, `"5"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
+        /// A non-text key reached the focused node (docs/menus.md); `text` = the key's web name
+        /// (`"ArrowLeft"`, `"5"`, …, read by [`crate::Key::from_name`]), `num` = the
+        /// [`crate::Modifiers::bits`] mask in its low byte and the phase above it (bit 8 set ⇒
+        /// a repeat, bit 9 set ⇒ a release; [`crate::KeyPhase::from_wire`]). Decodes to
         /// [`crate::Event::Key`].
         Key = 29,
         /// A window's display state changed (docs/windows.md): `num` = the
@@ -727,6 +737,29 @@ pub mod bridge {
         /// subject when one came with it. Node id ignored and no `Event` is emitted; Rust calls
         /// `day_core::request_shared_text`, which sends a web link in it to `on_open_url`.
         SharedText = 37,
+    }
+
+    /// The [`BridgeKind::Gesture`] codes above the tap and drag phases (0 to 3), mirrored by the
+    /// Java and C++ sides like the kind numbers.
+    pub mod gesture {
+        /// `Event::LongPress`; `text` = `"x,y"`.
+        pub const LONG_PRESS: i32 = 4;
+        /// `Event::DoubleTap`; `text` = `"x,y"`.
+        pub const DOUBLE_TAP: i32 = 5;
+        /// `Event::Press` with `pressed: true`; `text` = `"x,y"`.
+        pub const PRESS_IN: i32 = 6;
+        /// `Event::Press` with `pressed: false`; `text` = `"x,y"`.
+        pub const PRESS_OUT: i32 = 7;
+        /// `Event::Touches`; `text` = one `"id,phase,x,y,pressure,kind"` per contact, joined
+        /// by `;` (phase 0 began, 1 moved, 2 stationary, 3 ended, 4 cancelled; kind 0 touch,
+        /// 1 mouse, 2 stylus; pressure 0 to 1).
+        pub const TOUCHES: i32 = 8;
+        /// `Event::GestureVelocity` for a drag; `text` = `"vx,vy"`.
+        pub const DRAG_VELOCITY: i32 = 9;
+        /// `Event::GestureVelocity` for a pan; `text` = `"vx,vy"`.
+        pub const PAN_VELOCITY: i32 = 10;
+        /// `Event::PointerKindChanged`; `text` = the kind's name. Node id ignored.
+        pub const POINTER_KIND: i32 = 11;
     }
 
     impl BridgeKind {
@@ -853,7 +886,50 @@ pub enum Event {
     Tap(Point),
     /// A link run inside a label was activated; the payload is [`TextRun::link`] verbatim.
     LinkActivated(String),
+    /// The reader's selection in a selectable label changed ([`Cap::LabelSelection`]): byte
+    /// offsets into the text the label displays, `start <= end`, both on character
+    /// boundaries. `start == end` means nothing is selected any more. Emitted only by labels
+    /// realized with `LabelProps::reports_selection`.
+    TextSelected {
+        start: usize,
+        end: usize,
+    },
+    /// A press held still on the node (docs/gestures.md "Long press"), at the press point in the
+    /// node's coordinates. Fires once, while the pointer is still down; the release that
+    /// follows is not a tap. Only nodes that enabled [`GestureKind::LongPress`] receive it.
     LongPress(Point),
+    /// Two taps in quick succession on the node (docs/gestures.md "Double tap"), at the second
+    /// tap's point. A node that enabled both [`GestureKind::Tap`] and
+    /// [`GestureKind::DoubleTap`] receives either this or one `Tap`, never both: the single
+    /// tap waits out the double-tap interval. With `DoubleTap` alone enabled nothing waits.
+    DoubleTap(Point),
+    /// The pointer went down on the node (`pressed: true`) or the press ended
+    /// (`pressed: false`): the release, the pointer leaving the node's hit area, or the
+    /// platform taking the gesture away (docs/gestures.md "Press"). Every `true` is followed by
+    /// exactly one `false`. Reported at the pointer-down itself, before any tap or drag is
+    /// recognized, and it never delays or cancels another gesture. Only nodes that enabled
+    /// [`GestureKind::Press`] receive it.
+    Press {
+        pressed: bool,
+        location: Point,
+    },
+    /// The contacts on the node changed (docs/gestures.md "Touches"): every contact that is
+    /// down, plus the ones that ended or were cancelled in this event. Only nodes that
+    /// enabled [`GestureKind::Touches`] receive it.
+    Touches(Vec<Touch>),
+    /// The release velocity of the node's drag or pan as the platform's own recognizer
+    /// measured it, in points per second along the node's axes. Sent immediately before the
+    /// gesture's `Ended` event, by a backend whose recognizer has one; day-core prefers it to
+    /// its own estimate from the event samples (docs/gestures.md "Velocity"). `kind` is
+    /// [`GestureKind::Drag`] or [`GestureKind::Pan`].
+    GestureVelocity {
+        kind: GestureKind,
+        velocity: Point,
+    },
+    /// The kind of device behind the latest pointer input changed (docs/gestures.md "Input
+    /// kind"). Emitted on [`WINDOW_NODE`], only on a change; day-core publishes it as
+    /// `day::primary_pointer()`.
+    PointerKindChanged(PointerKind),
     /// A context-menu summon reported by a toolkit that presents no native menu of its own
     /// (web-dom): the pieces layer shows the composed menu (docs/menus.md). `local` is the
     /// point in the node's own coordinates (what the app's provider receives); `window` the
@@ -864,7 +940,9 @@ pub enum Event {
         window: Point,
     },
     /// A drag/pan gesture (docs/shapes.md). `location` is in the node's local coordinates;
-    /// `translation` is the cumulative movement since `Began`.
+    /// `translation` is the cumulative movement since `Began`. Once `Began` is sent the
+    /// gesture belongs to the node until `Ended`: an enclosing scroll view must not take it
+    /// over (docs/gestures.md "Gestures inside a scroll view").
     Drag {
         phase: DragPhase,
         location: Point,
@@ -911,7 +989,33 @@ pub enum Event {
         phase: DragPhase,
         location: Point,
     },
+    /// A scroll view's content offset changed, in points from the content's top-leading corner
+    /// (docs/scroll.md "Offset and phase"). Sent only by a scroll realized with
+    /// [`props::ScrollProps::track_offset`], whatever moved it (a finger, a wheel, momentum, a
+    /// programmatic scroll), at most once per display frame, and always once more with the
+    /// offset the view came to rest at.
     ScrollChanged(Point),
+    /// A scroll view's user-driven scrolling changed phase (docs/scroll.md "Offset and phase").
+    /// Sent only by a scroll realized with [`props::ScrollProps::track_phase`], and only on a
+    /// change. A programmatic scroll moves the offset and leaves the phase alone.
+    ScrollPhase(ScrollPhase),
+    /// A zooming scroll view's scale changed ([`props::ScrollProps::zoom`], docs/scroll.md
+    /// "Zoom"): the user pinched, or an animated [`props::ScrollPatch::Zoom`] moved it. `1.0`
+    /// is the content's natural size.
+    ScrollZoomed(f64),
+    /// What a recycling list shows changed (docs/list.md "Visible rows"): day-core raises this
+    /// from the host's [`ListSource::viewport`] reports, deduplicated. Toolkits never send it
+    /// themselves. `rows` is the visible items as a half-open range of item indices (empty
+    /// when no item is in view); `end_distance` is [`ListViewport::end_distance`], or `None`
+    /// from a host that reports only its first visible row.
+    ListViewport {
+        rows: std::ops::Range<usize>,
+        end_distance: Option<f64>,
+    },
+    /// The reader started moving a list themselves (docs/list.md "Following the end"):
+    /// day-core sends it from the host's [`ListSource::reader_scroll`] report. Toolkits never
+    /// send it themselves.
+    ListReaderScrolled,
     /// A canvas node was re-framed by layout; re-record (§11). Nav pane/page containers
     /// also report their allocated size with this (docs/navigation.md).
     FrameChanged(Size),
@@ -934,7 +1038,6 @@ pub enum Event {
     /// Emitted on the NAV host node, and only when the presentation actually changed.
     NavPresentationChanged(props::NavPresentation),
     Key(KeyEvent),
-    Pointer(PointerEvent),
     WindowResized(Size),
     /// The platform asks the app to show a route (docs/navigation.md), a runtime deep link:
     /// on web-dom, the URL hash changing under the app (hand-edited, or browser back/forward);
@@ -1220,12 +1323,37 @@ pub enum DragPhase {
     Ended,
 }
 
+/// The one axis a drag follows (`Decorate::on_drag_along`, [`Toolkit::set_drag_axis`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum DragAxis {
+    Horizontal,
+    Vertical,
+}
+
+impl DragAxis {
+    /// Whether a movement of `translation` runs along this axis more than across it.
+    #[must_use]
+    pub fn leads(self, translation: Point) -> bool {
+        match self {
+            DragAxis::Horizontal => translation.x.abs() >= translation.y.abs(),
+            DragAxis::Vertical => translation.y.abs() >= translation.x.abs(),
+        }
+    }
+}
+
 /// A gesture a node wants delivered. Backends attach the matching native recognizer when day-core
 /// calls [`Toolkit::enable_gesture`]; the default is no gesture (recognizers cost, so opt-in).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GestureKind {
     Tap,
+    /// A press held still (`Event::LongPress`).
     LongPress,
+    /// Two taps in quick succession (`Event::DoubleTap`).
+    DoubleTap,
+    /// Press-in and press-out (`Event::Press`), reported at the pointer-down itself.
+    Press,
+    /// The raw contacts on the node (`Event::Touches`).
+    Touches,
     Drag,
     /// The pointer moving over the node without pressing (docs/canvas.md "Interaction"), and
     /// leaving it. Delivered only where a pointer exists: every desktop, an iPad with a trackpad
@@ -1263,21 +1391,69 @@ pub struct Shortcut {
     pub control: bool,
 }
 
+/// The key of a [`Shortcut`], in the menu vocabulary its `key` field holds. Converts from a
+/// typed [`Key`] (`Key::Enter` is `"Return"`), a `char`, or a name already in that vocabulary
+/// (`"s"`, `"Return"`, `"Left"`, `"F1"`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShortcutKey(pub String);
+
+impl From<Key> for ShortcutKey {
+    fn from(key: Key) -> ShortcutKey {
+        ShortcutKey(key.shortcut_name())
+    }
+}
+impl From<char> for ShortcutKey {
+    fn from(c: char) -> ShortcutKey {
+        ShortcutKey(c.to_string())
+    }
+}
+impl From<&str> for ShortcutKey {
+    fn from(name: &str) -> ShortcutKey {
+        ShortcutKey(name.to_owned())
+    }
+}
+impl From<String> for ShortcutKey {
+    fn from(name: String) -> ShortcutKey {
+        ShortcutKey(name)
+    }
+}
+
 impl Shortcut {
-    /// `primary`+`key` (⌘S / Ctrl+S), the common case: `Shortcut::primary("s").shift()`.
-    pub fn primary(key: impl Into<String>) -> Shortcut {
+    /// `primary`+`key` (⌘S / Ctrl+S), the common case: `Shortcut::primary('s').shift()`,
+    /// `Shortcut::primary(Key::Enter)`.
+    pub fn primary(key: impl Into<ShortcutKey>) -> Shortcut {
         Shortcut {
-            key: key.into(),
+            key: key.into().0,
             primary: true,
             ..Default::default()
         }
     }
-    /// `key` with no modifiers (e.g. `F1`, plain `Delete`).
-    pub fn plain(key: impl Into<String>) -> Shortcut {
+    /// `key` with no modifiers (`Shortcut::plain(Key::F(1))`, plain `Key::Delete`).
+    pub fn plain(key: impl Into<ShortcutKey>) -> Shortcut {
         Shortcut {
-            key: key.into(),
+            key: key.into().0,
             ..Default::default()
         }
+    }
+    /// The shortcut's modifiers as a set, for code that compares it with a [`KeyEvent`].
+    #[must_use]
+    pub fn modifiers(&self) -> Modifiers {
+        Modifiers::NONE
+            .with(Modifiers::PRIMARY, self.primary)
+            .with(Modifiers::SHIFT, self.shift)
+            .with(Modifiers::ALT, self.alt)
+            .with(Modifiers::CONTROL, self.control)
+    }
+    /// Whether a key event is this shortcut: the same key (letters compare without case, as
+    /// accelerators do) with exactly these modifiers held.
+    #[must_use]
+    pub fn matches(&self, event: &KeyEvent) -> bool {
+        let mut mods = event.modifiers;
+        // Off Apple platforms Control IS the primary key, and a backend sets both bits.
+        if self.primary && !self.control && !cfg!(target_vendor = "apple") {
+            mods = Modifiers::from_bits(mods.bits() & !Modifiers::CONTROL.bits());
+        }
+        mods == self.modifiers() && event.key.shortcut_name().eq_ignore_ascii_case(&self.key)
     }
     #[must_use]
     pub fn shift(mut self) -> Shortcut {
@@ -1330,15 +1506,103 @@ pub enum MenuRole {
     CheckForUpdates,
 }
 
-/// The keyboard modifiers held at an interaction, queryable ambiently
-/// ([`Toolkit::modifiers`]): `primary` is the platform's command key (⌘ on Apple platforms,
-/// Ctrl elsewhere, the same convention [`Shortcut::primary`] uses). Touch-only backends
-/// answer all-false.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Modifiers {
-    pub shift: bool,
-    pub primary: bool,
-    pub alt: bool,
+/// The keyboard modifiers held at an interaction: what a [`KeyEvent`] carries and what
+/// `day::modifiers()` answers ambiently ([`Toolkit::modifiers`]). A small set with a method
+/// per key: `event.modifiers.shift()`, `Modifiers::PRIMARY | Modifiers::SHIFT`.
+/// Touch-only backends answer [`Modifiers::NONE`].
+///
+/// [`Modifiers::bits`] is the mask a backend's numeric wire carries
+/// ([`bridge::BridgeKind::Key`]), and [`Modifiers::from_bits`] reads it back.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Modifiers(u8);
+
+impl Modifiers {
+    /// No modifier held.
+    pub const NONE: Modifiers = Modifiers(0);
+    /// Shift.
+    pub const SHIFT: Modifiers = Modifiers(1);
+    /// The platform's command key: ⌘ on Apple platforms, Ctrl elsewhere (the
+    /// [`Shortcut::primary`] convention).
+    pub const PRIMARY: Modifiers = Modifiers(2);
+    /// Alt (Option on Apple platforms).
+    pub const ALT: Modifiers = Modifiers(4);
+    /// The Control key itself, wherever it sits: on Apple platforms it is a different key
+    /// from [`Modifiers::PRIMARY`] (⌘), elsewhere the same one, so a Ctrl+C on Linux sets
+    /// both. Carried by key events on the full route (`Decorate::keyboard`).
+    pub const CONTROL: Modifiers = Modifiers(8);
+
+    const ALL_BITS: u8 = 15;
+
+    /// The wire mask: one bit per modifier, in declaration order from bit 0.
+    #[must_use]
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+    /// The set a wire mask spells; bits above the four modifiers are ignored.
+    #[must_use]
+    pub const fn from_bits(bits: u8) -> Modifiers {
+        Modifiers(bits & Self::ALL_BITS)
+    }
+    /// Whether no modifier is held.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+    /// Whether every modifier in `other` is held.
+    #[must_use]
+    pub const fn contains(self, other: Modifiers) -> bool {
+        self.0 & other.0 == other.0
+    }
+    /// This set with `other` added when `held`: how a backend builds the set from the
+    /// platform's own flags (`Modifiers::NONE.with(Modifiers::SHIFT, flags.shift)`).
+    #[must_use]
+    pub const fn with(self, other: Modifiers, held: bool) -> Modifiers {
+        if held {
+            Modifiers(self.0 | other.0)
+        } else {
+            self
+        }
+    }
+    /// Whether Shift is held.
+    #[must_use]
+    pub const fn shift(self) -> bool {
+        self.contains(Modifiers::SHIFT)
+    }
+    /// Whether the platform's command key is held.
+    #[must_use]
+    pub const fn primary(self) -> bool {
+        self.contains(Modifiers::PRIMARY)
+    }
+    /// Whether Alt (Option) is held.
+    #[must_use]
+    pub const fn alt(self) -> bool {
+        self.contains(Modifiers::ALT)
+    }
+    /// Whether the Control key itself is held.
+    #[must_use]
+    pub const fn control(self) -> bool {
+        self.contains(Modifiers::CONTROL)
+    }
+}
+
+impl std::ops::BitOr for Modifiers {
+    type Output = Modifiers;
+    fn bitor(self, rhs: Modifiers) -> Modifiers {
+        Modifiers(self.0 | rhs.0)
+    }
+}
+
+impl std::ops::BitOrAssign for Modifiers {
+    fn bitor_assign(&mut self, rhs: Modifiers) {
+        self.0 |= rhs.0;
+    }
+}
+
+/// A wire mask ([`Modifiers::from_bits`]): what a backend's key trampoline holds.
+impl From<u8> for Modifiers {
+    fn from(bits: u8) -> Modifiers {
+        Modifiers::from_bits(bits)
+    }
 }
 
 /// A standard edit command a platform route delivered ([`Event::Edit`]).
@@ -1980,67 +2244,267 @@ impl ToolbarMirror {
     }
 }
 
+/// A key on the keyboard, as [`KeyEvent::key`] names it (docs/menus.md "Keys").
+///
+/// A key that types is [`Key::Character`] with its unmodified character (`'a'`, `'A'` under
+/// Shift, `'8'`, `'ü'` on a layout that has one, `' '` for the space bar); a key that types
+/// nothing is one of the named variants. [`Key::Unidentified`] stands for text with no single
+/// key behind it (an input method's commit) and for a key outside this vocabulary.
+///
+/// At the boundaries that stay text (a backend's wire, a dayscript `key:` step, a menu
+/// [`Shortcut`]) a key is spelled by its web `KeyboardEvent.key` name: [`Key::from_name`]
+/// reads one and [`Key::name`] writes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Key {
+    /// A key that types, named by its unmodified character.
+    Character(char),
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    ArrowDown,
+    Enter,
+    Tab,
+    Escape,
+    Backspace,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Insert,
+    /// A function key, `F(1)` through `F(12)`.
+    F(u8),
+    /// No single key: text an input method committed, or a key this vocabulary does not name.
+    Unidentified,
+}
+
+impl Key {
+    /// The key a web `KeyboardEvent.key` name spells: a named key, `"F1"` through `"F12"`, a
+    /// single character, or `"Space"` for the space bar. Anything else is
+    /// [`Key::Unidentified`].
+    #[must_use]
+    pub fn from_name(name: &str) -> Key {
+        match name {
+            "ArrowLeft" => Key::ArrowLeft,
+            "ArrowRight" => Key::ArrowRight,
+            "ArrowUp" => Key::ArrowUp,
+            "ArrowDown" => Key::ArrowDown,
+            "Enter" => Key::Enter,
+            "Tab" => Key::Tab,
+            "Escape" => Key::Escape,
+            "Backspace" => Key::Backspace,
+            "Delete" => Key::Delete,
+            "Home" => Key::Home,
+            "End" => Key::End,
+            "PageUp" => Key::PageUp,
+            "PageDown" => Key::PageDown,
+            "Insert" => Key::Insert,
+            "Space" => Key::Character(' '),
+            _ => {
+                if let Some(n) = name.strip_prefix('F').and_then(|n| n.parse::<u8>().ok())
+                    && (1..=12).contains(&n)
+                {
+                    return Key::F(n);
+                }
+                let mut chars = name.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => Key::Character(c),
+                    _ => Key::Unidentified,
+                }
+            }
+        }
+    }
+
+    /// The web `KeyboardEvent.key` name of this key: `"ArrowLeft"`, `"F5"`, `"a"`, and the
+    /// empty string for [`Key::Unidentified`]. The inverse of [`Key::from_name`].
+    #[must_use]
+    pub fn name(self) -> String {
+        match self {
+            Key::Character(c) => c.to_string(),
+            Key::F(n) => format!("F{n}"),
+            Key::Unidentified => String::new(),
+            Key::ArrowLeft => "ArrowLeft".into(),
+            Key::ArrowRight => "ArrowRight".into(),
+            Key::ArrowUp => "ArrowUp".into(),
+            Key::ArrowDown => "ArrowDown".into(),
+            Key::Enter => "Enter".into(),
+            Key::Tab => "Tab".into(),
+            Key::Escape => "Escape".into(),
+            Key::Backspace => "Backspace".into(),
+            Key::Delete => "Delete".into(),
+            Key::Home => "Home".into(),
+            Key::End => "End".into(),
+            Key::PageUp => "PageUp".into(),
+            Key::PageDown => "PageDown".into(),
+            Key::Insert => "Insert".into(),
+        }
+    }
+
+    /// The character of a key that types, or `None` for a named key.
+    #[must_use]
+    pub fn character(self) -> Option<char> {
+        match self {
+            Key::Character(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// The value of a digit key (`'0'` through `'9'`), or `None` for every other key.
+    #[must_use]
+    pub fn digit(self) -> Option<u8> {
+        match self {
+            Key::Character(c @ '0'..='9') => Some(c as u8 - b'0'),
+            _ => None,
+        }
+    }
+
+    /// Whether this is one of the four arrow keys.
+    #[must_use]
+    pub fn is_arrow(self) -> bool {
+        matches!(
+            self,
+            Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown
+        )
+    }
+
+    /// The name a menu [`Shortcut`] spells this key with (`"Return"`, `"Left"`, `"F1"`,
+    /// `"s"`): the menu vocabulary every backend's accelerator table reads, which differs
+    /// from the web names for Enter and the arrows.
+    #[must_use]
+    pub fn shortcut_name(self) -> String {
+        match self {
+            Key::Enter => "Return".into(),
+            Key::ArrowLeft => "Left".into(),
+            Key::ArrowRight => "Right".into(),
+            Key::ArrowUp => "Up".into(),
+            Key::ArrowDown => "Down".into(),
+            other => other.name(),
+        }
+    }
+}
+
+impl std::fmt::Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name())
+    }
+}
+
+impl From<char> for Key {
+    fn from(c: char) -> Key {
+        Key::Character(c)
+    }
+}
+
+/// A key by its web name ([`Key::from_name`]): what a backend's key table and a scripted
+/// step hold.
+impl From<&str> for Key {
+    fn from(name: &str) -> Key {
+        Key::from_name(name)
+    }
+}
+
+impl From<String> for Key {
+    fn from(name: String) -> Key {
+        Key::from_name(&name)
+    }
+}
+
+impl From<&String> for Key {
+    fn from(name: &String) -> Key {
+        Key::from_name(name)
+    }
+}
+
+impl From<std::borrow::Cow<'_, str>> for Key {
+    fn from(name: std::borrow::Cow<'_, str>) -> Key {
+        Key::from_name(&name)
+    }
+}
+
+/// Where a key is in its press (docs/menus.md "Keys").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum KeyPhase {
+    /// The key went down.
+    #[default]
+    Down,
+    /// The key is held and the platform repeated it. A handler that acts once per press
+    /// ignores this phase; one that moves while a key is held treats it like `Down`.
+    Repeat,
+    /// The key came up. Reported where [`Cap::KeyPhases`] is supported.
+    Up,
+}
+
+impl KeyPhase {
+    /// The phase a backend's numeric wire carries beside the modifier mask
+    /// ([`bridge::BridgeKind::Key`]): bits 8 and 9 of `num` (0 down, 1 repeat, 2 up).
+    #[must_use]
+    pub fn from_wire(num: f64) -> KeyPhase {
+        match (num as u32 >> 8) & 3 {
+            1 => KeyPhase::Repeat,
+            2 => KeyPhase::Up,
+            _ => KeyPhase::Down,
+        }
+    }
+}
+
+/// One key event for the focused piece (`Decorate::on_key`, `Decorate::on_key_up`).
+///
+/// Build one with [`KeyEvent::new`], [`KeyEvent::named`], [`KeyEvent::typed_text`] or
+/// [`KeyEvent::typed_by`], then [`KeyEvent::with_phase`] for a repeat or a release.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct KeyEvent {
-    /// The key's name, in the web `KeyboardEvent.key` vocabulary every platform can map onto:
-    /// the four arrows ("`ArrowLeft`", "`ArrowRight`", "`ArrowUp`", "`ArrowDown`") and the ten digits
-    /// ("0" through "9", from the main row or the numeric keypad) everywhere, plus
-    /// "Delete" and "Backspace" on backends with no menu bar ([`Cap::AppMenu`] unsupported),
-    /// where no accelerator can own those keys. A focused piece claims every key the route
-    /// carries, so offering them on a menu-bar platform would let a canvas swallow the Delete
-    /// its own Edit menu was about to act on (docs/menus.md). The two delete keys keep the
-    /// names the platform gives the physical keys (a Mac's ⌫ is "Backspace" and its ⌦ is
-    /// "Delete"), so a handler that means "remove this" takes both. A digit arrives only while
-    /// neither [`KeyEvent::PRIMARY`] nor [`KeyEvent::ALT`] (nor a Mac's Control) is held: ⌘1
-    /// and Ctrl+1 are accelerators, and a canvas claiming them would starve the menu. Most
-    /// backends name the digit the keypress types, so a layout whose number row needs Shift for
-    /// digits reports "1" with [`KeyEvent::SHIFT`] set; XAML and ArkUI read the physical key.
-    /// Backends emit `Event::Key` only while no text widget has focus; a field's own editing
-    /// keys never surface here. The one exception is a single-line text field with a key
-    /// handler ([`keys::handled`] for its node): it hands "`ArrowUp`", "`ArrowDown`" and "Escape",
-    /// pressed with no modifier, to that handler instead of acting on them itself, so an
-    /// address bar can walk a suggestion list (docs/textfield.md "Keys").
+    /// The key. On the short route (a focusable piece or a canvas) the four arrows and the ten
+    /// digits (from the main row or the numeric keypad) arrive everywhere, plus
+    /// [`Key::Delete`] and [`Key::Backspace`] on backends with no menu bar ([`Cap::AppMenu`]
+    /// unsupported), where no accelerator can own those keys. A focused piece claims every key
+    /// the route carries, so offering them on a menu-bar platform would let a canvas swallow
+    /// the Delete its own Edit menu was about to act on (docs/menus.md). The two delete keys
+    /// keep the names the platform gives the physical keys (a Mac's ⌫ is `Backspace` and its ⌦
+    /// is `Delete`), so a handler that means "remove this" takes both. A digit arrives only
+    /// while neither Primary nor Alt (nor a Mac's Control) is held: ⌘1 and Ctrl+1 are
+    /// accelerators, and a canvas claiming them would starve the menu. Most backends name the
+    /// digit the keypress types, so a layout whose number row needs Shift for digits reports
+    /// `'1'` with Shift set; XAML and ArkUI read the physical key. Backends emit `Event::Key`
+    /// only while no text widget has focus; a field's own editing keys never surface here.
+    /// The one exception is a single-line text field with a key handler ([`keys::handled`] for
+    /// its node): it hands [`Key::ArrowUp`], [`Key::ArrowDown`] and [`Key::Escape`], pressed
+    /// with no modifier, to that handler instead of acting on them itself, so an address bar
+    /// can walk a suggestion list (docs/textfield.md "Keys").
     ///
     /// A piece that declared `Decorate::keyboard()` takes the full route instead: every key
-    /// the platform delivers while it is focused. A key that types nothing is named by its
-    /// web name ([`KeyEvent::NAMED`]: "Enter", "Tab", "Escape", "Backspace", "Delete", "Home",
-    /// "End", "`PageUp`", "`PageDown`", "Insert", the arrows and "F1" through "F12"); a key that
-    /// types is named by its unmodified character ("a", "A" under Shift, "8", "ü" on a layout
-    /// that has one), and what it typed rides in [`KeyEvent::text`]. Under Control or Alt the
-    /// name stays that character ("c" with [`KeyEvent::CONTROL`] set, never the control code
-    /// it would type). Text an input method commits (a dead-key accent, a Japanese phrase,
-    /// the soft keyboard's word) arrives with the text alone and an empty name: no single
-    /// key is behind it. Only the platform's command chords stay out: ⌘ on Apple platforms
-    /// and the browser's own shortcuts belong to the menu and the browser, so a terminal's
-    /// ⌘C still copies. [`KeyEvent::typed`] is the question a text consumer asks.
-    pub key: String,
-    /// A [`KeyEvent::SHIFT`]/[`KeyEvent::PRIMARY`]/[`KeyEvent::ALT`]/[`KeyEvent::CONTROL`]
-    /// mask.
-    pub modifiers: u8,
+    /// the platform delivers while it is focused. A key that types nothing is a named variant
+    /// ([`KeyEvent::NAMED`] lists their web names); a key that types is [`Key::Character`]
+    /// with its unmodified character (`'a'`, `'A'` under Shift, `'8'`, `'ü'` on a layout that
+    /// has one), and what it typed rides in [`KeyEvent::text`]. Under Control or Alt the key
+    /// stays that character (`'c'` with Control set, never the control code it would type).
+    /// Text an input method commits (a dead-key accent, a Japanese phrase, the soft
+    /// keyboard's word) arrives with the text alone and [`Key::Unidentified`]: no single key
+    /// is behind it. Only the platform's command chords stay out: ⌘ on Apple platforms and
+    /// the browser's own shortcuts belong to the menu and the browser, so a terminal's ⌘C
+    /// still copies. [`KeyEvent::typed`] is the question a text consumer asks.
+    pub key: Key,
+    /// The modifiers held with the key.
+    pub modifiers: Modifiers,
     /// The text this press committed, on the full route: what the key typed ("a", "A", "é"
     /// after a dead key, the whole string an input method committed at once), or `None` for
     /// a key that typed nothing (a named key, a Control or Alt chord, a composition still in
     /// progress). Separate from [`KeyEvent::key`] so that a committed "Enter" is text and the
-    /// Enter key is a key, whatever the input method sends. Always `None` on the short route.
+    /// Enter key is a key, whatever the input method sends. Always `None` on the short route
+    /// and on a release.
     pub text: Option<String>,
+    /// Whether the key went down, repeated while held, or came up. `Decorate::on_key`
+    /// receives `Down` and `Repeat`; `Decorate::on_key_up` receives `Up`.
+    pub phase: KeyPhase,
 }
 
 impl KeyEvent {
-    pub const SHIFT: u8 = 1;
-    /// The platform's command key: ⌘ on Apple platforms, Ctrl elsewhere (the
-    /// [`Shortcut::primary`] convention).
-    pub const PRIMARY: u8 = 2;
-    pub const ALT: u8 = 4;
-    /// The Control key itself, wherever it sits: on Apple platforms it is a different key from
-    /// [`KeyEvent::PRIMARY`] (⌘), elsewhere the same one, so a Ctrl+C on Linux sets both.
-    /// Carried on the full route only (`Decorate::keyboard`).
-    pub const CONTROL: u8 = 8;
-
-    /// The ten digit key names, indexed by value.
+    /// The ten digit key names, indexed by value: a backend's key-code table.
     pub const DIGITS: [&'static str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-    /// Every name the full route gives a key that types nothing (the web `KeyboardEvent.key`
-    /// vocabulary). A key outside this list is named by the text it types.
+    /// The web `KeyboardEvent.key` name of every key that types nothing, as a backend's wire
+    /// and a dayscript `key:` step spell them. A name outside this list is the text it types.
     pub const NAMED: [&'static str; 26] = [
         "ArrowLeft",
         "ArrowRight",
@@ -2070,46 +2534,71 @@ impl KeyEvent {
         "F12",
     ];
 
+    /// A press of `key` with `modifiers` held that typed nothing.
+    #[must_use]
+    pub fn new(key: Key, modifiers: Modifiers) -> KeyEvent {
+        KeyEvent {
+            key,
+            modifiers,
+            text: None,
+            phase: KeyPhase::Down,
+        }
+    }
+
+    /// This event in another phase: `KeyEvent::new(Key::ArrowLeft, Modifiers::NONE)`
+    /// `.with_phase(KeyPhase::Up)` is the release. A release carries no text.
+    #[must_use]
+    pub fn with_phase(mut self, phase: KeyPhase) -> KeyEvent {
+        self.phase = phase;
+        if phase == KeyPhase::Up {
+            self.text = None;
+        }
+        self
+    }
+
     /// The text this press typed ([`KeyEvent::text`]), or `None` for a key that typed nothing.
     #[must_use]
     pub fn typed(&self) -> Option<&str> {
         self.text.as_deref()
     }
 
-    /// A key that types nothing (one of [`KeyEvent::NAMED`], or a chord's character under
-    /// Control or Alt), on either route.
-    pub fn named(key: impl Into<String>, modifiers: u8) -> KeyEvent {
-        KeyEvent {
-            key: key.into(),
-            modifiers,
-            text: None,
-        }
+    /// A key that types nothing (a named key, or a chord's character under Control or Alt),
+    /// on either route. A backend passes the key's web name and its wire modifier mask; both
+    /// convert ([`Key::from_name`], [`Modifiers::from_bits`]).
+    pub fn named(key: impl Into<Key>, modifiers: impl Into<Modifiers>) -> KeyEvent {
+        KeyEvent::new(key.into(), modifiers.into())
     }
 
-    /// Text a press committed on the full route. The key is named by the text when the text
-    /// is one character (the press typed it), and left empty for a longer commit, which no
-    /// single key is behind.
-    pub fn typed_text(text: impl Into<String>, modifiers: u8) -> KeyEvent {
+    /// Text a press committed on the full route. The key is the text's character when the
+    /// text is one character (the press typed it), and [`Key::Unidentified`] for a longer
+    /// commit, which no single key is behind.
+    pub fn typed_text(text: impl Into<String>, modifiers: impl Into<Modifiers>) -> KeyEvent {
         let text = text.into();
         let mut chars = text.chars();
         let key = match (chars.next(), chars.next()) {
-            (Some(_), None) => text.clone(),
-            _ => String::new(),
+            (Some(c), None) => Key::Character(c),
+            _ => Key::Unidentified,
         };
         KeyEvent {
             key,
-            modifiers,
+            modifiers: modifiers.into(),
             text: Some(text),
+            phase: KeyPhase::Down,
         }
     }
 
-    /// Text a press committed on the full route, named by the key that produced it
-    /// (`key`, in the vocabulary above) when the backend knows it.
-    pub fn typed_by(key: impl Into<String>, text: impl Into<String>, modifiers: u8) -> KeyEvent {
+    /// Text a press committed on the full route, with the key that produced it when the
+    /// backend knows it.
+    pub fn typed_by(
+        key: impl Into<Key>,
+        text: impl Into<String>,
+        modifiers: impl Into<Modifiers>,
+    ) -> KeyEvent {
         KeyEvent {
             key: key.into(),
-            modifiers,
+            modifiers: modifiers.into(),
             text: Some(text.into()),
+            phase: KeyPhase::Down,
         }
     }
 
@@ -2132,33 +2621,49 @@ impl KeyEvent {
     /// The value of a digit key, or `None` for every other key.
     #[must_use]
     pub fn digit(&self) -> Option<u8> {
-        match self.key.as_bytes() {
-            [d @ b'0'..=b'9'] => Some(d - b'0'),
-            _ => None,
-        }
+        self.key.digit()
     }
 
+    /// Whether Shift is held.
     #[must_use]
     pub fn shift(&self) -> bool {
-        self.modifiers & Self::SHIFT != 0
+        self.modifiers.shift()
     }
+    /// Whether the platform's command key is held ([`Modifiers::PRIMARY`]).
     #[must_use]
     pub fn primary(&self) -> bool {
-        self.modifiers & Self::PRIMARY != 0
+        self.modifiers.primary()
     }
+    /// Whether Alt (Option) is held.
     #[must_use]
     pub fn alt(&self) -> bool {
-        self.modifiers & Self::ALT != 0
+        self.modifiers.alt()
     }
+    /// Whether the Control key itself is held ([`Modifiers::CONTROL`]).
     #[must_use]
     pub fn control(&self) -> bool {
-        self.modifiers & Self::CONTROL != 0
+        self.modifiers.control()
+    }
+    /// Whether the key went down or repeated: what `Decorate::on_key` delivers.
+    #[must_use]
+    pub fn is_press(&self) -> bool {
+        self.phase != KeyPhase::Up
+    }
+    /// Whether this is the platform repeating a held key.
+    #[must_use]
+    pub fn is_repeat(&self) -> bool {
+        self.phase == KeyPhase::Repeat
+    }
+    /// Whether the key came up.
+    #[must_use]
+    pub fn is_release(&self) -> bool {
+        self.phase == KeyPhase::Up
     }
 }
 
 #[cfg(test)]
 mod key_event_tests {
-    use super::KeyEvent;
+    use super::{Key, KeyEvent, KeyPhase, Modifiers};
 
     #[test]
     fn digit_names_read_back_as_values() {
@@ -2172,38 +2677,74 @@ mod key_event_tests {
         assert_eq!(KeyEvent::digit_name('٣'), None);
         let arrow = KeyEvent::named("ArrowUp", 0);
         assert_eq!(arrow.digit(), None);
+        assert_eq!(arrow.key, Key::ArrowUp);
     }
 
     #[test]
     fn typed_text_is_told_from_named_keys() {
         let a = KeyEvent::typed_text("a", 0);
-        assert_eq!((a.key.as_str(), a.typed()), ("a", Some("a")));
+        assert_eq!((a.key, a.typed()), (Key::Character('a'), Some("a")));
         let space = KeyEvent::typed_text(" ", 0);
-        assert_eq!((space.key.as_str(), space.typed()), (" ", Some(" ")));
+        assert_eq!((space.key, space.typed()), (Key::Character(' '), Some(" ")));
         assert_eq!(KeyEvent::typed_text("7", 0).digit(), Some(7));
         // A longer commit has no key behind it.
         let phrase = KeyEvent::typed_text("こんにちは", 0);
         assert_eq!(
-            (phrase.key.as_str(), phrase.typed()),
-            ("", Some("こんにちは"))
+            (phrase.key, phrase.typed()),
+            (Key::Unidentified, Some("こんにちは"))
         );
         // Text that spells a key name is still text, and the key is still a key.
         for name in KeyEvent::NAMED {
-            assert_eq!(
-                KeyEvent::named(name, 0).typed(),
-                None,
-                "{name} types nothing"
-            );
+            let key = KeyEvent::named(name, 0);
+            assert_eq!(key.typed(), None, "{name} types nothing");
+            assert_ne!(key.key, Key::Unidentified, "{name} is in the vocabulary");
+            assert_eq!(key.key.name(), name, "{name} round-trips");
             assert_eq!(KeyEvent::typed_text(name, 0).typed(), Some(name));
         }
         let accent = KeyEvent::typed_by("e", "é", 0);
-        assert_eq!((accent.key.as_str(), accent.typed()), ("e", Some("é")));
+        assert_eq!(
+            (accent.key, accent.typed()),
+            (Key::Character('e'), Some("é"))
+        );
         assert_eq!(KeyEvent::function_name(1), Some("F1"));
         assert_eq!(KeyEvent::function_name(12), Some("F12"));
         assert_eq!(KeyEvent::function_name(13), None);
-        let chord = KeyEvent::named("c", KeyEvent::CONTROL | KeyEvent::SHIFT);
+        let chord = KeyEvent::named("c", Modifiers::CONTROL | Modifiers::SHIFT);
         assert!(chord.control() && chord.shift() && !chord.primary());
         assert_eq!(chord.typed(), None);
+    }
+
+    #[test]
+    fn names_modifiers_and_phases_convert_at_the_wire() {
+        assert_eq!(Key::from_name("Space"), Key::Character(' '));
+        assert_eq!(Key::from_name("F12"), Key::F(12));
+        assert_eq!(Key::from_name("F13"), Key::Unidentified);
+        assert_eq!(Key::from_name(""), Key::Unidentified);
+        assert_eq!(Key::Enter.shortcut_name(), "Return");
+        assert_eq!(Key::ArrowLeft.shortcut_name(), "Left");
+        assert_eq!(Key::Character('s').shortcut_name(), "s");
+        let mask = Modifiers::SHIFT.bits() | Modifiers::ALT.bits();
+        let mods = Modifiers::from_bits(mask);
+        assert!(mods.shift() && mods.alt() && !mods.primary() && !mods.control());
+        assert!(mods.contains(Modifiers::SHIFT) && !mods.contains(Modifiers::PRIMARY));
+        assert!(Modifiers::NONE.is_empty() && !mods.is_empty());
+        // The phase rides above the mask on the numeric wire.
+        assert_eq!(KeyPhase::from_wire(f64::from(mask)), KeyPhase::Down);
+        assert_eq!(
+            KeyPhase::from_wire(f64::from(u16::from(mask) | 1 << 8)),
+            KeyPhase::Repeat
+        );
+        assert_eq!(
+            KeyPhase::from_wire(f64::from(u16::from(mask) | 2 << 8)),
+            KeyPhase::Up
+        );
+        let up = KeyEvent::typed_text("a", 0).with_phase(KeyPhase::Up);
+        assert!(up.is_release() && !up.is_press() && up.typed().is_none());
+        assert!(
+            KeyEvent::new(Key::Tab, Modifiers::NONE)
+                .with_phase(KeyPhase::Repeat)
+                .is_repeat()
+        );
     }
 
     #[test]
@@ -2218,10 +2759,189 @@ mod key_event_tests {
     }
 }
 
+/// The kind of device behind a pointer (docs/gestures.md "Input kind"): what
+/// `day::primary_pointer()` tracks and a [`Touch`] carries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum PointerKind {
+    /// A finger on a touch screen.
+    Touch,
+    /// A mouse or a trackpad: a pointer that hovers.
+    #[default]
+    Mouse,
+    /// A stylus or pencil.
+    Stylus,
+}
+
+impl PointerKind {
+    /// The kind a platform's users reach for first, before any input arrives: touch on a
+    /// phone or tablet OS, a mouse elsewhere. [`Toolkit::primary_pointer`] starts from it.
+    #[must_use]
+    pub fn platform_default() -> PointerKind {
+        if cfg!(any(
+            target_os = "ios",
+            target_os = "android",
+            target_env = "ohos"
+        )) {
+            PointerKind::Touch
+        } else {
+            PointerKind::Mouse
+        }
+    }
+
+    /// Whether this pointer hovers (a mouse, a trackpad, or a stylus that reports proximity).
+    #[must_use]
+    pub fn hovers(self) -> bool {
+        self != PointerKind::Touch
+    }
+
+    /// The name a backend's wire and a dayscript step spell this kind with.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            PointerKind::Touch => "touch",
+            PointerKind::Mouse => "mouse",
+            PointerKind::Stylus => "stylus",
+        }
+    }
+
+    /// The kind `name` spells ([`PointerKind::name`]), or `None`.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<PointerKind> {
+        match name {
+            "touch" => Some(PointerKind::Touch),
+            "mouse" => Some(PointerKind::Mouse),
+            "stylus" => Some(PointerKind::Stylus),
+            _ => None,
+        }
+    }
+}
+
+/// Where one contact of a multi-touch sequence is ([`Touch::phase`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TouchPhase {
+    /// The contact went down.
+    Began,
+    /// The contact moved.
+    Moved,
+    /// The contact is down and did not move in this event.
+    Stationary,
+    /// The contact lifted.
+    Ended,
+    /// The platform took the contact away (a system gesture, an enclosing scroll view).
+    Cancelled,
+}
+
+/// One contact of a raw multi-touch event (`Decorate::on_touches`, docs/gestures.md "Touches").
+///
+/// Build one with [`Touch::new`], then [`Touch::with_pressure`] and [`Touch::with_kind`].
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PointerEvent {
-    pub position: Point,
-    pub down: bool,
+#[non_exhaustive]
+pub struct Touch {
+    /// Stable for the life of the contact, from `Began` to `Ended` or `Cancelled`; reused
+    /// afterwards.
+    pub id: u64,
+    pub phase: TouchPhase,
+    /// In the piece's own coordinates, in points.
+    pub location: Point,
+    /// Contact force from 0 to 1; 1 where the device reports none.
+    pub pressure: f64,
+    /// The device behind the contact.
+    pub kind: PointerKind,
+}
+
+impl Touch {
+    /// A finger contact at full pressure.
+    #[must_use]
+    pub fn new(id: u64, phase: TouchPhase, location: Point) -> Touch {
+        Touch {
+            id,
+            phase,
+            location,
+            pressure: 1.0,
+            kind: PointerKind::Touch,
+        }
+    }
+
+    /// This contact with a reported force (clamped to 0 through 1).
+    #[must_use]
+    pub fn with_pressure(mut self, pressure: f64) -> Touch {
+        self.pressure = pressure.clamp(0.0, 1.0);
+        self
+    }
+
+    /// This contact from another kind of device.
+    #[must_use]
+    pub fn with_kind(mut self, kind: PointerKind) -> Touch {
+        self.kind = kind;
+        self
+    }
+
+    /// Whether the contact is on the surface after this event.
+    #[must_use]
+    pub fn is_down(&self) -> bool {
+        !matches!(self.phase, TouchPhase::Ended | TouchPhase::Cancelled)
+    }
+}
+
+/// Where user-driven scrolling stands ([`Event::ScrollPhase`], docs/scroll.md "Offset and
+/// phase").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum ScrollPhase {
+    /// Nothing the user did is moving the content.
+    #[default]
+    Idle,
+    /// The user is moving the content: a finger is down and dragging, or a wheel or trackpad
+    /// gesture is in progress.
+    Dragging,
+    /// The user let go and the content is still moving: momentum, a bounce settling, or a snap
+    /// to a page. A toolkit that cannot tell this from [`ScrollPhase::Dragging`] never sends it.
+    Coasting,
+}
+
+/// What a recycling list shows, as its host reports it through [`ListSource::viewport`]
+/// (docs/list.md "Visible rows"); day-core passes it on as [`Event::ListViewport`].
+///
+/// The host counts the rows [`ListSource::len`] counts (headers and supplementary rows
+/// included); day-core translates to the app's items before the piece sees the report.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ListViewport {
+    /// The first row with any part inside the viewport, overscan excluded.
+    pub first: usize,
+    /// The last row with any part inside the viewport, overscan excluded. Never less than
+    /// `first`.
+    pub last: usize,
+    /// How far the viewport's end is from the end of the content, in points: `0.0` when the
+    /// list is scrolled all the way to its end or its rows fit the viewport, never negative
+    /// (an overscroll bounce reports `0.0`). A host that estimates the heights of rows it has
+    /// not laid out reports the estimate.
+    pub end_distance: f64,
+}
+
+/// Where a row lands in the viewport when a list scrolls to it ([`ListScroll::align`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RowAlign {
+    /// The least movement that makes the whole row visible; a row already in view stays put.
+    #[default]
+    Nearest,
+    /// The row's top edge at the top of the viewport.
+    Start,
+    /// The row centered in the viewport.
+    Center,
+    /// The row's bottom edge at the bottom of the viewport.
+    End,
+}
+
+/// One programmatic scroll of a recycling list ([`Toolkit::list_scroll`], docs/list.md
+/// "Programmatic scrolling").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListScroll {
+    /// The row to bring into view, counted as [`ListSource::len`] counts rows and already
+    /// clamped to it; `None` scrolls to the very end of the content.
+    pub row: Option<usize>,
+    /// Where the row lands. Ignored for `row: None`.
+    pub align: RowAlign,
+    /// Scroll with the platform's standard scroll animation, or jump.
+    pub animated: bool,
 }
 
 /// The event sink: enqueue-only. It may be invoked re-entrantly from inside any Toolkit method;
@@ -2238,6 +2958,30 @@ pub struct ListSource {
     /// Report the first actually visible row (exclude overscan). Enqueue-only; optional,
     /// so hosts without a viewport binding incur no app event work.
     pub first_visible: Option<std::rc::Rc<dyn Fn(usize)>>,
+    /// Report what the list shows (docs/list.md "Visible rows"): the first and last visible
+    /// rows and the distance from the viewport's end to the content's end. Present when the
+    /// piece observes the viewport (`visible_rows`, `follow_end`, `on_end_reached`); a host
+    /// calls it whenever any of the three values may have changed: after a scroll (the
+    /// user's or a programmatic one), after the list is resized, and after a reload or a
+    /// splice has been laid out. Enqueue-only and deduplicated by day-core, so a host may
+    /// call it on every scroll callback. It supersedes `first_visible`: a host that calls
+    /// this one need not call the other.
+    pub viewport: Option<std::rc::Rc<dyn Fn(ListViewport)>>,
+    /// Report that the reader started moving the list themselves (docs/list.md "Following
+    /// the end"): a drag, a wheel or trackpad scroll, the scroll bar, or a key that scrolls.
+    /// Never a scroll the reader did not start: [`Toolkit::list_scroll`], a reload or splice,
+    /// a resize, or the momentum of a scroll the app asked for. Present when the piece follows
+    /// the end (`follow_end`); a host that answers [`Cap::ListReaderScroll`] calls it as each
+    /// such scroll begins (more calls during one are harmless). Enqueue-only.
+    pub reader_scroll: Option<std::rc::Rc<dyn Fn()>>,
+    /// Present when the list has rows that are neither items nor section headers
+    /// (docs/list.md "Header, footer and empty state"): whether row `index` is such a
+    /// supplementary row (the list's header, footer, empty state, or content padding). The
+    /// host sizes it to its content even in a `Uniform` list (`cell_height` answers it),
+    /// draws no separator, selection or swipe affordance on it, never drags it, never pins
+    /// it, and gives it no group-header styling: it is plain content that scrolls with the
+    /// rows. `is_header` answers `false` for it.
+    pub is_supplement: Option<std::rc::Rc<dyn Fn(usize) -> bool>>,
     /// Current row count.
     pub len: std::rc::Rc<dyn Fn() -> usize>,
     /// Present on a sectioned list (`ListProps::sections`, docs/list.md "Sections"): whether
@@ -2342,7 +3086,7 @@ pub struct ListSwipeAction {
     /// Destructive styling: the platform's red.
     pub destructive: bool,
     /// Explicit button color; `None` = the platform's default for the style.
-    pub tint: Option<Color>,
+    pub tint: Option<Ink>,
     /// A glyph for the button where the platform draws one: above the label on macOS, in
     /// place of it on iOS (docs/list.md).
     pub symbol: Option<Symbol>,
@@ -2805,9 +3549,11 @@ pub enum Cap {
     /// phone and web backends answer `Unsupported` and resolve the request as `Dismissed`, so
     /// an app hides its "Add Folder…" command where this is not `Native`.
     FolderDialog,
-    /// The toolkit runs backend-executed animation for `AnimSpec` intents on
-    /// `update`/`set_frame`/`set_opacity`/`set_transform` (§8.4). `Unsupported` ⇒ animated calls
-    /// apply instantly (still correct, just not animated).
+    /// The toolkit plays `AnimSpec` intents on `update`/`set_frame`/`set_opacity`/
+    /// `set_transform` on its own animator, keeping the whole contract documented on
+    /// [`AnimSpec`]: delay, repeat, autoreverse, physical springs, retargeting, and an animated
+    /// container background (§8.4). `Unsupported` ⇒ animated calls apply instantly (still
+    /// correct, just not animated).
     Animation,
     /// The toolkit presents a `kinds::COVER` node as a native fullscreen modal surface
     /// (docs/cover.md). `Unsupported` ⇒ the `cover` piece's content never shows.
@@ -2828,6 +3574,11 @@ pub enum Cap {
     /// `Unsupported` where selection is always on (GTK); `Emulated` where the backend
     /// collapses native selections itself (XAML, ArkUI).
     TextSelectable,
+    /// The toolkit reports a selectable label's selection as it changes
+    /// ([`Event::TextSelected`], `Label::on_selection`). `Unsupported` where the platform's
+    /// label has no selection notification: the label is still selectable and the callback
+    /// never runs.
+    LabelSelection,
     /// The toolkit's `text_area` has built-in spell-check/autocorrect (`TextAreaProps::spellcheck`).
     /// `Unsupported` where the toolkit ships none (GTK, Qt, ArkUI).
     TextSpellCheck,
@@ -3032,12 +3783,66 @@ pub enum Cap {
     /// on Android 14 and later (`ChooserAction`). `Unsupported` everywhere else: the chooser
     /// shows the system's targets only, and the app offers its actions in its own menu.
     ShareActions,
+    /// A `scroll` reports its content offset as it moves (`ScrollProps::track_offset`,
+    /// [`Event::ScrollChanged`], docs/scroll.md "Offset and phase"). `Unsupported`: the bound
+    /// offset never changes, so a collapsing header stays expanded.
+    ScrollOffset,
+    /// A `scroll` reports the phases of user-driven scrolling (`ScrollProps::track_phase`,
+    /// [`Event::ScrollPhase`]). `Native` where the platform says when a drag begins, when the
+    /// finger lifts and when momentum ends; anything else and day-core derives `Dragging` and
+    /// `Idle` from the offset reports (never `Coasting`), which needs [`Cap::ScrollOffset`].
+    ScrollPhases,
+    /// A `scroll` comes to rest on page or interval boundaries (`ScrollProps::snap`).
+    /// `Unsupported`: the view scrolls freely.
+    ScrollSnap,
+    /// A `scroll` zooms its content by pinch and by [`props::ScrollPatch::Zoom`]
+    /// (`ScrollProps::zoom`, docs/scroll.md "Zoom"). `Unsupported`: the content stays at its
+    /// natural size and the bound scale stays `1.0`.
+    ScrollZoom,
+    /// A `scroll` dismisses the software keyboard as its props ask
+    /// (`ScrollProps::keyboard_dismiss`, `ScrollProps::keyboard_taps`). `Native` where the
+    /// platform's scroll view does it; `Emulated` where day-core resigns focus when a drag
+    /// begins (no interactive tracking, and taps are always delivered); `Unsupported` where
+    /// there is no software keyboard to dismiss.
+    ScrollKeyboardDismiss,
+    /// A native `pager` reports a continuous position while a page is dragged (docs/pager.md
+    /// "Progress"). Anything else and the bound progress steps from page to page.
+    PagerProgress,
+    /// The list host reports its viewport through [`ListSource::viewport`] (docs/list.md
+    /// "Visible rows"): what `visible_rows`, `follow_end` and `on_end_reached` are derived
+    /// from. `Unsupported`: `visible_rows` follows only `first_visible` reports, `follow_end`
+    /// follows every change, and `on_end_reached` never fires.
+    ListViewport,
+    /// The list host tells a scroll the reader started from one the app asked for, through
+    /// [`ListSource::reader_scroll`] (docs/list.md "Following the end"). `Unsupported`:
+    /// `follow_end` learns that the reader left only from the viewport reports, so a reader who
+    /// interrupts a followed scroll before it reaches the end can be taken back to the end by
+    /// the next row.
+    ListReaderScroll,
+    /// The list host honors [`ListScroll::align`] and [`ListScroll::animated`]
+    /// ([`Toolkit::list_scroll`]). `Unsupported`: a row scroll reveals the row where the
+    /// platform's own "scroll to row" puts it.
+    ListScrollAlign,
+    /// `Decorate::focusable` is honored ([`Toolkit::set_focusable`], docs/focus.md): a
+    /// composed piece joins the focus order, takes focus on a press, reports
+    /// `Event::FocusChanged` and hears `Event::Key` while focused. `Unsupported` ⇒ the piece
+    /// renders and never takes the keyboard; offer the same commands through buttons or a
+    /// menu there.
+    Focusable,
+    /// Key events carry every phase (docs/menus.md "Keys"): `Native` when the backend reports
+    /// the release (`KeyPhase::Up`) and marks auto-repeat (`KeyPhase::Repeat`). `Unsupported`
+    /// ⇒ only presses arrive, each as `KeyPhase::Down`, so held-key movement has no end to
+    /// wait for and should step per press instead.
+    KeyPhases,
+    /// `Decorate::hit_slop` grows the piece's input area ([`Toolkit::set_hit_slop`],
+    /// docs/gestures.md "Hit slop"). `Unsupported` ⇒ the piece is hit inside its own bounds.
+    HitSlop,
 }
 
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 91] = [
+    pub const ALL: [Cap; 104] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -3129,6 +3934,19 @@ impl Cap {
         Cap::FolderDialog,
         Cap::ListSections,
         Cap::ShareActions,
+        Cap::ScrollOffset,
+        Cap::ScrollPhases,
+        Cap::ScrollSnap,
+        Cap::ScrollZoom,
+        Cap::ScrollKeyboardDismiss,
+        Cap::PagerProgress,
+        Cap::ListViewport,
+        Cap::ListScrollAlign,
+        Cap::Focusable,
+        Cap::KeyPhases,
+        Cap::HitSlop,
+        Cap::LabelSelection,
+        Cap::ListReaderScroll,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -3227,6 +4045,19 @@ impl Cap {
             Cap::FolderDialog => 88,
             Cap::ListSections => 89,
             Cap::ShareActions => 90,
+            Cap::ScrollOffset => 91,
+            Cap::ScrollPhases => 92,
+            Cap::ScrollSnap => 93,
+            Cap::ScrollZoom => 94,
+            Cap::ScrollKeyboardDismiss => 95,
+            Cap::PagerProgress => 96,
+            Cap::ListViewport => 97,
+            Cap::ListScrollAlign => 98,
+            Cap::Focusable => 99,
+            Cap::KeyPhases => 100,
+            Cap::HitSlop => 101,
+            Cap::LabelSelection => 102,
+            Cap::ListReaderScroll => 103,
         }
     }
 }
@@ -3922,29 +4753,50 @@ impl std::ops::BitOr for Edges {
     }
 }
 
-/// The timing curve of an animation (§8.4). Native backends map each variant onto their own
-/// easing (`CAMediaTimingFunction`, `QEasingCurve`, ArkUI `ARKUI_CURVE_*`, spring animators); the
-/// canvas/self-driven path samples it via [`Curve::fraction`]. `Spring` matches SwiftUI's
-/// `.spring(response:dampingFraction:)`.
+/// The timing curve of one cycle of an animation (§8.4, docs/tween.md "The animation
+/// contract"): progress as a function of the time since the cycle started.
+///
+/// The four easing curves are defined by [`Curve::ease`], so every toolkit and the frame-driven
+/// path draw the same shape: `Linear` is `t`, `EaseIn` is `t²`, `EaseOut` is `1 - (1 - t)²` and
+/// `EaseInOut` is the smoothstep `t²(3 - 2t)`. A toolkit whose native easing differs (Core
+/// Animation's `easeInEaseOut` is a different cubic) may use its own curve of the same name:
+/// the conformance cases allow that much difference and no more.
+///
+/// `Spring` is a physical spring, not an overshoot curve stretched over a duration. Its
+/// position is the closed-form unit-step response [`Curve::fraction`] evaluates, the response
+/// of SwiftUI's `.spring(response:dampingFraction:)`. A toolkit with a spring animator hands
+/// it [`Curve::spring_constants`]; every other toolkit plays [`AnimSpec::keyframes`], which
+/// samples the same function.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Curve {
+    /// Constant speed.
     Linear,
+    /// Slow at the start: `t²`.
     EaseIn,
+    /// Slow at the end: `1 - (1 - t)²`.
     EaseOut,
+    /// Slow at both ends: `t²(3 - 2t)`.
     EaseInOut,
-    /// `response` = approximate settling period (seconds); `damping` = damping ratio (1.0 =
-    /// critically damped, `<1` = bouncy overshoot).
+    /// A damped spring released at rest one unit from its target.
     Spring {
+        /// The period of the undamped oscillation, in seconds: the natural frequency is
+        /// `2π / response` radians per second. Lower is faster.
         response: f64,
+        /// The damping ratio: `1.0` is critically damped (the fastest approach with no
+        /// overshoot), below `1.0` overshoots and rings, above `1.0` creeps in.
         damping: f64,
     },
 }
 
+/// How close to its target a spring has to stay to count as settled: a thousandth of the
+/// distance it travels.
+const SPRING_REST: f64 = 0.001;
+
 impl Curve {
-    /// Fraction of the transition complete at `elapsed` seconds (0 at start, reaching 1, or
-    /// overshooting it for an under-damped spring). Easing curves clamp to `duration`; springs
-    /// evaluate their analytic unit-step response and use `duration` only as a settle cap. Drives
-    /// the self-driven/canvas path; native backends interpolate on their own compositor instead.
+    /// Fraction of the transition complete at `elapsed` seconds into a cycle of `duration`
+    /// seconds (0 at the start, reaching 1, or overshooting it for an under-damped spring).
+    /// Easing curves clamp to `duration`; a spring evaluates its closed-form unit-step response
+    /// at `elapsed` and does not read `duration`.
     #[must_use]
     pub fn fraction(self, elapsed: f64, duration: f64) -> f64 {
         if let Curve::Spring { response, damping } = self {
@@ -3975,92 +4827,190 @@ impl Curve {
     #[must_use]
     pub fn is_settled(self, elapsed: f64, duration: f64) -> bool {
         match self {
-            Curve::Spring { response, damping } => {
-                let cap = response.max(0.0) * 4.0 + 0.2;
-                if elapsed >= cap {
-                    return true;
-                }
-                (spring_step(response, damping, elapsed) - 1.0).abs() < 0.001
-                    && elapsed > response * 0.5
-            }
+            Curve::Spring { .. } => elapsed >= self.settle_secs().unwrap_or(0.0),
             _ => elapsed >= duration.max(0.0),
         }
+    }
+
+    /// How long a spring takes to settle, in seconds: the time after which it stays within a
+    /// thousandth of its travel from the target. `None` for the easing curves, whose length is
+    /// the spec's `duration_ms`. [`AnimSpec::spring`] uses it as the cycle's duration, so a
+    /// spring's cycle ends where the eye can no longer see it move. Capped at thirty periods
+    /// for a spring with next to no damping.
+    #[must_use]
+    pub fn settle_secs(self) -> Option<f64> {
+        let Curve::Spring { response, damping } = self else {
+            return None;
+        };
+        if response <= 0.0 {
+            return Some(0.0);
+        }
+        let omega0 = std::f64::consts::TAU / response;
+        let zeta = damping.max(0.0);
+        let rest = (1.0 / SPRING_REST).ln();
+        let secs = if (zeta - 1.0).abs() < 1e-3 {
+            // (1 + ω₀t)·e^(-ω₀t) = 0.001 at ω₀t ≈ 9.233.
+            9.233 / omega0
+        } else if zeta < 1.0 {
+            // The envelope e^(-ζω₀t) / √(1 - ζ²) falls below the rest distance.
+            let root = (1.0 - zeta * zeta).sqrt();
+            (rest - root.ln()) / (zeta.max(1e-3) * omega0)
+        } else {
+            // The slow root dominates: r₂/(r₂ - r₁)·e^(r₁t).
+            let root = (zeta * zeta - 1.0).sqrt();
+            let (slow, fast) = (omega0 * (zeta - root), omega0 * (zeta + root));
+            (rest + (fast / (fast - slow)).ln()) / slow
+        };
+        Some(secs.min(response * 30.0))
+    }
+
+    /// A spring's physical constants for a mass of 1, as `(stiffness, damping)`: what
+    /// `CASpringAnimation`, `SpringAnimation`/`SpringForce`, `SpringScalarNaturalMotionAnimation`
+    /// and `day::motion::Spring` take. `stiffness = (2π / response)²` and the damping
+    /// coefficient is `2 · ratio · 2π / response`. `None` for the easing curves.
+    #[must_use]
+    pub fn spring_constants(self) -> Option<(f64, f64)> {
+        let Curve::Spring { response, damping } = self else {
+            return None;
+        };
+        let omega0 = std::f64::consts::TAU / response.max(1e-6);
+        Some((omega0 * omega0, 2.0 * damping.max(0.0) * omega0))
     }
 }
 
 /// Unit-step response of a second-order spring (`response` = period seconds, `damping` = ratio),
-/// evaluated at `t` seconds. Under-damped rings and overshoots; critically/over-damped eases in.
+/// evaluated at `t` seconds. Under-damped rings and overshoots; critically damped and
+/// over-damped approach without crossing.
 fn spring_step(response: f64, damping: f64, t: f64) -> f64 {
     if response <= 0.0 || t <= 0.0 {
         return if t <= 0.0 { 0.0 } else { 1.0 };
     }
     let omega0 = std::f64::consts::TAU / response;
     let zeta = damping.max(0.0);
-    if zeta < 1.0 {
+    if (zeta - 1.0).abs() < 1e-3 {
+        let e = (-omega0 * t).exp();
+        1.0 - e * (1.0 + omega0 * t)
+    } else if zeta < 1.0 {
         let omega_d = omega0 * (1.0 - zeta * zeta).sqrt();
         let e = (-zeta * omega0 * t).exp();
         1.0 - e * ((omega_d * t).cos() + (zeta * omega0 / omega_d) * (omega_d * t).sin())
     } else {
-        let e = (-omega0 * t).exp();
-        1.0 - e * (1.0 + omega0 * t)
+        let root = (zeta * zeta - 1.0).sqrt();
+        let (slow, fast) = (-omega0 * (zeta - root), -omega0 * (zeta + root));
+        1.0 - (fast * (slow * t).exp() - slow * (fast * t).exp()) / (fast - slow)
     }
 }
 
-/// Animation intent (§8.4). Native-widget backends map it onto their own animator (Core Animation,
-/// `ViewPropertyAnimator`, XAML Composition, `OH_ArkUI_AnimateTo`, …); the canvas/self-driven path
-/// samples `curve` via [`Curve::fraction`]. Threaded through `Toolkit::update`/`set_frame`/
-/// `set_opacity`/`set_transform`.
+/// Where an [`AnimSpec`] is at one moment: what [`AnimSpec::sample`] answers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimSample {
+    /// `0` at the start value, `1` at the target. A spring may pass `1` on the way. Once
+    /// `done`, it is where the last cycle ended: `1`, or `0` when an autoreversed run ended on
+    /// a backward cycle.
+    pub progress: f64,
+    /// Whether the run is over. Always `false` for a spec that repeats forever.
+    pub done: bool,
+}
+
+/// One point of a cycle's curve: what [`AnimSpec::keyframes`] yields.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Keyframe {
+    /// When, as a fraction of the cycle: `0.0` at its start, `1.0` at its end.
+    pub offset: f64,
+    /// The progress there: `0` is the start value, `1` the target. Outside `0..=1` where a
+    /// spring overshoots.
+    pub progress: f64,
+}
+
+/// Animation intent (§8.4): how a change to a native property is to be played. Threaded through
+/// `Toolkit::update`/`set_frame`/`set_opacity`/`set_transform`; the toolkit plays it on its own
+/// animator, and the frame-driven path (`day::motion`) samples the same function.
+///
+/// # The contract every toolkit keeps
+///
+/// A change from the value on screen (the *start*) to the new value (the *target*) plays as
+/// follows, and [`AnimSpec::sample`] is that timeline as a function, so a toolkit with no
+/// matching native feature drives the property from it and a test compares against it.
+///
+/// 1. **Delay.** For `delay_ms` the property keeps showing the start value. The delay is
+///    served once, before the first cycle, never between repeats.
+/// 2. **Cycle.** One cycle lasts `duration_ms` and follows `curve` from the start to the
+///    target. A zero duration applies the target at once (after the delay).
+/// 3. **Repeat.** The cycle plays `repeat + 1` times; `u32::MAX` repeats until the property
+///    is next changed. Without `autoreverse` every cycle starts again from the start value.
+/// 4. **Autoreverse.** With `autoreverse` every second cycle (the 2nd, 4th, …) plays the curve
+///    backwards, from the target to the start.
+/// 5. **Rest.** When a finite run ends the property rests on the target, whatever the last
+///    cycle did. A run that ends on a backward cycle (autoreverse with an odd `repeat`) is
+///    therefore followed by a jump to the target; use an even `repeat` to end on a forward one.
+/// 6. **Spring.** A `Curve::Spring` cycle is the spring's closed-form response
+///    ([`Curve::fraction`]) for `duration_ms`, which [`AnimSpec::spring`] sets to the spring's
+///    settle time, and it ends exactly on the cycle's end value.
+/// 7. **Retarget.** A new change to a property in flight starts from the value on screen. A
+///    change with no animation cancels the run and applies at once.
+///
+/// What animates: frame, opacity, transform, and a container's background color
+/// (`ContainerPatch::Background`), whose in-between colors lie between the two ends in every
+/// channel.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnimSpec {
+    /// The length of one cycle, in milliseconds.
     pub duration_ms: u32,
+    /// How long the start value is held before the first cycle, in milliseconds.
     pub delay_ms: u32,
+    /// The shape of one cycle.
     pub curve: Curve,
-    /// Repeat count beyond the first play (`0` = play once); `u32::MAX` = repeat forever.
+    /// Cycles beyond the first (`0` = play once); `u32::MAX` = repeat forever.
     pub repeat: u32,
+    /// Whether every second cycle plays backwards.
     pub autoreverse: bool,
 }
 
 impl Default for AnimSpec {
     /// The default feel: a smooth spring (SwiftUI's modern default).
     fn default() -> Self {
-        AnimSpec {
-            duration_ms: 350,
-            delay_ms: 0,
-            curve: Curve::Spring {
-                response: 0.4,
-                damping: 0.8,
-            },
-            repeat: 0,
-            autoreverse: false,
-        }
+        AnimSpec::spring(0.4, 0.8)
     }
 }
 
 impl AnimSpec {
-    /// A smooth spring: `response` = settling period (s), `damping` = ratio (1.0 = no bounce, `<1`
-    /// bouncy). `duration_ms` is a nominal cap for backends that need a duration; spring backends
-    /// use `response`/`damping` directly.
+    /// How many keyframes [`AnimSpec::keyframes`] yields per second of cycle.
+    pub const KEYFRAMES_PER_SECOND: f64 = 60.0;
+
+    /// A spring: `response` is the period of its undamped oscillation in seconds, `damping`
+    /// its damping ratio (`1.0` = no bounce, below `1.0` bouncy). `duration_ms` is the spring's
+    /// settle time ([`Curve::settle_secs`]), so the cycle ends once the motion is too small to
+    /// see and a repeat or an autoreverse has a definite length.
+    #[must_use]
     pub fn spring(response: f64, damping: f64) -> Self {
+        let curve = Curve::Spring { response, damping };
         AnimSpec {
-            // `response` is the animation's duration: every backend maps a spring to a
-            // fixed-duration overshoot curve over exactly `duration_ms`, so timing is identical
-            // across toolkits (a physics spring's settle time would vary per platform).
-            duration_ms: (response * 1000.0).max(50.0) as u32,
+            duration_ms: (curve.settle_secs().unwrap_or(0.0) * 1000.0)
+                .ceil()
+                .max(50.0) as u32,
             delay_ms: 0,
-            curve: Curve::Spring { response, damping },
+            curve,
             repeat: 0,
             autoreverse: false,
         }
     }
+    /// Constant speed over `duration_ms`.
+    #[must_use]
     pub fn linear(duration_ms: u32) -> Self {
         Self::timed(duration_ms, Curve::Linear)
     }
+    /// Slow at the start, over `duration_ms`.
+    #[must_use]
     pub fn ease_in(duration_ms: u32) -> Self {
         Self::timed(duration_ms, Curve::EaseIn)
     }
+    /// Slow at the end, over `duration_ms`.
+    #[must_use]
     pub fn ease_out(duration_ms: u32) -> Self {
         Self::timed(duration_ms, Curve::EaseOut)
     }
+    /// Slow at both ends, over `duration_ms`.
+    #[must_use]
     pub fn ease_in_out(duration_ms: u32) -> Self {
         Self::timed(duration_ms, Curve::EaseInOut)
     }
@@ -4093,15 +5043,249 @@ impl AnimSpec {
         self.autoreverse = autoreverse;
         self
     }
+    /// One cycle, in seconds.
     #[inline]
     #[must_use]
     pub fn duration_secs(&self) -> f64 {
         f64::from(self.duration_ms) / 1000.0
     }
+    /// The delay, in seconds.
     #[inline]
     #[must_use]
     pub fn delay_secs(&self) -> f64 {
         f64::from(self.delay_ms) / 1000.0
+    }
+    /// Whether the spec repeats until the property is next changed.
+    #[inline]
+    #[must_use]
+    pub fn repeats_forever(&self) -> bool {
+        self.repeat == u32::MAX
+    }
+    /// How many cycles play, or `None` for a spec that repeats forever.
+    #[must_use]
+    pub fn cycles(&self) -> Option<u32> {
+        (!self.repeats_forever()).then(|| self.repeat + 1)
+    }
+    /// The whole run including the delay, in seconds, or `None` for a spec that repeats forever.
+    #[must_use]
+    pub fn total_secs(&self) -> Option<f64> {
+        self.cycles()
+            .map(|cycles| self.delay_secs() + self.duration_secs() * f64::from(cycles))
+    }
+    /// Whether a finite run's last cycle plays backwards, ending on the start value before the
+    /// property rests on its target (contract rule 5).
+    #[must_use]
+    pub fn ends_reversed(&self) -> bool {
+        self.autoreverse && self.cycles().is_some_and(|cycles| cycles.is_multiple_of(2))
+    }
+
+    /// Where the run is `elapsed` seconds after the change was made: the contract above as a
+    /// function. During the delay the progress is `0`; inside a cycle it is the curve, read
+    /// backwards on an autoreversed cycle; after the last cycle `done` is set and the progress
+    /// is where that cycle ended. The property itself rests on its target once `done`.
+    #[must_use]
+    pub fn sample(&self, elapsed: f64) -> AnimSample {
+        let t = elapsed - self.delay_secs();
+        if t < 0.0 || !t.is_finite() {
+            return AnimSample {
+                progress: 0.0,
+                done: false,
+            };
+        }
+        let one = self.duration_secs();
+        if one <= 0.0 {
+            return AnimSample {
+                progress: 1.0,
+                done: true,
+            };
+        }
+        let index = (t / one).floor();
+        if let Some(cycles) = self.cycles()
+            && index >= f64::from(cycles)
+        {
+            return AnimSample {
+                progress: if self.ends_reversed() { 0.0 } else { 1.0 },
+                done: true,
+            };
+        }
+        let mut local = t - index * one;
+        if self.autoreverse && (index as u64) % 2 == 1 {
+            local = one - local;
+        }
+        AnimSample {
+            progress: self.cycle_progress(local / one),
+            done: false,
+        }
+    }
+
+    /// The progress at `offset` (`0.0..=1.0`) of one forward cycle. The cycle's last point is
+    /// exactly `1`, so a spring ends on its target instead of a residue away from it.
+    #[must_use]
+    pub fn cycle_progress(&self, offset: f64) -> f64 {
+        if offset >= 1.0 {
+            return 1.0;
+        }
+        let one = self.duration_secs();
+        self.curve.fraction(offset.max(0.0) * one, one)
+    }
+
+    /// One forward cycle as evenly spaced keyframes, [`Self::KEYFRAMES_PER_SECOND`] of them per
+    /// second of cycle and never fewer than two: the first at offset 0 and progress 0, the last
+    /// at offset 1 and progress exactly 1. A toolkit without a spring animator plays these
+    /// through its keyframe animation or its custom interpolator with linear interpolation
+    /// between neighbors, which makes every toolkit draw the same spring. They serve the easing
+    /// curves equally, for a toolkit whose native curve of that name has another shape.
+    #[must_use]
+    pub fn keyframes(&self) -> Vec<Keyframe> {
+        let steps = ((self.duration_secs() * Self::KEYFRAMES_PER_SECOND).ceil() as usize).max(1);
+        (0..=steps)
+            .map(|i| {
+                let offset = i as f64 / steps as f64;
+                Keyframe {
+                    offset,
+                    progress: self.cycle_progress(offset),
+                }
+            })
+            .collect()
+    }
+}
+
+/// What a widget shows right now, an animation's in-between state included: what
+/// [`Toolkit::read_displayed`] answers and the `assert_displayed` step checks (docs/testing.md).
+///
+/// [`NativeSnapshot`] reports the state a widget was given; this reports what is on screen
+/// while the toolkit's animator is still on its way there (Core Animation's presentation
+/// layer, a `View`'s animated properties, a computed style). Each field is read on its own and
+/// `None` means "not read": the toolkit cannot observe that property mid-flight.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Displayed {
+    /// The opacity shown, `0.0..=1.0`.
+    pub opacity: Option<f64>,
+    /// The frame shown, in points, in the space [`NativeSnapshot::frame`] uses, before any
+    /// transform.
+    pub frame: Option<Rect>,
+    /// The translation shown, in points: the transform's `tx`/`ty`. A toolkit that animates a
+    /// transform animates its translation, scale and rotation as one, so this one component
+    /// stands for the channel.
+    pub translation: Option<Point>,
+    /// The background color shown, for a container with one.
+    pub background: Option<Color>,
+}
+
+#[cfg(test)]
+mod anim_tests {
+    use super::*;
+
+    fn near(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+
+    #[test]
+    fn a_linear_run_lasts_its_duration_then_is_done() {
+        let spec = AnimSpec::linear(200);
+        assert!(near(spec.sample(0.0).progress, 0.0));
+        assert!(near(spec.sample(0.1).progress, 0.5));
+        assert!(!spec.sample(0.199).done);
+        let end = spec.sample(0.2);
+        assert!(end.done && near(end.progress, 1.0));
+        assert_eq!(spec.total_secs(), Some(0.2));
+        assert_eq!(spec.cycles(), Some(1));
+    }
+
+    #[test]
+    fn the_delay_is_served_once_and_cycles_repeat_or_reverse() {
+        let restart = AnimSpec::linear(100).delay(100).repeat(2, false);
+        assert!(near(restart.sample(0.05).progress, 0.0));
+        assert!(near(restart.sample(0.15).progress, 0.5));
+        // The second and third cycles start from the beginning again, with no second delay.
+        assert!(near(restart.sample(0.225).progress, 0.25));
+        assert!(near(restart.sample(0.375).progress, 0.75));
+        assert!(restart.sample(0.4).done && !restart.ends_reversed());
+        assert!(near(restart.total_secs().unwrap(), 0.4));
+
+        let back = AnimSpec::linear(100).delay(100).repeat(1, true);
+        assert!(near(back.sample(0.15).progress, 0.5)); // forward
+        assert!(near(back.sample(0.275).progress, 0.25)); // back
+        let end = back.sample(0.31);
+        assert!(end.done && near(end.progress, 0.0) && back.ends_reversed());
+        assert!(!AnimSpec::linear(100).repeat(2, true).ends_reversed());
+
+        let forever = AnimSpec::linear(100).repeat_forever(true);
+        assert!(!forever.sample(1000.0).done);
+        assert_eq!(forever.total_secs(), None);
+        assert_eq!(forever.cycles(), None);
+
+        let instant = AnimSpec::linear(0).delay(50);
+        assert!(!instant.sample(0.01).done);
+        assert!(instant.sample(0.05).done && near(instant.sample(0.05).progress, 1.0));
+    }
+
+    #[test]
+    fn a_spring_cycle_is_the_closed_form_and_ends_on_its_target() {
+        let spec = AnimSpec::spring(0.5, 0.4);
+        let Curve::Spring { response, damping } = spec.curve else {
+            panic!("a spring spec has a spring curve");
+        };
+        assert!(near(response, 0.5) && near(damping, 0.4));
+        // The cycle lasts the settle time, well past the response.
+        let settle = spec.curve.settle_secs().unwrap();
+        assert!(settle > 1.0 && settle < 2.0, "{settle}");
+        assert!((spec.duration_secs() - settle).abs() < 0.002);
+        let peak = (1..100)
+            .map(|i| spec.sample(f64::from(i) * 0.01).progress)
+            .fold(0.0, f64::max);
+        assert!(peak > 1.2, "an under-damped spring overshoots: {peak}");
+        // Within a thousandth from the settle time on, and exactly 1 at the end.
+        let late = spec.curve.fraction(settle, 0.0);
+        assert!((late - 1.0).abs() <= 0.001_5, "{late}");
+        let end = spec.sample(spec.duration_secs());
+        assert!(end.done && near(end.progress, 1.0));
+
+        // Critically damped and over-damped springs never pass the target.
+        for ratio in [1.0, 1.6] {
+            let curve = Curve::Spring {
+                response: 0.4,
+                damping: ratio,
+            };
+            assert!((1..200).all(|i| curve.fraction(f64::from(i) * 0.01, 0.0) <= 1.000_001));
+            let settle = curve.settle_secs().unwrap();
+            assert!(
+                (curve.fraction(settle, 0.0) - 1.0).abs() <= 0.001_5,
+                "{ratio}"
+            );
+            assert!(curve.is_settled(settle, 0.0) && !curve.is_settled(0.0, 0.0));
+        }
+        // The physical constants of a mass of 1.
+        let (stiffness, damping) = spec.curve.spring_constants().unwrap();
+        let omega0 = std::f64::consts::TAU / 0.5;
+        assert!(near(stiffness, omega0 * omega0) && near(damping, 2.0 * 0.4 * omega0));
+        assert_eq!(Curve::Linear.spring_constants(), None);
+        assert_eq!(Curve::EaseIn.settle_secs(), None);
+    }
+
+    #[test]
+    fn keyframes_sample_one_cycle_end_to_end() {
+        let spring = AnimSpec::spring(0.4, 0.5);
+        let frames = spring.keyframes();
+        assert!(frames.len() >= 30, "{}", frames.len());
+        let (first, last) = (frames[0], frames[frames.len() - 1]);
+        assert!(near(first.offset, 0.0) && near(first.progress, 0.0));
+        assert!(near(last.offset, 1.0) && near(last.progress, 1.0));
+        assert!(frames.windows(2).all(|w| w[1].offset > w[0].offset));
+        assert!(
+            frames.iter().any(|k| k.progress > 1.05),
+            "the overshoot is in the samples"
+        );
+        // Each keyframe is the timeline's own value at that moment.
+        for k in &frames[1..frames.len() - 1] {
+            let at = spring.sample(k.offset * spring.duration_secs()).progress;
+            assert!((at - k.progress).abs() < 1e-6);
+        }
+        // An easing curve samples the same way; an instant spec is its two ends.
+        let ease = AnimSpec::ease_in(100).keyframes();
+        assert_eq!(ease.len(), 7);
+        assert!(near(ease[3].progress, 0.25));
+        assert_eq!(AnimSpec::linear(0).keyframes().len(), 2);
     }
 }
 
@@ -4250,11 +5434,12 @@ pub enum Shape {
     Rect(Rect),
     RoundedRect(Rect, f64),
     Ellipse(Rect),
-    /// Arc within `rect`'s inscribed ellipse; angles in degrees, 0 = +x axis, clockwise.
+    /// Arc within `rect`'s inscribed ellipse; `start` from the +x axis and `sweep`, both
+    /// positive clockwise on screen.
     Arc {
         rect: Rect,
-        start_deg: f64,
-        sweep_deg: f64,
+        start: Angle,
+        sweep: Angle,
     },
     Line(Point, Point),
     Polygon(Vec<Point>),
@@ -4312,14 +5497,10 @@ impl Shape {
             Shape::Rect(rect) => Shape::Rect(r(rect)),
             Shape::RoundedRect(rect, rad) => Shape::RoundedRect(r(rect), *rad),
             Shape::Ellipse(rect) => Shape::Ellipse(r(rect)),
-            Shape::Arc {
-                rect,
-                start_deg,
-                sweep_deg,
-            } => Shape::Arc {
+            Shape::Arc { rect, start, sweep } => Shape::Arc {
                 rect: r(rect),
-                start_deg: *start_deg,
-                sweep_deg: *sweep_deg,
+                start: *start,
+                sweep: *sweep,
             },
             Shape::Line(a, b) => Shape::Line(p(a), p(b)),
             Shape::Polygon(pts) => Shape::Polygon(pts.iter().map(p).collect()),
@@ -4517,15 +5698,16 @@ impl CornerRadii {
     }
 }
 
-/// The point `angle_deg` round a circle: degrees, `0` = the +x axis, positive clockwise in device
-/// space (y down), the convention [`Shape::Arc`] and every arc helper here use.
-pub fn arc_point(center: Point, radius: f64, angle_deg: f64) -> Point {
-    let a = angle_deg.to_radians();
-    Point::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+/// The point at `angle` round a circle: `0` = the +x axis, positive clockwise in device space
+/// (y down), the convention [`Shape::Arc`] and every arc helper here use.
+#[must_use]
+pub fn arc_point(center: Point, radius: f64, angle: Angle) -> Point {
+    let (sin, cos) = angle.sin_cos();
+    Point::new(center.x + radius * cos, center.y + radius * sin)
 }
 
-/// A circular arc as cubic beziers: `sweep_deg` of a circle of `radius` about `center`, from
-/// `start_deg` ([`arc_point`]'s convention). The segments start *from* the arc's first point, which
+/// A circular arc as cubic beziers: `sweep` of a circle of `radius` about `center`, from
+/// `start` ([`arc_point`]'s convention). The segments start *from* the arc's first point, which
 /// the caller reaches itself (a move or a line); nothing for a zero or non-finite radius or sweep.
 ///
 /// The arc is split into quarter turns at most, where a cubic tracks a circle best: the radial
@@ -4533,8 +5715,8 @@ pub fn arc_point(center: Point, radius: f64, angle_deg: f64) -> Point {
 /// across (docs/canvas.md "Paths"). The same beziers on every backend mean the same pixels on
 /// every backend, which an arc op interpreted by nine rasterizers would not.
 #[must_use]
-pub fn arc_cubics(center: Point, radius: f64, start_deg: f64, sweep_deg: f64) -> Vec<PathSeg> {
-    let (start, sweep) = (start_deg.to_radians(), sweep_deg.to_radians());
+pub fn arc_cubics(center: Point, radius: f64, start: Angle, sweep: Angle) -> Vec<PathSeg> {
+    let (start, sweep) = (start.radians(), sweep.radians());
     if !radius.is_finite() || radius <= 0.0 || !sweep.is_finite() || sweep == 0.0 {
         return Vec::new();
     }
@@ -4571,22 +5753,22 @@ pub fn rounded_rect_segs(rect: Rect, radii: CornerRadii) -> Vec<PathSeg> {
         (
             Point::new(x0 + r.top_left, y0 + r.top_left),
             r.top_left,
-            180.0,
+            Angle::HALF,
         ),
         (
             Point::new(x1 - r.top_right, y0 + r.top_right),
             r.top_right,
-            270.0,
+            Angle::deg(270.0),
         ),
         (
             Point::new(x1 - r.bottom_right, y1 - r.bottom_right),
             r.bottom_right,
-            0.0,
+            Angle::ZERO,
         ),
         (
             Point::new(x0 + r.bottom_left, y1 - r.bottom_left),
             r.bottom_left,
-            90.0,
+            Angle::QUARTER,
         ),
     ];
     let mut segs = Vec::with_capacity(14);
@@ -4597,7 +5779,7 @@ pub fn rounded_rect_segs(rect: Rect, radii: CornerRadii) -> Vec<PathSeg> {
         } else {
             PathSeg::Line(first)
         });
-        segs.extend(arc_cubics(center, radius, start, 90.0));
+        segs.extend(arc_cubics(center, radius, start, Angle::QUARTER));
     }
     segs.push(PathSeg::Close);
     segs
@@ -4753,35 +5935,57 @@ impl UnitPoint {
 
 /// A linear gradient (docs/shapes.md §3.2 / §7): color stops along the line from `start` to
 /// `end`, both in the unit space of the filled shape's bounding box. Stops are
-/// `(offset 0..=1, color)`, ascending.
+/// `(offset 0..=1, ink)`, ascending; a stop takes any [`Ink`], so a gradient can follow the
+/// appearance like a solid fill.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LinearGradient {
     pub start: UnitPoint,
     pub end: UnitPoint,
-    pub stops: Vec<(f64, Color)>,
+    pub stops: Vec<(f64, Ink)>,
+}
+
+/// Collect `(offset, color)` stops into the ink stops a gradient keeps.
+fn ink_stops<C: Into<Ink>>(stops: impl IntoIterator<Item = (f64, C)>) -> Vec<(f64, Ink)> {
+    stops.into_iter().map(|(at, c)| (at, c.into())).collect()
+}
+
+/// Every stop resolved against `palette`, as fixed inks.
+fn resolve_stops(stops: &[(f64, Ink)], palette: &Palette) -> Vec<(f64, Ink)> {
+    stops
+        .iter()
+        .map(|(at, ink)| (*at, Ink::Fixed(ink.resolve(palette))))
+        .collect()
 }
 
 impl LinearGradient {
     #[must_use]
-    pub fn new(start: UnitPoint, end: UnitPoint, stops: Vec<(f64, Color)>) -> Self {
-        LinearGradient { start, end, stops }
+    pub fn new<C: Into<Ink>>(
+        start: UnitPoint,
+        end: UnitPoint,
+        stops: impl IntoIterator<Item = (f64, C)>,
+    ) -> Self {
+        LinearGradient {
+            start,
+            end,
+            stops: ink_stops(stops),
+        }
     }
     /// Top-to-bottom between two colors: the everyday sky/backdrop case.
     #[must_use]
-    pub fn vertical(top: Color, bottom: Color) -> Self {
+    pub fn vertical(top: impl Into<Ink>, bottom: impl Into<Ink>) -> Self {
         LinearGradient::new(
             UnitPoint::TOP,
             UnitPoint::BOTTOM,
-            vec![(0.0, top), (1.0, bottom)],
+            [(0.0, top.into()), (1.0, bottom.into())],
         )
     }
     /// Leading-to-trailing between two colors.
     #[must_use]
-    pub fn horizontal(leading: Color, trailing: Color) -> Self {
+    pub fn horizontal(leading: impl Into<Ink>, trailing: impl Into<Ink>) -> Self {
         LinearGradient::new(
             UnitPoint::LEADING,
             UnitPoint::TRAILING,
-            vec![(0.0, leading), (1.0, trailing)],
+            [(0.0, leading.into()), (1.0, trailing.into())],
         )
     }
 }
@@ -4795,22 +5999,269 @@ impl LinearGradient {
 pub struct RadialGradient {
     pub center: UnitPoint,
     pub radius: f64,
-    pub stops: Vec<(f64, Color)>,
+    pub stops: Vec<(f64, Ink)>,
 }
 
 impl RadialGradient {
     #[must_use]
-    pub fn new(center: UnitPoint, radius: f64, stops: Vec<(f64, Color)>) -> Self {
+    pub fn new<C: Into<Ink>>(
+        center: UnitPoint,
+        radius: f64,
+        stops: impl IntoIterator<Item = (f64, C)>,
+    ) -> Self {
         RadialGradient {
             center,
             radius,
-            stops,
+            stops: ink_stops(stops),
         }
     }
     /// Centered, edge-touching (radius 0.5) between two colors: the everyday glow case.
     #[must_use]
-    pub fn centered(inner: Color, outer: Color) -> Self {
-        RadialGradient::new(UnitPoint::CENTER, 0.5, vec![(0.0, inner), (1.0, outer)])
+    pub fn centered(inner: impl Into<Ink>, outer: impl Into<Ink>) -> Self {
+        RadialGradient::new(
+            UnitPoint::CENTER,
+            0.5,
+            [(0.0, inner.into()), (1.0, outer.into())],
+        )
+    }
+}
+
+/// A conic (sweep) gradient: color stops around `center`, the way a color wheel or a gauge's
+/// ring is painted. The center is in the unit space of the filled shape's bounding box; the
+/// angle is in canvas space, `0` = the +x axis and positive sweeping clockwise, the
+/// convention [`Shape::Arc`] uses. Stops are `(offset 0..=1, ink)`, ascending, where the
+/// offset is the fraction of a full turn from `start`.
+///
+/// The colors meet at `start`: for a seamless wheel make the first and last stops the same
+/// color. Native on Core Graphics (where the OS has it), Android, Qt, `OH_Drawing` and the HTML
+/// canvas; drawn as a fan of thin wedges on the backends with no such gradient, which reads the
+/// same at any size a UI draws.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConicGradient {
+    pub center: UnitPoint,
+    pub start: Angle,
+    pub stops: Vec<(f64, Ink)>,
+}
+
+impl ConicGradient {
+    #[must_use]
+    pub fn new<C: Into<Ink>>(
+        center: UnitPoint,
+        start: Angle,
+        stops: impl IntoIterator<Item = (f64, C)>,
+    ) -> Self {
+        ConicGradient {
+            center,
+            start,
+            stops: ink_stops(stops),
+        }
+    }
+    /// Around the middle of the shape, starting at `start`.
+    #[must_use]
+    pub fn centered<C: Into<Ink>>(start: Angle, stops: impl IntoIterator<Item = (f64, C)>) -> Self {
+        ConicGradient::new(UnitPoint::CENTER, start, stops)
+    }
+    /// The color at `angle` (canvas space, any value) in the current appearance: what a
+    /// backend that draws the gradient as wedges fills each wedge with. Colors interpolate
+    /// linearly between stops, channel by channel, and hold flat before the first stop and
+    /// after the last.
+    #[must_use]
+    pub fn color_at(&self, angle: Angle) -> Color {
+        let t = ((angle - self.start).degrees() / 360.0).rem_euclid(1.0);
+        let Some(first) = self.stops.first() else {
+            return Color::CLEAR;
+        };
+        if t <= first.0 {
+            return first.1.resolved();
+        }
+        for pair in self.stops.windows(2) {
+            let ((a_at, a), (b_at, b)) = (pair[0], pair[1]);
+            let (a, b) = (a.resolved(), b.resolved());
+            if t <= b_at {
+                let k = if b_at > a_at {
+                    (t - a_at) / (b_at - a_at)
+                } else {
+                    1.0
+                };
+                return Color::rgba(
+                    a.r + (b.r - a.r) * k,
+                    a.g + (b.g - a.g) * k,
+                    a.b + (b.b - a.b) * k,
+                    a.a + (b.a - a.a) * k,
+                );
+            }
+        }
+        self.stops.last().map_or(Color::CLEAR, |s| s.1.resolved())
+    }
+}
+
+/// A drop shadow: the silhouette of what is drawn, blurred, tinted `color` and moved by
+/// (`dx`, `dy`) points (docs/canvas.md "Shadows", docs/surfaces.md).
+///
+/// `blur` is the CSS `box-shadow` blur radius: the width of the soft edge, twice the standard
+/// deviation of the Gaussian that makes it. `0` is a hard-edged copy. The offset and the blur
+/// are in points and are not scaled or rotated by a canvas's current transform, the rule Core
+/// Graphics and the HTML canvas share.
+///
+/// On a canvas ([`DrawOp::Shadow`]) every fill, stroke, text and image drawn while it is set
+/// casts its own. On a surface ([`props::ContainerProps::shadow`]) it is the shadow of the
+/// surface's rounded rectangle, drawn outside its frame without taking any room in layout.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shadow {
+    pub color: Ink,
+    pub blur: f64,
+    pub dx: f64,
+    pub dy: f64,
+}
+
+impl Shadow {
+    /// A shadow directly under the shape: `color` feathered over `blur` points.
+    #[must_use]
+    pub fn new(color: impl Into<Ink>, blur: f64) -> Self {
+        Shadow {
+            color: color.into(),
+            blur,
+            dx: 0.0,
+            dy: 0.0,
+        }
+    }
+    /// Move the shadow by (`dx`, `dy`) points; positive `dy` is down.
+    #[must_use]
+    pub const fn offset(mut self, dx: f64, dy: f64) -> Self {
+        self.dx = dx;
+        self.dy = dy;
+        self
+    }
+}
+
+/// How what a canvas draws next combines with what it has drawn so far ([`DrawOp::Blend`],
+/// docs/canvas.md "Blend modes").
+///
+/// The backdrop is the canvas's own drawing, never the views behind it: a canvas is its own
+/// compositing group. Where nothing has been drawn yet the modes other than `Erase` leave the
+/// source as it is.
+///
+/// The set is the one every 2-D context under Day has: the separable modes below are W3C
+/// compositing's, and `Add` and `Erase` are Porter-Duff's "plus" and "destination-out".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum BlendMode {
+    /// Source over: the new drawing covers the old by its alpha.
+    #[default]
+    Normal,
+    /// Multiplies the colors: always darker, white changes nothing. Ink on paper.
+    Multiply,
+    /// The inverse of multiply: always lighter, black changes nothing. Light on a screen.
+    Screen,
+    /// Multiplies dark backdrops and screens light ones: contrast.
+    Overlay,
+    /// The darker of the two, per channel.
+    Darken,
+    /// The lighter of the two, per channel.
+    Lighten,
+    /// Adds the colors, clamped: overlapping light sources.
+    Add,
+    /// Removes what has been drawn, by the new drawing's alpha, leaving the canvas transparent
+    /// there so whatever is behind the canvas shows through: a hole punched in a ticket. The
+    /// new drawing's color is ignored.
+    Erase,
+}
+
+impl BlendMode {
+    /// Every mode, in wire order.
+    pub const ALL: [BlendMode; 8] = [
+        BlendMode::Normal,
+        BlendMode::Multiply,
+        BlendMode::Screen,
+        BlendMode::Overlay,
+        BlendMode::Darken,
+        BlendMode::Lighten,
+        BlendMode::Add,
+        BlendMode::Erase,
+    ];
+
+    /// The mode as its wire number (slot `a` of [`OpCode::SetBlend`]): the position in
+    /// [`BlendMode::ALL`].
+    #[must_use]
+    pub const fn wire(self) -> i32 {
+        self as i32
+    }
+}
+
+/// A line around a surface's edge ([`props::ContainerProps::border`]): `width` points of
+/// `color`, drawn inside the frame, following its rounded corners, and over the surface's
+/// content: a child that reaches the edge never covers the border (docs/surfaces.md).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Border {
+    pub color: Ink,
+    pub width: f64,
+}
+
+impl Border {
+    #[must_use]
+    pub fn new(color: impl Into<Ink>, width: f64) -> Self {
+        Border {
+            color: color.into(),
+            width,
+        }
+    }
+}
+
+/// Which corners of a surface its corner radius rounds ([`props::ContainerProps::corners`]).
+/// The others stay square: a sheet rounded on top, a tab, the first and last rows of a group.
+///
+/// Physical corners, like [`CornerRadii`]: `TOP_LEFT` is the top-left in both layout
+/// directions. Combine with `|`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Corners(u8);
+
+impl Corners {
+    pub const NONE: Corners = Corners(0);
+    pub const TOP_LEFT: Corners = Corners(1);
+    pub const TOP_RIGHT: Corners = Corners(2);
+    pub const BOTTOM_RIGHT: Corners = Corners(4);
+    pub const BOTTOM_LEFT: Corners = Corners(8);
+    pub const TOP: Corners = Corners(1 | 2);
+    pub const BOTTOM: Corners = Corners(4 | 8);
+    pub const LEFT: Corners = Corners(1 | 8);
+    pub const RIGHT: Corners = Corners(2 | 4);
+    pub const ALL: Corners = Corners(15);
+
+    /// Whether every corner in `other` is in this set.
+    #[must_use]
+    pub const fn contains(self, other: Corners) -> bool {
+        self.0 & other.0 == other.0
+    }
+    /// The set as four bits: 1 top-left, 2 top-right, 4 bottom-right, 8 bottom-left. What a
+    /// backend hands a decoder in another language.
+    #[must_use]
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+    /// `radius` on the corners in this set and `0` on the rest, as the per-corner radii a
+    /// path-drawing backend wants.
+    #[must_use]
+    pub fn radii(self, radius: f64) -> CornerRadii {
+        let on = |c: Corners| if self.contains(c) { radius } else { 0.0 };
+        CornerRadii {
+            top_left: on(Corners::TOP_LEFT),
+            top_right: on(Corners::TOP_RIGHT),
+            bottom_right: on(Corners::BOTTOM_RIGHT),
+            bottom_left: on(Corners::BOTTOM_LEFT),
+        }
+    }
+}
+
+impl Default for Corners {
+    /// Every corner: what a plain `corner_radius` rounds.
+    fn default() -> Self {
+        Corners::ALL
+    }
+}
+
+impl std::ops::BitOr for Corners {
+    type Output = Corners;
+    fn bitor(self, rhs: Corners) -> Corners {
+        Corners(self.0 | rhs.0)
     }
 }
 
@@ -4835,19 +6286,74 @@ pub struct Stamp {
     pub stroke: Option<StrokeStyle>,
 }
 
-/// A fill source: a solid color, or a linear/radial gradient (docs/shapes.md §3.2; angular and
-/// semantic tokens are later phases). `From<Color>` keeps every existing `fill(shape, color)`
-/// call site compiling unchanged.
+/// What fills an area: a solid [`Ink`], or a linear, radial or conic gradient (docs/color.md).
+/// One vocabulary for every fill: a shape's `.fill(..)`, a surface's `.fill(..)`,
+/// `.background(..)` and a canvas's `d.fill(..)` all take `impl Into<Paint>`, so a
+/// [`Color`], a [`SystemColor`], an [`Ink`] or a gradient goes into any of them.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Paint {
-    Solid(Color),
+    Solid(Ink),
     Linear(LinearGradient),
     Radial(RadialGradient),
+    Conic(ConicGradient),
+}
+
+impl Paint {
+    /// The same paint with every ink resolved against `palette`: what a canvas records, so the
+    /// display list a backend draws holds fixed colors only.
+    #[must_use]
+    pub fn resolve(&self, palette: &Palette) -> Paint {
+        match self {
+            Paint::Solid(ink) => Paint::Solid(Ink::Fixed(ink.resolve(palette))),
+            Paint::Linear(g) => Paint::Linear(LinearGradient {
+                stops: resolve_stops(&g.stops, palette),
+                ..g.clone()
+            }),
+            Paint::Radial(g) => Paint::Radial(RadialGradient {
+                stops: resolve_stops(&g.stops, palette),
+                ..g.clone()
+            }),
+            Paint::Conic(g) => Paint::Conic(ConicGradient {
+                stops: resolve_stops(&g.stops, palette),
+                ..g.clone()
+            }),
+        }
+    }
+
+    /// Whether any ink in the paint depends on the appearance or the platform.
+    #[must_use]
+    pub fn is_dynamic(&self) -> bool {
+        let stops = |s: &[(f64, Ink)]| s.iter().any(|(_, ink)| ink.is_dynamic());
+        match self {
+            Paint::Solid(ink) => ink.is_dynamic(),
+            Paint::Linear(g) => stops(&g.stops),
+            Paint::Radial(g) => stops(&g.stops),
+            Paint::Conic(g) => stops(&g.stops),
+        }
+    }
+}
+
+impl From<Ink> for Paint {
+    fn from(ink: Ink) -> Self {
+        Paint::Solid(ink)
+    }
+}
+
+impl From<SystemColor> for Paint {
+    fn from(role: SystemColor) -> Self {
+        Paint::Solid(role.into())
+    }
+}
+
+impl From<ConicGradient> for Paint {
+    fn from(g: ConicGradient) -> Self {
+        Paint::Conic(g)
+    }
 }
 
 impl From<Color> for Paint {
     fn from(c: Color) -> Self {
-        Paint::Solid(c)
+        Paint::Solid(c.into())
     }
 }
 
@@ -4929,7 +6435,7 @@ impl TextAnchor {
     #[must_use]
     pub fn offset(self, width: f64, height: f64, ascent: f64) -> (f64, f64) {
         let dx = match self.h {
-            props::TextAlign::Leading => 0.0,
+            props::TextAlign::Leading | props::TextAlign::Justified => 0.0,
             props::TextAlign::Center => -width / 2.0,
             props::TextAlign::Trailing => -width,
         };
@@ -5021,8 +6527,20 @@ pub enum DrawOp {
     /// Scoped by [`DrawOp::Save`]/[`DrawOp::Restore`], which is the only way to widen a clip
     /// again; every native 2-D context works this way, so there is no "unclip".
     Clip(Shape),
-    /// Push the current transform + clip (§11, shapes). Backends map to save/restore of the
-    /// native 2-D context; `Concat` multiplies an affine onto the CTM (shape rotate/scale/offset).
+    /// Set the shadow everything drawn afterwards casts, or `None` to stop casting one
+    /// (docs/canvas.md "Shadows"). Graphics state like the clip: [`DrawOp::Restore`] puts back
+    /// the shadow that was set at the matching [`DrawOp::Save`].
+    ///
+    /// A backend whose 2-D context has no shadow draws the shapes without one; it never draws
+    /// a hard-edged stand-in.
+    Shadow(Option<Shadow>),
+    /// Set how everything drawn afterwards combines with what is already on the canvas
+    /// (docs/canvas.md "Blend modes"). Graphics state, scoped by [`DrawOp::Save`] and
+    /// [`DrawOp::Restore`] like the clip and the shadow.
+    Blend(BlendMode),
+    /// Push the current transform, clip, shadow and blend mode (§11, shapes). Backends map to
+    /// save/restore of the native 2-D context; `Concat` multiplies an affine onto the CTM (shape
+    /// rotate/scale/offset).
     Save,
     Restore,
     Concat(day_geometry::Affine),
@@ -5433,6 +6951,20 @@ pub struct FontSpec {
     /// Three toolkits take it directly (`GtkTextTag::scale`, Android's `RelativeSizeSpan`, CSS
     /// `em`); the rest multiply it into the size they already compute.
     pub scale: f64,
+    /// Ask for small capitals: lowercase letters drawn as capitals at the x-height (the
+    /// OpenType `smcp` feature). Capitals stay full size.
+    ///
+    /// Like [`Self::tabular`], this is a font feature that rides the label realize/patch path:
+    /// a UIKit or AppKit font descriptor feature (`kLowerCaseType`/`kLowerCaseSmallCapsSelector`),
+    /// Pango's `font-features` attribute, `QFont::setCapitalization(SmallCaps)`, Android's
+    /// `setFontFeatureSettings("smcp")`, XAML's `Typography.Capitals`, ArkUI's font feature
+    /// string, and CSS `font-variant-caps`. A face with no `smcp` table draws its ordinary
+    /// lowercase; a toolkit never substitutes scaled-down capitals.
+    pub small_caps: bool,
+    /// Ask for oldstyle (lowercase, text) figures: digits with ascenders and descenders that sit
+    /// in running text the way lowercase letters do (the OpenType `onum` feature). Combines
+    /// with [`Self::tabular`]. A face with no `onum` table draws its ordinary lining figures.
+    pub oldstyle_figures: bool,
 }
 
 impl Default for FontSpec {
@@ -5444,6 +6976,8 @@ impl Default for FontSpec {
             tabular: false,
             monospace: false,
             scale: 1.0,
+            small_caps: false,
+            oldstyle_figures: false,
         }
     }
 }
@@ -5479,6 +7013,24 @@ impl FontSpec {
         };
         (base * self.scale).max(1.0)
     }
+    /// The OpenType feature tags this descriptor asks for, in a fixed order: `tnum` for
+    /// [`Self::tabular`], `smcp` for [`Self::small_caps`], `onum` for
+    /// [`Self::oldstyle_figures`]. One list, so every toolkit that takes a feature string
+    /// (Pango, Android, ArkUI, CSS `font-feature-settings`) spells the same set.
+    #[must_use]
+    pub fn feature_tags(&self) -> Vec<&'static str> {
+        let mut tags = Vec::new();
+        if self.tabular {
+            tags.push("tnum");
+        }
+        if self.small_caps {
+            tags.push("smcp");
+        }
+        if self.oldstyle_figures {
+            tags.push("onum");
+        }
+        tags
+    }
 }
 
 /// One styled span of a label's text (docs/text-runs.md).
@@ -5495,16 +7047,16 @@ impl FontSpec {
 pub struct TextRun {
     pub range: std::ops::Range<usize>,
     pub font: FontSpec,
-    pub color: Option<Color>,
+    pub color: Option<Ink>,
     /// A highlight painted behind the glyphs. Every native text editor carries this attribute
     /// (docs/texteditor.md), and search hits and review comments are the two things an app is
     /// asked for the moment it has styled text at all.
-    pub background: Option<Color>,
-    /// A line under the text.
-    pub underline: Underline,
+    pub background: Option<Ink>,
+    /// A line under the text: its style and, optionally, a color of its own.
+    pub underline: Option<Decoration>,
     /// A line through the text. Separate from `FontSpec` because it is a decoration, not a face:
     /// no platform expresses it by picking a different font.
-    pub strikethrough: bool,
+    pub strikethrough: Option<Decoration>,
     /// Makes this run a link to the given target. Rendering it is [`Cap::TextRuns`]; making it
     /// activatable is [`Cap::TextLinks`], which is a smaller set (see the docs).
     pub link: Option<String>,
@@ -5517,8 +7069,8 @@ impl Default for TextRun {
             font: FontSpec::default(),
             color: None,
             background: None,
-            underline: Underline::None,
-            strikethrough: false,
+            underline: None,
+            strikethrough: None,
             link: None,
         }
     }
@@ -5541,8 +7093,8 @@ impl TextRun {
     pub fn style(&self) -> RunStyle {
         RunStyle {
             font: self.font,
-            color: self.color,
-            background: self.background,
+            color: self.color.map(Ink::resolved),
+            background: self.background.map(Ink::resolved),
             underline: self.underline,
             strikethrough: self.strikethrough,
             link: self.link.clone(),
@@ -5555,8 +7107,8 @@ impl TextRun {
         TextRun {
             range,
             font: style.font,
-            color: style.color,
-            background: style.background,
+            color: style.color.map(Ink::from),
+            background: style.background.map(Ink::from),
             underline: style.underline,
             strikethrough: style.strikethrough,
             link: style.link,
@@ -5790,11 +7342,32 @@ fn hex(c: Color) -> String {
     reason = "a scale of exactly 1.0 is the unscaled default, compared as a sentinel"
 )]
 fn needs_span(r: &TextRun, dialect: MarkupDialect) -> bool {
-    let extras = r.color.is_some() || r.background.is_some() || r.font.scale != 1.0;
+    let extras = r.color.is_some()
+        || r.background.is_some()
+        || r.font.scale != 1.0
+        || !r.font.feature_tags().is_empty()
+        || !plain_line(r.underline)
+        || !plain_line(r.strikethrough);
     match dialect {
         // Pango expresses the monospace family as a span attribute; Qt cannot (see below).
         MarkupDialect::Pango => extras || r.font.monospace,
         MarkupDialect::QtHtml => extras,
+    }
+}
+
+/// Is this decoration absent, or the one a bare `<u>`/`<s>` tag draws: a single line in the
+/// text color? Anything else (a style, a color) has to travel as span attributes.
+fn plain_line(d: Option<Decoration>) -> bool {
+    d.is_none_or(|d| d == Decoration::SINGLE)
+}
+
+/// Pango's `underline` attribute for a style. Pango has no dotted line, so `Dotted` draws
+/// single; its `error` underline is the squiggle.
+fn pango_underline(style: DecorationStyle) -> &'static str {
+    match style {
+        DecorationStyle::Single | DecorationStyle::Dotted => "single",
+        DecorationStyle::Double => "double",
+        DecorationStyle::Wavy => "error",
     }
 }
 
@@ -5813,8 +7386,8 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut Str
     // The span carries the attributes that have no tag: colors, relative size, and (on Pango)
     // the monospace family. Bold/italic/strike/underline are tags in both dialects, which keeps
     // the attribute string short and the escaping trivial.
-    let color = r.color.map(hex);
-    let background = r.background.map(hex);
+    let color = r.color.map(|c| hex(c.resolved()));
+    let background = r.background.map(|c| hex(c.resolved()));
     let mono = r.font.monospace;
     if needs_span(r, dialect) {
         match dialect {
@@ -5838,6 +7411,25 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut Str
                     let pts = r.font.resolved_points(base_points);
                     let _ = write!(out, " size=\"{}\"", (pts * 1024.0).round() as i64);
                 }
+                let features = r.font.feature_tags();
+                if !features.is_empty() {
+                    // The CSS `font-feature-settings` spelling Pango parses: `tnum 1, smcp 1`.
+                    let list: Vec<String> = features.iter().map(|t| format!("{t} 1")).collect();
+                    let _ = write!(out, " font_features=\"{}\"", list.join(", "));
+                }
+                // A styled or colored line travels as attributes; the plain one stays a tag.
+                if let Some(d) = r.underline.filter(|_| !plain_line(r.underline)) {
+                    let _ = write!(out, " underline=\"{}\"", pango_underline(d.style));
+                    if let Some(c) = d.color {
+                        let _ = write!(out, " underline_color=\"{}\"", hex(c.resolved()));
+                    }
+                }
+                if let Some(d) = r.strikethrough.filter(|_| !plain_line(r.strikethrough)) {
+                    out.push_str(" strikethrough=\"true\"");
+                    if let Some(c) = d.color {
+                        let _ = write!(out, " strikethrough_color=\"{}\"", hex(c.resolved()));
+                    }
+                }
                 out.push('>');
             }
             MarkupDialect::QtHtml => {
@@ -5858,6 +7450,19 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut Str
                     let pt = r.font.resolved_points(base_points);
                     let _ = write!(out, "font-size:{pt}pt;");
                 }
+                if r.font.small_caps {
+                    out.push_str("font-variant:small-caps;");
+                }
+                // Qt's rich text draws one line style from markup; the color is a property
+                // of the decoration as a whole. `Double`, `Dotted` and `Wavy` need a
+                // `QTextCharFormat` underline style, which the Qt toolkit applies itself.
+                if let Some(c) = r
+                    .underline
+                    .and_then(|d| d.color)
+                    .or_else(|| r.strikethrough.and_then(|d| d.color))
+                {
+                    let _ = write!(out, "text-decoration-color:{};", hex(c.resolved()));
+                }
                 out.push_str("\">");
             }
         }
@@ -5871,19 +7476,21 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut Str
     if r.font.italic {
         out.push_str("<i>");
     }
-    if r.underline.is_on() {
+    let tags = dialect == MarkupDialect::QtHtml;
+    if r.underline.is_some() && (tags || plain_line(r.underline)) {
         out.push_str("<u>");
     }
-    if r.strikethrough {
+    if r.strikethrough.is_some() && (tags || plain_line(r.strikethrough)) {
         out.push_str("<s>");
     }
 }
 
 fn close_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
-    if r.strikethrough {
+    let tags = dialect == MarkupDialect::QtHtml;
+    if r.strikethrough.is_some() && (tags || plain_line(r.strikethrough)) {
         out.push_str("</s>");
     }
-    if r.underline.is_on() {
+    if r.underline.is_some() && (tags || plain_line(r.underline)) {
         out.push_str("</u>");
     }
     if r.font.italic {
@@ -5945,40 +7552,216 @@ pub fn runs_are_valid(text: &str, runs: &[TextRun]) -> Result<(), String> {
     Ok(())
 }
 
+/// Shorten one line of `text` to fit `width`, putting an ellipsis where `mode` says, for a
+/// toolkit whose label has no native head or middle truncation (docs/text.md "Truncation").
+///
+/// `measure` answers the width of a candidate string in the label's font. The search is a
+/// bisection over how many characters to keep, so it measures about `log2(n)` candidates.
+/// Text that already fits comes back unchanged; if not even the ellipsis fits, the ellipsis
+/// alone is returned. Characters are Unicode scalar values, so a cut can separate a base
+/// letter from a combining mark; a toolkit with a grapheme-aware native mode should use it.
+///
+/// ```
+/// use day_spec::{elide, props::Truncation};
+/// let width = |s: &str| s.chars().count() as f64;
+/// assert_eq!(elide("/usr/local/share/day", Truncation::Middle, 9.0, width), "/usr…/day");
+/// assert_eq!(elide("/usr/local/share/day", Truncation::Head, 9.0, width), "…hare/day");
+/// assert_eq!(elide("/usr/local/share/day", Truncation::Tail, 9.0, width), "/usr/loc…");
+/// ```
+#[must_use]
+pub fn elide(
+    text: &str,
+    mode: props::Truncation,
+    width: f64,
+    measure: impl Fn(&str) -> f64,
+) -> String {
+    const ELLIPSIS: char = '\u{2026}';
+    if measure(text) <= width {
+        return text.to_owned();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let build = |keep: usize| -> String {
+        let mut out = String::with_capacity(text.len());
+        match mode {
+            props::Truncation::Tail => {
+                out.extend(&chars[..keep]);
+                out.push(ELLIPSIS);
+            }
+            props::Truncation::Head => {
+                out.push(ELLIPSIS);
+                out.extend(&chars[chars.len() - keep..]);
+            }
+            props::Truncation::Middle => {
+                let head = keep.div_ceil(2);
+                out.extend(&chars[..head]);
+                out.push(ELLIPSIS);
+                out.extend(&chars[chars.len() - (keep - head)..]);
+            }
+        }
+        out
+    };
+    // The largest `keep` whose candidate fits; `keep` < chars.len() because the whole text
+    // does not fit.
+    let (mut lo, mut hi) = (0usize, chars.len().saturating_sub(1));
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if measure(&build(mid)) <= width {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    build(lo)
+}
+
 pub mod props {
     use super::*;
 
+    /// A container's native surface (docs/surfaces.md): what `.background(..)`,
+    /// `.corner_radius(..)`, `.border(..)`, `.shadow(..)`, `.surface(..)` and `.card()` realize.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ContainerProps {
-        pub background: Option<Color>,
+        /// What fills the surface: a solid [`Ink`] or a linear, radial or conic
+        /// gradient. A gradient's unit points resolve against the surface's frame and follow it
+        /// when it resizes. Every ink follows the appearance (docs/color.md "How a toolkit
+        /// follows the appearance").
+        pub fill: Option<super::Paint>,
         pub corner_radius: f64,
+        /// Which corners [`Self::corner_radius`] rounds; the default is all four.
+        pub corners: super::Corners,
+        /// A line around the edge, inside the frame, following the rounded corners, drawn over
+        /// the surface's content on every toolkit: a child that reaches the edge never covers
+        /// it.
+        pub border: Option<super::Border>,
+        /// A shadow of the surface's rounded rectangle, drawn outside its frame. A surface
+        /// with a shadow is built with `clips: false`: the shadow lies outside the bounds a
+        /// clip would cut to, and on most toolkits the two cannot share a view.
+        pub shadow: Option<super::Shadow>,
         pub clips: bool,
         /// Semantic, theme-adaptive surface, mapped by each backend to a native material that
-        /// follows the platform's light/dark appearance automatically (unlike the fixed-RGBA
-        /// `background`, which it overrides when set).
+        /// follows the platform's light/dark appearance automatically (it overrides
+        /// [`Self::fill`] when set).
         pub role: Option<super::SurfaceRole>,
     }
-    /// Reactive surface update for a `background(..)` decorator whose color is a signal/closure:
-    /// the backend re-applies the fill on the container's native backing view. Corner radius and
-    /// clipping are fixed at realize (the `corner_radius(r)` decorator takes a plain `f64`).
+    /// Post-realize changes to a container's surface. A constant surface sends none: these
+    /// come only from a reactive modifier (`.background(signal)`, `.corner_radius(closure)`,
+    /// `.surface(signal)`) or from Day emulating a frame-relative corner radius.
     #[derive(Clone, Debug, PartialEq)]
     pub enum ContainerPatch {
-        Background(Option<Color>),
+        /// The fill alone, the cheap and common change. With an animation, a solid fill
+        /// changing to another solid fill animates (motion brief: the background color).
+        Fill(Option<super::Paint>),
+        /// Every styling field at once, an idempotent setter: fill, corner radius, corners,
+        /// border, shadow and clipping. [`ContainerProps::role`] is realize-time and ignored
+        /// here.
+        Surface(Box<ContainerProps>),
     }
 
-    /// Realize props for a `scroll` container: which axis it scrolls. Backends create the matching
-    /// native scroll view (vertical `UIScrollView`/`ScrollView`, horizontal
-    /// `HorizontalScrollView`, etc.).
+    /// Realize props for a `scroll` container: which axis it scrolls, and how the native scroll
+    /// view behaves (docs/scroll.md). Backends create the matching native scroll view (vertical
+    /// `UIScrollView`/`ScrollView`, horizontal `HorizontalScrollView`, etc.).
+    ///
+    /// Everything past `horizontal` is a preference: a backend applies what its scroll view
+    /// offers and ignores the rest, and the `Cap` named on a field says whether it does. Every
+    /// default is the platform's own behavior, so `ScrollProps { horizontal, ..Default::default() }`
+    /// is the scroll view Day has always made.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ScrollProps {
         pub horizontal: bool,
+        /// Whether the scroll indicators (scroll bars) show.
+        pub indicators: ScrollIndicators,
+        /// Whether the content rubber-bands or glows past its edges: `None` keeps the
+        /// platform's default, `Some(false)` stops at the edge, `Some(true)` asks for the
+        /// overscroll effect even when the content fits.
+        pub bounce: Option<bool>,
+        /// Where the content comes to rest ([`crate::Cap::ScrollSnap`]).
+        pub snap: ScrollSnap,
+        /// When scrolling dismisses the software keyboard
+        /// ([`crate::Cap::ScrollKeyboardDismiss`]).
+        pub keyboard_dismiss: KeyboardDismiss,
+        /// What a tap inside the scroll view does while the software keyboard is up
+        /// ([`crate::Cap::ScrollKeyboardDismiss`]; `Native` only).
+        pub keyboard_taps: KeyboardTaps,
+        /// The content zooms between these scales ([`crate::Cap::ScrollZoom`]); `None` is a
+        /// scroll view that does not zoom.
+        pub zoom: Option<ZoomRange>,
+        /// Send [`crate::Event::ScrollChanged`] as the content moves
+        /// ([`crate::Cap::ScrollOffset`]). Off, the view installs no scroll observer.
+        pub track_offset: bool,
+        /// Send [`crate::Event::ScrollPhase`] as user-driven scrolling starts and stops
+        /// ([`crate::Cap::ScrollPhases`]).
+        pub track_phase: bool,
+    }
+
+    /// Whether a scroll view shows its indicators ([`ScrollProps::indicators`]).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub enum ScrollIndicators {
+        /// The platform's default: overlay bars that appear while scrolling, or classic bars.
+        #[default]
+        Automatic,
+        /// No indicators. The content still scrolls.
+        Hidden,
+    }
+
+    /// Where a scroll view's content comes to rest ([`ScrollProps::snap`]).
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    pub enum ScrollSnap {
+        /// Anywhere.
+        #[default]
+        None,
+        /// On multiples of the viewport's extent along the scroll axis, one page per swipe.
+        Page,
+        /// On multiples of this many points along the scroll axis.
+        Interval(f64),
+    }
+
+    /// When scrolling dismisses the software keyboard ([`ScrollProps::keyboard_dismiss`]).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub enum KeyboardDismiss {
+        /// Scrolling leaves the keyboard up.
+        #[default]
+        Never,
+        /// The keyboard goes away when a drag begins.
+        OnDrag,
+        /// The keyboard follows the finger down once the drag reaches it, where the platform
+        /// has that (UIKit); elsewhere the same as [`KeyboardDismiss::OnDrag`].
+        Interactive,
+    }
+
+    /// What a tap inside a scroll view does while the software keyboard is up
+    /// ([`ScrollProps::keyboard_taps`]).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub enum KeyboardTaps {
+        /// The tap reaches the control under it and the keyboard stays up.
+        #[default]
+        Deliver,
+        /// The tap dismisses the keyboard and goes no further; the next tap is delivered.
+        Dismiss,
+    }
+
+    /// The scales a zooming scroll view moves between ([`ScrollProps::zoom`]); `1.0` is the
+    /// content's natural size.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct ZoomRange {
+        pub min: f64,
+        pub max: f64,
+    }
+
+    /// Post-realize changes to a `scroll` container.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum ScrollPatch {
+        /// Zoom the content to `scale`, clamped to [`ScrollProps::zoom`], keeping the
+        /// viewport's center where it is. The view answers with
+        /// [`crate::Event::ScrollZoomed`] as the scale moves. Ignored where
+        /// [`crate::Cap::ScrollZoom`] is `Unsupported`.
+        Zoom { scale: f64, animated: bool },
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct LabelProps {
         pub text: String,
         pub font: FontSpec,
-        pub color: Option<Color>,
+        pub color: Option<Ink>,
         /// What the text means, for the color the platform gives it (docs/text.md).
         ///
         /// Semantic the way [`crate::Font`] is semantic: an app says "this is secondary text"
@@ -5989,9 +7772,28 @@ pub mod props {
         /// color renders primary, which is legible and correct, just not dimmed.
         pub role: TextRole,
         pub wraps: bool,
-        /// Maximum rendered lines; zero is unlimited. Apple and Android plain labels truncate
-        /// the last line. Other backends may retain their ordinary wrapping behavior.
+        /// Maximum rendered lines; zero is unlimited. A duty on every toolkit: the label
+        /// draws at most this many lines, ends the last one as [`Self::truncation`] says when
+        /// text is left over, and measures no taller than that many lines. Changes arrive as
+        /// [`LabelPatch::Paragraph`].
         pub max_lines: u32,
+        /// Where the ellipsis goes when the text does not fit in one line (`wraps == false`)
+        /// or in [`Self::max_lines`] lines.
+        pub truncation: Truncation,
+        /// Extra space after each character, in ems (multiples of the label's resolved font
+        /// size), so tracking follows the reader's text size. `0.0` is the font's own
+        /// spacing; a negative value tightens. A toolkit whose API takes points multiplies
+        /// by the resolved size and repeats that when the font changes.
+        pub letter_spacing: f64,
+        /// The distance between baselines as a multiple of the label's resolved font size.
+        /// `0.0` (and anything nonpositive or nonfinite) is the font's natural line height,
+        /// about 1.2. The extra space is split above and below each line, so a one-line
+        /// label grows too and its text stays centered in the line box.
+        pub line_height: f64,
+        /// Emit [`Event::TextSelected`] when the reader's
+        /// selection in this label changes ([`Cap::LabelSelection`]).
+        /// Set only on a selectable label; a toolkit that cannot report selections ignores it.
+        pub reports_selection: bool,
         /// How the label's lines sit within its own width. Only observable on a label that
         /// wraps or carries explicit newlines: a single line fills its box, so its alignment is
         /// the container's business, not the label's.
@@ -6017,29 +7819,78 @@ pub mod props {
         Secondary,
     }
 
-    /// How a wrapped label's lines sit within its width (`LabelProps::align`).
+    impl LabelProps {
+        /// The paragraph attributes as one value, what [`LabelPatch::Paragraph`] carries, so a
+        /// toolkit applies them through one function at realize and on every patch.
+        #[must_use]
+        pub fn paragraph(&self) -> LabelParagraph {
+            LabelParagraph {
+                max_lines: self.max_lines,
+                truncation: self.truncation,
+                letter_spacing: self.letter_spacing,
+                line_height: self.line_height,
+            }
+        }
+    }
+
+    /// How a label's lines break, space and end: the paragraph attributes that can change
+    /// after realize ([`LabelPatch::Paragraph`]). Each field means what the
+    /// [`LabelProps`] field of the same name means.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    pub struct LabelParagraph {
+        pub max_lines: u32,
+        pub truncation: Truncation,
+        pub letter_spacing: f64,
+        pub line_height: f64,
+    }
+
+    /// Where a label that runs out of room puts its ellipsis (`LabelProps::truncation`).
     ///
-    /// There is no `Justified` variant because no toolkit in Day's set agrees on how to justify
-    /// the last line, and the ones that can do it at all need a paragraph style the others have
-    /// no equivalent for.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    /// `Head` and `Middle` are guaranteed on a one-line label (`single_line()` or
+    /// `max_lines(1)`). With more lines a toolkit applies them to the last line where the
+    /// platform can and truncates the tail where it cannot.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    pub enum Truncation {
+        /// Keep the start: `The quick brown…`. What running text wants.
+        #[default]
+        Tail,
+        /// Keep the end: `…the lazy dog`. For text whose end identifies it.
+        Head,
+        /// Keep both ends: `The qui…azy dog`. For a file path or an identifier.
+        Middle,
+    }
+
+    /// How a paragraph's lines sit in the width they are given: a label's `align`, a canvas
+    /// text anchor's horizontal part, and a styled document's paragraph alignment
+    /// ([`ParagraphStyle::align`](crate::ParagraphStyle)).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
     pub enum TextAlign {
-        /// Left in a left-to-right locale, right in an RTL one (docs/localization.md).
+        /// The reading direction's start edge: left in a left-to-right layout, right in a
+        /// right-to-left one (docs/localization.md).
         #[default]
         Leading,
         Center,
+        /// The reading direction's end edge.
         Trailing,
+        /// Every line but the last stretched to both edges; the last line sits at the leading
+        /// edge. A toolkit that cannot justify draws `Leading`. A canvas text anchor reads it
+        /// as `Leading`.
+        Justified,
     }
 
     #[derive(Clone, Debug, PartialEq)]
     pub enum LabelPatch {
         Text(String),
-        Color(Option<Color>),
+        Color(Option<Ink>),
         Font(FontSpec),
         /// New text and its runs together. One patch, not two: a run's byte range is only
         /// meaningful against a particular string, so applying them separately would leave the
         /// widget briefly holding ranges that point into the wrong text.
         Runs(String, Vec<crate::TextRun>),
+        /// The paragraph attributes, whole: the line limit, the truncation mode, the letter
+        /// spacing and the line height. Sent when any reactive one changes, so the setter is
+        /// idempotent. The label is measured again afterward.
+        Paragraph(LabelParagraph),
     }
 
     /// A button's native styling tier. `Automatic` is the toolkit's stock look; `Bordered`
@@ -6064,7 +7915,7 @@ pub mod props {
         /// A backend with no way to recolor its button ignores this and draws its ordinary
         /// button. That is the trade: a plain button everywhere beats a colored
         /// rectangle that is no longer a button on the platforms that cannot.
-        Tinted(Color),
+        Tinted(Ink),
         /// A button no wider than its title asks for (a one-glyph "−" or "+" in a stepper,
         /// a "×" on a chip) on toolkits whose stock button carries a minimum width and wide
         /// insets (Material's 88 dp button turns a two-button stepper into 240 dp). The native
@@ -6414,7 +8265,7 @@ pub mod props {
         /// recolor natively (template rendering on Apple, drawable tint on Android, pixel
         /// recolor on GTK); backends that can't yet ignore it and draw the source colors.
         /// `None` (the default, and every raster `image(…)`) means "as authored".
-        pub tint: Option<Color>,
+        pub tint: Option<Ink>,
         /// A monochrome template glyph (docs/vectors.md "Template"): with no `tint`, it draws
         /// in the foreground of the surface it sits on — the theme's label color on the
         /// desktops, the cell's tint on UIKit, `currentColor` on the web — and follows a
@@ -6438,7 +8289,7 @@ pub mod props {
         pub icon: Option<crate::Icon>,
         /// The glyph's color; `None` takes the platform's own (template glyphs follow the
         /// foreground, the tint color on UIKit).
-        pub icon_tint: Option<Color>,
+        pub icon_tint: Option<Ink>,
         /// A trailing check mark: the platform's selected-option mark (UIKit's checkmark
         /// accessory, a Material check icon), announced as checked.
         pub checked: bool,
@@ -6451,7 +8302,7 @@ pub mod props {
         Subtitle(String),
         Detail(String),
         Icon(Option<crate::Icon>),
-        IconTint(Option<Color>),
+        IconTint(Option<Ink>),
         Checked(bool),
     }
 
@@ -6467,7 +8318,7 @@ pub mod props {
     #[derive(Clone, Debug, PartialEq)]
     pub enum ImagePatch {
         /// Recolor the glyph, or `None` to draw the authored colors again.
-        Tint(Option<Color>),
+        Tint(Option<Ink>),
         /// Draw different pixels in the same view. A backend that cannot decode the new source
         /// (bytes where [`Cap::ImageDecode`] is `Unsupported`) leaves what it was drawing.
         Source(ImageSource),
@@ -6807,7 +8658,7 @@ pub mod props {
         /// `dismiss_disabled` = the user must not be able to dismiss it interactively
         /// (system back / sheet gestures); programmatic dismissal still works.
         Present {
-            background: Option<Color>,
+            background: Option<Ink>,
             dismiss_disabled: bool,
         },
         /// The `interactive_dismiss_disabled` state changed while presented.
@@ -6925,10 +8776,10 @@ pub mod props {
         /// The tint for [`Self::badge_icons`], parallel to `items`. `None` leaves the glyph at
         /// the backend's neutral template tint; a status glyph that means something (a yellow
         /// star) names its own color here, exactly as [`Self::tints`] does for the leading icon.
-        pub badge_tints: Vec<Option<Color>>,
+        pub badge_tints: Vec<Option<Ink>>,
         /// A per-row icon tint (docs/vectors.md): the row's glyph recolored to this instead of
         /// the backend's neutral template tint. Parallel to `items`; `None` keeps the default.
-        pub tints: Vec<Option<Color>>,
+        pub tints: Vec<Option<Ink>>,
         /// A section header introducing the row at the same index. `Some` opens a new group
         /// before that row; `None` continues the current one. Parallel to `items`, so adding a
         /// header never shifts the selection indices the rows are addressed by.
@@ -6985,9 +8836,9 @@ pub mod props {
             icons: Vec<Option<String>>,
             badges: Vec<Option<String>>,
             badge_icons: Vec<Option<String>>,
-            badge_tints: Vec<Option<Color>>,
+            badge_tints: Vec<Option<Ink>>,
             sections: Vec<Option<String>>,
-            tints: Vec<Option<Color>>,
+            tints: Vec<Option<Ink>>,
             menus: Vec<Vec<crate::MenuItem>>,
             /// [`NavMenuProps::movable`] for the new rows.
             movable: Vec<bool>,
@@ -7504,45 +9355,6 @@ pub struct RowMetrics {
     pub min_height: f64,
 }
 
-/// Platform colors for custom drawing. Native controls keep their own semantic styling.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SystemColor {
-    Accent,
-    Text,
-    SecondaryText,
-    Background,
-    Surface,
-}
-
-impl SystemColor {
-    /// All roles, in discriminant order, for toolkit palette snapshots.
-    pub const ALL: [Self; 5] = [
-        Self::Accent,
-        Self::Text,
-        Self::SecondaryText,
-        Self::Background,
-        Self::Surface,
-    ];
-
-    /// Day's fallback palette when the toolkit cannot resolve a role.
-    /// These are fixed sRGB colors, not an approximation of a user-selected system accent.
-    pub const fn fallback(self, dark: bool) -> Color {
-        Color::hex(match (self, dark) {
-            (Self::Accent, false) => 0x000a_66ff,
-            (Self::Accent, true) => 0x003f_83ff,
-            (Self::Text, false) => 0x001d_1d1f,
-            (Self::Text, true) => 0x00f5_f5f7,
-            (Self::SecondaryText, false) => 0x006e_6e73,
-            (Self::SecondaryText, true) => 0x0098_989d,
-            (Self::Background, false) => 0x00ff_ffff,
-            (Self::Background, true) => 0x001e_1e20,
-            (Self::Surface, false) => 0x00f3_f2f7,
-            (Self::Surface, true) => 0x002c_2c2e,
-        })
-    }
-}
-
 pub trait Toolkit: Sized + 'static {
     // `'static` so a handle clone can cross the object-safe TreeOps boundary boxed as `Any`
     // (`node_handle_any`, the tweaks door, docs/tweaks.md).
@@ -7635,6 +9447,28 @@ pub trait Toolkit: Sized + 'static {
         None
     }
 
+    /// Give one widget its reading direction (the `.layout_direction()` modifier,
+    /// docs/localization.md "Direction of a subtree"). day-core calls this for every realized
+    /// node inside a subtree whose direction differs from the app's, and again with the app's
+    /// direction when an override is lifted, so the setter is idempotent.
+    ///
+    /// Day mirrors the frames itself, so this is about what happens inside the widget: a
+    /// label's or field's base writing direction and which edge `TextAlign::Leading` means, the
+    /// side a slider fills from, which way a disclosure chevron points, where a list row puts
+    /// its accessory. It must never move a child Day has placed. Where the platform's
+    /// direction property also mirrors child coordinates (XAML `FlowDirection` on a panel,
+    /// Android `layoutDirection` on a view group), apply it to leaf controls only. Do not rely
+    /// on native inheritance: Day calls this per node.
+    ///
+    /// The default does nothing, which leaves the widget in the app's direction.
+    fn set_layout_direction(
+        &mut self,
+        _h: &Self::Handle,
+        _kind: PieceKind,
+        _direction: LayoutDirection,
+    ) {
+    }
+
     // text entry (docs/textfield.md): how a `text_field` takes its text: hidden characters,
     // read-only, the keyboard and autofill purpose, the action key, the length bound. Called
     // once after `realize` when a field asks for anything but the defaults, and again with the
@@ -7688,14 +9522,69 @@ pub trait Toolkit: Sized + 'static {
     fn scroll_offset(&mut self, _h: &Self::Handle) -> Point {
         Point::ZERO
     }
+    /// Scroll list `h` to a row, or to its end, with the alignment and animation asked for
+    /// (docs/list.md "Programmatic scrolling"). Answer `true` once handled. The default
+    /// answers `false`, and day-core then sends the plain [`props::ListPatch::ScrollToRow`] or
+    /// [`props::ListPatch::ScrollToEnd`] instead, which reveals the row wherever the platform
+    /// puts it. A toolkit that answers `true` reports [`Cap::ListScrollAlign`] as `Native`.
+    fn list_scroll(&mut self, _h: &Self::Handle, _to: ListScroll) -> bool {
+        false
+    }
 
     // events: one trampoline, node-id keyed; enqueue-only contract (§8.3).
     fn set_event_sink(&mut self, sink: EventSink);
 
     // gestures (docs/shapes.md): attach a native recognizer for `kind` to `h`, emitting
     // `Event::Tap/LongPress/Drag` for `node` (enqueue-only). Default no gesture; a piece opts in
-    // when it has a handler. Idempotent per (handle, kind).
+    // when it has a handler. Idempotent per (handle, kind). A view no recognizer was attached
+    // to takes no pointer input at all: a press on it reaches whatever is behind it
+    // (docs/gestures.md "Pass-through").
     fn enable_gesture(&mut self, _h: &Self::Handle, _node: NodeId, _kind: GestureKind) {}
+
+    // native recognizers (docs/gestures.md "Recognizers"): whether `enable_gesture(kind)` attaches
+    // the platform's own recognizer. `Unsupported` for `LongPress`, `DoubleTap`, `Press` or
+    // `Touches` makes day-core derive the gesture from the tap and drag events instead and
+    // never ask for it; the kinds every backend has had from the start default to `Native`.
+    fn gesture_support(&self, kind: GestureKind) -> Support {
+        match kind {
+            GestureKind::LongPress
+            | GestureKind::DoubleTap
+            | GestureKind::Press
+            | GestureKind::Touches => Support::Unsupported,
+            _ => Support::Native,
+        }
+    }
+
+    // hit slop (docs/gestures.md "Hit slop"): grow the area in which `h` takes pointer input by
+    // `slop` points on each edge, without moving or resizing it. Every recognizer on the view
+    // (and a native control's own press) answers inside the grown area, clipped by nothing but
+    // the window; a point two slop areas share goes to the view in front. Zero insets restore
+    // the view's own bounds. Default no-op: the piece is hit inside its bounds only
+    // (`Cap::HitSlop` answers `Unsupported`).
+    fn set_hit_slop(&mut self, _h: &Self::Handle, _node: NodeId, _slop: Insets) {}
+
+    // drag axis (docs/gestures.md "Gestures inside a scroll view"): the node's drag follows one
+    // axis only. `Some(axis)`: a pointer sequence that starts out along the other axis is not
+    // the node's drag, so an enclosing scroll view takes it and no `Event::Drag` is sent;
+    // one that starts along `axis` is the node's from `Began` to `Ended` and the scroll view
+    // stays still. `None` (the default state): the node claims a drag in any direction.
+    // Default no-op: the backend claims every direction, and day-core still withholds the
+    // off-axis drags from the handler.
+    fn set_drag_axis(&mut self, _h: &Self::Handle, _node: NodeId, _axis: Option<DragAxis>) {}
+
+    // subtree enablement (docs/forms.md "Disabling a group"): `enabled = false` disables every
+    // native control under `h` (dimmed the platform's way, out of the focus order, reported
+    // disabled to assistive technology) and stops pointer input to the subtree; `true`
+    // restores each control to its own enabled state. day-core drops the Day events of a
+    // disabled subtree on every backend, so the default no-op loses the native dimming and
+    // the accessibility state only.
+    fn set_subtree_enabled(&mut self, _h: &Self::Handle, _node: NodeId, _enabled: bool) {}
+
+    // input kind (docs/gestures.md "Input kind"): the kind of device behind the latest pointer
+    // input, asked once at startup; changes arrive as `Event::PointerKindChanged`.
+    fn primary_pointer(&self) -> PointerKind {
+        PointerKind::platform_default()
+    }
 
     // focus (docs/focus.md): move native keyboard focus to (or away from) this control.
     // `focused = true` requests focus (on mobile this also raises the soft keyboard for text
@@ -7710,7 +9599,10 @@ pub trait Toolkit: Sized + 'static {
     // canvas contract generalized (`Decorate::focusable`). A focusable container accepts focus,
     // takes it on a press (before the press reaches its gesture recognizers), reports both
     // directions with `Event::FocusChanged`, and delivers the non-text keys it hears while
-    // focused as `Event::Key` for `node` (gated on `keys::handled`, like a canvas). The default
+    // focused as `Event::Key` for `node` (gated on `keys::handled`, like a canvas). Keys carry
+    // their phase: `KeyPhase::Repeat` for the platform's auto-repeat and, where
+    // `Cap::KeyPhases` is supported, `KeyPhase::Up` for the release. `Cap::Focusable` says
+    // whether the duty is implemented. The default
     // no-op means the piece renders normally but never joins the focus order: `.focused(…)`
     // bindings stay quiet and `.on_key(…)` never fires, the same graceful silence unfocusable
     // controls already have. Idempotent; only `true` is ever sent today (a piece opts in at
@@ -7842,6 +9734,15 @@ pub trait Toolkit: Sized + 'static {
     /// nothing read; the audit skips the node and `assert_native` records each field as unread.
     fn read_native(&self, _h: &Self::Handle) -> NativeSnapshot {
         NativeSnapshot::default()
+    }
+    /// Read what a widget shows at this moment, mid-animation included, for the
+    /// `assert_displayed` step (docs/testing.md, docs/tween.md "The animation contract"): the
+    /// presentation layer's opacity, frame, transform and background color on Core Animation,
+    /// the animated `View` properties on Android, the computed style on the web. A field the
+    /// toolkit cannot observe while its animator runs stays `None` and the step records it as
+    /// unread. Default: nothing read.
+    fn read_displayed(&self, _h: &Self::Handle) -> Displayed {
+        Displayed::default()
     }
     fn replay(&mut self, _h: &Self::Handle, _ops: &[DrawOp], _size: Size) {}
 
@@ -8143,6 +10044,22 @@ pub trait Toolkit: Sized + 'static {
     /// is a backend that reads no such setting.
     fn reduce_motion(&mut self) -> bool {
         false
+    }
+
+    /// The factor the system's text-size setting currently applies to `style`, against that
+    /// style's size at the platform's default setting (docs/text.md "Text scale"): `1.0` at
+    /// the default, `1.3` when the reader's setting draws this style 30% larger, below `1.0`
+    /// for a smaller-than-default setting. Platforms that scale every style by one number
+    /// (Android's `fontScale`, GNOME's `text-scaling-factor`, Windows' `TextScaleFactor`, the
+    /// browser's default font size) ignore `style`; UIKit answers per style, because Dynamic
+    /// Type grows small styles more than large ones.
+    ///
+    /// Read when a piece asks (`day::text_scale()`) and again after the toolkit calls
+    /// `day_core::note_text_size_changed`, which every toolkit that can observe the setting
+    /// calls when it changes. Day uses the answer to hold a label under its
+    /// `max_text_scale` cap. The default is a platform with no text-size setting.
+    fn text_scale(&mut self, _style: Font) -> f64 {
+        1.0
     }
 
     /// App-level appearance override: `Some(true)` forces dark, `Some(false)` forces light,
@@ -9185,7 +11102,9 @@ pub enum OpCode {
     /// Stroke a rounded rect (e=radius, g=width).
     StrokeRrect = 13,
     /// Set a gradient for the next shape record (f=type: 0 linear with a,b=start / c,d=end
-    /// unit points; 1 radial with a,b=center unit point, c=unit radius; e=stop count).
+    /// unit points; 1 radial with a,b=center unit point, c=unit radius; 2 conic with
+    /// a,b=center unit point, c=start angle in canvas degrees, clockwise from +x, the stops
+    /// running one full turn from it ([`ConicGradient`]); e=stop count).
     /// Stops ride the texts channel as "offset,aarrggbb offset,aarrggbb …". Unit geometry
     /// resolves against the shape's bounding box.
     SetGradient = 14,
@@ -9246,12 +11165,26 @@ pub enum OpCode {
     /// existed. A decoder clamps the region to the bitmap and draws nothing for an empty
     /// intersection ([`clamp_image_source`]).
     ImageSource = 23,
+    /// Set the shadow cast by every drawing record that follows: `a,b` = offset in points,
+    /// `c` = blur radius (the CSS `box-shadow` blur, twice the Gaussian's standard deviation),
+    /// the color slot = the shadow's color. A fully transparent color clears the shadow.
+    ///
+    /// Unlike the prefix records this is graphics state: it stays set until another
+    /// [`OpCode::SetShadow`] or the [`OpCode::Restore`] that matches the [`OpCode::Save`] it was
+    /// set under, so a decoder whose native context does not save it must keep its own stack.
+    /// The offset and blur are not transformed by [`OpCode::Concat`].
+    SetShadow = 24,
+    /// Set the blend mode for every drawing record that follows: `a` = [`BlendMode::wire`]
+    /// (0 normal, 1 multiply, 2 screen, 3 overlay, 4 darken, 5 lighten, 6 add, 7 erase).
+    /// Graphics state, scoped by save and restore exactly as [`OpCode::SetShadow`] is. A decoder
+    /// that meets a number it does not know draws with the normal mode.
+    SetBlend = 25,
 }
 
 impl OpCode {
     /// Every code, in wire order. The density test iterates this so a new variant that
     /// forgets to join fails loudly.
-    pub const ALL: [OpCode; 24] = [
+    pub const ALL: [OpCode; 26] = [
         OpCode::FillRect,
         OpCode::StrokeRect,
         OpCode::FillRrect,
@@ -9276,6 +11209,8 @@ impl OpCode {
         OpCode::StampPoints,
         OpCode::Image,
         OpCode::ImageSource,
+        OpCode::SetShadow,
+        OpCode::SetBlend,
     ];
 
     /// The code back from a wire number (a decoder-side aid and the round-trip test's
@@ -9686,18 +11621,14 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
                 col,
                 nums,
             ),
-            Shape::Arc {
-                rect,
-                start_deg,
-                sweep_deg,
-            } => push(
+            Shape::Arc { rect, start, sweep } => push(
                 OpCode::StrokeArc,
                 rect.origin.x,
                 rect.origin.y,
                 rect.size.width,
                 rect.size.height,
-                *start_deg,
-                *sweep_deg,
+                start.degrees(),
+                sweep.degrees(),
                 w,
                 col,
                 nums,
@@ -9766,7 +11697,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
     fn gradient_record(
         geo: [f64; 4],
         kind: f64,
-        stops: &[(f64, Color)],
+        stops: &[(f64, Ink)],
         nums: &mut Vec<f64>,
         texts: &mut Vec<String>,
     ) {
@@ -9785,10 +11716,29 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
         texts.push(
             stops
                 .iter()
-                .map(|(o, c)| format!("{o},{:08x}", color_bits(*c) as u32))
+                .map(|(o, c)| format!("{o},{:08x}", color_bits(c.resolved()) as u32))
                 .collect::<Vec<_>>()
                 .join(" "),
         );
+    }
+    /// The record a paint puts before its shape record, and the color that shape record
+    /// carries. A gradient emits one kind-14 record; a solid color emits nothing.
+    fn paint_record(paint: &Paint, nums: &mut Vec<f64>, texts: &mut Vec<String>) -> Color {
+        let (geo, kind, stops) = match paint {
+            Paint::Solid(c) => return c.resolved(),
+            Paint::Linear(g) => ([g.start.x, g.start.y, g.end.x, g.end.y], 0.0, &g.stops),
+            Paint::Radial(g) => ([g.center.x, g.center.y, g.radius, 0.0], 1.0, &g.stops),
+            Paint::Conic(g) => (
+                [g.center.x, g.center.y, g.start.degrees(), 0.0],
+                2.0,
+                &g.stops,
+            ),
+        };
+        gradient_record(geo, kind, stops, nums, texts);
+        // The gradient replaces the shape record's color, but it must be opaque, not clear:
+        // Skia-based decoders (Android Paint, OH_Drawing) modulate a shader by the paint
+        // alpha, so a clear slot would render the whole gradient invisible.
+        Color::WHITE
     }
     let mut nums = Vec::with_capacity(ops.len() * 9);
     let mut texts = Vec::new();
@@ -9799,33 +11749,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
                 // the stops ride the texts channel as "offset,aarrggbb offset,aarrggbb …".
                 // Geometry per type rides slots a..d, the type discriminant slot f: one
                 // record shape, so every decoder keeps a single gradient code path.
-                let col = match paint {
-                    Paint::Solid(c) => *c,
-                    Paint::Linear(g) => {
-                        gradient_record(
-                            [g.start.x, g.start.y, g.end.x, g.end.y],
-                            0.0,
-                            &g.stops,
-                            &mut nums,
-                            &mut texts,
-                        );
-                        // The gradient replaces the shape record's color, but it must be
-                        // opaque, not clear: Skia-based decoders (Android Paint, OH_Drawing)
-                        // modulate a shader by the paint alpha, so a clear slot would render
-                        // the whole gradient invisible.
-                        Color::WHITE
-                    }
-                    Paint::Radial(g) => {
-                        gradient_record(
-                            [g.center.x, g.center.y, g.radius, 0.0],
-                            1.0,
-                            &g.stops,
-                            &mut nums,
-                            &mut texts,
-                        );
-                        Color::WHITE
-                    }
-                };
+                let col = paint_record(paint, &mut nums, &mut texts);
                 shape_record(false, shape, 0.0, col, &mut nums, &mut texts, &mut geometry);
             }
             DrawOp::Stamp(st) => {
@@ -9844,29 +11768,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
                 // polygon's points ride: this op exists for tens of thousands of them, and
                 // formatting that many floats into a string every frame would cost more than
                 // the individual ops it replaces.
-                let col = match &st.paint {
-                    Paint::Solid(c) => *c,
-                    Paint::Linear(g) => {
-                        gradient_record(
-                            [g.start.x, g.start.y, g.end.x, g.end.y],
-                            0.0,
-                            &g.stops,
-                            &mut nums,
-                            &mut texts,
-                        );
-                        Color::WHITE
-                    }
-                    Paint::Radial(g) => {
-                        gradient_record(
-                            [g.center.x, g.center.y, g.radius, 0.0],
-                            1.0,
-                            &g.stops,
-                            &mut nums,
-                            &mut texts,
-                        );
-                        Color::WHITE
-                    }
-                };
+                let col = paint_record(&st.paint, &mut nums, &mut texts);
                 push(
                     OpCode::Stamp,
                     st.at.len() as f64,
@@ -9929,29 +11831,7 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
                 // only, the same "modifier record" shape the gradient uses, so decoders keep
                 // one rule: consume, apply to the next shape record, reset.
                 stroke_style_record(style, &mut nums, &mut texts);
-                let col = match paint {
-                    Paint::Solid(c) => *c,
-                    Paint::Linear(g) => {
-                        gradient_record(
-                            [g.start.x, g.start.y, g.end.x, g.end.y],
-                            0.0,
-                            &g.stops,
-                            &mut nums,
-                            &mut texts,
-                        );
-                        Color::WHITE
-                    }
-                    Paint::Radial(g) => {
-                        gradient_record(
-                            [g.center.x, g.center.y, g.radius, 0.0],
-                            1.0,
-                            &g.stops,
-                            &mut nums,
-                            &mut texts,
-                        );
-                        Color::WHITE
-                    }
-                };
+                let col = paint_record(paint, &mut nums, &mut texts);
                 shape_record(
                     true,
                     shape,
@@ -10116,6 +11996,35 @@ fn encode_ops_into(ops: &[DrawOp], mut geometry: Option<&mut Vec<f64>>) -> (Vec<
                     &mut nums,
                 );
             }
+            DrawOp::Shadow(shadow) => {
+                // No shadow is a clear color: one record shape either way, and a decoder
+                // needs no second "is there one" slot.
+                let s = shadow.unwrap_or(Shadow::new(Color::CLEAR, 0.0));
+                push(
+                    OpCode::SetShadow,
+                    s.dx,
+                    s.dy,
+                    s.blur.max(0.0),
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    s.color.resolved(),
+                    &mut nums,
+                );
+            }
+            DrawOp::Blend(mode) => push(
+                OpCode::SetBlend,
+                f64::from(mode.wire()),
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                Color::CLEAR,
+                &mut nums,
+            ),
             DrawOp::Save => push(
                 OpCode::Save,
                 0.0,
@@ -10380,10 +12289,10 @@ mod encode_ops_tests {
         let polygon = Shape::Polygon(vec![Point::new(0.0, 0.0), Point::new(7.0, 8.0)]);
         let ops = vec![
             DrawOp::Clip(path.clone()),
-            DrawOp::Fill(path.clone(), Paint::Solid(Color::WHITE)),
+            DrawOp::Fill(path.clone(), Paint::Solid(Color::WHITE.into())),
             DrawOp::Stroke(
                 polygon.clone(),
-                Paint::Solid(Color::WHITE),
+                Paint::Solid(Color::WHITE.into()),
                 StrokeStyle::default(),
             ),
         ];
@@ -10473,22 +12382,26 @@ mod encode_ops_tests {
         let r = Rect::new(1.0, 2.0, 3.0, 4.0);
         let red = Color::rgb(1.0, 0.0, 0.0);
         let ops = vec![
-            DrawOp::Fill(Shape::Rect(r), Paint::Solid(red)),
-            DrawOp::Stroke(Shape::Rect(r), Paint::Solid(red), StrokeStyle::round(2.0)),
-            DrawOp::Fill(Shape::RoundedRect(r, 5.0), Paint::Solid(red)),
-            DrawOp::Fill(Shape::Ellipse(r), Paint::Solid(red)),
+            DrawOp::Fill(Shape::Rect(r), Paint::Solid(red.into())),
+            DrawOp::Stroke(
+                Shape::Rect(r),
+                Paint::Solid(red.into()),
+                StrokeStyle::round(2.0),
+            ),
+            DrawOp::Fill(Shape::RoundedRect(r, 5.0), Paint::Solid(red.into())),
+            DrawOp::Fill(Shape::Ellipse(r), Paint::Solid(red.into())),
             // The documented asymmetry: a filled arc encodes as StrokeArc with width 0.
             DrawOp::Fill(
                 Shape::Arc {
                     rect: r,
-                    start_deg: 0.0,
-                    sweep_deg: 90.0,
+                    start: Angle::ZERO,
+                    sweep: Angle::QUARTER,
                 },
-                Paint::Solid(red),
+                Paint::Solid(red.into()),
             ),
             DrawOp::Stroke(
                 Shape::Line(Point::new(0.0, 0.0), Point::new(9.0, 9.0)),
-                Paint::Solid(red),
+                Paint::Solid(red.into()),
                 StrokeStyle::width(1.0),
             ),
             DrawOp::Fill(
@@ -10497,7 +12410,7 @@ mod encode_ops_tests {
                     Point::new(4.0, 0.0),
                     Point::new(2.0, 3.0),
                 ]),
-                Paint::Solid(red),
+                Paint::Solid(red.into()),
             ),
             DrawOp::Fill(
                 Shape::Path(Path {
@@ -10707,8 +12620,8 @@ mod encode_ops_tests {
         // It reaches the wire in slot a, for exactly the ops whose payload rides the texts
         // channel, and never displaces geometry that is already there.
         let (nums, _) = encode_ops(&[
-            DrawOp::Fill(path(0.0), Paint::Solid(Color::WHITE)),
-            DrawOp::Fill(poly.clone(), Paint::Solid(Color::WHITE)),
+            DrawOp::Fill(path(0.0), Paint::Solid(Color::WHITE.into())),
+            DrawOp::Fill(poly.clone(), Paint::Solid(Color::WHITE.into())),
             DrawOp::Clip(path(0.0)),
             DrawOp::Clip(Shape::Rect(Rect::new(1.0, 2.0, 3.0, 4.0))),
         ]);
@@ -10777,7 +12690,7 @@ mod markup_tests {
                 monospace: true,
                 ..Default::default()
             },
-            color: Some(Color::rgb(1.0, 0.0, 0.0)),
+            color: Some(Color::rgb(1.0, 0.0, 0.0).into()),
             ..TextRun::default()
         };
         let pango = runs_to_markup(text, std::slice::from_ref(&run), MarkupDialect::Pango, 16.0);
@@ -10800,8 +12713,8 @@ mod markup_tests {
         let run = TextRun {
             range: 0..2,
             font: FontSpec::default().scaled(1.5),
-            background: Some(Color::rgb(0.0, 1.0, 0.0)),
-            underline: Underline::Single,
+            background: Some(Color::rgb(0.0, 1.0, 0.0).into()),
+            underline: Some(Decoration::SINGLE),
             ..TextRun::default()
         };
         let pango = runs_to_markup("hi", std::slice::from_ref(&run), MarkupDialect::Pango, 16.0);
@@ -10846,7 +12759,7 @@ mod markup_tests {
                 italic: true,
                 ..Default::default()
             },
-            strikethrough: true,
+            strikethrough: Some(Decoration::SINGLE),
             link: Some("u".into()),
             ..TextRun::default()
         };
@@ -11197,5 +13110,47 @@ mod button_menu_tests {
             .is_none()
         );
         assert!(!asked, "an empty menu needs no registry check");
+    }
+}
+
+#[cfg(test)]
+mod elide_tests {
+    use super::{elide, props::Truncation};
+
+    fn cells(s: &str) -> f64 {
+        s.chars().count() as f64
+    }
+
+    #[test]
+    fn text_that_fits_is_untouched() {
+        for mode in [Truncation::Tail, Truncation::Head, Truncation::Middle] {
+            assert_eq!(elide("short", mode, 5.0, cells), "short");
+        }
+    }
+
+    #[test]
+    fn each_mode_keeps_its_end_and_fills_the_width() {
+        let text = "abcdefghijklmnopqrstuvwxyz";
+        assert_eq!(elide(text, Truncation::Tail, 8.0, cells), "abcdefg\u{2026}");
+        assert_eq!(elide(text, Truncation::Head, 8.0, cells), "\u{2026}tuvwxyz");
+        assert_eq!(
+            elide(text, Truncation::Middle, 8.0, cells),
+            "abcd\u{2026}xyz"
+        );
+    }
+
+    #[test]
+    fn nothing_fits_leaves_the_ellipsis() {
+        for mode in [Truncation::Tail, Truncation::Head, Truncation::Middle] {
+            assert_eq!(elide("abcdef", mode, 0.5, cells), "\u{2026}");
+        }
+    }
+
+    #[test]
+    fn multibyte_text_is_cut_on_character_boundaries() {
+        let text = "日本語のファイル名.txt";
+        let got = elide(text, Truncation::Middle, 7.0, cells);
+        assert_eq!(got.chars().count(), 7);
+        assert!(got.starts_with("日本語") && got.ends_with("txt"), "{got}");
     }
 }

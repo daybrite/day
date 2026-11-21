@@ -56,6 +56,9 @@ pub use main_thread::post_local;
 /// attributes, register its events, and the raw bindings behind them.
 #[cfg(target_env = "ohos")]
 pub mod node;
+// Pure arithmetic with no NDK in it, so it is also built for the host's unit tests.
+#[cfg(any(target_env = "ohos", test))]
+mod paint;
 #[cfg(target_env = "ohos")]
 mod resources;
 #[cfg(target_env = "ohos")]
@@ -76,6 +79,7 @@ day_reactive::tls_root! {
     anim: crate::anim::TlsGroupSlots,
     canvas: crate::canvas::TlsGroupSlots,
     datetime: crate::controls::datetime::TlsGroupSlots,
+    events: crate::events::TlsGroupSlots,
     fonts: crate::fonts::TlsGroupSlots,
     gesture: crate::gesture::TlsGroupSlots,
     host_api: crate::host_api::TlsGroupSlots,
@@ -116,6 +120,14 @@ mod imp {
     day_reactive::tls_slots! {
         imp;
         static BUTTON_INK: day_spec::sidetable::SideTable<u32> = day_spec::sidetable::SideTable::new();
+        /// Each surface's gradient fill (linear, radial or conic) and the frame size it was last
+        /// resolved against (docs/surfaces.md): `set_frame` resolves it again when the size
+        /// changes, and an appearance switch when a stop is a dynamic ink.
+        static SURFACE_GRADIENTS: day_spec::sidetable::SideTable<(day_spec::Paint, Size)> =
+            day_spec::sidetable::SideTable::new();
+        /// Surfaces whose fill comes from their realize-time role (a section card, a window
+        /// ground): a `ContainerPatch::Surface` leaves that fill alone.
+        static SURFACE_ROLE: day_spec::sidetable::SideTable<()> = day_spec::sidetable::SideTable::new();
         static BUTTON_CHILDREN: RefCell<HashMap<usize, Vec<AHandle>>> = RefCell::new(HashMap::new());
         /// Each button's style and selected state (`ButtonProps::selected`), so the selected
         /// look (the prominent fill) can give way to the button's own style again, and
@@ -172,10 +184,17 @@ mod imp {
         static MENU_PICKER_SIZE: RefCell<HashMap<usize, (Option<f64>, Size)>> = RefCell::new(HashMap::new());
         /// The size each ArkTS piece was last told it has (see `set_frame`), by wrapper handle.
         static PIECE_FRAME: RefCell<HashMap<usize, Size>> = RefCell::new(HashMap::new());
-        /// The neutral paints that follow the color mode (see [`themed`]), by the node whose
-        /// lifetime bounds them: each owner's (node, paint, light ARGB, dark ARGB).
-        static THEMED: RefCell<HashMap<usize, Vec<(usize, Paint, u32, u32)>>> =
+        /// The paints that follow the color mode (see [`themed`] and [`paint_ink`]), by the
+        /// node whose lifetime bounds them: each owner's (node, paint, tone).
+        static THEMED: RefCell<HashMap<usize, Vec<(usize, Paint, Tone)>>> =
             RefCell::new(HashMap::new());
+        /// The system theme's role colors per color mode (`[light, dark]`), read once through
+        /// the ArkTS arm (`host::system_colors`); `None` until first asked.
+        static SYSTEM_COLORS: RefCell<[Option<[Option<u32>; day_spec::SystemColor::COUNT]>; 2]> =
+            const { RefCell::new([None, None]) };
+        /// The palette of the current color mode, built from [`SYSTEM_COLORS`] and Day's
+        /// fallbacks: what every ink this backend applies resolves against.
+        static PALETTE: Cell<Option<day_spec::Palette>> = const { Cell::new(None) };
         // Text-area (min_lines, max_lines) by handle, for the measure band (docs/textarea.md).
         static TEXTAREA_LINES: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
@@ -233,6 +252,13 @@ mod imp {
         /// Tap-node handle ptr → its node id, so `release` (which only gets the handle) can drop the
         /// matching TAP_NODES entry (else a recycling list would grow the set unbounded).
         static TAP_HANDLES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// Each label's paragraph attributes and whether it wraps, kept so a font change can
+        /// recompute the spacing and line height it scales (`apply_paragraph`).
+        static LABEL_PARA: day_spec::sidetable::SideTable<(day_spec::props::LabelParagraph, bool)> =
+            day_spec::sidetable::SideTable::new();
+        /// How many disabled subtree roots hold each node disabled (`set_subtree_enabled`).
+        static SUBTREE_DISABLED: day_spec::sidetable::SideTable<u32> =
+            day_spec::sidetable::SideTable::new();
         /// Menu buttons (`set_button_menu`, docs/menus.md "Menu buttons"): node id → button
         /// handle ptr. The NDK has no menu to bind, so a press reports `Event::ContextMenu` at the
         /// button's bottom-leading corner and day-pieces presents the composed menu there.
@@ -387,13 +413,13 @@ mod imp {
 
     /// An icon node for a nav row or bar item: a vector tinted with `tint` or the themed
     /// secondary color, a raster drawn as authored.
-    fn row_icon(owner: usize, name: &str, tint: Option<day_spec::Color>, size: f64) -> AHandle {
+    fn row_icon(owner: usize, name: &str, tint: Option<day_spec::Ink>, size: f64) -> AHandle {
         let icon = new_node(node::IMAGE);
         let (src, is_vector) = named_image(name);
         node::set_image_src(icon.0, &src);
         if is_vector {
             match tint {
-                Some(c) => node::set_image_fill(icon.0, argb(c)),
+                Some(c) => paint_ink(owner, icon.0, Paint::ImageFill, c),
                 None => themed(owner, icon.0, Paint::ImageFill, 0x9900_0000, 0x99FF_FFFF),
             }
         }
@@ -633,10 +659,10 @@ mod imp {
         menu: NodeId,
         items: &[String],
         icons: &[Option<String>],
-        tints: &[Option<day_spec::Color>],
+        tints: &[Option<day_spec::Ink>],
         badges: &[Option<String>],
         badge_icons: &[Option<String>],
-        badge_tints: &[Option<day_spec::Color>],
+        badge_tints: &[Option<day_spec::Ink>],
         sections: &[Option<String>],
     ) -> AHandle {
         let scroll = new_node(node::SCROLL);
@@ -669,10 +695,10 @@ mod imp {
         menu: NodeId,
         items: &[String],
         icons: &[Option<String>],
-        tints: &[Option<day_spec::Color>],
+        tints: &[Option<day_spec::Ink>],
         badges: &[Option<String>],
         badge_icons: &[Option<String>],
-        badge_tints: &[Option<day_spec::Color>],
+        badge_tints: &[Option<day_spec::Ink>],
         sections: &[Option<String>],
     ) -> AHandle {
         let col = new_node(node::COLUMN);
@@ -774,10 +800,11 @@ mod imp {
     /// Point an image node at an [`day_spec::ImageSource`] (docs/images.md): shared by realize
     /// and the `Source` patch, so a swap loads exactly what a fresh realize would have.
     ///
-    /// Named is the staged-rawfile path: a vector's SVG first (docs/vectors.md), then the PNG,
-    /// and `tint` recolors an SVG's paths. Bytes and Decoded need no file at all, and take no
-    /// tint: there is no SVG to repaint.
-    /// Whether a named source resolves to a staged SVG — the only form Day tints.
+    /// Named is the staged-rawfile path: a vector's SVG first (docs/vectors.md), then the PNG.
+    /// Bytes and Decoded need no file at all. `tint` recolors any of them by its own alpha
+    /// (docs/images.md "Tinting"); `None` leaves whatever tint the node already has, so a
+    /// source swap keeps it.
+    /// Whether a named source resolves to a staged SVG: the form a template glyph takes.
     fn arkui_image_is_svg(source: &day_spec::ImageSource) -> bool {
         match source {
             day_spec::ImageSource::Named(named) => {
@@ -790,22 +817,212 @@ mod imp {
     fn arkui_apply_image_source(
         n: Handle,
         source: &day_spec::ImageSource,
-        tint: Option<day_spec::Color>,
+        tint: Option<day_spec::Ink>,
     ) {
         match source {
             day_spec::ImageSource::Named(named) => {
                 let svg = format!("day/{named}.svg");
                 if crate::resources::rawfile_exists(&svg) {
                     node::set_image_src(n, &format!("resource://RAWFILE/{svg}"));
-                    if let Some(t) = tint {
-                        node::set_image_fill(n, argb(t));
-                    }
                 } else if !named.is_empty() {
                     node::set_image_src(n, &format!("resource://RAWFILE/day/{named}.png"));
                 }
             }
             day_spec::ImageSource::Bytes(bytes) => crate::images::node_set_bytes(n, bytes),
             day_spec::ImageSource::Decoded(id) => crate::images::node_set_bitmap(n, id.0),
+        }
+        if let Some(t) = tint {
+            paint_ink(n as usize, n, Paint::ImageTint, t);
+        }
+    }
+
+    /// Give a surface its gradient fill for a frame of `size` (docs/surfaces.md), each stop's ink
+    /// resolved for the current color mode. Before the first frame arrives the unit square
+    /// stands in, which is already exact for a vertical or horizontal linear gradient and a
+    /// centered radial or conic one.
+    ///
+    /// Linear: the gradient's unit points resolve against the frame, and ArkUI takes an angle
+    /// and stops along its own line, so both depend on the frame's shape. Radial: ArkUI's
+    /// circle (`NODE_RADIAL_GRADIENT`), the radius along the frame's shorter side
+    /// (`paint::radial_circle`). Conic: ArkUI's sweep gradient (`NODE_SWEEP_GRADIENT`), the
+    /// start angle folded into the stops (`paint::sweep_stops`).
+    fn apply_surface_gradient(n: Handle, fill: &day_spec::Paint, size: Size) {
+        let palette = palette_now();
+        let resolve = |stops: &[(f64, day_spec::Ink)]| -> Vec<(f64, u32)> {
+            stops
+                .iter()
+                .map(|(at, c)| (*at, argb(c.resolve(&palette))))
+                .collect()
+        };
+        let narrow = |stops: Vec<(f64, u32)>| -> Vec<(f32, u32)> {
+            stops.into_iter().map(|(at, c)| (at as f32, c)).collect()
+        };
+        let (w, h) = if size.width > 0.0 && size.height > 0.0 {
+            (size.width, size.height)
+        } else {
+            (1.0, 1.0)
+        };
+        match fill {
+            day_spec::Paint::Linear(g) => {
+                let (angle, stops) = crate::paint::css_linear_gradient(
+                    (g.start.x, g.start.y),
+                    (g.end.x, g.end.y),
+                    &resolve(&g.stops),
+                    w,
+                    h,
+                );
+                node::set_linear_gradient(n, angle, &stops);
+            }
+            day_spec::Paint::Radial(g) => {
+                let (cx, cy, r) =
+                    crate::paint::radial_circle((g.center.x, g.center.y), g.radius, w, h);
+                let stops = crate::paint::spanning(&narrow(resolve(&g.stops)));
+                node::set_radial_gradient(n, cx, cy, r, &stops);
+            }
+            day_spec::Paint::Conic(g) => {
+                let stops =
+                    crate::paint::sweep_stops(g.start.degrees() as f32, &narrow(resolve(&g.stops)));
+                node::set_sweep_gradient(
+                    n,
+                    (g.center.x * w) as f32,
+                    (g.center.y * h) as f32,
+                    &stops,
+                );
+            }
+            day_spec::Paint::Solid(_) => {}
+        }
+    }
+
+    /// Style a surface from its props (docs/surfaces.md): fill, corners, border, shadow and
+    /// clipping. What realize runs on a `fresh` node, and what `ContainerPatch::Surface` runs
+    /// again on the same node, where every field is set or cleared, never left as it was. Each
+    /// ink is recorded to follow the appearance (see [`paint_ink`]).
+    fn apply_surface(n: Handle, p: &ContainerProps, fresh: bool) {
+        let owner = n as usize;
+        // A role's own fill (a section card, a window ground) is realize-time and stays.
+        if !SURFACE_ROLE.with(|m| m.contains(owner)) && (p.fill.is_some() || !fresh) {
+            apply_fill(n, p.fill.as_ref(), None);
+        }
+        if fresh && p.corner_radius <= 0.0 && p.border.is_none() && p.shadow.is_none() && !p.clips {
+            return;
+        }
+        // NODE_BORDER_RADIUS in vp rounds this node's own background, and with it the
+        // gradient, the border, the shadow and the clip. A selection of corners is the
+        // attribute's four-value form.
+        if p.corners == day_spec::Corners::ALL {
+            node::set_corner_radius(n, p.corner_radius.max(0.0));
+        } else {
+            node::set_corner_radii(
+                n,
+                crate::paint::border_radii(p.corners.bits(), p.corner_radius.max(0.0) as f32),
+            );
+        }
+        if let Some(b) = p.border.filter(|b| b.width > 0.0) {
+            // Inside the frame (an ArkUI size includes its border) and painted after the
+            // children, so over the content (docs/surfaces.md "Rules"). Day places children by
+            // absolute position, so the border's inset of ArkUI's content box moves nothing.
+            node::set_border(n, b.width, ink_argb(b.color));
+            if b.color.is_dynamic() {
+                remember(owner, n, Paint::BorderColor, Tone::Ink(b.color));
+            } else {
+                forget_paint(owner, n, Paint::BorderColor);
+            }
+        } else {
+            forget_paint(owner, n, Paint::BorderColor);
+            node::clear_border(n);
+        }
+        if let Some(s) = p.shadow {
+            // The node's own shadow: any color, blur and offset, in the shape of its
+            // rounded rectangle, outside layout and hit testing. ArkUI takes the blur radius
+            // in vp and the offsets in px (`NODE_CUSTOM_SHADOW` in native_node.h).
+            let paint = move || {
+                let color = ink_argb(s.color);
+                if color >> 24 == 0 {
+                    node::clear_shadow(n);
+                    return;
+                }
+                let density = node::density();
+                node::set_shadow(
+                    n,
+                    crate::paint::shadow_radius_px(s.blur, density) / density as f32,
+                    (s.dx * density) as f32,
+                    (s.dy * density) as f32,
+                    color,
+                );
+            };
+            paint();
+            repaint_with(
+                owner,
+                n,
+                Paint::Shadow,
+                s.color.is_dynamic(),
+                Rc::new(paint),
+            );
+        } else {
+            forget_paint(owner, n, Paint::Shadow);
+            node::clear_shadow(n);
+        }
+        // `.corner_radius` wraps the piece, whose fill is an inner node, so rounding shows only
+        // when this node clips it; a patch that stops clipping stops it here.
+        node::set_clip(n, p.clips);
+    }
+
+    /// A surface's fill (docs/surfaces.md): a solid ink as the background color (under `anim`,
+    /// the color animates), a gradient over a clear background (at once), or nothing.
+    fn apply_fill(n: Handle, fill: Option<&day_spec::Paint>, anim: Option<&AnimSpec>) {
+        let owner = n as usize;
+        match fill {
+            Some(day_spec::Paint::Solid(ink)) => {
+                let ink = *ink;
+                if SURFACE_GRADIENTS.with(|m| m.remove(owner)).is_some() {
+                    forget_paint(owner, n, Paint::Gradient);
+                    node::clear_gradients(n);
+                }
+                crate::anim::animate(n, crate::anim::Channel::Background, anim, move || {
+                    node::set_bg_color(n, ink_argb(ink));
+                });
+                if ink.is_dynamic() {
+                    remember(owner, n, Paint::Background, Tone::Ink(ink));
+                } else {
+                    forget_paint(owner, n, Paint::Background);
+                }
+            }
+            Some(gradient) => {
+                forget_paint(owner, n, Paint::Background);
+                crate::anim::animate(n, crate::anim::Channel::Background, None, move || {
+                    node::set_bg_color(n, 0);
+                });
+                node::clear_gradients(n);
+                // Kept so `set_frame` can resolve it against each new size; the size it was
+                // last resolved at carries over from the fill it replaces.
+                let size = SURFACE_GRADIENTS
+                    .with(|m| m.get(owner))
+                    .map_or_else(Size::default, |(_, size)| size);
+                apply_surface_gradient(n, gradient, size);
+                SURFACE_GRADIENTS.with(|m| m.insert(owner, (gradient.clone(), size)));
+                repaint_with(
+                    owner,
+                    n,
+                    Paint::Gradient,
+                    gradient.is_dynamic(),
+                    Rc::new(move || {
+                        if let Some((g, size)) = SURFACE_GRADIENTS.with(|m| m.get(owner)) {
+                            apply_surface_gradient(n, &g, size);
+                        }
+                    }),
+                );
+            }
+            None => {
+                forget_paint(owner, n, Paint::Background);
+                if SURFACE_GRADIENTS.with(|m| m.remove(owner)).is_some() {
+                    forget_paint(owner, n, Paint::Gradient);
+                    node::clear_gradients(n);
+                }
+                // A fill going away goes at once (docs/tween.md rule 8).
+                crate::anim::animate(n, crate::anim::Channel::Background, None, move || {
+                    node::set_bg_color(n, 0);
+                });
+            }
         }
     }
 
@@ -922,6 +1139,49 @@ mod imp {
         }
     }
 
+    /// A label's font size in fp: its style's size times its own scale
+    /// ([`FontSpec::resolved_points`]). ArkUI's fp follows the system text size itself.
+    fn label_fp(f: FontSpec) -> f64 {
+        f.resolved_points(font_vp(f))
+    }
+
+    /// ArkUI's font feature string for `spec` (`"tnum" on, "smcp" on`), empty for none.
+    fn feature_string(spec: FontSpec) -> String {
+        spec.feature_tags()
+            .iter()
+            .map(|tag| format!("\"{tag}\" on"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// ArkUI's line style for a Day decoration style: every style has a native form.
+    fn decoration_style(
+        style: day_spec::DecorationStyle,
+    ) -> ohos_sys::arkui::native_type::ArkUI_TextDecorationStyle {
+        use ohos_sys::arkui::native_type::ArkUI_TextDecorationStyle as S;
+        match style {
+            day_spec::DecorationStyle::Single => S::ARKUI_TEXT_DECORATION_STYLE_SOLID,
+            day_spec::DecorationStyle::Double => S::ARKUI_TEXT_DECORATION_STYLE_DOUBLE,
+            day_spec::DecorationStyle::Dotted => S::ARKUI_TEXT_DECORATION_STYLE_DOTTED,
+            day_spec::DecorationStyle::Wavy => S::ARKUI_TEXT_DECORATION_STYLE_WAVY,
+        }
+    }
+
+    /// A label's paragraph (docs/text.md): the line limit (one line when it does not wrap), the
+    /// truncation mode, and the letter spacing and line height, both multiples of the label's
+    /// font size, which is read back from the node so a font change recomputes them.
+    fn apply_paragraph(n: Handle, para: day_spec::props::LabelParagraph, wraps: bool) {
+        use ohos_sys::arkui::native_node::ArkUI_NodeAttributeType as Attr;
+        let _ = LABEL_PARA.with(|t| t.insert(n as usize, (para, wraps)));
+        let size = f64::from(node::get_f32(n, Attr::NODE_FONT_SIZE, 0).unwrap_or(17.0));
+        let lines = if wraps { para.max_lines } else { 1 };
+        let spacing = (para.letter_spacing.is_finite() && para.letter_spacing != 0.0)
+            .then_some((para.letter_spacing * size) as f32);
+        let height = (para.line_height.is_finite() && para.line_height > 0.0)
+            .then_some((para.line_height * size) as f32);
+        node::label_paragraph(n, lines, para.truncation, spacing, height);
+    }
+
     /// Apply a `Font::Custom` family (§18.4): the family was registered by the
     /// platform/harmony scaffold's `EntryAbility` (from rawfile `day/fonts.json`), so `NODE_FONT_FAMILY` resolves it
     /// by name; ArkUI falls back to the default family when it doesn't.
@@ -929,9 +1189,9 @@ mod imp {
         if let Font::Custom(family, _) = spec.style {
             node::set_font_family(n, family);
         }
-        // Tabular figures. Set unconditionally (empty string clears it) so a label that stops
-        // asking for them goes back to proportional on the next patch.
-        node::set_font_feature(n, if spec.tabular { "tnum 1" } else { "" });
+        // Tabular figures, small capitals, old-style figures. Set unconditionally (an empty
+        // string clears it) so a label that stops asking for them goes back on the next patch.
+        node::set_font_feature(n, &feature_string(spec));
         // Weight and italic, also unconditional. An explicit weight wins; otherwise the style's
         // own (a headline is semibold, as on Android and Apple).
         let weight = spec.weight.unwrap_or(match spec.style {
@@ -946,15 +1206,37 @@ mod imp {
     /// ArkUI is the one backend where runs are child NODES rather than attributes on one widget: a
     /// styled Text is a small subtree. Day's own layout still treats the label as a leaf, because
     /// ArkUI measures the spans itself and reports the Text's size.
+    ///
+    /// A span's colors are concrete, so runs with a pair or a role among their inks (a link's
+    /// `SystemColor::Link` included) are rebuilt on every appearance switch.
     fn set_label_runs(n: Handle, text: &str, runs: &[day_spec::TextRun]) {
         let id = CTRL_NODE.with(|m| m.borrow().get(&(n as usize)).copied());
         if runs.is_empty() {
+            forget_paint(n as usize, n, Paint::Runs);
             // Plain text goes back on the Text itself; `runs_begin` cleared it when runs arrived.
             // Any spans go first: a Text still holding them would keep drawing them.
             node::label_runs_clear(n);
             node::set_text(n, text);
             return;
         }
+        let dynamic = runs.iter().any(|r| {
+            r.link.is_some()
+                || [r.color, r.background]
+                    .into_iter()
+                    .chain(
+                        [&r.underline, &r.strikethrough].map(|d| d.as_ref().and_then(|d| d.color)),
+                    )
+                    .flatten()
+                    .any(day_spec::Ink::is_dynamic)
+        });
+        let (owned_text, owned_runs) = (text.to_owned(), runs.to_vec());
+        repaint_with(
+            n as usize,
+            n,
+            Paint::Runs,
+            dynamic,
+            Rc::new(move || set_label_runs(n, &owned_text, &owned_runs)),
+        );
         node::label_runs_begin(n);
         let add = |slice: &str, run: Option<&day_spec::TextRun>| {
             let mut style = node::RunStyle::default();
@@ -973,19 +1255,27 @@ mod imp {
                     .is_some_and(|w| w >= day_spec::FontWeight::Semibold);
                 style.italic = r.font.italic;
                 style.monospace = r.font.monospace;
-                style.strikethrough = r.strikethrough;
-                style.underline = r.underline.is_on();
-                style.color = r.color.map(argb);
-                style.background = r.background.map(argb);
+                let line =
+                    |d: &day_spec::Decoration| (decoration_style(d.style), d.color.map(ink_argb));
+                style.strikethrough = r.strikethrough.as_ref().map(line);
+                style.underline = r.underline.as_ref().map(line);
+                let features = feature_string(r.font);
+                style.features = (!features.is_empty()).then_some(features);
+                style.color = r.color.map(ink_argb);
+                style.background = r.background.map(ink_argb);
                 if r.link.is_some() {
-                    // SPAN click handlers do not supply link styling. Match the public
-                    // Link's tint, while preserving an author's explicit run color.
-                    style.color.get_or_insert(0xFF00_7AFF);
-                    style.underline = true;
+                    // SPAN click handlers do not supply link styling: the theme's link color,
+                    // while preserving an author's explicit run color.
+                    style
+                        .color
+                        .get_or_insert_with(|| ink_argb(day_spec::SystemColor::Link.into()));
+                    style
+                        .underline
+                        .get_or_insert((decoration_style(day_spec::DecorationStyle::Single), None));
                 }
             }
             let link = id.zip(run.and_then(|r| r.link.as_deref()));
-            node::label_runs_add(n, slice, style, link);
+            node::label_runs_add(n, slice, &style, link);
         };
         let mut at = 0usize;
         for r in runs {
@@ -1097,8 +1387,26 @@ mod imp {
             S::Automatic | S::Compact | S::Plain => (0, 0xFF33_7DFF, 0.0),
             S::Bordered => (0, 0xFF33_7DFF, 1.0),
             S::Prominent => (0xFF33_7DFF, 0xFFFF_FFFF, 0.0),
-            S::Tinted(c) => (argb(c), argb(S::on_tint(c)), 0.0),
+            S::Tinted(c) => (
+                ink_argb(c),
+                argb(S::on_tint(c.resolve(&palette_now()))),
+                0.0,
+            ),
         };
+        // A tint that is a pair or a role restyles the button on an appearance switch; the
+        // style is read back from `BUTTON_STYLE` then, so a later style change wins.
+        let dynamic = matches!(style, S::Tinted(c) if c.is_dynamic()) && !selected;
+        repaint_with(
+            n as usize,
+            n,
+            Paint::Button,
+            dynamic,
+            Rc::new(move || {
+                if let Some(style) = BUTTON_STYLE.with(|m| m.borrow().get(&(n as usize)).copied()) {
+                    apply_button_style(n, style);
+                }
+            }),
+        );
         BUTTON_INK.with(|m| {
             m.insert(n as usize, ink);
         });
@@ -1144,10 +1452,16 @@ mod imp {
         out
     }
 
-    /// The application's color mode changed (docs/settings.md): repaint every neutral paint
-    /// for the new mode, then let `dark_mode()` readers recolor.
+    /// The application's color mode changed (docs/settings.md): repaint every paint that
+    /// follows it for the new mode, then let `dark_mode()` readers recolor. The system theme's
+    /// colors are read again, in case the theme itself changed, and a change there repaints
+    /// even when the mode did not.
     fn appearance_changed(dark: bool) {
-        repaint_themed(dark);
+        let before = palette_now();
+        SYSTEM_COLORS.with(|c| *c.borrow_mut() = [None, None]);
+        PALETTE.with(|p| p.set(None));
+        let after = palette_for(before.dark);
+        repaint_themed(dark, after != before);
         day_core::note_appearance_changed();
     }
 
@@ -1157,27 +1471,87 @@ mod imp {
         day_core::note_motion_changed();
     }
 
-    /// Move `IS_DARK` to `dark`, repainting every theme-following paint if it changed.
-    fn repaint_themed(dark: bool) {
-        if IS_DARK.with(|d| d.replace(dark)) == dark {
+    /// Move `IS_DARK` to `dark`, repainting every theme-following paint if it changed (or
+    /// `force`, when the theme's colors changed under the same mode).
+    fn repaint_themed(dark: bool, force: bool) {
+        if IS_DARK.with(|d| d.replace(dark)) == dark && !force {
             return;
         }
-        THEMED.with(|t| {
-            for paints in t.borrow().values() {
-                for (n, paint, light, dark_argb) in paints {
-                    paint.apply(*n as Handle, if dark { *dark_argb } else { *light });
-                }
-            }
-        });
+        PALETTE.with(|p| p.set(None));
+        // A snapshot: a repaint can record its paint again (a label's runs, a tinted button).
+        let paints: Vec<(usize, Paint, Tone)> =
+            THEMED.with(|t| t.borrow().values().flatten().cloned().collect());
+        for (n, paint, tone) in paints {
+            tone.apply(n as Handle, paint);
+        }
     }
 
-    /// Which attribute a theme-following paint sets.
+    /// The system theme's color for `role` in one color mode, read once per mode.
+    fn system_argb(role: day_spec::SystemColor, dark: bool) -> Option<u32> {
+        SYSTEM_COLORS.with(|c| {
+            let mut c = c.borrow_mut();
+            let slot = &mut c[usize::from(dark)];
+            if slot.is_none() {
+                *slot = Some(
+                    crate::host::system_colors(dark)
+                        .unwrap_or([None; day_spec::SystemColor::COUNT]),
+                );
+            }
+            slot.and_then(|colors| colors[usize::from(role.wire())])
+        })
+    }
+
+    /// Every role in one color mode: the system theme's color where it has one, Day's own pair
+    /// (`SystemColor::fallback`) where it has none.
+    fn palette_for(dark: bool) -> day_spec::Palette {
+        day_spec::Palette {
+            dark,
+            colors: day_spec::SystemColor::ALL
+                .map(|role| system_argb(role, dark).map_or_else(|| role.fallback(dark), color_of)),
+        }
+    }
+
+    /// The palette of the current color mode (`IS_DARK`), what this backend resolves inks
+    /// against. The same answer `system_color` gives day-core, so `day::resolve` agrees.
+    fn palette_now() -> day_spec::Palette {
+        if let Some(p) = PALETTE.with(Cell::get) {
+            return p;
+        }
+        let p = palette_for(IS_DARK.with(Cell::get));
+        PALETTE.with(|c| c.set(Some(p)));
+        p
+    }
+
+    /// `0xAARRGGBB` as a day `Color`.
+    fn color_of(argb: u32) -> day_spec::Color {
+        let ch = |shift: u32| f64::from((argb >> shift) & 0xff) / 255.0;
+        day_spec::Color::rgba(ch(16), ch(8), ch(0), ch(24))
+    }
+
+    /// An ink as the ARGB it shows in the current color mode.
+    fn ink_argb(ink: day_spec::Ink) -> u32 {
+        argb(ink.resolve(&palette_now()))
+    }
+
+    /// Which attribute a theme-following paint sets. The first five take one color; the rest
+    /// are repainted by running their apply again ([`Tone::Again`]).
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Paint {
         Background,
         Font,
         ImageFill,
+        /// A raster's or vector's `.tint` (the color filter `set_image_tint` sets).
+        ImageTint,
         Separator,
+        /// A surface's border color; its width stays.
+        BorderColor,
+        Shadow,
+        /// A surface's gradient fill.
+        Gradient,
+        /// A label's styled runs.
+        Runs,
+        /// A tinted button's fill and title.
+        Button,
     }
 
     impl Paint {
@@ -1186,9 +1560,44 @@ mod imp {
                 Paint::Background => node::set_bg_color(n, argb),
                 Paint::Font => node::set_font_color(n, argb),
                 Paint::ImageFill => node::set_image_fill(n, argb),
+                Paint::ImageTint => node::set_image_tint(n, argb),
                 Paint::Separator => node::menu_separator(n, argb),
+                Paint::BorderColor => node::set_border_color(n, argb),
+                // Several attributes at once: only ever a `Tone::Again`.
+                Paint::Shadow | Paint::Gradient | Paint::Runs | Paint::Button => {}
             }
         }
+    }
+
+    /// How a theme-following paint picks its color for the current mode.
+    #[derive(Clone)]
+    enum Tone {
+        /// This backend's own neutral pair (light ARGB, dark ARGB).
+        Pair(u32, u32),
+        /// An app's dynamic ink: a light/dark pair or a system role (docs/color.md).
+        Ink(day_spec::Ink),
+        /// Run the paint's apply again: it resolves its inks as it goes.
+        Again(Rc<dyn Fn()>),
+    }
+
+    impl Tone {
+        fn apply(&self, n: Handle, paint: Paint) {
+            match self {
+                Tone::Pair(light, dark) => paint.apply(n, theme_color(*light, *dark)),
+                Tone::Ink(ink) => paint.apply(n, ink_argb(*ink)),
+                Tone::Again(f) => f(),
+            }
+        }
+    }
+
+    /// Remember `tone` for `n`'s `paint`, replacing what that attribute followed before.
+    fn remember(owner: usize, n: Handle, paint: Paint, tone: Tone) {
+        THEMED.with(|t| {
+            let mut t = t.borrow_mut();
+            let paints = t.entry(owner).or_default();
+            paints.retain(|(p, k, _)| !(*p == n as usize && *k == paint));
+            paints.push((n as usize, paint, tone));
+        });
     }
 
     /// Paint `n` with the color mode's pick of `light`/`dark`, and repaint it whenever the
@@ -1197,12 +1606,29 @@ mod imp {
     /// rows column or suite host for the chrome this backend builds inside one.
     fn themed(owner: usize, n: Handle, paint: Paint, light: u32, dark: u32) {
         paint.apply(n, theme_color(light, dark));
-        THEMED.with(|t| {
-            let mut t = t.borrow_mut();
-            let paints = t.entry(owner).or_default();
-            paints.retain(|(p, k, _, _)| !(*p == n as usize && *k == paint));
-            paints.push((n as usize, paint, light, dark));
-        });
+        remember(owner, n, paint, Tone::Pair(light, dark));
+    }
+
+    /// Paint `n` with an app's ink (docs/color.md "How a toolkit follows the appearance"): its
+    /// color now, and again on every appearance switch when it is a pair or a role. A fixed
+    /// ink ends whatever that attribute followed before.
+    fn paint_ink(owner: usize, n: Handle, paint: Paint, ink: day_spec::Ink) {
+        paint.apply(n, ink_argb(ink));
+        if ink.is_dynamic() {
+            remember(owner, n, paint, Tone::Ink(ink));
+        } else {
+            forget_paint(owner, n, paint);
+        }
+    }
+
+    /// Follow the appearance by running `again` (which resolves its own inks) on every switch
+    /// while `dynamic`; otherwise stop following. The caller has already applied it once.
+    fn repaint_with(owner: usize, n: Handle, paint: Paint, dynamic: bool, again: Rc<dyn Fn()>) {
+        if dynamic {
+            remember(owner, n, paint, Tone::Again(again));
+        } else {
+            forget_paint(owner, n, paint);
+        }
     }
 
     /// Stop repainting what `owner` holds: it is being released or rebuilt.
@@ -1214,7 +1640,7 @@ mod imp {
     fn forget_paint(owner: usize, n: Handle, paint: Paint) {
         THEMED.with(|t| {
             if let Some(paints) = t.borrow_mut().get_mut(&owner) {
-                paints.retain(|(p, k, _, _)| !(*p == n as usize && *k == paint));
+                paints.retain(|(p, k, _)| !(*p == n as usize && *k == paint));
             }
         });
     }
@@ -1318,6 +1744,8 @@ mod imp {
             // And the user's animation scale, the reduce-motion setting here; `launch_with`
             // does the first read once the tree stands.
             crate::host::watch_reduce_motion(motion_changed);
+            // And the text-size setting: fp sizes follow it natively, Day re-measures.
+            crate::host::watch_font_scale(day_core::note_text_size_changed);
             // Serve bundled data resources (§18.3) from the app's rawfile store. Registered once
             // here; the opener is a no-op until the ArkTS host hands us its resourceManager.
             day_spec::resource::set_resource_opener(open_resource);
@@ -1328,6 +1756,9 @@ mod imp {
             node::content_add(content.cast(), root.0);
             ROOT.with(|r| *r.borrow_mut() = Some((root, Size::new(w_vp, h_vp))));
             ROOT_KEEP.with(|r| r.set(Some((root.0 as usize, w_vp, h_vp))));
+            // Every touch bubbles here, which is where the device kind behind it is read
+            // (docs/gestures.md "Input kind"); observed, never consumed.
+            node::register_event(root.0, node::EV_TOUCH, day_spec::WINDOW_NODE.0);
         });
     }
 
@@ -1686,6 +2117,7 @@ mod imp {
         if kind == K::Custom as i32 && text == "day-list-first-visible" {
             let source = LIST_SOURCES.with(|map| map.borrow().get(&id).cloned());
             if let Some(source) = source
+                && source.viewport.is_none()
                 && let Some(report) = &source.first_visible
             {
                 report((num.max(0.0) as usize).min((source.len)().saturating_sub(1)));
@@ -1714,8 +2146,14 @@ mod imp {
             return;
         }
         // A node with a registered Tap gesture emits `Event::Tap`, not `Event::Pressed`.
+        // The click's point (vp, node-local) rides in `text`.
         if kind == K::Pressed as i32 && TAP_NODES.with(|s| s.borrow().contains(&id)) {
-            emit(NodeId(id), Event::Tap(Point::ZERO));
+            let mut xy = text.split(',').filter_map(|v| v.parse::<f64>().ok());
+            let at = match (xy.next(), xy.next()) {
+                (Some(x), Some(y)) => Point::new(x, y),
+                _ => Point::ZERO,
+            };
+            emit(NodeId(id), Event::Tap(at));
             return;
         }
         let node_id = NodeId(id);
@@ -1770,10 +2208,17 @@ mod imp {
             k if k == K::Submitted as i32 => Event::Submitted,
             // A non-text key from a focused node (docs/menus.md): `text` is the day key name,
             // `num` the modifier mask. The receiver already asked whether this node claims keys.
-            k if k == K::Key as i32 => Event::Key(day_spec::KeyEvent::named(text, num as u8)),
+            // The phase rides in bits 8 and 9 of `num` (events.rs): a repeat or a release.
+            k if k == K::Key as i32 => Event::Key(
+                day_spec::KeyEvent::named(text, (num as u32 & 0xFF) as u8)
+                    .with_phase(day_spec::KeyPhase::from_wire(num)),
+            ),
             // Text the full route committed (docs/menus.md "The full route"): what the key
-            // typed, with the modifier mask in `num`.
-            k if k == K::Text as i32 => Event::Key(day_spec::KeyEvent::typed_text(text, num as u8)),
+            // typed, with the modifier mask in `num` (and the repeat bit while held).
+            k if k == K::Text as i32 => Event::Key(
+                day_spec::KeyEvent::typed_text(text, (num as u32 & 0xFF) as u8)
+                    .with_phase(day_spec::KeyPhase::from_wire(num)),
+            ),
             // Gestures (docs/shapes.md, docs/canvas.md "Zoom and pan"): `num` = phase (1/2/3
             // drag began/changed/ended, 4/5/6 pinch, 7/8/9 viewport pan, 13/14/15 rotation),
             // `text` = "x,y,tx,ty" in px, converted to vp like the Android bridge; a pinch's
@@ -1927,6 +2372,42 @@ mod imp {
 
     /// Whether display row `index` of a sectioned list is a section header (docs/list.md
     /// "Sections"); false on every other list.
+    /// Whether row `index` of list `host_id` is a supplementary row (a header, footer, empty
+    /// state or padding row, docs/list.md).
+    pub(crate) fn list_is_supplement(host_id: u64, index: u32) -> bool {
+        day_spec::ffi_guard::contain(false, || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            source
+                .and_then(|s| s.is_supplement)
+                .is_some_and(|is_supplement| is_supplement(index as usize))
+        })
+    }
+
+    /// Hand list `host_id`'s viewport to the app (`ListSource::viewport`, docs/list.md).
+    pub(crate) fn list_viewport(host_id: u64, first: usize, last: usize, end_distance: f64) {
+        day_spec::ffi_guard::contain((), || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            if let Some(report) = source.and_then(|s| s.viewport) {
+                report(day_spec::ListViewport {
+                    first,
+                    last,
+                    end_distance,
+                });
+            }
+        });
+    }
+
+    /// Tell list `host_id`'s app the reader moved it (`ListSource::reader_scroll`,
+    /// docs/list.md "Following the end").
+    pub(crate) fn list_reader_scroll(host_id: u64) {
+        day_spec::ffi_guard::contain((), || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            if let Some(report) = source.and_then(|s| s.reader_scroll) {
+                report();
+            }
+        });
+    }
+
     pub(crate) fn list_is_header(host_id: u64, index: u32) -> bool {
         day_spec::ffi_guard::contain(false, || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
@@ -2729,10 +3210,14 @@ mod imp {
             match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
                     let n = new_node(node::STACK);
+                    // No input of its own until something attaches it (docs/gestures.md
+                    // "Pass-through"); its children keep theirs.
+                    node::make_passive(n.0);
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                             // A translucent neutral fill reads as a subtle card on both the
                             // light and dark ArkUI themes (no public semantic-fill API).
+                            SURFACE_ROLE.with(|m| m.insert(n.0 as usize, ()));
                             themed(
                                 n.0 as usize,
                                 n.0,
@@ -2742,6 +3227,7 @@ mod imp {
                             );
                         } else if p.role == Some(day_spec::SurfaceRole::Window) {
                             // The window background an opaque cover paints.
+                            SURFACE_ROLE.with(|m| m.insert(n.0 as usize, ()));
                             themed(
                                 n.0 as usize,
                                 n.0,
@@ -2749,27 +3235,22 @@ mod imp {
                                 0xFFFF_FFFF,
                                 0xFF1A_1A1C,
                             );
-                        } else if let Some(c) = p.background {
-                            node::set_bg_color(n.0, argb(c));
                         }
-                        if p.corner_radius > 0.0 {
-                            // NODE_BORDER_RADIUS in vp rounds this node's own background.
-                            node::set_corner_radius(n.0, p.corner_radius);
-                        }
-                        if p.clips {
-                            // `.corner_radius` wraps the piece, whose fill is an inner
-                            // node, so rounding shows only when this node clips it.
-                            node::set_clip(n.0, true);
-                        }
+                        apply_surface(n.0, p, true);
                     }
                     n
                 }
                 Some(Builtin::Scroll) => {
                     let n = new_node(node::SCROLL);
-                    let horizontal = props
-                        .downcast_ref::<day_spec::props::ScrollProps>()
-                        .is_some_and(|p| p.horizontal);
+                    let scroll = props.downcast_ref::<day_spec::props::ScrollProps>();
+                    let horizontal = scroll.is_some_and(|p| p.horizontal);
                     node::scroll_direction(n.0, horizontal);
+                    if let Some(p) = scroll {
+                        node::scroll_preferences(n.0, p);
+                        // Offsets and phases only for an app that observes them
+                        // (docs/scroll.md).
+                        crate::events::track_scroll(n.0, id.0, p.track_offset, p.track_phase);
+                    }
                     // The one real child ArkUI's Scroll measures its extent from (see
                     // [`SCROLL_CONTENT`]); day children land inside it via `insert`.
                     let content = new_node(node::STACK);
@@ -2795,11 +3276,12 @@ mod imp {
                     // SourceIn compositing (untinted = as authored, matching every backend). A
                     // TEMPLATE glyph with no tint takes the mode's primary text color instead,
                     // repainted on a switch like an un-colored label (docs/vectors.md
-                    // "Template"); the tint layer is SVG-only, so a raster template draws as authored.
+                    // "Template"); a raster template with no tint draws as authored.
                     // Bytes and Decoded arrive from `day::decode_image` (docs/images.md), so an
                     // `image()` piece can show a download or a pasted PNG with no staged resource
-                    // behind it. Only a named source takes a tint: the recolor repaints an SVG's
-                    // paths, and bytes have no SVG to repaint.
+                    // behind it. A tint recolors every one of them the same way: the color layer
+                    // composites over whatever the image node drew.
+                    node::make_passive(n.0);
                     arkui_apply_image_source(n.0, &p.source, p.tint);
                     if p.template && p.tint.is_none() && arkui_image_is_svg(&p.source) {
                         themed(n.0 as usize, n.0, Paint::ImageFill, TEXT_LIGHT, TEXT_DARK);
@@ -2820,12 +3302,9 @@ mod imp {
                     let n = new_node(node::TEXT);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     node::set_text(n.0, &p.text);
-                    if !p.wraps {
-                        node::label_single_line(n.0);
-                    }
-                    node::set_font_size(n.0, font_vp(p.font));
+                    node::set_font_size(n.0, label_fp(p.font));
                     if let Some(c) = p.color {
-                        node::set_font_color(n.0, argb(c));
+                        paint_ink(n.0 as usize, n.0, Paint::Font, c);
                     } else {
                         // Text defaults don't re-theme through the C API: an un-colored
                         // label takes the mode's primary text color, repainted on a switch.
@@ -2838,6 +3317,8 @@ mod imp {
                     if p.align != day_spec::props::TextAlign::Leading {
                         node::label_align(n.0, p.align);
                     }
+                    // After the font: spacing and line height are multiples of its size.
+                    apply_paragraph(n.0, p.paragraph(), p.wraps);
                     n
                 }
                 Some(Builtin::Button) => {
@@ -2997,6 +3478,7 @@ mod imp {
                 // A 1-vp hairline: a thin Stack tinted with a faint separator color.
                 Some(Builtin::Divider) => {
                     let n = new_node(node::STACK);
+                    node::make_passive(n.0);
                     themed(
                         n.0 as usize,
                         n.0,
@@ -3142,7 +3624,11 @@ mod imp {
                 }
                 // Canvas: a focus-holding host around the custom node whose on-draw callback
                 // replays the encoded display list (src/canvas.rs).
-                Some(Builtin::Canvas) => AHandle(crate::canvas::create(id.0)),
+                Some(Builtin::Canvas) => {
+                    let n = AHandle(crate::canvas::create(id.0));
+                    node::make_passive(n.0);
+                    n
+                }
                 // Recycling list: an ARKUI_NODE_LIST driven by a NodeAdapter (attach_list injects the
                 // row source; the adapter binds cells on demand). See attach_list / src/list.rs.
                 Some(Builtin::List) => {
@@ -3308,15 +3794,27 @@ mod imp {
                         }
                     }
                 }
-                kinds::CONTAINER => {
-                    if let Some(ContainerPatch::Background(Some(c))) =
-                        patch.downcast_ref::<ContainerPatch>()
-                    {
-                        // Under `with_animation` the fill fades to the new color (§8.4).
-                        let (n, c) = (h.0, argb(*c));
-                        crate::anim::animate(n, anim, move || node::set_bg_color(n, c));
+                kinds::CONTAINER => match patch.downcast_ref::<ContainerPatch>() {
+                    // Under `with_animation` a solid fill fades to the new color (§8.4); a
+                    // gradient, or no fill, applies at once (docs/tween.md rule 8).
+                    Some(ContainerPatch::Fill(fill)) => apply_fill(h.0, fill.as_ref(), anim),
+                    // A reactive surface, radius, border or shadow, or a frame-relative radius
+                    // re-resolved (docs/surfaces.md "Reactive surfaces"): the realize-time
+                    // styling again, every field. Under an animation ArkUI interpolates the
+                    // radius, the border and the colors.
+                    Some(ContainerPatch::Surface(p)) => {
+                        let (n, p) = (h.0, p.clone());
+                        crate::anim::animate(
+                            n,
+                            crate::anim::Channel::Background,
+                            anim,
+                            move || {
+                                apply_surface(n, &p, false);
+                            },
+                        );
                     }
-                }
+                    None => {}
+                },
                 // Data-driven sidebar rebuild (docs/navigation.md): swap the rows column for a
                 // freshly built one. Without this arm the patch was silently dropped: stale
                 // rows kept rendering and their synthetic ids kept firing old indices (the same
@@ -3377,8 +3875,6 @@ mod imp {
                         let Some(node_id) = node_id else { return };
                         match p {
                             CoverPatch::Present { background, .. } => {
-                                let bg = background
-                                    .map_or_else(|| theme_color(0xFFFF_FFFF, 0xFF1A_1A1C), argb);
                                 let Some((root, w, hgt)) = COVER_ROOT.with(std::cell::Cell::get)
                                 else {
                                     return;
@@ -3388,7 +3884,20 @@ mod imp {
                                     return; // already presented
                                 }
                                 let prev = COVER_PARENTS.with(|m| m.borrow().get(&key).copied());
-                                node::set_bg_color(h.0, bg);
+                                // The cover's ground follows the appearance like any ink; the
+                                // default is the window's own neutral pair.
+                                match background {
+                                    Some(c) => paint_ink(key, h.0, Paint::Background, *c),
+                                    None => {
+                                        themed(
+                                            key,
+                                            h.0,
+                                            Paint::Background,
+                                            0xFFFF_FFFF,
+                                            0xFF1A_1A1C,
+                                        );
+                                    }
+                                }
                                 // Detach from the tree slot it was parked in, then top the
                                 // cover layer at full bounds. Navigation's root page is NOT
                                 // the window root: its pushed destinations occlude that slot.
@@ -3431,14 +3940,19 @@ mod imp {
                 kinds::IMAGE => {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
                         match p {
-                            // SVG-only recolor, as at realize (docs/vectors.md). Only a tint to
-                            // apply: a missing tint patch keeps the existing default, including
-                            // a template's themed tint. An app color replaces the themed tint.
+                            // The recolor realize applies, for a vector or a raster
+                            // (docs/vectors.md, docs/images.md "Tinting"). An app color
+                            // replaces a template's themed tint.
                             day_spec::props::ImagePatch::Tint(Some(c)) => {
                                 forget_paint(h.0 as usize, h.0, Paint::ImageFill);
-                                node::set_image_fill(h.0, argb(*c));
+                                paint_ink(h.0 as usize, h.0, Paint::ImageTint, *c);
                             }
-                            day_spec::props::ImagePatch::Tint(None) => {}
+                            // A raster goes back to its own colors. A vector keeps what it
+                            // has, including a template's themed tint.
+                            day_spec::props::ImagePatch::Tint(None) => {
+                                forget_paint(h.0 as usize, h.0, Paint::ImageTint);
+                                node::clear_raster_tint(h.0);
+                            }
                             // A source swap repaints the same node (docs/images.md).
                             day_spec::props::ImagePatch::Source(source) => {
                                 arkui_apply_image_source(h.0, source, None);
@@ -3449,19 +3963,29 @@ mod imp {
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
+                            // The paragraph attributes are not applied on this toolkit yet.
+                            LabelPatch::Paragraph(para) => {
+                                let wraps = LABEL_PARA
+                                    .with(|t| t.get(h.0 as usize))
+                                    .is_none_or(|(_, wraps)| wraps);
+                                apply_paragraph(h.0, *para, wraps);
+                            }
                             LabelPatch::Text(t) => node::set_text(h.0, t),
                             LabelPatch::Color(c) => match c {
-                                Some(c) => {
-                                    forget_paint(h.0 as usize, h.0, Paint::Font);
-                                    node::set_font_color(h.0, argb(*c));
-                                }
+                                Some(c) => paint_ink(h.0 as usize, h.0, Paint::Font, *c),
                                 None => {
                                     themed(h.0 as usize, h.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
                                 }
                             },
                             LabelPatch::Font(f) => {
-                                node::set_font_size(h.0, font_vp(*f));
+                                node::set_font_size(h.0, label_fp(*f));
                                 apply_font_attrs(h.0, *f);
+                                // The spacing and line height scale with the new size.
+                                if let Some((para, wraps)) =
+                                    LABEL_PARA.with(|t| t.get(h.0 as usize))
+                                {
+                                    apply_paragraph(h.0, para, wraps);
+                                }
                             }
                             LabelPatch::Runs(text, runs) => set_label_runs(h.0, text, runs),
                         }
@@ -4071,7 +4595,7 @@ mod imp {
             node::baseline(h.0, size.height)
         }
 
-        fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+        fn set_frame(&mut self, h: &AHandle, frame: Rect, anim: Option<&AnimSpec>) {
             // The suite divides its own frame between the pages area and the bar, then tells each
             // page how much room it has: day-core sees one host node and gives it one frame.
             if NAV_SUITES.with(|c| c.borrow().contains_key(&(h.0 as usize))) {
@@ -4095,13 +4619,32 @@ mod imp {
             if COVER_NODES.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
                 return;
             }
-            node::set_frame(
-                h.0,
-                frame.origin.x,
-                frame.origin.y,
-                frame.size.width,
-                frame.size.height,
-            );
+            // Under an animation ArkUI interpolates the position and size (docs/tween.md).
+            let n = h.0;
+            crate::anim::animate(n, crate::anim::Channel::Frame, anim, move || {
+                node::set_frame(
+                    n,
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                );
+            });
+            // A hit slop's response region is a percentage of the node's size.
+            crate::gesture::resized(h.0, frame.size.width, frame.size.height);
+            // A surface's gradient follows its frame (docs/surfaces.md).
+            let resized = SURFACE_GRADIENTS.with(|m| {
+                m.with(h.0 as usize, |(g, size)| {
+                    (*size != frame.size).then(|| {
+                        *size = frame.size;
+                        g.clone()
+                    })
+                })
+                .flatten()
+            });
+            if let Some(g) = resized {
+                apply_surface_gradient(h.0, &g, frame.size);
+            }
             // An ArkTS piece is built detached, so a percentage size inside it resolves against
             // the window rather than this wrapper: tell it the size it was laid out at, when that
             // changes, as `day.frame` "<w>,<h>" (vp). A component that fills its frame sizes
@@ -4119,7 +4662,9 @@ mod imp {
 
         fn set_opacity(&mut self, h: &AHandle, opacity: f64, anim: Option<&AnimSpec>) {
             let n = h.0;
-            crate::anim::animate(n, anim, move || node::set_opacity(n, opacity));
+            crate::anim::animate(n, crate::anim::Channel::Opacity, anim, move || {
+                node::set_opacity(n, opacity);
+            });
         }
 
         fn set_transform(
@@ -4133,8 +4678,8 @@ mod imp {
             // isn't needed. The pivot is not animated: only where the node moves to is.
             let n = h.0;
             node::set_transform_center(n, t.anchor_x, t.anchor_y);
-            crate::anim::animate(n, anim, move || {
-                node::set_transform(n, t.tx, t.ty, t.sx, t.sy, t.rotate_deg);
+            crate::anim::animate(n, crate::anim::Channel::Transform, anim, move || {
+                node::set_transform(n, t.tx, t.ty, t.sx, t.sy, t.rotation.degrees());
             });
         }
 
@@ -4159,6 +4704,26 @@ mod imp {
                 },
                 min_height: 48.0,
             }
+        }
+
+        fn scroll_offset(&mut self, h: &AHandle) -> Point {
+            let (x, y) = node::scroll_offset(h.0);
+            Point::new(x, y)
+        }
+
+        fn list_scroll(&mut self, h: &AHandle, to: day_spec::ListScroll) -> bool {
+            // Posted like the row patches: scrolling binds cells, which a bind under the
+            // day-core borrow would skip; queued behind any pending reload.
+            let n = h.0 as usize;
+            let Some(owner) = LIST_NODE.with(|m| m.borrow().get(&n).copied()) else {
+                return false;
+            };
+            crate::main_thread::post_local(Box::new(move || {
+                if LIST_NODE.with(|m| m.borrow().get(&n).copied()) == Some(owner) {
+                    crate::list::scroll_aligned(n as Handle, to.row, to.align, to.animated);
+                }
+            }));
+            true
         }
 
         fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {
@@ -4213,9 +4778,16 @@ mod imp {
                     TAP_NODES.with(|s| s.borrow_mut().insert(node_id.0));
                     TAP_HANDLES.with(|m| m.borrow_mut().insert(h.0 as usize, node_id.0));
                     node::register_event(h.0, node::EV_CLICK, node_id.0);
+                    // With a double tap on the node too, its single taps move to a group.
+                    crate::gesture::enable_tap(h.0, node_id.0, false);
                 }
                 GestureKind::Drag => crate::gesture::enable_pan(h.0, node_id.0),
                 GestureKind::LongPress => crate::gesture::enable_long_press(h.0, node_id.0),
+                // ArkUI's two-tap recognizer (docs/gestures.md "Double tap").
+                GestureKind::DoubleTap => crate::gesture::enable_tap(h.0, node_id.0, true),
+                // Both observe the node's touch stream without consuming it.
+                GestureKind::Press => crate::gesture::enable_touch(h.0, node_id.0, true),
+                GestureKind::Touches => crate::gesture::enable_touch(h.0, node_id.0, false),
                 // Two-finger recognizers plus the axis events of a wheel or a touchpad
                 // (docs/canvas.md "Zoom and pan").
                 GestureKind::Pinch => crate::gesture::enable_pinch(h.0, node_id.0),
@@ -4227,6 +4799,96 @@ mod imp {
                 // nothing here can run, and a HarmonyOS phone has no pointer to hover with, so
                 // it degrades to no gesture rather than to a guessed position.
                 GestureKind::Hover => {}
+            }
+        }
+
+        /// Every kind but hover is ArkUI's own: the long-press and two-tap recognizers, and the
+        /// touch stream for presses and contacts (docs/gestures.md "Recognizers"). Hover is
+        /// unwired (see `enable_gesture`), so it never fires.
+        fn gesture_support(&self, kind: GestureKind) -> Support {
+            match kind {
+                GestureKind::Hover => Support::Unsupported,
+                _ => Support::Native,
+            }
+        }
+
+        fn set_hit_slop(&mut self, h: &AHandle, _node: NodeId, slop: day_spec::Insets) {
+            // The response region (docs/gestures.md "Hit slop"); ArkUI's parent hit test still
+            // stops at the parent's own bounds.
+            crate::gesture::set_hit_slop(h.0, slop);
+        }
+
+        fn set_drag_axis(&mut self, h: &AHandle, _node: NodeId, axis: Option<day_spec::DragAxis>) {
+            crate::gesture::set_drag_axis(h.0, axis);
+        }
+
+        fn text_scale(&mut self, _style: Font) -> f64 {
+            // One global factor (the configuration's `fontSizeScale`), which ArkUI's fp sizes
+            // already apply.
+            crate::host::font_scale()
+        }
+
+        fn set_layout_direction(
+            &mut self,
+            h: &AHandle,
+            kind: PieceKind,
+            direction: day_spec::LayoutDirection,
+        ) {
+            // Leaves only: on a container NODE_DIRECTION would also mirror the children Day
+            // placed itself.
+            if matches!(
+                kind,
+                kinds::LABEL
+                    | kinds::TEXT_FIELD
+                    | kinds::TEXT_AREA
+                    | kinds::BUTTON
+                    | kinds::TOGGLE
+                    | kinds::SLIDER
+                    | kinds::PICKER
+                    | kinds::PROGRESS
+            ) {
+                node::set_direction(h.0, direction == day_spec::LayoutDirection::Rtl);
+            }
+        }
+
+        fn set_subtree_enabled(&mut self, h: &AHandle, _node: NodeId, enabled: bool) {
+            // `NODE_ENABLED` on the container: ArkUI stops input to it and its descendants and
+            // reports it disabled. Counted, so a node under two disabled roots stays disabled
+            // until both are enabled again.
+            let key = h.0 as usize;
+            let depth = SUBTREE_DISABLED.with(|t| {
+                let depth = t.get(key).unwrap_or(0);
+                let depth = if enabled {
+                    depth.saturating_sub(1)
+                } else {
+                    depth + 1
+                };
+                if depth == 0 {
+                    let _ = t.remove(key);
+                } else {
+                    let _ = t.insert(key, depth);
+                }
+                depth
+            });
+            if !enabled {
+                // Focus inside the subtree is resigned with it.
+                node::resign_focus_within(h.0);
+            }
+            node::set_enabled(h.0, depth == 0);
+        }
+
+        fn set_focusable(&mut self, h: &AHandle, node: NodeId, focusable: bool) {
+            if !focusable {
+                return;
+            }
+            if crate::canvas::is_canvas(h.0) {
+                // A canvas keeps focus in its own focus button (canvas.rs), which reports focus
+                // and keys already; it takes touches now, and focus from them.
+                crate::canvas::make_focusable(h.0);
+            } else {
+                // Joins the focus order, takes focus on a touch before its recognizers see the
+                // press, reports focus both ways and hears keys while focused (docs/focus.md).
+                node::make_focusable(h.0, node.0);
             }
         }
 
@@ -4268,8 +4930,16 @@ mod imp {
         }
 
         fn attach_list(&mut self, host: &AHandle, source: day_spec::ListSource) {
-            if let Some(report) = &source.first_visible {
+            // A list whose app observes the viewport reports it whole (docs/list.md), and never
+            // the first-row-only report, which would overwrite it with a one-row range.
+            if source.viewport.is_some() {
+                crate::list::observe_viewport(host.0);
+            } else if let Some(report) = &source.first_visible {
                 report(0);
+            }
+            // A list that follows its end hears which scrolls the reader starts.
+            if source.reader_scroll.is_some() {
+                crate::list::observe_reader(host.0);
             }
             if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&(host.0 as usize)).copied()) {
                 LIST_SOURCES.with(|m| m.borrow_mut().insert(nid, source));
@@ -4422,6 +5092,13 @@ mod imp {
             IS_DARK.with(std::cell::Cell::get)
         }
 
+        /// The system theme's `sys.color` resource for `role` in the current color mode
+        /// (docs/color.md), or Day's own pair for a role the theme has no color for (success,
+        /// warning) and wherever the ArkTS arm is not staged.
+        fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+            palette_now().color(role)
+        }
+
         /// The settings data's animation duration scale at zero (docs/accessibility.md), read
         /// through the ArkTS arm in src/host.rs; false where the arm is not staged, which is
         /// also what `Cap::ReduceMotion` reports.
@@ -4438,7 +5115,7 @@ mod imp {
             // An override repaints now (day-core reads `dark_mode()` right after this returns);
             // the environment callback that follows then finds nothing changed.
             if let Some(dark) = dark {
-                repaint_themed(dark);
+                repaint_themed(dark, false);
             }
         }
 
@@ -4611,9 +5288,30 @@ mod imp {
                 | Cap::DragMultipleItems => Support::Native,
                 Cap::FileDialogs => Support::Native,
                 Cap::Dialogs => Support::Native,
-                // `animateTo` interpolates opacity, transform and background color on ArkUI's
-                // compositor; frames move instantly, as on Android (§8.4).
+                // `animateTo` interpolates opacity, transform, background color and frames on
+                // ArkUI's compositor (§8.4, docs/tween.md).
                 Cap::Animation => Support::Native,
+                // docs/focus.md, docs/menus.md "Keys", docs/gestures.md "Hit slop": NODE_FOCUSABLE
+                // with focus on touch; key repeats read from held keys, releases forwarded; the
+                // node's response region.
+                Cap::Focusable | Cap::KeyPhases | Cap::HitSlop => Support::Native,
+                // docs/list.md, docs/scroll.md, docs/pager.md: the list's index and scroll
+                // events, NODE_LIST_SCROLL_TO_INDEX with alignment and animation, the Scroll's
+                // scroll events and states, its paging and snap attributes, the Swiper's
+                // content-scroll event. The keyboard is dismissed by the shared layer from the
+                // phases; the C API's Scroll has no zoom.
+                Cap::ListViewport
+                | Cap::ListScrollAlign
+                | Cap::ScrollOffset
+                | Cap::ScrollPhases
+                | Cap::ScrollSnap
+                | Cap::PagerProgress => Support::Native,
+                // The list's will-scroll frames name their `ArkUI_ScrollSource`: a drag, other
+                // user input (a wheel, a key) or the scroll bar is the reader's, reported with
+                // the first viewport report it moved; the scroller and its animation are the
+                // app's (docs/list.md "Following the end").
+                Cap::ListReaderScroll => Support::Native,
+                Cap::ScrollKeyboardDismiss => Support::Emulated,
                 // `OH_Drawing_FontMgr` lists every family and style set (docs/fonts.md).
                 Cap::FontList => Support::Native,
                 // `OH_ImageSourceNative` decodes every container the platform reads, and the

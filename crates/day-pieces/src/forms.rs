@@ -110,10 +110,10 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
             let node = cx.native(
                 kinds::CONTAINER,
                 &ContainerProps {
-                    background: None,
                     corner_radius: SECTION_RADIUS,
                     clips: true,
                     role: Some(day_spec::SurfaceRole::SectionCard),
+                    ..Default::default()
                 },
                 Rc::new(SectionCardLayout),
                 Flex {
@@ -131,23 +131,7 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
             });
             node
         });
-        let note = |t: TextSource| Label {
-            text: t,
-            font: Font::Footnote,
-            font_scale: 1.0,
-            weight: None,
-            italic: false,
-            tabular: false,
-            monospace: false,
-            wraps: true,
-            max_lines: 0,
-            runs: Vec::new(),
-            markdown: false,
-            align: day_spec::props::TextAlign::Leading,
-            on_link: None,
-            color: None,
-            role: TextRole::default(),
-        };
+        let note = |t: TextSource| Label::from_source(t).font(Font::Footnote);
         let footer_insets = day_spec::Insets {
             top: 0.0,
             leading: 12.0,
@@ -227,23 +211,7 @@ impl<P: Piece> Piece for Labeled<P> {
             Boundary::No,
         );
         cx.under(node, |cx| {
-            let row_label = Label {
-                text,
-                font: Font::Body,
-                font_scale: 1.0,
-                weight: None,
-                italic: false,
-                tabular: false,
-                monospace: false,
-                wraps: true,
-                max_lines: 0,
-                runs: Vec::new(),
-                markdown: false,
-                align: day_spec::props::TextAlign::Leading,
-                on_link: None,
-                color: None,
-                role: TextRole::default(),
-            };
+            let row_label = Label::from_source(text);
             let _ = row_label.build(cx);
             let ctl = control.build(cx);
             name_control(ctl, &a11y_text);

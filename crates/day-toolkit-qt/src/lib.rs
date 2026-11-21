@@ -10,7 +10,7 @@ mod controls;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void};
+use std::os::raw::{c_char, c_double, c_int, c_void};
 use std::rc::Rc;
 
 use day_toolkit_qt_sys as ffi;
@@ -26,22 +26,62 @@ use day_spec::{
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct QtHandle(pub *mut c_void);
 
-/// Lower an `AnimSpec` to `(duration_ms, curve_code)` for the Qt shim (§8.4). `None` ⇒ `(0, 0)`
-/// (instant). Curve codes match the shim's `day_qt_easing`: 0 linear, 1 easeIn, 2 easeOut,
-/// 3 easeInOut, 4 spring (`OutBack` overshoot).
-fn qt_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
+/// An `AnimSpec` lowered for the shim's animation runs (`ffi::DayQtAnim`, docs/tween.md "The
+/// animation contract"): the shim plays the delay as a `QPauseAnimation`, the cycles as a looped
+/// `QVariantAnimation` (a forward-and-backward pair under autoreverse) whose key values are
+/// these samples of one cycle, so a spring and every easing curve are drawn exactly.
+#[derive(Clone, Debug, PartialEq)]
+struct QtAnim {
+    delay_ms: c_int,
+    duration_ms: c_int,
+    /// `-1` until the property is next set.
+    cycles: c_int,
+    autoreverse: bool,
+    /// One forward cycle's progress at evenly spaced offsets (`AnimSpec::keyframes`); the two
+    /// ends alone for a linear cycle, which Qt's interpolation already draws exactly.
+    keys: Vec<f64>,
+}
+
+impl QtAnim {
+    fn new(spec: &AnimSpec) -> Self {
+        let ms = |v: u32| c_int::try_from(v).unwrap_or(c_int::MAX);
+        let keys = if spec.curve == Curve::Linear {
+            vec![0.0, 1.0]
+        } else {
+            spec.keyframes().iter().map(|k| k.progress).collect()
+        };
+        QtAnim {
+            delay_ms: ms(spec.delay_ms),
+            duration_ms: ms(spec.duration_ms),
+            cycles: spec.cycles().map_or(-1, ms),
+            autoreverse: spec.autoreverse,
+            keys,
+        }
+    }
+
+    /// The shim's view of this run, borrowing `keys`.
+    fn raw(&self) -> ffi::DayQtAnim {
+        ffi::DayQtAnim {
+            delay_ms: self.delay_ms,
+            duration_ms: self.duration_ms,
+            cycles: self.cycles,
+            autoreverse: c_int::from(self.autoreverse),
+            keys: self.keys.as_ptr(),
+            n_keys: c_int::try_from(self.keys.len()).unwrap_or(0),
+        }
+    }
+}
+
+/// Calls `f` with the shim's run for `anim`, or a null pointer (apply at once) for `None`. The
+/// pointer and its samples are alive for the call.
+fn with_qt_anim<R>(anim: Option<&AnimSpec>, f: impl FnOnce(*const ffi::DayQtAnim) -> R) -> R {
     match anim {
-        None => (0, 0),
-        Some(a) => (
-            a.duration_ms as c_int,
-            match a.curve {
-                Curve::Linear => 0,
-                Curve::EaseIn => 1,
-                Curve::EaseOut => 2,
-                Curve::EaseInOut => 3,
-                Curve::Spring { .. } => 4,
-            },
-        ),
+        None => f(std::ptr::null()),
+        Some(spec) => {
+            let run = QtAnim::new(spec);
+            let raw = run.raw();
+            f(&raw const raw)
+        }
     }
 }
 
@@ -216,7 +256,7 @@ fn apply_button_style(w: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
         S::Automatic | S::Compact | S::Plain => (0, day_spec::Color::CLEAR),
         S::Bordered => (1, day_spec::Color::CLEAR),
         S::Prominent => (2, day_spec::Color::CLEAR),
-        S::Tinted(c) => (3, c),
+        S::Tinted(c) => (3, c.resolved()),
     };
     // SAFETY: `w` is a live QPushButton created by `day_qt_button_new`; the shim only reads the
     // packed colors.
@@ -440,6 +480,65 @@ impl CellPool {
     }
 }
 
+/// Row changes waiting for the next loop turn (docs/list.md "Keyed updates"): the patches
+/// arrive inside a day-core borrow, and the model change that applies them re-enters Day
+/// through `bind_row`. Everything one turn sends goes to the view in one flush.
+#[derive(Debug, PartialEq)]
+enum RowWork {
+    /// Re-query the source: the count, and every bound row.
+    Reload,
+    /// Sequential deltas, in the order they arrived.
+    Splice(Vec<RowDelta>),
+}
+
+impl RowWork {
+    /// Fold `next` into the work already waiting: deltas after deltas stay sequential, and a
+    /// reload on either side makes the deltas moot (it re-queries the final rows anyway).
+    fn merge(waiting: Option<Self>, next: Self) -> Self {
+        match (waiting, next) {
+            (Some(Self::Splice(mut a)), Self::Splice(b)) => {
+                a.extend(b);
+                Self::Splice(a)
+            }
+            (None, next) => next,
+            (Some(_), _) => Self::Reload,
+        }
+    }
+
+    /// The deltas as the shim's `kind, a, b` triples (0 insert, 1 remove, 2 move).
+    fn triples(deltas: &[RowDelta]) -> Vec<c_int> {
+        let idx = |i: usize| c_int::try_from(i).unwrap_or(c_int::MAX);
+        deltas
+            .iter()
+            .flat_map(|d| match d {
+                RowDelta::Insert(i) => [0, idx(*i), 0],
+                RowDelta::Remove(i) => [1, idx(*i), 0],
+                RowDelta::Move(from, to) => [2, idx(*from), idx(*to)],
+            })
+            .collect()
+    }
+}
+
+/// The supplementary rows of a list of `n` rows (docs/list.md "Header, footer and empty
+/// state"). They only ever lead and trail the items (`[top padding] [header] ([empty state] |
+/// items) [footer] [bottom padding]`), so the walk asks about the runs at both ends and stops
+/// at the first item each way: a handful of calls however long the list.
+fn supplement_rows(n: usize, is_supplement: &dyn Fn(usize) -> bool) -> Vec<usize> {
+    let lead = (0..n).take_while(|i| is_supplement(*i)).count();
+    let trail = (lead..n).rev().take_while(|i| is_supplement(*i)).count();
+    (0..lead).chain(n - trail..n).collect()
+}
+
+/// `RowAlign` as the shim's number (0 Nearest, 1 Start, 2 Center, 3 End).
+fn row_align_code(align: day_spec::RowAlign) -> c_int {
+    match align {
+        day_spec::RowAlign::Nearest => 0,
+        day_spec::RowAlign::Start => 1,
+        day_spec::RowAlign::Center => 2,
+        day_spec::RowAlign::End => 3,
+    }
+}
+
 struct ListEntry {
     host: *mut c_void,
     /// The row pitch: every row's height for a `Uniform` list, and for an `Automatic` one the
@@ -481,6 +580,15 @@ struct ListEntry {
     pin_row: Option<usize>,
     /// The row count the view's header rows were last given for (`day_qt_list_set_headers`).
     headers_for: Option<usize>,
+    /// The row count the view's supplementary rows were last given for
+    /// (`day_qt_list_set_supplements`).
+    supplements_for: Option<usize>,
+    /// Supplementary row token → the height Day laid it at, so a header, footer, empty state
+    /// or padding row keeps its height through a splice (which drops the view's per-row
+    /// heights) even while it is out of the window. A list has a handful of them.
+    supplement_heights: HashMap<u64, f64>,
+    /// Row changes waiting for this turn's flush (`queue_rows`).
+    pending: Option<RowWork>,
 }
 
 extern "C" fn on_list_activate(node: u64, row: c_int) {
@@ -566,6 +674,18 @@ extern "C" fn on_list_move(node: u64, from: c_int, to: c_int) {
     });
 }
 
+/// A scroll piece with `track_offset` moved (docs/scroll.md "Offset and phase"): the shim
+/// coalesces to one call per frame plus the resting one, from its own timer, outside any Day
+/// borrow; the sink only enqueues.
+extern "C" fn on_scroll_offset(node: u64, x: c_double, y: c_double) {
+    ffi_guard::contain((), || {
+        emit(
+            NodeId(node),
+            Event::ScrollChanged(day_spec::Point::new(x, y)),
+        );
+    });
+}
+
 /// Rebind every bound row on the next event-loop turn — NOT inline: a reload runs inside a
 /// `with_tree` borrow, and `bind_row` re-enters `with_tree`, which would panic.
 fn schedule_list_populate(host_key: usize) {
@@ -633,30 +753,53 @@ fn schedule_list_scroll_row(host_key: usize, row: usize) {
     }));
 }
 
-/// Apply a `ListPatch::Splice` as model deltas on the next loop turn, so selection and the
-/// current row follow their rows (docs/list.md). Each delta describes the rows as the previous
-/// ones left them, so they go one at a time. A count that disagrees with the source afterwards
-/// means the deltas and the snapshot drifted; the sync that follows reloads to the source's
-/// count either way, and the window rebinds in place.
-fn schedule_list_splice(host_key: usize, deltas: Vec<RowDelta>) {
-    Qt::post(Box::new(move || {
-        let host = LIST_STATE.with(|m| {
-            let mut m = m.borrow_mut();
-            let st = m.get_mut(&host_key)?;
-            st.rebind_all = true;
-            Some(st.host)
-        });
-        let Some(host) = host else { return };
-        for d in &deltas {
-            let (kind, a, b) = match d {
-                RowDelta::Insert(i) => (0, *i, 0),
-                RowDelta::Remove(i) => (1, *i, 0),
-                RowDelta::Move(from, to) => (2, *from, *to),
-            };
-            unsafe { ffi::day_qt_list_splice(host, kind, a as c_int, b as c_int) };
+/// Queue a `ListPatch::Reload` or `ListPatch::Splice` for the flush on the next loop turn
+/// (one flush per turn, posted by the first patch of the turn). A row scroll asked for after
+/// the patch is posted after the flush, so it finds its row (docs/list.md "Programmatic
+/// scrolling").
+fn queue_rows(host_key: usize, work: RowWork) {
+    let post = LIST_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        let Some(st) = m.get_mut(&host_key) else {
+            return false;
+        };
+        let first = st.pending.is_none();
+        st.pending = Some(RowWork::merge(st.pending.take(), work));
+        first
+    });
+    if post {
+        Qt::post(Box::new(move || flush_rows(host_key)));
+    }
+}
+
+/// Apply the turn's row changes. A splice goes to the view as model deltas, so selection and
+/// the current row follow their rows (docs/list.md), but only when they fit what the view was
+/// told: every index valid against the rows the earlier deltas left, and the count at the end
+/// the source's. Anything else (a snapshot that drifted from the deltas) reloads with a model
+/// reset that keeps the scroll position, never a delta the view cannot take. Either way the
+/// bound rows rebind in place and the viewport is reported after.
+fn flush_rows(host_key: usize) {
+    let work = LIST_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        let st = m.get_mut(&host_key)?;
+        let work = st.pending.take()?;
+        st.rebind_all = true;
+        let len = st.source.borrow().as_ref().map(|s| (s.len)());
+        Some((st.host, work, len))
+    });
+    let Some((host, work, len)) = work else {
+        return;
+    };
+    if let (RowWork::Splice(deltas), Some(len)) = (work, len) {
+        let triples = RowWork::triples(&deltas);
+        let count = c_int::try_from(deltas.len()).unwrap_or(c_int::MAX);
+        let len = c_int::try_from(len).unwrap_or(c_int::MAX);
+        let applied = unsafe { ffi::day_qt_list_splice_all(host, triples.as_ptr(), count, len) };
+        if applied == 0 {
+            log::debug!("qt list: a splice did not fit the view's rows; reloaded instead");
         }
-        list_sync(host_key);
-    }));
+    }
+    list_sync(host_key);
 }
 
 /// The viewport under a list resized (a legacy scroll bar came or went): the rows are laid
@@ -677,6 +820,33 @@ extern "C" fn on_list_viewport_resized(host: *mut c_void) {
             let vw = unsafe { ffi::day_qt_list_viewport_width(host) };
             if cell_width > 0 && vw > 0.0 && (vw as c_int) != cell_width {
                 schedule_list_populate(host_key);
+            }
+        }));
+    });
+}
+
+/// The reader moved the list themselves (docs/list.md "Following the end"): the view saw a
+/// wheel step, a scroll bar action or a key move it (`DayListView::readerScrolled`). Reported
+/// on the next loop turn, as the window reports are, and so ahead of the viewport report the
+/// same movement brings (the view posts that one as the bar's value lands, after this).
+extern "C" fn on_list_reader_scroll(node: u64) {
+    ffi_guard::contain((), || {
+        Qt::post(Box::new(move || {
+            let report = LIST_BY_NODE
+                .with(|m| m.borrow().get(&node).copied())
+                .and_then(|host_key| {
+                    LIST_STATE.with(|m| {
+                        m.borrow()
+                            .get(&host_key)?
+                            .source
+                            .borrow()
+                            .as_ref()?
+                            .reader_scroll
+                            .clone()
+                    })
+                });
+            if let Some(report) = report {
+                report();
             }
         }));
     });
@@ -740,6 +910,20 @@ fn list_sync(host_key: usize) {
             unsafe { ffi::day_qt_list_set_headers(st.host, rows.as_ptr(), rows.len() as c_int) };
             st.headers_for = Some(n);
         }
+        // The list's own header, footer, empty state and padding rows (docs/list.md "Header,
+        // footer and empty state") move the same way, and take back the heights Day laid them
+        // at: a splice drops the view's per-row heights, and a padding row out of the window
+        // would otherwise count at the item pitch.
+        let is_supplement = source.is_supplement.clone();
+        let mut supplements = Vec::new();
+        if let Some(f) = &is_supplement
+            && (rebind_all || st.supplements_for != Some(n))
+        {
+            supplements = supplement_rows(n, f.as_ref());
+            let raw: Vec<c_int> = supplements.iter().map(|i| *i as c_int).collect();
+            unsafe { ffi::day_qt_list_set_supplements(st.host, raw.as_ptr(), raw.len() as c_int) };
+            st.supplements_for = Some(n);
+        }
         let (mut w, mut h) = (0.0_f64, 0.0_f64);
         unsafe { ffi::day_qt_widget_size(st.host, &raw mut w, &raw mut h) };
         // Rows lay out to the VIEWPORT's width, not the host's: under a legacy scroll bar the
@@ -769,11 +953,19 @@ fn list_sync(host_key: usize) {
         for cell in &parked {
             unsafe { ffi::day_qt_list_park_cell(st.host, *cell as *mut c_void) };
         }
-        if rebind_all && (st.automatic || is_header.is_some()) {
+        if rebind_all && (st.automatic || is_header.is_some() || is_supplement.is_some()) {
             // The rows moved under the measured heights (a reload, a reorder): drop them and
             // re-seed the window from the token cache below, before anything is laid out. A
-            // sectioned list's headers go too: a reload can move them.
+            // sectioned list's headers go too, and the supplementary rows: a reload can move
+            // them.
             unsafe { ffi::day_qt_list_clear_heights(st.host) };
+        }
+        for row in supplements {
+            if let Some(h) = st.supplement_heights.get(&(source.token_at)(row)) {
+                unsafe {
+                    ffi::day_qt_list_set_row_height(st.host, row as c_int, h.ceil() as c_int);
+                };
+            }
         }
         let mut work: Vec<(usize, *mut c_void)> = Vec::with_capacity(need.len());
         for row in need {
@@ -879,7 +1071,12 @@ fn list_sync(host_key: usize) {
             }
         }));
     }
-    if source.first_visible.is_some() {
+    if source.viewport.is_some() {
+        // What the list shows now (docs/list.md "Visible rows"), asked on the next turn: the
+        // view lays out what this pass changed first, and a native layout may still hold the
+        // core tree borrow. It supersedes `first_visible`, which is then never called.
+        Qt::post(Box::new(move || list_report_viewport(host_key)));
+    } else if source.first_visible.is_some() {
         // A viewport change can recompose and lay out a floating header. A
         // native layout may still hold the core tree borrow, so defer delivery.
         Qt::post(Box::new(move || {
@@ -929,8 +1126,11 @@ fn list_sync(host_key: usize) {
         // items once per turn and moves the cells below. Later changes come as
         // `RowSizeInvalidated`. A section header sizes the same way in every list, `Uniform`
         // included (docs/list.md "Sections").
+        // A supplementary row sizes to its content the same way (docs/list.md "Header, footer
+        // and empty state").
         let header = source.is_header.as_ref().is_some_and(|f| f(i));
-        if automatic || header {
+        let supplement = source.is_supplement.as_ref().is_some_and(|f| f(i));
+        if automatic || header || supplement {
             let laid = (source.cell_height)(cell);
             if laid > 0.0 {
                 let laid_px = laid.ceil() as c_int;
@@ -938,8 +1138,11 @@ fn list_sync(host_key: usize) {
                     ffi::day_qt_set_geometry(cell, x, y, cw, laid_px);
                     ffi::day_qt_list_set_row_height(host, i as c_int, laid_px);
                 }
-                // Headers stay out of the items' estimate; the view guesses them apart.
-                if !header {
+                // Headers and supplementary rows stay out of the items' estimate; the view
+                // guesses headers apart, and a supplementary row keeps its own height.
+                if supplement {
+                    list_remember_supplement(host_key, (source.token_at)(i), laid);
+                } else if !header {
                     list_remember_height(host_key, (source.token_at)(i), laid);
                     measured = true;
                 }
@@ -961,6 +1164,46 @@ fn list_sync(host_key: usize) {
         let height = if laid > 0.0 { laid.ceil() } else { rowh } as c_int;
         unsafe { ffi::day_qt_list_pin_bound(host, row as c_int, height) };
     }
+}
+
+/// Report what the list shows (docs/list.md "Visible rows"): the first and last rows in view and
+/// the distance to the end, read from the view as it is laid now. Nothing with no rows, and
+/// nothing while row changes wait for their flush: the source already has its new rows and the
+/// view not yet, so the old end would be reported against the new row count, and day-core takes
+/// a new count with a small distance as a fresh arrival at the end (`on_end_reached` would fire
+/// again for rows that were just appended). The flush reports after it.
+fn list_report_viewport(host_key: usize) {
+    let found = LIST_STATE.with(|m| {
+        let m = m.borrow();
+        let st = m.get(&host_key)?;
+        if st.pending.is_some() {
+            return None;
+        }
+        let report = st.source.borrow().as_ref()?.viewport.clone()?;
+        Some((st.host, report))
+    });
+    let Some((host, report)) = found else {
+        return;
+    };
+    let (mut first, mut last, mut end) = (0 as c_int, 0 as c_int, 0.0_f64);
+    if unsafe { ffi::day_qt_list_viewport(host, &raw mut first, &raw mut last, &raw mut end) } == 0
+    {
+        return;
+    }
+    report(day_spec::ListViewport {
+        first: first.max(0) as usize,
+        last: last.max(first).max(0) as usize,
+        end_distance: end.max(0.0),
+    });
+}
+
+/// Remember that the supplementary row with `token` was laid `height` tall.
+fn list_remember_supplement(host_key: usize, token: u64, height: f64) {
+    LIST_STATE.with(|m| {
+        if let Some(st) = m.borrow_mut().get_mut(&host_key) {
+            st.supplement_heights.insert(token, height);
+        }
+    });
 }
 
 /// Remember that the row with `token` was laid `height` tall (`Automatic` lists), keeping the
@@ -1020,20 +1263,31 @@ fn schedule_list_row_height(host_key: usize, cell: usize, height: f64) {
                 return None;
             }
             let row = st.pool.row_of(cell)?;
-            // A header's height is not an item's: it stays out of the estimate.
-            let token = st.source.borrow().as_ref().and_then(|s| {
-                let header = s.is_header.as_ref().is_some_and(|f| f(row));
-                (!header).then(|| (s.token_at)(row))
+            // A header's height is not an item's: it stays out of the estimate. A supplementary
+            // row's (the empty state re-laid to a new list height) is remembered on its own.
+            let kind = st.source.borrow().as_ref().map(|s| {
+                let token = (s.token_at)(row);
+                if s.is_supplement.as_ref().is_some_and(|f| f(row)) {
+                    (Some(token), true)
+                } else if s.is_header.as_ref().is_some_and(|f| f(row)) {
+                    (None, false)
+                } else {
+                    (Some(token), false)
+                }
             });
-            Some((st.host, row, token))
+            Some((st.host, row, kind))
         });
-        let Some((host, row, token)) = found else {
+        let Some((host, row, kind)) = found else {
             return;
         };
         unsafe { ffi::day_qt_list_set_row_height(host, row as c_int, height.ceil() as c_int) };
-        if let Some(token) = token {
-            list_remember_height(host_key, token, height);
-            list_update_estimate(host_key);
+        match kind {
+            Some((Some(token), true)) => list_remember_supplement(host_key, token, height),
+            Some((Some(token), false)) => {
+                list_remember_height(host_key, token, height);
+                list_update_estimate(host_key);
+            }
+            _ => {}
         }
     }));
 }
@@ -1097,6 +1351,16 @@ extern "C" fn on_text(id: u64, s: *const c_char) {
 }
 /// A styled run's link was clicked (docs/text-runs.md); the app's `.on_link()` decides what the
 /// target does — Qt's own external opening is left off in the shim.
+extern "C" fn on_text_selected(id: u64, start: c_int, end: c_int) {
+    ffi_guard::contain((), || {
+        let start = usize::try_from(start).unwrap_or(0);
+        let end = usize::try_from(end).unwrap_or(0).max(start);
+        emit(NodeId(id), Event::TextSelected { start, end });
+    });
+}
+extern "C" fn on_text_scale() {
+    ffi_guard::contain((), day_core::note_text_size_changed);
+}
 extern "C" fn on_link(id: u64, s: *const c_char) {
     ffi_guard::contain((), || {
         let url = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
@@ -1115,12 +1379,21 @@ extern "C" fn on_slider(id: u64, v: c_int, committed: c_int) {
         }
     });
 }
-/// Focus callback from the C++ event filter (docs/focus.md).
-/// kind: 0 = lost, 1 = gained, 2 = submitted (line-edit return key).
+/// A key's phase from the shim's wire (docs/menus.md "Keys"): 0 down, 1 repeat (Qt's
+/// `isAutoRepeat`), 2 up.
+fn key_phase(phase: c_int) -> day_spec::KeyPhase {
+    match phase {
+        1 => day_spec::KeyPhase::Repeat,
+        2 => day_spec::KeyPhase::Up,
+        _ => day_spec::KeyPhase::Down,
+    }
+}
+
 /// Key callback from the C++ key filter (docs/menus.md): `code` 0–3 is an arrow, 10–19 a
-/// digit. Answers whether the app claimed it: a canvas nobody hung `.on_key` on keeps none of
-/// them, so an enclosing scroll area still scrolls with the keyboard.
-extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int) -> c_int {
+/// digit, `phase` 0 down, 1 repeat, 2 up. Answers whether the app claimed it: a canvas nobody
+/// hung `.on_key` on keeps none of them, so an enclosing scroll area still scrolls with the
+/// keyboard. An up comes only for a down the node claimed, so it is always the node's.
+extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int, phase: c_int) -> c_int {
     ffi_guard::contain(0, || {
         let key = match code {
             0 => "ArrowLeft",
@@ -1131,34 +1404,46 @@ extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int) -> c_int {
             _ => return 0,
         };
         let node = NodeId(id);
-        if !day_spec::keys::handled(node) {
+        let phase = key_phase(phase);
+        if phase != day_spec::KeyPhase::Up && !day_spec::keys::handled(node) {
             return 0;
         }
         emit(
             node,
-            Event::Key(day_spec::KeyEvent::named(key, modifiers as u8)),
+            Event::Key(day_spec::KeyEvent::named(key, modifiers as u8).with_phase(phase)),
         );
         1
     })
 }
 
 /// A line edit's Up, Down or Escape (docs/textfield.md "Keys"): claimed, and with `deliver`
-/// reported, when the field has a key handler and no modifier is held.
+/// reported, when the field has a key handler and no modifier is held. The release of a key
+/// the field claimed comes as `phase` 2 and is the handler's whatever the modifiers.
 extern "C" fn on_field_key(
     id: u64,
     name: *const c_char,
     modifiers: c_int,
     deliver: c_int,
+    phase: c_int,
 ) -> c_int {
     ffi_guard::contain(0, || {
-        // SAFETY: the shim passes one of its own NUL-terminated literals.
+        // SAFETY: the shim passes one of its own NUL-terminated strings, valid for the call.
         let name = unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy();
         let node = NodeId(id);
+        let phase = key_phase(phase);
+        if phase == day_spec::KeyPhase::Up {
+            let up = day_spec::KeyEvent::named(name, modifiers as u8).with_phase(phase);
+            emit(node, Event::Key(up));
+            return 1;
+        }
         if !day_spec::keys::field_claims(node, &name, modifiers as u8) {
             return 0;
         }
         if deliver != 0 {
-            emit(node, Event::Key(day_spec::KeyEvent::named(name, 0)));
+            emit(
+                node,
+                Event::Key(day_spec::KeyEvent::named(name, 0).with_phase(phase)),
+            );
         }
         1
     })
@@ -1171,13 +1456,14 @@ extern "C" fn on_text_key_query(id: u64) -> c_int {
 }
 
 /// A key on the full route (docs/menus.md "The full route"): `name` is the day name (empty
-/// for text no single key is behind), `text` what it typed or null, both valid for the call.
-/// Answers whether the app claimed it.
+/// for text no single key is behind), `text` what it typed or null, both valid for the call,
+/// `phase` 0 down, 1 repeat, 2 up (never with text). Answers whether the app claimed it.
 extern "C" fn on_text_key(
     id: u64,
     name: *const c_char,
     text: *const c_char,
     modifiers: c_int,
+    phase: c_int,
 ) -> c_int {
     ffi_guard::contain(0, || {
         // SAFETY: the shim passes NUL-terminated UTF-8 strings (or null) that outlive this call.
@@ -1190,7 +1476,8 @@ extern "C" fn on_text_key(
         };
         let key = read(name).unwrap_or_default();
         let node = NodeId(id);
-        if !day_spec::keys::handled(node) {
+        let phase = key_phase(phase);
+        if phase != day_spec::KeyPhase::Up && !day_spec::keys::handled(node) {
             return 0;
         }
         let modifiers = modifiers as u8;
@@ -1198,7 +1485,7 @@ extern "C" fn on_text_key(
             Some(text) => day_spec::KeyEvent::typed_by(key, text, modifiers),
             None => day_spec::KeyEvent::named(key, modifiers),
         };
-        emit(node, Event::Key(event));
+        emit(node, Event::Key(event.with_phase(phase)));
         1
     })
 }
@@ -1219,6 +1506,8 @@ extern "C" fn on_cover_escape(id: u64) {
     });
 }
 
+/// Focus callback from the C++ event filter (docs/focus.md).
+/// kind: 0 = lost, 1 = gained, 2 = submitted (line-edit return key).
 extern "C" fn on_focus(id: u64, kind: c_int) {
     ffi_guard::contain((), || {
         let ev = match kind {
@@ -1231,7 +1520,8 @@ extern "C" fn on_focus(id: u64, kind: c_int) {
 
 /// Gesture callback from the C++ event filter. phase: 0 tap; 1..=3 drag began/changed/ended;
 /// 4..=6 pinch began/changed/ended (tx = cumulative scale); 7..=9 pan (tx/ty = delta);
-/// 10..=12 hover; 13..=15 rotate began/changed/ended (tx = cumulative radians, clockwise).
+/// 10..=12 hover; 13..=15 rotate began/changed/ended (tx = cumulative radians, clockwise);
+/// 16 long press; 17 double tap; 18 press in; 19 press out.
 extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64) {
     use day_spec::{DragPhase, Point};
     ffi_guard::contain((), || {
@@ -1272,6 +1562,12 @@ extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64
                 rotation: tx,
                 location: at,
             },
+            16 => Event::LongPress(at),
+            17 => Event::DoubleTap(at),
+            18 | 19 => Event::Press {
+                pressed: phase == 18,
+                location: at,
+            },
             _ => Event::Drag {
                 phase: DragPhase::Changed,
                 location: at,
@@ -1280,6 +1576,72 @@ extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64
         };
         emit(NodeId(id), ev);
     });
+}
+
+/// One contact list from a touches recognizer (docs/gestures.md "Touches"): six numbers per
+/// contact, as `contacts` decodes them.
+extern "C" fn on_touches(id: u64, data: *const c_double, count: c_int) {
+    ffi_guard::contain((), || {
+        let len = usize::try_from(count).unwrap_or(0) * 6;
+        if data.is_null() || len == 0 {
+            return;
+        }
+        // SAFETY: the shim passes `count` contacts of six doubles each, valid for the call.
+        let numbers = unsafe { std::slice::from_raw_parts(data, len) };
+        emit(NodeId(id), Event::Touches(contacts(numbers)));
+    });
+}
+
+/// Decode the shim's contact numbers: id, phase (0 began, 1 moved, 2 stationary, 3 ended,
+/// 4 cancelled), x, y, pressure, kind (0 touch, 1 mouse, 2 stylus) per contact.
+fn contacts(numbers: &[f64]) -> Vec<day_spec::Touch> {
+    use day_spec::{Point, Touch, TouchPhase};
+    numbers
+        .as_chunks::<6>()
+        .0
+        .iter()
+        .map(|c| {
+            let phase = match c[1] as i32 {
+                0 => TouchPhase::Began,
+                2 => TouchPhase::Stationary,
+                3 => TouchPhase::Ended,
+                4 => TouchPhase::Cancelled,
+                _ => TouchPhase::Moved,
+            };
+            Touch::new(c[0] as u64, phase, Point::new(c[2], c[3]))
+                .with_pressure(c[4])
+                .with_kind(pointer_kind(c[5] as c_int))
+        })
+        .collect()
+}
+
+/// The shim's device code (0 touch, 1 mouse, 2 stylus) as a [`day_spec::PointerKind`].
+fn pointer_kind(code: c_int) -> day_spec::PointerKind {
+    match code {
+        0 => day_spec::PointerKind::Touch,
+        2 => day_spec::PointerKind::Stylus,
+        _ => day_spec::PointerKind::Mouse,
+    }
+}
+
+/// The kind of device behind the latest pointer input changed (docs/gestures.md "Input
+/// kind"); the shim reports only a change.
+extern "C" fn on_pointer_kind(code: c_int) {
+    ffi_guard::contain((), || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::PointerKindChanged(pointer_kind(code)),
+        );
+    });
+}
+
+/// A realized container, label, canvas, image or divider: a view that takes no pointer input
+/// until a recognizer, a menu, a drag, a drop or focus is attached, so a press on it reaches
+/// whatever is behind it (docs/gestures.md "Pass-through").
+fn passive(w: *mut c_void) -> QtHandle {
+    // SAFETY: `w` is the widget the shim just made; the shim only sets a property on it.
+    unsafe { ffi::day_qt_set_passive(w) };
+    QtHandle(w)
 }
 
 fn slider_ticks(value: f64, min: f64, max: f64) -> c_int {
@@ -1431,8 +1793,100 @@ fn set_label_runs(w: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
     let base_pt = LABEL_PT
         .with(|t| t.get(w as usize))
         .unwrap_or_else(|| qt_style(Font::Body).0);
-    let html = day_spec::runs_to_markup(text, runs, day_spec::MarkupDialect::QtHtml, base_pt);
+    let html = qt_label_markup(text, runs, base_pt);
     unsafe { ffi::day_qt_label_set_rich_text(w, cstr(&html).as_ptr()) };
+}
+
+/// Qt's spelling of a decoration style in its rich-text CSS (`text-underline-style`). Qt has no
+/// double rule, so `Double` draws a single one.
+fn qt_underline_style(style: day_spec::DecorationStyle) -> &'static str {
+    match style {
+        day_spec::DecorationStyle::Single | day_spec::DecorationStyle::Double => "solid",
+        day_spec::DecorationStyle::Dotted => "dotted",
+        day_spec::DecorationStyle::Wavy => "wave",
+    }
+}
+
+/// A label's runs as Qt rich text: the shared serializer's markup, with what Qt's rich text
+/// takes beyond it.
+///
+/// The shared markup underlines with `<u>`, which Qt reads as a single line and which overrides
+/// any style around it. A run whose underline has a style of its own is therefore serialized
+/// without the underline, inside a span carrying Qt's `text-underline-style` and
+/// `text-decoration-color` (both parsed by Qt's rich text into the `QTextCharFormat` underline
+/// style and color). Qt strikes through in one style and the text color, so a strikethrough is
+/// written plain (`<s>`) rather than leaving its color to recolor an underline. A run's small
+/// capitals are dropped (see below); the label's own `small_caps` is the face's `smcp`. Every other run is the shared markup verbatim:
+/// serializing one run at a time writes exactly what one call over the whole text writes.
+fn qt_label_markup(text: &str, runs: &[day_spec::TextRun], base_pt: f64) -> String {
+    use std::fmt::Write as _;
+    let dialect = day_spec::MarkupDialect::QtHtml;
+    let mut out = String::with_capacity(text.len() + runs.len() * 32);
+    let mut at = 0usize;
+    for r in runs {
+        let Some(styled) = text.get(r.range.clone()) else {
+            continue;
+        };
+        if r.range.start > at
+            && let Some(plain) = text.get(at..r.range.start)
+        {
+            out.push_str(&day_spec::runs_to_markup(plain, &[], dialect, base_pt));
+        }
+        let mut inner = r.clone();
+        inner.range = 0..styled.len();
+        // Qt strikes through in one style and the text color only.
+        if inner.strikethrough.is_some() {
+            inner.strikethrough = Some(day_spec::Decoration::SINGLE);
+        }
+        // Qt's rich text cannot ask a face for `smcp`: its `font-variant:small-caps` draws
+        // scaled capitals, which Day never synthesizes, and measures them inconsistently (a
+        // label laid out at its own natural width wrapped its last word on Linux). The run
+        // keeps its ordinary lowercase.
+        inner.font.small_caps = false;
+        match r
+            .underline
+            .filter(|d| d.style != day_spec::DecorationStyle::Single)
+        {
+            Some(d) => {
+                inner.underline = None;
+                let _ = write!(
+                    out,
+                    "<span style=\"text-underline-style:{};",
+                    qt_underline_style(d.style)
+                );
+                if let Some(c) = d.color {
+                    let _ = write!(out, "text-decoration-color:{};", css_hex(c.resolved()));
+                }
+                out.push_str("\">");
+                out.push_str(&day_spec::runs_to_markup(
+                    styled,
+                    &[inner],
+                    dialect,
+                    base_pt,
+                ));
+                out.push_str("</span>");
+            }
+            None => {
+                out.push_str(&day_spec::runs_to_markup(
+                    styled,
+                    &[inner],
+                    dialect,
+                    base_pt,
+                ));
+            }
+        }
+        at = r.range.end;
+    }
+    if let Some(tail) = text.get(at..) {
+        out.push_str(&day_spec::runs_to_markup(tail, &[], dialect, base_pt));
+    }
+    out
+}
+
+/// `#rrggbb` for a color in Qt's rich-text CSS.
+fn css_hex(c: day_spec::Color) -> String {
+    let byte = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u8;
+    format!("#{:02x}{:02x}{:02x}", byte(c.r), byte(c.g), byte(c.b))
 }
 
 /// Remember a label's resolved point size for [`set_label_runs`].
@@ -1465,16 +1919,68 @@ fn qt_weight(w: day_spec::FontWeight) -> c_int {
     }
 }
 
-/// (point size, `QFont` weight, italic flag) for the C++ shim.
-fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int, c_int) {
+/// A label's base font as the C++ shim takes it.
+struct FontParams {
+    /// The resolved size: the style's (or the explicit) points times `FontSpec::scale`.
+    pt: f64,
+    weight: c_int,
+    italic: c_int,
+    tabular: c_int,
+    small_caps: c_int,
+    oldstyle: c_int,
+}
+
+fn font_params(spec: day_spec::FontSpec) -> FontParams {
     let (pt, inherent) = qt_style(spec.style);
-    let weight = qt_weight(spec.weight.unwrap_or(inherent));
-    (
-        pt,
-        weight,
-        c_int::from(spec.italic),
-        c_int::from(spec.tabular),
-    )
+    FontParams {
+        pt: spec.resolved_points(pt),
+        weight: qt_weight(spec.weight.unwrap_or(inherent)),
+        italic: c_int::from(spec.italic),
+        tabular: c_int::from(spec.tabular),
+        small_caps: c_int::from(spec.small_caps),
+        oldstyle: c_int::from(spec.oldstyle_figures),
+    }
+}
+
+/// Set a label's base font (size, weight, italic and the font features).
+fn apply_label_font(w: *mut c_void, spec: day_spec::FontSpec) {
+    let f = font_params(spec);
+    // SAFETY: `w` is a live label widget the caller holds; the shim only reads its font.
+    unsafe {
+        ffi::day_qt_label_set_font(
+            w,
+            f.pt,
+            f.weight,
+            f.italic,
+            f.tabular,
+            f.small_caps,
+            f.oldstyle,
+        );
+    }
+}
+
+/// Apply the paragraph attributes (docs/text.md) at realize and on `LabelPatch::Paragraph`.
+fn apply_paragraph(w: *mut c_void, p: &day_spec::props::LabelParagraph) {
+    let truncation = match p.truncation {
+        day_spec::props::Truncation::Tail => 0,
+        day_spec::props::Truncation::Head => 1,
+        day_spec::props::Truncation::Middle => 2,
+    };
+    let max_lines = c_int::try_from(p.max_lines).unwrap_or(c_int::MAX);
+    // SAFETY: `w` is a live label widget; the shim ignores any other widget.
+    unsafe {
+        ffi::day_qt_label_set_paragraph(w, max_lines, truncation, p.letter_spacing, p.line_height);
+    };
+}
+
+/// A label's `TextAlign` as the shim's code.
+fn label_align(a: day_spec::props::TextAlign) -> c_int {
+    match a {
+        day_spec::props::TextAlign::Leading => 0,
+        day_spec::props::TextAlign::Center => 1,
+        day_spec::props::TextAlign::Trailing => 2,
+        day_spec::props::TextAlign::Justified => 3,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2148,6 +2654,368 @@ fn image_tint(tint: Option<day_spec::Color>, template: bool) -> String {
     }
 }
 
+/// Whether a container asks for what only the painted surface gives (docs/surfaces.md): a
+/// gradient, a border, a shadow, or rounding on some corners only. A plain color with all four
+/// corners rounded stays on the stylesheet path it has always taken.
+fn is_styled_surface(p: &ContainerProps) -> bool {
+    matches!(
+        p.fill,
+        Some(day_spec::Paint::Linear(_) | day_spec::Paint::Radial(_) | day_spec::Paint::Conic(_))
+    ) || p.border.is_some()
+        || p.shadow.is_some()
+        || (p.corner_radius > 0.0 && p.corners != day_spec::Corners::ALL)
+}
+
+/// The color of a solid fill in the current appearance; `None` for no fill or a gradient.
+fn solid_fill(fill: Option<&day_spec::Paint>) -> Option<day_spec::Color> {
+    match fill {
+        Some(day_spec::Paint::Solid(ink)) => Some(ink.resolved()),
+        _ => None,
+    }
+}
+
+/// A styled surface as the shim's `day_qt_widget_set_styled_surface` takes it: the 24-number
+/// spec, and the gradient's stops as (offset, r, g, b, a) groups, every ink resolved against
+/// the current appearance. The gradient kinds are the shim's: 1 linear (start and end unit
+/// points), 2 radial (center and radius, unit space), 3 conic (center and start angle in
+/// degrees, clockwise from +x).
+fn surface_spec(p: &ContainerProps) -> ([f64; 24], Vec<f64>) {
+    use day_spec::Paint;
+    let rgba = |c: day_spec::Color| [c.r, c.g, c.b, c.a];
+    let mut spec = [0.0; 24];
+    spec[0..4].copy_from_slice(&rgba(
+        solid_fill(p.fill.as_ref()).unwrap_or(day_spec::Color::CLEAR),
+    ));
+    spec[4] = p.corner_radius;
+    spec[5] = f64::from(p.corners.bits());
+    spec[6] = f64::from(u8::from(p.clips));
+    if let Some(border) = p.border {
+        spec[7..11].copy_from_slice(&rgba(border.color.resolved()));
+        spec[11] = border.width;
+    }
+    if let Some(shadow) = p.shadow {
+        spec[12..16].copy_from_slice(&rgba(shadow.color.resolved()));
+        spec[16] = shadow.blur;
+        spec[17] = shadow.dx;
+        spec[18] = shadow.dy;
+    }
+    let gradient = match &p.fill {
+        Some(Paint::Linear(g)) => Some((1.0, [g.start.x, g.start.y, g.end.x, g.end.y], &g.stops)),
+        Some(Paint::Radial(g)) => Some((2.0, [g.center.x, g.center.y, g.radius, 0.0], &g.stops)),
+        Some(Paint::Conic(g)) => Some((
+            3.0,
+            [g.center.x, g.center.y, g.start.degrees(), 0.0],
+            &g.stops,
+        )),
+        Some(Paint::Solid(_)) | None => None,
+    };
+    let mut stops = Vec::new();
+    if let Some((kind, numbers, ink_stops)) = gradient {
+        spec[19] = kind;
+        spec[20..24].copy_from_slice(&numbers);
+        for (offset, color) in day_spec::resolved_stops(ink_stops) {
+            stops.push(offset);
+            stops.extend_from_slice(&rgba(color));
+        }
+    }
+    (spec, stops)
+}
+
+/// Whether any ink of a container's surface depends on the appearance.
+fn surface_is_dynamic(p: &ContainerProps) -> bool {
+    p.fill.as_ref().is_some_and(day_spec::Paint::is_dynamic)
+        || p.border.is_some_and(|b| b.color.is_dynamic())
+        || p.shadow.is_some_and(|s| s.color.is_dynamic())
+}
+
+/// Apply every styling field of a container (docs/surfaces.md), resolved against the current
+/// appearance: at realize (`fresh`), for a reactive surface (`ContainerPatch::Surface`), and
+/// again after an appearance switch. A role is the realize-time one; its surface follows the
+/// palette by itself and only its radius changes later. A container that once painted its
+/// surface keeps painting it, so a border going away leaves no stale stylesheet behind.
+///
+/// # Safety
+/// `w` is a live container widget Day realized.
+unsafe fn apply_surface(w: *mut c_void, p: &ContainerProps, fresh: bool) {
+    // SAFETY: the caller's guarantee; every call reads or writes only `w` and the numbers
+    // passed, which outlive the calls.
+    unsafe {
+        match p.role {
+            Some(day_spec::SurfaceRole::SectionCard) => {
+                // A translucent neutral over the window color: subtle in any palette, and it
+                // follows the platform / forced (DAY_THEME) color scheme.
+                ffi::day_qt_widget_set_section_card(w, p.corner_radius);
+            }
+            Some(day_spec::SurfaceRole::Window) => {
+                ffi::day_qt_widget_set_window_surface(w, p.corner_radius, c_int::from(p.clips));
+            }
+            _ if is_styled_surface(p) || ffi::day_qt_widget_has_styled_surface(w) != 0 => {
+                // A gradient, a border, a shadow or a choice of corners: the container paints
+                // these itself, since a stylesheet cannot follow the frame or cast a shadow.
+                let (spec, stops) = surface_spec(p);
+                ffi::day_qt_widget_set_styled_surface(
+                    w,
+                    spec.as_ptr(),
+                    stops.as_ptr(),
+                    (stops.len() / 5) as c_int,
+                );
+            }
+            _ if !fresh || p.fill.is_some() || p.corner_radius > 0.0 || p.clips => {
+                let bg = solid_fill(p.fill.as_ref()).unwrap_or(day_spec::Color::CLEAR);
+                ffi::day_qt_widget_set_surface(
+                    w,
+                    bg.r,
+                    bg.g,
+                    bg.b,
+                    bg.a,
+                    p.corner_radius,
+                    c_int::from(p.clips),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---- inks that follow the appearance (docs/color.md "How a toolkit follows the appearance") ----
+
+/// The appearance-dependent inks one widget shows, kept so that an appearance switch can apply
+/// each again, resolved against the new palette. Qt takes concrete colors only (a stylesheet, a
+/// painter, rich text, a recolored glyph), and Day sends no patch on a switch: an adaptive ink is
+/// the same value before and after it. Only dynamic inks are kept (`Ink::is_dynamic`); a
+/// container's surface lives in `SURFACES` instead.
+#[derive(Clone, Default)]
+struct Inks {
+    label_color: Option<day_spec::Ink>,
+    label_runs: Option<(String, Vec<day_spec::TextRun>)>,
+    button: Option<day_spec::props::ButtonStyleSpec>,
+    image_tint: Option<day_spec::Ink>,
+    nav: Option<NavRows>,
+    cover: Option<day_spec::Ink>,
+}
+
+impl Inks {
+    fn is_empty(&self) -> bool {
+        self.label_color.is_none()
+            && self.label_runs.is_none()
+            && self.button.is_none()
+            && self.image_tint.is_none()
+            && self.nav.is_none()
+            && self.cover.is_none()
+    }
+}
+
+/// A sidebar's rows as the shim's row calls take them, kept while a row's tint depends on the
+/// appearance.
+#[derive(Clone, Default)]
+struct NavRows {
+    items: Vec<String>,
+    icons: Vec<Option<String>>,
+    tints: Vec<Option<day_spec::Ink>>,
+    badge_icons: Vec<Option<String>>,
+    badge_tints: Vec<Option<day_spec::Ink>>,
+    badges: Vec<Option<String>>,
+}
+
+impl NavRows {
+    fn is_dynamic(&self) -> bool {
+        self.tints
+            .iter()
+            .chain(&self.badge_tints)
+            .any(|t| t.is_some_and(day_spec::Ink::is_dynamic))
+    }
+
+    /// The unit-separator joined lists the shim's row calls take: titles, icon files, tints,
+    /// badge icon files, badge tints, counts.
+    fn joined(&self) -> [CString; 6] {
+        let files = |icons: &[Option<String>]| {
+            icons
+                .iter()
+                .map(|ic| ic.as_deref().map_or_default(icon_file_path))
+                .collect::<Vec<_>>()
+                .join("\u{1f}")
+        };
+        [
+            cstr(&self.items.join("\u{1f}")),
+            cstr(&files(&self.icons)),
+            cstr(&nav_tints_joined(&self.tints)),
+            cstr(&files(&self.badge_icons)),
+            cstr(&nav_tints_joined(&self.badge_tints)),
+            cstr(&nav_counts_joined(&self.badges)),
+        ]
+    }
+}
+
+thread_local! {
+    /// Appearance-dependent inks by widget pointer (`Inks`); swept with the widget.
+    static INKS: SideTable<Inks> = SideTable::new();
+    /// The surface each styled container shows now, by widget pointer: a fill patch changes
+    /// one field of it, a surface patch replaces it, an appearance switch applies it again.
+    static SURFACES: SideTable<ContainerProps> = SideTable::new();
+}
+
+/// Change the inks kept for `w`; an entry left with nothing is dropped.
+fn remember_inks(w: *mut c_void, f: impl FnOnce(&mut Inks)) {
+    INKS.with(|t| {
+        let mut inks = t.take(w as usize).unwrap_or_default();
+        f(&mut inks);
+        if !inks.is_empty() {
+            t.insert(w as usize, inks);
+        }
+    });
+}
+
+/// A dynamic ink, or `None` for a fixed one (which never needs applying again).
+fn dynamic(ink: Option<day_spec::Ink>) -> Option<day_spec::Ink> {
+    ink.filter(|i| i.is_dynamic())
+}
+
+/// A label's text color in the current appearance (`None`: the palette's text color).
+///
+/// # Safety
+/// `w` is a live label Day realized.
+unsafe fn apply_label_color(w: *mut c_void, color: Option<day_spec::Ink>) {
+    let c = color.map(day_spec::Ink::resolved);
+    let (r, g, b, a) = c.map_or((0.0, 0.0, 0.0, 0.0), |c| (c.r, c.g, c.b, c.a));
+    // SAFETY: the caller's guarantee; the shim reads only the numbers.
+    unsafe { ffi::day_qt_label_set_color(w, r, g, b, a, c_int::from(c.is_some())) };
+    remember_inks(w, |i| i.label_color = dynamic(color));
+}
+
+/// A label's runs, kept for an appearance switch when one of their inks depends on it.
+fn apply_label_runs(w: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
+    set_label_runs(w, text, runs);
+    let dynamic_runs = runs.iter().any(|r| {
+        r.color.is_some_and(day_spec::Ink::is_dynamic)
+            || r.background.is_some_and(day_spec::Ink::is_dynamic)
+            || r.underline
+                .and_then(|d| d.color)
+                .is_some_and(day_spec::Ink::is_dynamic)
+            || r.strikethrough
+                .and_then(|d| d.color)
+                .is_some_and(day_spec::Ink::is_dynamic)
+    });
+    remember_inks(w, |i| {
+        i.label_runs = dynamic_runs.then(|| (text.to_owned(), runs.to_vec()));
+    });
+}
+
+/// A button's style, kept for an appearance switch when its tint depends on it.
+fn apply_button_style_ink(w: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
+    apply_button_style(w, style);
+    let tinted = matches!(style, day_spec::props::ButtonStyleSpec::Tinted(ink) if ink.is_dynamic());
+    remember_inks(w, |i| i.button = tinted.then_some(style));
+}
+
+/// A sidebar's rows set or updated in place: `rows` the Day rows to update, or `None` to replace
+/// every row (the sections then come too).
+///
+/// # Safety
+/// `w` is a live sidebar list Day realized.
+unsafe fn apply_nav_rows(
+    w: *mut c_void,
+    rows: &NavRows,
+    update: Option<&[usize]>,
+    sections: &[Option<String>],
+) -> usize {
+    let [joined, icons, tints, badge_icons, badge_tints, counts] = rows.joined();
+    let mut headings = 0;
+    // SAFETY: the caller's guarantee; every string outlives the call.
+    unsafe {
+        if let Some(update) = update {
+            let rows_joined = update
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            ffi::day_qt_navlist_update_rows(
+                w,
+                cstr(&rows_joined).as_ptr(),
+                joined.as_ptr(),
+                icons.as_ptr(),
+                tints.as_ptr(),
+                badge_icons.as_ptr(),
+                badge_tints.as_ptr(),
+                counts.as_ptr(),
+            );
+        } else {
+            let (sections_joined, n) = nav_sections_joined(sections);
+            headings = n;
+            ffi::day_qt_navlist_set_items(
+                w,
+                joined.as_ptr(),
+                icons.as_ptr(),
+                tints.as_ptr(),
+                badge_icons.as_ptr(),
+                badge_tints.as_ptr(),
+                counts.as_ptr(),
+                cstr(&sections_joined).as_ptr(),
+            );
+        }
+    }
+    remember_inks(w, |i| i.nav = rows.is_dynamic().then(|| rows.clone()));
+    headings
+}
+
+/// The appearance changed: Day reads the new palette, then every ink Qt was handed as a
+/// concrete color is applied again, resolved against it (docs/color.md "How a toolkit follows
+/// the appearance"). Palette-driven parts (the stock controls, a template glyph, a section card)
+/// have already followed. Canvases re-record on Day's side.
+fn refresh_appearance() {
+    day_core::note_appearance_changed();
+    reapply_inks();
+}
+
+/// Every kept ink applied again, resolved against `Palette::current()`.
+fn reapply_inks() {
+    let mut surfaces = Vec::new();
+    SURFACES.with(|t| {
+        t.for_each(|w, p| {
+            if surface_is_dynamic(p) {
+                surfaces.push((w, p.clone()));
+            }
+        });
+    });
+    for (w, p) in surfaces {
+        // SAFETY: an entry lives exactly as long as its widget (swept on release).
+        unsafe { apply_surface(w as *mut c_void, &p, false) };
+    }
+    let mut inks = Vec::new();
+    INKS.with(|t| t.for_each(|w, i| inks.push((w, i.clone()))));
+    for (w, i) in inks {
+        let w = w as *mut c_void;
+        // SAFETY: as above; each call re-applies to the widget the entry was made for.
+        unsafe {
+            if let Some(c) = i.label_color {
+                apply_label_color(w, Some(c));
+            }
+            if let Some((text, runs)) = &i.label_runs {
+                set_label_runs(w, text, runs);
+            }
+            if let Some(style) = i.button {
+                apply_button_style(w, style);
+            }
+            if let Some(tint) = i.image_tint {
+                let tint = image_tint(Some(tint.resolved()), false);
+                ffi::day_qt_image_set_tint(w, cstr(&tint).as_ptr());
+            }
+            if let Some(rows) = &i.nav {
+                let all: Vec<usize> = (0..rows.items.len()).collect();
+                apply_nav_rows(w, rows, Some(&all), &[]);
+            }
+            if let Some(bg) = i.cover {
+                let bg = bg.resolved();
+                ffi::day_qt_widget_set_bg(w, bg.r, bg.g, bg.b, bg.a, std::ptr::null());
+            }
+        }
+    }
+}
+
+/// The shim's appearance callback (`day_qt_on_appearance`).
+extern "C" fn on_appearance() {
+    ffi_guard::contain((), refresh_appearance);
+}
+
 /// Per-row counts for the shim, unit-separator joined (empty = no count).
 fn nav_counts_joined(badges: &[Option<String>]) -> String {
     badges
@@ -2157,10 +3025,11 @@ fn nav_counts_joined(badges: &[Option<String>]) -> String {
         .join("\u{1f}")
 }
 
-fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
+/// Per-row tints for the shim, each resolved against the current appearance.
+fn nav_tints_joined(tints: &[Option<day_spec::Ink>]) -> String {
     tints
         .iter()
-        .map(|t| match t {
+        .map(|t| match t.map(day_spec::Ink::resolved) {
             Some(c) => format!(
                 "#{:02x}{:02x}{:02x}",
                 (c.r * 255.0) as u8,
@@ -2415,6 +3284,16 @@ impl Toolkit for Qt {
             // A reordering sidebar is Day's own list standing in for the native one: the rows
             // drag natively, the sidebar does not (docs/navigation.md).
             Cap::NavReorder => Support::Emulated,
+            // `set_appearance` is `QStyleHints::setColorScheme`, which Qt has from 6.8. Every
+            // ink follows a system switch on any version (`refresh_appearance`).
+            Cap::Appearance => {
+                // SAFETY: a compile-time answer from the shim; no arguments.
+                if unsafe { ffi::day_qt_appearance_settable() } != 0 {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
             Cap::SearchField => Support::Native,
             Cap::ComboBox => Support::Native,
             Cap::Stepper => Support::Native,
@@ -2430,8 +3309,10 @@ impl Toolkit for Qt {
             Cap::WindowTabbing if cfg!(target_os = "macos") => Support::Native,
             // `QFontDatabase::families()` + `styles()` (docs/fonts.md).
             Cap::FontList => Support::Native,
-            // Opacity and transform tween through the shim's QVariantAnimations on the
-            // per-widget graphics effect; a frame applies instantly.
+            // Qt's animation framework plays the whole AnimSpec contract on opacity, transform,
+            // frame and a container's fill (a QSequentialAnimationGroup per widget and channel:
+            // QPauseAnimation for the delay, looped QVariantAnimations keyed with the curve's
+            // samples), and `read_displayed` reads the values in flight (docs/tween.md).
             Cap::Animation => Support::Native,
             // `QImage::loadFromData` reads every format Qt's image plugins handle, and
             // `QImage::save` writes back PNG/JPEG/TIFF/BMP (docs/images.md). `Cap::ImageProperties`
@@ -2445,6 +3326,27 @@ impl Toolkit for Qt {
             // rows sized to their content, and the list pins a copy of the current section's
             // header over the top of its viewport (docs/list.md "Sections").
             Cap::ListSections => Support::Emulated,
+            // `ScrollSnap` comes to rest by a glide to the nearest stop once the user's
+            // scrolling has been quiet for 150 ms: Qt's scroll areas have resting points only
+            // under a QScroller, which Day's do not grab (docs/scroll.md).
+            Cap::ScrollSnap => Support::Emulated,
+            // `Cap::ScrollPhases` stays Unsupported (the default arm): with no QScroller, Qt
+            // tells no drag/coast/idle moments, so the scroll piece derives them from the
+            // offset reports. `Cap::ScrollZoom` too (no zooming scroll area), and
+            // `Cap::ScrollKeyboardDismiss` (a desktop toolkit with no software keyboard).
+            // `Cap::PagerProgress` as well: the pager is the composed one (`Cap::Pager`
+            // Emulated), whose progress the piece keeps at rest.
+            //
+            // The viewport report: the vertical bar's value and range and `indexAt` at the
+            // viewport's edges, after every scroll, resize, splice and relayout (docs/list.md
+            // "Visible rows"). Row scrolls aimed per pixel on the vertical bar, every
+            // alignment, gliding with a QPropertyAnimation (`Toolkit::list_scroll`). The
+            // offset: the bars' `valueChanged`, one report per frame plus the resting one.
+            Cap::ListViewport | Cap::ListScrollAlign | Cap::ScrollOffset => Support::Native,
+            // The scrolls the reader starts: the vertical bar's `actionTriggered` (only ever the
+            // user's: a wheel step, which the view hands to the bar, a thumb drag, a page click)
+            // when it moves the bar, and a key whose cursor move scrolled the list.
+            Cap::ListReaderScroll => Support::Native,
             // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
             // Cap::TextSpellCheck stays Unsupported (the default arm).
             Cap::TextRuns
@@ -2508,6 +3410,19 @@ impl Toolkit for Qt {
             | Cap::Inspector
             // A QSplitter of two plain panes, either orientation (docs/split.md).
             | Cap::Split => Support::Native,
+            // A focusable view joins Qt's tab chain (StrongFocus), focuses on a press before
+            // its recognizers hear it, reports focus both ways, takes its keys with phases, and
+            // shows the style's focus indicator when the keyboard brought focus
+            // (docs/focus.md). Repeats are `QKeyEvent::isAutoRepeat`, releases `KeyRelease`
+            // (docs/menus.md "Keys").
+            Cap::Focusable | Cap::KeyPhases => Support::Native,
+            // Day's own routing of the press, since Qt has no per-widget hit test to override
+            // (docs/gestures.md "Hit slop").
+            Cap::HitSlop => Support::Emulated,
+            // QLabel has no selection signal; the label compares `selectionStart` and
+            // `selectedText` after each mouse, key and focus event that can move it and reports
+            // a change (docs/text.md "Hearing about the selection").
+            Cap::LabelSelection => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             // Native QTreeWidget disclosure and selection, with Day-owned row widgets.
@@ -2659,35 +3574,13 @@ impl Toolkit for Qt {
                 }
                 Some(Builtin::Container) => {
                     let w = ffi::day_qt_container_new();
-                    if let Some(p) = props.downcast_ref::<ContainerProps>()
-                        && p.role == Some(day_spec::SurfaceRole::SectionCard)
-                    {
-                        // A translucent neutral over the window color: subtle in any palette,
-                        // and it follows the platform / forced (DAY_THEME) color scheme.
-                        ffi::day_qt_widget_set_section_card(w, p.corner_radius);
-                    } else if let Some(p) = props.downcast_ref::<ContainerProps>()
-                        && p.role == Some(day_spec::SurfaceRole::Window)
-                    {
-                        ffi::day_qt_widget_set_window_surface(
-                            w,
-                            p.corner_radius,
-                            c_int::from(p.clips),
-                        );
-                    } else if let Some(p) = props.downcast_ref::<ContainerProps>()
-                        && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
-                    {
-                        let bg = p.background.unwrap_or(day_spec::Color::CLEAR);
-                        ffi::day_qt_widget_set_surface(
-                            w,
-                            bg.r,
-                            bg.g,
-                            bg.b,
-                            bg.a,
-                            p.corner_radius,
-                            c_int::from(p.clips),
-                        );
+                    if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                        apply_surface(w, p, true);
+                        if *p != ContainerProps::default() {
+                            SURFACES.with(|t| t.insert(w as usize, p.clone()));
+                        }
                     }
-                    QtHandle(w)
+                    passive(w)
                 }
                 Some(Builtin::Nav) => {
                     let nav_props = props.downcast_ref::<NavProps>();
@@ -2828,38 +3721,20 @@ impl Toolkit for Qt {
                             ),
                         )
                     });
-                    let joined = p.items.join("\u{1f}");
-                    // Parallel per-row icon file paths (empty entry = no icon). Resolve the
-                    // bundled image NAME to a loadable file path on the Rust side; the shim
-                    // loads a QPixmap, tints it to the palette text color, and setIcon()s it.
-                    let icons_joined = p
-                        .icons
-                        .iter()
-                        .map(|ic| ic.as_deref().map_or_default(icon_file_path))
-                        .collect::<Vec<_>>()
-                        .join("\u{1f}");
-                    let tints_joined = nav_tints_joined(&p.tints);
-                    // The trailing status glyph rides the same resolve-then-tint path as the
-                    // leading icon; the shim's delegate paints it at the row's far edge.
-                    let badge_icons_joined = p
-                        .badge_icons
-                        .iter()
-                        .map(|ic| ic.as_deref().map_or_default(icon_file_path))
-                        .collect::<Vec<_>>()
-                        .join("\u{1f}");
-                    let badge_tints_joined = nav_tints_joined(&p.badge_tints);
-                    let counts_joined = nav_counts_joined(&p.badges);
-                    let (sections_joined, headings) = nav_sections_joined(&p.sections);
-                    ffi::day_qt_navlist_set_items(
-                        w,
-                        cstr(&joined).as_ptr(),
-                        cstr(&icons_joined).as_ptr(),
-                        cstr(&tints_joined).as_ptr(),
-                        cstr(&badge_icons_joined).as_ptr(),
-                        cstr(&badge_tints_joined).as_ptr(),
-                        cstr(&counts_joined).as_ptr(),
-                        cstr(&sections_joined).as_ptr(),
-                    );
+                    // Parallel per-row icon file paths (empty entry = no icon): the bundled image
+                    // NAME resolves to a loadable file path on the Rust side; the shim loads a
+                    // QPixmap, tints it to the palette text color, and setIcon()s it. The
+                    // trailing status glyph rides the same resolve-then-tint path as the leading
+                    // icon; the shim's delegate paints it at the row's far edge.
+                    let rows = NavRows {
+                        items: p.items.clone(),
+                        icons: p.icons.clone(),
+                        tints: p.tints.clone(),
+                        badge_icons: p.badge_icons.clone(),
+                        badge_tints: p.badge_tints.clone(),
+                        badges: p.badges.clone(),
+                    };
+                    let headings = apply_nav_rows(w, &rows, None, &p.sections);
                     navlist_apply_row_menus(w, &p.menus);
                     ffi::day_qt_navlist_set_selected(w, p.selected.map_or(-1, |i| i as c_int));
                     NAV_MENU_ROWS
@@ -2867,39 +3742,52 @@ impl Toolkit for Qt {
                     QtHandle(w)
                 }
                 Some(Builtin::Scroll) => {
-                    let horizontal = props
+                    let p = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
-                        .is_some_and(|p| p.horizontal);
-                    QtHandle(ffi::day_qt_scroll_new(c_int::from(horizontal)))
+                        .cloned()
+                        .unwrap_or_default();
+                    let sa = ffi::day_qt_scroll_new(c_int::from(p.horizontal));
+                    // The preferences (docs/scroll.md): hidden bars, and the emulated snap.
+                    // `bounce` needs nothing: a Qt scroll area stops dead at its edges
+                    // (`Some(false)` is how it always behaves) and has no overscroll effect to
+                    // turn on. `zoom` and `keyboard_dismiss` are Unsupported; `track_phase` is
+                    // left to the piece's emulation (no QScroller, so no native phases).
+                    let (snap, interval) = match p.snap {
+                        day_spec::props::ScrollSnap::None => (0, 0.0),
+                        day_spec::props::ScrollSnap::Page => (1, 0.0),
+                        day_spec::props::ScrollSnap::Interval(points) => (2, points),
+                    };
+                    let hidden = p.indicators == day_spec::props::ScrollIndicators::Hidden;
+                    ffi::day_qt_scroll_configure(sa, c_int::from(hidden), snap, interval);
+                    if p.track_offset {
+                        ffi::day_qt_scroll_track_offset(sa, id.0, on_scroll_offset);
+                    }
+                    QtHandle(sa)
                 }
                 Some(Builtin::Label) => {
                     let Some(p) = props_of::<LabelProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr(), c_int::from(p.wraps));
-                    ffi::day_qt_label_set_align(
-                        w,
-                        match p.align {
-                            day_spec::props::TextAlign::Center => 1,
-                            day_spec::props::TextAlign::Trailing => 2,
-                            day_spec::props::TextAlign::Leading => 0,
-                        },
-                    );
-                    let (pt, weight, italic, tabular) = font_params(p.font);
-                    ffi::day_qt_label_set_font(w, pt, weight, italic, tabular);
+                    ffi::day_qt_label_set_align(w, label_align(p.align));
+                    apply_label_font(w, p.font);
                     apply_custom_family(w, p.font);
                     if p.font.monospace {
                         ffi::day_qt_label_set_monospace(w);
                     }
-                    if let Some(c) = p.color {
-                        ffi::day_qt_label_set_color(w, c.r, c.g, c.b, c.a, 1);
+                    if p.color.is_some() {
+                        apply_label_color(w, p.color);
                     }
                     remember_label_pt(w, p.font);
-                    set_label_runs(w, &p.text, &p.runs);
+                    apply_paragraph(w, &p.paragraph());
+                    apply_label_runs(w, &p.text, &p.runs);
+                    if p.reports_selection {
+                        ffi::day_qt_label_on_selection(w, id.0, on_text_selected);
+                    }
                     // Wired unconditionally: runs can arrive later by patch, and connecting a
                     // signal on a label that never gets a link costs nothing.
                     ffi::day_qt_label_on_link(w, id.0, on_link);
-                    QtHandle(w)
+                    passive(w)
                 }
                 Some(Builtin::Button) => {
                     let Some(p) = props_of::<ButtonProps>(kind, "qt", props) else {
@@ -2908,7 +3796,7 @@ impl Toolkit for Qt {
                     let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
                     ffi::day_qt_set_enabled(w, c_int::from(p.enabled));
                     ffi::day_qt_button_set_selected(w, c_int::from(p.selected));
-                    apply_button_style(w, p.style);
+                    apply_button_style_ink(w, p.style);
                     if p.icon.is_some() {
                         apply_button_content(w, &p.title, p.icon.as_ref(), p.icon_only);
                     }
@@ -2957,7 +3845,7 @@ impl Toolkit for Qt {
                 Some(Builtin::Divider) => {
                     let vertical = day_spec::props_of::<DividerProps>(kind, "qt", props)
                         .is_some_and(|p| p.vertical);
-                    QtHandle(ffi::day_qt_separator_new(c_int::from(vertical)))
+                    passive(ffi::day_qt_separator_new(c_int::from(vertical)))
                 }
                 Some(Builtin::Progress) => {
                     let Some(p) = props_of::<ProgressProps>(kind, "qt", props) else {
@@ -2978,7 +3866,7 @@ impl Toolkit for Qt {
                     // else would ever make it the focus widget.
                     ffi::day_qt_enable_keys(w, id.0, on_key);
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
-                    QtHandle(w)
+                    passive(w)
                 }
                 Some(Builtin::Image) => {
                     let Some(p) = props_of::<ImageProps>(kind, "qt", props) else {
@@ -2990,7 +3878,7 @@ impl Toolkit for Qt {
                         ContentMode::Fill => 1,
                         ContentMode::Stretch => 2,
                     };
-                    match &p.source {
+                    let image = match &p.source {
                         // The staged-asset path: only a NAMED source resolves to a file, and only
                         // a file can be tinted — a recolor re-renders the glyph from its source.
                         day_spec::ImageSource::Named(named) => {
@@ -3012,8 +3900,8 @@ impl Toolkit for Qt {
                             // nav rows use, over a glyph the SVG engine renders at size. A
                             // template with no tint asks for the palette's text color
                             // (`currentColor`), which the shim re-applies on a palette change.
-                            let tint = image_tint(p.tint, p.template);
-                            QtHandle(ffi::day_qt_image_new(
+                            let tint = image_tint(p.tint.map(day_spec::Ink::resolved), p.template);
+                            passive(ffi::day_qt_image_new(
                                 cstr(&path).as_ptr(),
                                 mode,
                                 cstr(&tint).as_ptr(),
@@ -3022,10 +3910,11 @@ impl Toolkit for Qt {
                         // Bytes the app already holds — a download, a picked file, a paste — with
                         // no staged resource behind them (docs/images.md).
                         // An SVG among them takes the tint a staged glyph would (a template
-                        // follows the palette); a raster draws as authored.
+                        // follows the palette); a raster is recolored by an explicit tint and
+                        // otherwise draws as authored.
                         day_spec::ImageSource::Bytes(bytes) => {
-                            let tint = image_tint(p.tint, p.template);
-                            QtHandle(ffi::day_qt_image_new_bytes(
+                            let tint = image_tint(p.tint.map(day_spec::Ink::resolved), p.template);
+                            passive(ffi::day_qt_image_new_bytes(
                                 bytes.as_ptr(),
                                 bytes.len() as c_int,
                                 mode,
@@ -3034,9 +3923,16 @@ impl Toolkit for Qt {
                         }
                         // Already decoded: share the shim's one QImage rather than parsing twice.
                         day_spec::ImageSource::Decoded(id) => {
-                            QtHandle(ffi::day_qt_image_new_bitmap(id.0, mode))
+                            let tint = image_tint(p.tint.map(day_spec::Ink::resolved), false);
+                            passive(ffi::day_qt_image_new_bitmap(
+                                id.0,
+                                mode,
+                                cstr(&tint).as_ptr(),
+                            ))
                         }
-                    }
+                    };
+                    remember_inks(image.0, |i| i.image_tint = dynamic(p.tint));
+                    image
                 }
                 Some(Builtin::Tree) => {
                     let Some(p) = props_of::<TreeProps>(kind, "qt", props) else {
@@ -3078,6 +3974,8 @@ impl Toolkit for Qt {
                     // A legacy scroll bar appearing or leaving resizes the viewport under
                     // the rows without the host moving: re-lay them to the width they have.
                     ffi::day_qt_list_on_viewport_resized(host, on_list_viewport_resized);
+                    // The scrolls the reader starts (docs/list.md "Following the end").
+                    ffi::day_qt_list_on_reader_scroll(host, on_list_reader_scroll);
                     // A sectioned list's headers size to their content even in a `Uniform`
                     // list (docs/list.md "Sections"), so its rows are not uniform either.
                     if automatic || p.sections {
@@ -3105,6 +4003,9 @@ impl Toolkit for Qt {
                                 pin: None,
                                 pin_row: None,
                                 headers_for: None,
+                                supplements_for: None,
+                                supplement_heights: HashMap::new(),
+                                pending: None,
                             },
                         )
                     });
@@ -3129,7 +4030,7 @@ impl Toolkit for Qt {
         h: &QtHandle,
         kind: PieceKind,
         patch: &dyn std::any::Any,
-        _anim: Option<&AnimSpec>,
+        anim: Option<&AnimSpec>,
     ) {
         if let Some(patch) = patch.downcast_ref::<TreePatch>() {
             tree::patch(h.0 as usize, patch);
@@ -3144,8 +4045,9 @@ impl Toolkit for Qt {
                                 // The shim remembers whether the glyph is a template, so a
                                 // cleared tint lands back on the palette color rather than the
                                 // authored art.
-                                let tint = image_tint(*c, false);
+                                let tint = image_tint((*c).map(day_spec::Ink::resolved), false);
                                 ffi::day_qt_image_set_tint(h.0, cstr(&tint).as_ptr());
+                                remember_inks(h.0, |i| i.image_tint = dynamic(*c));
                             }
                             // A source swap repaints the same widget (docs/images.md), so an
                             // `image()` bound to a signal shows new pixels without rebuilding
@@ -3183,13 +4085,35 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::CONTAINER => {
-                    if let Some(ContainerPatch::Background(c)) =
-                        patch.downcast_ref::<ContainerPatch>()
-                    {
-                        let bg = c.unwrap_or(day_spec::Color::CLEAR);
-                        // Preserve the corner radius set at realize — a reactive `.background`
-                        // must not square off a rounded surface.
-                        ffi::day_qt_widget_set_bg(h.0, bg.r, bg.g, bg.b, bg.a);
+                    let key = h.0 as usize;
+                    match patch.downcast_ref::<ContainerPatch>() {
+                        Some(ContainerPatch::Fill(fill)) => {
+                            let mut p = SURFACES.with(|t| t.take(key)).unwrap_or_default();
+                            p.fill.clone_from(fill);
+                            match solid_fill(fill.as_ref()).filter(|_| p.role.is_none()) {
+                                // Preserve the corner radius set at realize — a reactive
+                                // `.background` must not square off a rounded surface.
+                                // Animated from the fill shown when both ends are a fill
+                                // (rule 8); a fill appearing or going away lands at once in
+                                // the shim.
+                                Some(bg) => with_qt_anim(anim, |anim| {
+                                    ffi::day_qt_widget_set_bg(h.0, bg.r, bg.g, bg.b, bg.a, anim);
+                                }),
+                                // No fill, or a gradient: the whole surface, at once.
+                                None => apply_surface(h.0, &p, false),
+                            }
+                            SURFACES.with(|t| t.insert(key, p));
+                        }
+                        // A reactive surface or a frame-relative radius (docs/surfaces.md
+                        // "Reactive surfaces"): every field at once, applied at once; the
+                        // role stays the realized one.
+                        Some(ContainerPatch::Surface(next)) => {
+                            let mut p = (**next).clone();
+                            p.role = SURFACES.with(|t| t.get(key)).and_then(|old| old.role);
+                            apply_surface(h.0, &p, false);
+                            SURFACES.with(|t| t.insert(key, p));
+                        }
+                        None => {}
                     }
                 }
                 kinds::NAV_MENU => {
@@ -3228,51 +4152,21 @@ impl Toolkit for Qt {
                             suite_apply_rows(host);
                         }
                         // Data-driven rows: rebuild the QListWidget from the new labels/icons
-                        // (the same shim call realize uses), then apply the selection.
-                        let joined = items.join("\u{1f}");
-                        let icons_joined = icons
-                            .iter()
-                            .map(|ic| ic.as_deref().map_or_default(icon_file_path))
-                            .collect::<Vec<_>>()
-                            .join("\u{1f}");
-                        let tints_joined = nav_tints_joined(tints);
-                        let badge_icons_joined = badge_icons
-                            .iter()
-                            .map(|ic| ic.as_deref().map_or_default(icon_file_path))
-                            .collect::<Vec<_>>()
-                            .join("\u{1f}");
-                        let badge_tints_joined = nav_tints_joined(badge_tints);
-                        let counts_joined = nav_counts_joined(badges);
-                        // The same rows with new words or counts: update those rows in place.
-                        if let Some(rows) = rows_changed {
-                            let rows_joined = rows
-                                .iter()
-                                .map(std::string::ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(",");
-                            ffi::day_qt_navlist_update_rows(
-                                h.0,
-                                cstr(&rows_joined).as_ptr(),
-                                cstr(&joined).as_ptr(),
-                                cstr(&icons_joined).as_ptr(),
-                                cstr(&tints_joined).as_ptr(),
-                                cstr(&badge_icons_joined).as_ptr(),
-                                cstr(&badge_tints_joined).as_ptr(),
-                                cstr(&counts_joined).as_ptr(),
-                            );
+                        // (the same shim call realize uses), then apply the selection; the same
+                        // rows with new words or counts update those rows in place.
+                        let rows = NavRows {
+                            items: items.clone(),
+                            icons: icons.clone(),
+                            tints: tints.clone(),
+                            badge_icons: badge_icons.clone(),
+                            badge_tints: badge_tints.clone(),
+                            badges: badges.clone(),
+                        };
+                        if let Some(changed) = rows_changed {
+                            apply_nav_rows(h.0, &rows, Some(changed), sections);
                             return;
                         }
-                        let (sections_joined, headings) = nav_sections_joined(sections);
-                        ffi::day_qt_navlist_set_items(
-                            h.0,
-                            cstr(&joined).as_ptr(),
-                            cstr(&icons_joined).as_ptr(),
-                            cstr(&tints_joined).as_ptr(),
-                            cstr(&badge_icons_joined).as_ptr(),
-                            cstr(&badge_tints_joined).as_ptr(),
-                            cstr(&counts_joined).as_ptr(),
-                            cstr(&sections_joined).as_ptr(),
-                        );
+                        let headings = apply_nav_rows(h.0, &rows, None, sections);
                         navlist_apply_row_menus(h.0, menus);
                         ffi::day_qt_navlist_set_selected(h.0, selected.map_or(-1, |i| i as c_int));
                         NAV_MENU_ROWS
@@ -3293,12 +4187,20 @@ impl Toolkit for Qt {
                             .unwrap_or(day_spec::WINDOW_NODE);
                         match p {
                             CoverPatch::Present { background, .. } => {
-                                if let Some(bg) = background {
-                                    ffi::day_qt_widget_set_bg(h.0, bg.r, bg.g, bg.b, bg.a);
+                                if let Some(bg) = background.map(day_spec::Ink::resolved) {
+                                    ffi::day_qt_widget_set_bg(
+                                        h.0,
+                                        bg.r,
+                                        bg.g,
+                                        bg.b,
+                                        bg.a,
+                                        std::ptr::null(),
+                                    );
                                 }
+                                remember_inks(h.0, |i| i.cover = dynamic(*background));
                                 ffi::day_qt_add_child(self.window, h.0);
                                 // A clear cover (a composed sheet's) lets the page show through.
-                                let opaque = background.is_none_or(|bg| bg.a > 0.0);
+                                let opaque = background.is_none_or(|bg| bg.resolved().a > 0.0);
                                 ffi::day_qt_cover_top(h.0, c_int::from(opaque));
                                 let (y, size) =
                                     cover_frame(h.0, LAST_WINDOW_SIZE.with(std::cell::Cell::get));
@@ -3536,20 +4438,18 @@ impl Toolkit for Qt {
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
+                            LabelPatch::Paragraph(p) => apply_paragraph(h.0, p),
                             LabelPatch::Text(t) => {
                                 ffi::day_qt_label_set_text(h.0, cstr(t).as_ptr());
+                                remember_inks(h.0, |i| i.label_runs = None);
                             }
                             LabelPatch::Font(f) => {
-                                let (pt, weight, italic, tabular) = font_params(*f);
-                                ffi::day_qt_label_set_font(h.0, pt, weight, italic, tabular);
+                                apply_label_font(h.0, *f);
                                 apply_custom_family(h.0, *f);
                                 remember_label_pt(h.0, *f);
                             }
-                            LabelPatch::Runs(text, runs) => set_label_runs(h.0, text, runs),
-                            LabelPatch::Color(c) => match c {
-                                Some(c) => ffi::day_qt_label_set_color(h.0, c.r, c.g, c.b, c.a, 1),
-                                None => ffi::day_qt_label_set_color(h.0, 0.0, 0.0, 0.0, 0.0, 0),
-                            },
+                            LabelPatch::Runs(text, runs) => apply_label_runs(h.0, text, runs),
+                            LabelPatch::Color(c) => apply_label_color(h.0, *c),
                         }
                     }
                 }
@@ -3568,7 +4468,7 @@ impl Toolkit for Qt {
                             ButtonPatch::Selected(on) => {
                                 ffi::day_qt_button_set_selected(h.0, c_int::from(*on));
                             }
-                            ButtonPatch::Style(s) => apply_button_style(h.0, *s),
+                            ButtonPatch::Style(s) => apply_button_style_ink(h.0, *s),
                         }
                     }
                 }
@@ -3635,10 +4535,10 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
+                    Some(ListPatch::Reload) => queue_rows(h.0 as usize, RowWork::Reload),
                     // Row deltas as model deltas: selection and the current row follow.
                     Some(ListPatch::Splice(deltas)) => {
-                        schedule_list_splice(h.0 as usize, deltas.clone());
+                        queue_rows(h.0 as usize, RowWork::Splice(deltas.clone()));
                     }
                     Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
                     Some(ListPatch::ScrollToRow(row)) => {
@@ -4007,16 +4907,38 @@ impl Toolkit for Qt {
     }
 
     fn set_opacity(&mut self, h: &QtHandle, opacity: f64, anim: Option<&AnimSpec>) {
-        // Opacity + transform share one custom QGraphicsEffect per widget (see the shim).
-        let (dur, curve) = qt_anim_args(anim);
-        unsafe { ffi::day_qt_set_opacity(h.0, opacity, dur, curve) };
+        // Opacity + transform share one custom QGraphicsEffect per widget (see the shim); an
+        // animated change plays as a run on Qt's animation framework (`QtAnim`).
+        // SAFETY: `h` is a live widget Day realized; the run is alive for the call.
+        with_qt_anim(anim, |anim| unsafe {
+            ffi::day_qt_set_opacity(h.0, opacity, anim);
+        });
     }
 
     fn set_transform(&mut self, h: &QtHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
         // The effect re-draws the widget through a painter transformed about its center, spilling
         // beyond the widget's own frame (§8.4) so a moved/scaled/rotated box isn't clipped.
-        let (dur, curve) = qt_anim_args(anim);
-        unsafe { ffi::day_qt_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve) };
+        // SAFETY: as in `set_opacity`.
+        with_qt_anim(anim, |anim| unsafe {
+            ffi::day_qt_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotation.degrees(), anim);
+        });
+    }
+
+    /// What the widget shows now: the shim's runs write the `DayEffect`, the geometry and the
+    /// fill on every tick, so these are the in-flight values; at rest, the model's.
+    fn read_displayed(&self, h: &QtHandle) -> day_spec::Displayed {
+        if h.0.is_null() {
+            return day_spec::Displayed::default();
+        }
+        let mut d = ffi::DayQtDisplayed::default();
+        // SAFETY: `h` is a live widget Day realized; the shim writes every field of `d`.
+        unsafe { ffi::day_qt_read_displayed(h.0, &raw mut d) };
+        day_spec::Displayed {
+            opacity: Some(d.opacity),
+            frame: (d.frame_ok != 0).then(|| Rect::new(d.x, d.y, d.w, d.h)),
+            translation: Some(day_spec::Point::new(d.tx, d.ty)),
+            background: (d.fill_ok != 0).then(|| day_spec::Color::rgba(d.r, d.g, d.b, d.a)),
+        }
     }
 
     fn set_cursor(&mut self, h: &QtHandle, cursor: Cursor) {
@@ -4047,9 +4969,54 @@ impl Toolkit for Qt {
     }
 
     fn set_selectable(&mut self, h: &QtHandle, selectable: bool) -> Option<QtHandle> {
-        // The shim qobject_casts to QLabel, so a non-label handle is a safe no-op (docs/text.md).
+        // The shim casts to Day's label, so a non-label handle is a safe no-op (docs/text.md).
         unsafe { ffi::day_qt_label_set_selectable(h.0, c_int::from(selectable)) };
         None
+    }
+
+    /// The screen's logical DPI against the platform's reference: what the desktop's text-size
+    /// setting (GNOME's text-scaling-factor, KDE's forced font DPI, both through `Xft.dpi`)
+    /// does to Day's point-sized fonts. 1.0 on macOS, which has no such setting.
+    fn text_scale(&mut self, _style: Font) -> f64 {
+        // SAFETY: reads the primary screen's DPI; called on the UI thread after `run` built the
+        // QApplication (and answers 1.0 when there is no screen).
+        unsafe { ffi::day_qt_text_scale() }
+    }
+
+    /// `QWidget::setLayoutDirection` on the widget itself. Day's containers have no Qt layout,
+    /// so the direction never moves a child Day placed; hosts whose Qt widget mirrors its own
+    /// coordinates (scroll areas, splitters, lists, trees) are skipped, and so is the canvas,
+    /// which draws in its own coordinates.
+    fn set_layout_direction(
+        &mut self,
+        h: &QtHandle,
+        kind: PieceKind,
+        direction: day_spec::LayoutDirection,
+    ) {
+        if matches!(
+            kind,
+            kinds::CONTAINER
+                | kinds::SCROLL
+                | kinds::CANVAS
+                | kinds::IMAGE
+                | kinds::NAV
+                | kinds::NAV_PAGE
+                | kinds::NAV_MENU
+                | kinds::LIST
+                | kinds::LIST_CELL
+                | kinds::TREE
+                | kinds::COVER
+                | kinds::INSPECTOR
+                | kinds::INSPECTOR_PANE
+                | kinds::SPLIT
+                | kinds::SPLIT_PANE
+        ) || h.0.is_null()
+        {
+            return;
+        }
+        let rtl = c_int::from(direction == day_spec::LayoutDirection::Rtl);
+        // SAFETY: `h` is a live widget Day realized.
+        unsafe { ffi::day_qt_widget_set_direction(h.0, rtl) };
     }
 
     /// Derived from the widget's own font metrics in the shim (docs/baseline.md): Qt has no
@@ -4063,16 +5030,28 @@ impl Toolkit for Qt {
         (b >= 0.0).then_some(b)
     }
 
-    fn set_frame(&mut self, h: &QtHandle, frame: Rect, _anim: Option<&AnimSpec>) {
-        unsafe {
-            ffi::day_qt_set_geometry(
+    fn set_frame(&mut self, h: &QtHandle, frame: Rect, anim: Option<&AnimSpec>) {
+        // A host whose panes or rows are laid out from its native size (nav, split, inspector,
+        // list) re-reports them below from the size Qt gives it, so it takes its frame at once;
+        // everything else animates its geometry under `anim` (a run in the shim).
+        let key = h.0 as usize;
+        let native_host = NAV_STATE.with(|m| m.borrow().contains_key(&key))
+            || NAV_SUITES.with(|m| m.borrow().contains_key(&key))
+            || SPLIT_STATE.with(|m| m.borrow().contains_key(&key))
+            || INSPECTOR_STATE.with(|m| m.borrow().contains_key(&key))
+            || LIST_STATE.with(|m| m.borrow().contains_key(&key));
+        let anim = if native_host { None } else { anim };
+        // SAFETY: `h` is a live widget Day realized; the run is alive for the call.
+        with_qt_anim(anim, |anim| unsafe {
+            ffi::day_qt_set_frame(
                 h.0,
                 frame.origin.x.round() as c_int,
                 frame.origin.y.round() as c_int,
                 frame.size.width.round() as c_int,
                 frame.size.height.round() as c_int,
+                anim,
             );
-        };
+        });
         // Nav host resized (window resize): re-report page sizes for relayout.
         if NAV_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             nav_sync_panes(h.0);
@@ -4142,8 +5121,9 @@ impl Toolkit for Qt {
         }
     }
 
-    fn scroll_to(&mut self, h: &QtHandle, target: Rect, _animated: bool) {
-        // Qt scroll bars have no built-in animation; jumps are immediate (dayscript-friendly).
+    fn scroll_to(&mut self, h: &QtHandle, target: Rect, animated: bool) {
+        // Qt's scroll bars have no animation of their own: an animated scroll glides the bars'
+        // values for 250 ms with an ease-out cubic, and lands where the jump would (docs/scroll.md).
         unsafe {
             ffi::day_qt_scroll_to_rect(
                 h.0,
@@ -4151,8 +5131,35 @@ impl Toolkit for Qt {
                 target.origin.y.round() as c_int,
                 target.size.width.round() as c_int,
                 target.size.height.round() as c_int,
+                c_int::from(animated),
             );
         };
+    }
+
+    fn scroll_offset(&mut self, h: &QtHandle) -> day_spec::Point {
+        let (mut x, mut y) = (0.0_f64, 0.0_f64);
+        unsafe { ffi::day_qt_scroll_offset(h.0, &raw mut x, &raw mut y) };
+        day_spec::Point::new(x, y)
+    }
+
+    fn list_scroll(&mut self, h: &QtHandle, to: day_spec::ListScroll) -> bool {
+        // QListView scrolls per pixel, so the shim aims the vertical bar itself: the row's
+        // aligned position (`QAbstractItemView::scrollTo` has no "nearest" that keeps a fully
+        // visible row still, nor a pinned-header inset), a jump or a 250 ms glide, re-aimed
+        // while rows it reveals are measured. Posted: the request arrives in the same turn as
+        // the splice that made its row, and the row flush posted first runs first.
+        let host_key = h.0 as usize;
+        let row = to
+            .row
+            .map_or(-1, |r| c_int::try_from(r).unwrap_or(c_int::MAX));
+        let align = row_align_code(to.align);
+        let animated = c_int::from(to.animated);
+        Qt::post(Box::new(move || {
+            if let Some(host) = LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| st.host)) {
+                unsafe { ffi::day_qt_list_scroll(host, row, align, animated) };
+            }
+        }));
+        true
     }
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
@@ -4235,6 +5242,7 @@ impl Toolkit for Qt {
             unsafe {
                 ffi::day_qt_enable_keys(h.0, node.0, on_key);
                 ffi::day_qt_enable_focus(h.0, node.0, on_focus);
+                ffi::day_qt_set_focusable(h.0);
             }
         }
     }
@@ -4256,14 +5264,53 @@ impl Toolkit for Qt {
             return; // already wired
         }
         let code: c_int = match kind {
-            K::Tap | K::LongPress => 0,
+            K::Tap => 0,
             K::Drag => 1,
             K::Pinch => 2,
             K::Pan => 3,
             K::Hover => 4,
             K::Rotate => 5,
+            K::Press => 6,
+            K::LongPress => 7,
+            K::DoubleTap => 8,
+            K::Touches => 9,
         };
         unsafe { ffi::day_qt_enable_gesture(h.0, node.0, code, on_gesture) };
+    }
+
+    // The shim's own recognizers (docs/gestures.md "Recognizers"): a press is the left
+    // button's or the first finger's, a long press Qt's `mousePressAndHoldInterval` held within
+    // its `startDragDistance`, a double tap Qt's `MouseButtonDblClick`. Touches need screen
+    // contacts: Qt's touch events where the platform has a touch screen (X11's XInput 2,
+    // Windows), with the mouse as one contact; a Mac's trackpad fingers are not screen
+    // contacts, so there day-core derives the single contact.
+    fn gesture_support(&self, kind: day_spec::GestureKind) -> Support {
+        match kind {
+            day_spec::GestureKind::Touches if cfg!(target_os = "macos") => Support::Unsupported,
+            _ => Support::Native,
+        }
+    }
+
+    fn set_hit_slop(&mut self, h: &QtHandle, _node: NodeId, slop: day_spec::Insets) {
+        unsafe {
+            ffi::day_qt_set_hit_slop(h.0, slop.top, slop.leading, slop.bottom, slop.trailing);
+        }
+    }
+
+    fn set_drag_axis(&mut self, h: &QtHandle, _node: NodeId, axis: Option<day_spec::DragAxis>) {
+        let code = match axis {
+            None => 0,
+            Some(day_spec::DragAxis::Horizontal) => 1,
+            Some(day_spec::DragAxis::Vertical) => 2,
+        };
+        unsafe { ffi::day_qt_set_drag_axis(h.0, code) };
+    }
+
+    // `QWidget::setEnabled` cascades through the subtree: the controls dim, leave the focus
+    // chain (focus inside moves on and reports its loss), take no input and read as disabled
+    // to assistive technology; the shim counts nested calls (docs/forms.md).
+    fn set_subtree_enabled(&mut self, h: &QtHandle, _node: NodeId, enabled: bool) {
+        unsafe { ffi::day_qt_subtree_enabled(h.0, c_int::from(enabled)) };
     }
 
     fn edit_toolbar(&mut self, h: &QtHandle, ops: &[day_spec::ToolbarOp]) -> bool {
@@ -4305,11 +5352,8 @@ impl Toolkit for Qt {
 
     fn modifiers(&mut self) -> day_spec::Modifiers {
         let m = unsafe { ffi::day_qt_modifiers() };
-        day_spec::Modifiers {
-            shift: m & i32::from(day_spec::KeyEvent::SHIFT) != 0,
-            primary: m & i32::from(day_spec::KeyEvent::PRIMARY) != 0,
-            alt: m & i32::from(day_spec::KeyEvent::ALT) != 0,
-        }
+        // The shim's mask uses the wire bits (`Modifiers::bits`).
+        day_spec::Modifiers::from_bits((m & 7) as u8)
     }
 
     fn set_drag_source(&mut self, h: &QtHandle, source: day_spec::transfer::Source) {
@@ -4504,6 +5548,43 @@ impl Toolkit for Qt {
         unsafe {
             ffi::day_qt_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr());
         };
+    }
+
+    /// A role from the application palette (docs/color.md "Roles"): `QPalette::Accent` (6.6+,
+    /// else `Highlight`), `WindowText` for text (at 0.6, 0.38 and 0.15 for secondary, tertiary
+    /// and separators), `PlaceholderText`, `Link`, `Button`, `Window`, `Base` (also for an
+    /// elevated surface) and `Highlight` at 0.35 for a selection. The palette has no
+    /// destructive, success or warning color: Day's documented pairs answer those.
+    fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        let mut rgba = [0.0f64; 4];
+        // SAFETY: `rgba` has the four slots the shim writes; nothing else crosses.
+        if unsafe { ffi::day_qt_system_color(c_int::from(role.wire()), rgba.as_mut_ptr()) } != 0 {
+            day_spec::Color::rgba(rgba[0], rgba[1], rgba[2], rgba[3])
+        } else {
+            role.fallback(self.dark_mode())
+        }
+    }
+
+    /// `QStyleHints::setColorScheme` (Qt 6.8+), for this application only: Qt re-polishes
+    /// every widget with the scheme's palette, and the palette change re-applies Day's inks.
+    fn set_appearance(&mut self, dark: Option<bool>) {
+        let mode = match dark {
+            None => -1,
+            Some(false) => 0,
+            Some(true) => 1,
+        };
+        // SAFETY: a plain request on the application's style hints.
+        if unsafe { ffi::day_qt_set_appearance(mode) } == 0 {
+            return;
+        }
+        // Qt has re-polished by now: take its new palette and apply the inks again before
+        // anything paints (day-core reads the same palette as soon as this returns). A palette
+        // Qt delivers later still reaches `refresh_appearance`.
+        day_spec::Palette::set_current(day_spec::Palette {
+            dark: self.dark_mode(),
+            colors: day_spec::SystemColor::ALL.map(|role| self.system_color(role)),
+        });
+        reapply_inks();
     }
 
     fn dark_mode(&mut self) -> bool {
@@ -5077,6 +6158,8 @@ impl Platform for Qt {
             if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
                 ffi::day_qt_app_set_rtl();
             }
+            // The desktop's text size (docs/text.md "Text scale") follows the screen's DPI.
+            ffi::day_qt_on_text_scale(on_text_scale);
             // Bundled custom fonts (§18.4): register with the QFontDatabase (needs the
             // QApplication above) before the first label realizes.
             for path in day_spec::fonts::bundled_fonts() {
@@ -5097,8 +6180,12 @@ impl Platform for Qt {
             ffi::day_qt_set_present_cb(present_cb);
             ffi::day_qt_set_menu_cb(on_menu_action);
             ffi::day_qt_set_text_keys(on_text_key_query, on_text_key);
+            ffi::day_qt_set_touches_cb(on_touches);
+            ffi::day_qt_install_input_router(on_pointer_kind);
             ffi::day_qt_set_toolbar_cb(toolbar::on_toolbar_value);
             ffi::day_qt_set_lifecycle_cb(on_lifecycle);
+            // A palette or color scheme change re-applies every appearance-dependent ink.
+            ffi::day_qt_on_appearance(on_appearance);
             ready(self, QtHandle(window), options.size);
             ffi::day_qt_window_on_resize(window, window_resized);
             ffi::day_qt_set_window_events_cb(win_resized, win_closed, win_focused);
@@ -5212,6 +6299,279 @@ mod bitmap_teardown_tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::{contacts, key_phase, pointer_kind};
+    use day_spec::{KeyPhase, Point, PointerKind, TouchPhase};
+
+    #[test]
+    fn contact_numbers_decode_in_order() {
+        let numbers = [
+            7.0, 0.0, 10.0, 20.0, 0.5, 0.0, // a finger going down at half force
+            9.0, 2.0, 1.0, 2.0, 1.0, 2.0, // a pen held still
+            0.0, 4.0, 3.0, 4.0, 1.0, 1.0, // the mouse, cancelled
+            1.0, 3.0, // an incomplete trailing record is ignored
+        ];
+        let touches = contacts(&numbers);
+        assert_eq!(touches.len(), 3);
+        assert_eq!(touches[0].id, 7);
+        assert_eq!(touches[0].phase, TouchPhase::Began);
+        assert_eq!(touches[0].location, Point::new(10.0, 20.0));
+        assert!((touches[0].pressure - 0.5).abs() < f64::EPSILON);
+        assert_eq!(touches[0].kind, PointerKind::Touch);
+        assert_eq!(touches[1].phase, TouchPhase::Stationary);
+        assert_eq!(touches[1].kind, PointerKind::Stylus);
+        assert_eq!(touches[2].phase, TouchPhase::Cancelled);
+        assert_eq!(touches[2].kind, PointerKind::Mouse);
+    }
+
+    #[test]
+    fn wire_codes_name_phases_and_devices() {
+        assert_eq!(key_phase(0), KeyPhase::Down);
+        assert_eq!(key_phase(1), KeyPhase::Repeat);
+        assert_eq!(key_phase(2), KeyPhase::Up);
+        assert_eq!(pointer_kind(0), PointerKind::Touch);
+        assert_eq!(pointer_kind(1), PointerKind::Mouse);
+        assert_eq!(pointer_kind(2), PointerKind::Stylus);
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::{dynamic, is_styled_surface, surface_is_dynamic, surface_spec};
+    use day_spec::props::ContainerProps;
+    use day_spec::{Border, Color, Corners, LinearGradient, Shadow, UnitPoint};
+
+    /// A plain colored, rounded surface keeps the stylesheet path; each new field leaves it.
+    #[test]
+    fn only_new_fields_take_the_painted_path() {
+        let plain = ContainerProps {
+            fill: Some(Color::rgb(1.0, 0.0, 0.0).into()),
+            corner_radius: 8.0,
+            clips: true,
+            ..ContainerProps::default()
+        };
+        assert!(!is_styled_surface(&plain));
+        // A corner choice without a radius rounds nothing, so it changes nothing.
+        assert!(!is_styled_surface(&ContainerProps {
+            corner_radius: 0.0,
+            corners: Corners::TOP,
+            ..plain.clone()
+        }));
+        assert!(is_styled_surface(&ContainerProps {
+            corners: Corners::TOP,
+            ..plain.clone()
+        }));
+        assert!(is_styled_surface(&ContainerProps {
+            border: Some(Border::new(Color::WHITE, 1.0)),
+            ..plain.clone()
+        }));
+        assert!(is_styled_surface(&ContainerProps {
+            shadow: Some(Shadow::new(Color::WHITE, 4.0)),
+            ..plain.clone()
+        }));
+        assert!(is_styled_surface(&ContainerProps {
+            fill: Some(LinearGradient::vertical(Color::WHITE, Color::WHITE).into()),
+            ..plain.clone()
+        }));
+        // Every gradient kind paints; a solid fill keeps the stylesheet.
+        assert!(is_styled_surface(&ContainerProps {
+            fill: Some(
+                day_spec::RadialGradient::new(UnitPoint::CENTER, 0.5, [(0.0, Color::WHITE)]).into()
+            ),
+            ..plain.clone()
+        }));
+        assert!(is_styled_surface(&ContainerProps {
+            fill: Some(
+                day_spec::ConicGradient::centered(day_spec::Angle::ZERO, [(0.0, Color::WHITE)])
+                    .into()
+            ),
+            ..plain
+        }));
+    }
+
+    /// A radial fill sends its center and radius, a conic one its center and start angle in
+    /// degrees; stops go resolved, in order.
+    #[test]
+    fn radial_and_conic_fills_reach_the_shim() {
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let blue = Color::rgb(0.0, 0.0, 1.0);
+        let radial = ContainerProps {
+            fill: Some(
+                day_spec::RadialGradient::new(
+                    UnitPoint::new(0.25, 0.75),
+                    0.4,
+                    [(0.0, red), (1.0, blue)],
+                )
+                .into(),
+            ),
+            ..ContainerProps::default()
+        };
+        let (spec, stops) = surface_spec(&radial);
+        assert_eq!(spec[19..24], [2.0, 0.25, 0.75, 0.4, 0.0]);
+        assert_eq!(stops, [0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0]);
+        let conic = ContainerProps {
+            fill: Some(
+                day_spec::ConicGradient::new(
+                    UnitPoint::CENTER,
+                    day_spec::Angle::rad(std::f64::consts::FRAC_PI_2),
+                    [(0.0, red), (0.5, blue)],
+                )
+                .into(),
+            ),
+            ..ContainerProps::default()
+        };
+        let (spec, stops) = surface_spec(&conic);
+        assert_eq!(spec[19..22], [3.0, 0.5, 0.5]);
+        assert!((spec[22] - 90.0).abs() < 1e-9);
+        assert_eq!(stops.len(), 10);
+        assert_eq!(spec[0..4], [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    /// Only an ink that depends on the appearance is kept for a switch.
+    #[test]
+    fn a_surface_follows_the_appearance_only_with_a_dynamic_ink() {
+        let fixed = ContainerProps {
+            fill: Some(Color::WHITE.into()),
+            border: Some(Border::new(Color::WHITE, 1.0)),
+            ..ContainerProps::default()
+        };
+        assert!(!surface_is_dynamic(&fixed));
+        let pair = day_spec::Ink::adaptive(Color::WHITE, Color::BLACK);
+        assert!(surface_is_dynamic(&ContainerProps {
+            fill: Some(pair.into()),
+            ..fixed.clone()
+        }));
+        assert!(surface_is_dynamic(&ContainerProps {
+            border: Some(Border::new(day_spec::SystemColor::Separator, 1.0)),
+            ..fixed.clone()
+        }));
+        assert!(surface_is_dynamic(&ContainerProps {
+            fill: Some(LinearGradient::vertical(Color::WHITE, pair).into()),
+            ..fixed
+        }));
+        assert!(dynamic(Some(Color::WHITE.into())).is_none());
+        assert_eq!(dynamic(Some(pair)), Some(pair));
+    }
+
+    /// The spec's slots are the ones shim.cpp's `day_qt_widget_set_styled_surface` reads.
+    #[test]
+    fn spec_slots_match_the_shim() {
+        // A fill is a color or a gradient, never both: the gradient leaves the color slots clear.
+        let props = ContainerProps {
+            fill: Some(
+                LinearGradient::vertical(Color::rgb(1.0, 0.0, 0.0), Color::rgb(0.0, 0.0, 1.0))
+                    .into(),
+            ),
+            corner_radius: 12.0,
+            corners: Corners::TOP_LEFT | Corners::BOTTOM_RIGHT,
+            border: Some(Border::new(Color::rgba(0.5, 0.6, 0.7, 0.8), 2.0)),
+            shadow: Some(Shadow::new(Color::rgba(0.0, 0.0, 0.0, 0.25), 16.0).offset(1.0, 6.0)),
+            clips: false,
+            role: None,
+        };
+        let (spec, stops) = surface_spec(&props);
+        assert_eq!(spec[0..4], [0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(spec[4..7], [12.0, 5.0, 0.0]);
+        assert_eq!(spec[7..12], [0.5, 0.6, 0.7, 0.8, 2.0]);
+        assert_eq!(spec[12..19], [0.0, 0.0, 0.0, 0.25, 16.0, 1.0, 6.0]);
+        let Some(day_spec::Paint::Linear(g)) = &props.fill else {
+            unreachable!("the gradient set above")
+        };
+        assert_eq!(spec[19..24], [1.0, g.start.x, g.start.y, g.end.x, g.end.y]);
+        assert_eq!(stops.len(), 10);
+        assert_eq!(stops[0..5], [0.0, 1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(stops[5..10], [1.0, 0.0, 0.0, 1.0, 1.0]);
+
+        // Nothing set: every slot zero but the corner bits, and no stops.
+        let (spec, stops) = surface_spec(&ContainerProps::default());
+        assert_eq!(stops, [] as [f64; 0]);
+        assert!(
+            spec.iter()
+                .enumerate()
+                .all(|(i, v)| (i == 5) == (*v != 0.0))
+        );
+        assert_eq!(spec[5], 15.0);
+    }
+}
+
+#[cfg(test)]
+mod list_rows_tests {
+    use super::{RowWork, row_align_code, supplement_rows};
+    use day_spec::props::RowDelta;
+    use std::os::raw::c_int;
+
+    /// One turn's patches fold into one flush: deltas stay in order, and a reload on either
+    /// side of them wins.
+    #[test]
+    fn row_work_merges_in_arrival_order() {
+        let a = RowWork::Splice(vec![RowDelta::Insert(0)]);
+        let b = RowWork::Splice(vec![RowDelta::Move(3, 0), RowDelta::Remove(2)]);
+        assert_eq!(
+            RowWork::merge(Some(a), b),
+            RowWork::Splice(vec![
+                RowDelta::Insert(0),
+                RowDelta::Move(3, 0),
+                RowDelta::Remove(2)
+            ])
+        );
+        let splice = || RowWork::Splice(vec![RowDelta::Insert(1)]);
+        assert_eq!(RowWork::merge(None, splice()), splice());
+        assert_eq!(
+            RowWork::merge(Some(RowWork::Reload), splice()),
+            RowWork::Reload
+        );
+        assert_eq!(
+            RowWork::merge(Some(splice()), RowWork::Reload),
+            RowWork::Reload
+        );
+        assert_eq!(RowWork::merge(None, RowWork::Reload), RowWork::Reload);
+    }
+
+    /// The shim's triples: kind 0 insert, 1 remove, 2 move, the move's target last.
+    #[test]
+    fn row_work_triples() {
+        let deltas = [
+            RowDelta::Insert(4),
+            RowDelta::Remove(1),
+            RowDelta::Move(5, 2),
+        ];
+        assert_eq!(RowWork::triples(&deltas), vec![0, 4, 0, 1, 1, 0, 2, 5, 2]);
+        assert_eq!(RowWork::triples(&[]), Vec::<c_int>::new());
+    }
+
+    /// The supplementary rows lead and trail the items; the walk finds both runs, an all-
+    /// supplementary list (header, empty state, footer) whole, and none in a plain list.
+    #[test]
+    fn supplement_rows_at_both_ends() {
+        // [top padding] [header] items 2..8 [footer] [bottom padding]
+        let rows = supplement_rows(10, &|i| !(2..8).contains(&i));
+        assert_eq!(rows, vec![0, 1, 8, 9]);
+        assert_eq!(supplement_rows(3, &|_| true), vec![0, 1, 2]);
+        assert_eq!(supplement_rows(5, &|_| false), Vec::<usize>::new());
+        assert_eq!(supplement_rows(0, &|_| true), Vec::<usize>::new());
+        // Only a trailing footer.
+        assert_eq!(supplement_rows(4, &|i| i == 3), vec![3]);
+        // The walk never asks about the items between the runs.
+        let asked = std::cell::Cell::new(0);
+        let rows = supplement_rows(1_000_000, &|i| {
+            asked.set(asked.get() + 1);
+            i == 0 || i == 999_999
+        });
+        assert_eq!(rows, vec![0, 999_999]);
+        assert!(asked.get() <= 4);
+    }
+
+    #[test]
+    fn row_align_codes_match_the_shim() {
+        use day_spec::RowAlign;
+        assert_eq!(row_align_code(RowAlign::Nearest), 0);
+        assert_eq!(row_align_code(RowAlign::Start), 1);
+        assert_eq!(row_align_code(RowAlign::Center), 2);
+        assert_eq!(row_align_code(RowAlign::End), 3);
     }
 }
 
@@ -5350,5 +6710,148 @@ mod cell_pool_tests {
         assert_eq!(parked, [] as [usize; 0]);
         let after: Vec<(usize, usize)> = pool.bound.iter().map(|(r, c)| (*r, *c)).collect();
         assert_eq!(before, after);
+    }
+}
+
+#[cfg(test)]
+mod text_tests {
+    use super::{css_hex, font_params, label_align, qt_label_markup};
+    use day_spec::props::TextAlign;
+    use day_spec::{Color, Decoration, DecorationStyle, Font, FontSpec, MarkupDialect, TextRun};
+
+    fn run(range: std::ops::Range<usize>) -> TextRun {
+        TextRun {
+            range,
+            ..TextRun::default()
+        }
+    }
+
+    #[test]
+    fn runs_without_a_styled_underline_are_the_shared_markup() {
+        let text = "a < b and c & d\nnext";
+        let mut bold = run(2..5);
+        bold.font.weight = Some(day_spec::FontWeight::Bold);
+        let mut under = run(10..11);
+        under.underline = Some(Decoration::SINGLE.color(Color::rgb(1.0, 0.0, 0.0)));
+        let runs = [bold, under];
+        assert_eq!(
+            qt_label_markup(text, &runs, 13.0),
+            day_spec::runs_to_markup(text, &runs, MarkupDialect::QtHtml, 13.0)
+        );
+    }
+
+    #[test]
+    fn a_styled_underline_travels_as_qt_css_around_the_run() {
+        let text = "Check unknown now";
+        let mut wavy = run(6..13);
+        wavy.underline = Some(Decoration::wavy().color(Color::rgb(1.0, 0.0, 0.0)));
+        let html = qt_label_markup(text, &[wavy], 13.0);
+        assert_eq!(
+            html,
+            "Check <span style=\"text-underline-style:wave;text-decoration-color:#ff0000;\">\
+             unknown</span> now"
+        );
+        let mut dotted = run(0..5);
+        dotted.underline = Some(Decoration::dotted());
+        let mut double = run(6..13);
+        double.underline = Some(Decoration::double());
+        let html = qt_label_markup(text, &[dotted, double], 13.0);
+        assert!(html.starts_with("<span style=\"text-underline-style:dotted;\">Check</span> "));
+        assert!(html.contains("<span style=\"text-underline-style:solid;\">unknown</span>"));
+        assert!(!html.contains("<u>"));
+    }
+
+    #[test]
+    fn a_strikethrough_color_is_dropped_and_the_line_kept() {
+        let mut struck = run(0..6);
+        struck.strikethrough =
+            Some(Decoration::new(DecorationStyle::Double).color(Color::rgb(1.0, 0.0, 0.0)));
+        let html = qt_label_markup("Struck", &[struck], 13.0);
+        assert_eq!(html, "<s>Struck</s>");
+        assert_eq!(css_hex(Color::rgb(0.0, 0.5, 1.0)), "#007fff");
+    }
+
+    #[test]
+    fn a_run_asks_for_no_synthesized_small_caps() {
+        let mut caps = run(0..4);
+        caps.font.small_caps = true;
+        assert_eq!(qt_label_markup("Caps", &[caps], 13.0), "Caps");
+    }
+
+    #[test]
+    fn a_run_that_misses_the_text_is_skipped() {
+        let html = qt_label_markup("short", &[run(2..40)], 13.0);
+        assert_eq!(html, "short");
+    }
+
+    #[test]
+    fn the_font_carries_scale_and_features() {
+        let spec = FontSpec {
+            style: Font::System(20.0),
+            scale: 1.5,
+            tabular: true,
+            small_caps: true,
+            oldstyle_figures: true,
+            ..FontSpec::default()
+        };
+        let f = font_params(spec);
+        assert!((f.pt - 30.0).abs() < 1e-9);
+        assert_eq!((f.tabular, f.small_caps, f.oldstyle), (1, 1, 1));
+        assert_eq!(label_align(TextAlign::Justified), 3);
+        assert_eq!(label_align(TextAlign::Trailing), 2);
+    }
+}
+
+#[cfg(test)]
+mod anim_tests {
+    use super::*;
+
+    #[test]
+    fn a_spec_lowers_to_its_delay_cycles_and_direction() {
+        let run = QtAnim::new(&AnimSpec::linear(600).delay(900));
+        assert_eq!((run.delay_ms, run.duration_ms, run.cycles), (900, 600, 1));
+        assert!(!run.autoreverse);
+        // A linear cycle needs only its two ends: Qt interpolates between key values linearly.
+        assert_eq!(run.keys, vec![0.0, 1.0]);
+        let run = QtAnim::new(&AnimSpec::linear(800).repeat(2, true));
+        assert_eq!((run.cycles, run.autoreverse), (3, true));
+        let run = QtAnim::new(&AnimSpec::linear(600).repeat_forever(true));
+        assert_eq!(run.cycles, -1);
+    }
+
+    #[test]
+    fn a_spring_carries_its_overshooting_samples() {
+        let spec = AnimSpec::spring(0.9, 0.25);
+        let run = QtAnim::new(&spec);
+        assert_eq!(run.keys.len(), spec.keyframes().len());
+        assert_eq!(run.keys.first().copied(), Some(0.0));
+        assert_eq!(run.keys.last().copied(), Some(1.0));
+        // The loose spring passes its target by more than a third on the first swing.
+        assert!(run.keys.iter().copied().fold(0.0, f64::max) > 1.35);
+    }
+
+    #[test]
+    fn an_easing_curve_is_sampled_exactly() {
+        let spec = AnimSpec::ease_in_out(1000);
+        let run = QtAnim::new(&spec);
+        let n = run.keys.len() - 1;
+        let mid = run.keys[n / 2];
+        // Day's EaseInOut is smoothstep, which Qt's InOutQuad is not away from the middle.
+        assert!((mid - spec.cycle_progress(0.5)).abs() < 1e-12);
+        let quarter = run.keys[n / 4];
+        let t = (n / 4) as f64 / n as f64;
+        assert!((quarter - t * t * (3.0 - 2.0 * t)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_shim_sees_the_samples_and_none_is_null() {
+        let spec = AnimSpec::spring(0.4, 0.8).delay(50);
+        let run = QtAnim::new(&spec);
+        let raw = run.raw();
+        assert_eq!(raw.n_keys as usize, run.keys.len());
+        assert_eq!(raw.keys, run.keys.as_ptr());
+        assert_eq!(raw.delay_ms, 50);
+        assert!(with_qt_anim(None, <*const ffi::DayQtAnim>::is_null));
+        assert!(!with_qt_anim(Some(&spec), <*const ffi::DayQtAnim>::is_null));
     }
 }

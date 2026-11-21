@@ -15,6 +15,10 @@ harness = false # GTK on macOS requires the process's main thread.
 name = "native_list_selection"
 harness = false # GTK on macOS requires the process's main thread.
 
+[[test]]
+name = "native_surface_tint"
+harness = false # GTK on macOS requires the process's main thread.
+
 [dependencies]
 day-reactive = { workspace = true }
 log = { workspace = true }

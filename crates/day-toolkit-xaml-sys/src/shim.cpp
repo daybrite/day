@@ -90,6 +90,7 @@
 #ifdef DAY_WINUI
 #include <winrt/Microsoft.Graphics.Canvas.h>
 #include <winrt/Microsoft.Graphics.Canvas.Brushes.h>
+#include <winrt/Microsoft.Graphics.Canvas.Effects.h> // shadows, blend modes, raster tint
 #include <winrt/Microsoft.Graphics.Canvas.Geometry.h>
 #include <winrt/Microsoft.Graphics.Canvas.Text.h>
 #include <winrt/Microsoft.Graphics.Canvas.UI.Xaml.h>
@@ -324,6 +325,35 @@ static std::string dw_name(IDWriteLocalizedStrings* names) {
     if (FAILED(names->GetString(idx, &buf[0], len + 1))) return std::string();
     buf.resize(len);
     return dw_utf8(buf);
+}
+
+// The input kind last reported (docs/gestures.md "Input kind"; -1 until first asked) and where a
+// change goes. `watch_pointer_kind` hooks a window's root: presses, and moves of devices that
+// hover, with handledEventsToo so a control that handles its pointer events does not hide them.
+static int g_pointer_kind = -1;
+static void (*g_pointer_kind_cb)(int) = nullptr;
+extern "C" int day_xaml_primary_pointer();
+static void watch_pointer_kind(UIElement const& root) {
+    auto seen = [](WUXIn::PointerRoutedEventArgs const& a, bool press) {
+        int kind = 0;
+        switch (a.Pointer().PointerDeviceType()) {
+            case DayPointerDeviceType::Mouse: kind = 1; break;
+            case DayPointerDeviceType::Pen: kind = 2; break;
+            default: if (!press) return; break; // a finger only "moves" while down
+        }
+        day_xaml_primary_pointer(); // seeds the opening value
+        if (kind == g_pointer_kind) return;
+        g_pointer_kind = kind;
+        if (g_pointer_kind_cb) g_pointer_kind_cb(kind);
+    };
+    root.AddHandler(UIElement::PointerPressedEvent(),
+                    winrt::box_value(WUXIn::PointerEventHandler(
+                        [seen](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) { seen(a, true); })),
+                    true);
+    root.AddHandler(UIElement::PointerMovedEvent(),
+                    winrt::box_value(WUXIn::PointerEventHandler(
+                        [seen](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) { seen(a, false); })),
+                    true);
 }
 
 extern "C" {
@@ -1595,6 +1625,31 @@ extern "C" void day_xaml_watch_reduce_motion(void (*cb)()) try {
 } catch (...) {
 }
 
+// Windows' one "Text size" factor (Settings > Accessibility > Text size), 1.0 to 2.25, which
+// XAML applies to every text element itself (docs/text.md "System text size").
+extern "C" double day_xaml_text_scale() {
+    double out = 1.0;
+    guard([&] {
+        winrt::Windows::UI::ViewManagement::UISettings ui;
+        out = ui.TextScaleFactor();
+    });
+    return out;
+}
+
+static void (*g_text_scale_cb)() = nullptr;
+static void* g_text_settings = nullptr;
+extern "C" void day_xaml_watch_text_scale(void (*cb)()) try {
+    g_text_scale_cb = cb;
+    if (g_text_settings) return;
+    winrt::Windows::UI::ViewManagement::UISettings ui;
+    ui.TextScaleFactorChanged([](auto const&, auto const&) {
+        // Thread-pool thread: cross to the UI thread before touching Rust.
+        day_xaml_post([](void*) { if (g_text_scale_cb) g_text_scale_cb(); }, nullptr);
+    });
+    g_text_settings = winrt::detach_abi(ui);
+} catch (...) {
+}
+
 // Destroy the primary window's host, once day-core has torn its content down (the released
 // root handle is the signal). The counterpart of day_xaml_window_destroy2 for window zero.
 extern "C" void day_xaml_destroy_primary() {
@@ -1868,6 +1923,7 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h,
     aw->app = app;
     aw->dqc = dqc;
     aw->root = root;
+    guard([&] { watch_pointer_kind(root); });
     WUXC::Canvas content;
     WUXC::Canvas::SetLeft(content, 0);
     WUXC::Canvas::SetTop(content, 0);
@@ -2271,6 +2327,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     sw->island = island;
     sw->source = source;
     sw->root = root;
+    guard([&] { watch_pointer_kind(root); });
     sw->content = content;
     sw->node = node;
     g_sec_windows[host] = sw;
@@ -2628,6 +2685,9 @@ void* day_xaml_scroll_new(void** out_content, int horizontal) {
     sv.VerticalContentAlignment(WUX::VerticalAlignment::Top);
     WUXC::Canvas content;
     content.VerticalAlignment(WUX::VerticalAlignment::Top);
+    // The scroll view takes the wheel and touch over its whole content, passive children
+    // included (docs/gestures.md "Pass-through").
+    content.Background(WUXM::SolidColorBrush(color_argb(0)));
     sv.Content(content);
     if (out_content) *out_content = boxh(content);
     return boxh(sv);
@@ -2650,6 +2710,10 @@ void day_xaml_scroll_to(void* sv, int y, int h, int animated) {
     // Scroll the minimum to make [y, y+h] visible (NSScrollView scrollRectToVisible semantics).
     auto s = elem(sv).try_as<WUXC::ScrollViewer>();
     if (!s) return;
+    // A scroll asked for in the turn that sized the content (a target computed against the new
+    // content) finds the viewer not yet laid out: no viewport, and an extent too short for the
+    // target, so ChangeView would clamp to the old range and never move. Lay it out first.
+    if (s.ViewportHeight() <= 0 || y + h > s.ExtentHeight()) s.UpdateLayout();
     double vh = s.ViewportHeight(), off = s.VerticalOffset(), target = off;
     if (y < off) target = y;
     else if (y + h > off + vh) target = y + h - vh;
@@ -2671,6 +2735,139 @@ void day_xaml_scroll_to(void* sv, int y, int h, int animated) {
     // re-entering it. Closing this needs the capture to yield to the loop and resume, not
     // another wait in here.
 }
+// Scroll preferences and reports (docs/scroll.md): hidden bars, snapping, zoom, and the offset,
+// phase and zoom reports, each installed only when asked for. `cb(id, kind, a, b)`: kind 0 the
+// offset (a, b = x, y), 1 the phase (a = 0 idle, 1 dragging, 2 coasting), 2 the zoom (a).
+struct DayScrollState {
+    unsigned long long id = 0;
+    void (*cb)(unsigned long long, int, double, double) = nullptr;
+    int snap = 0;           // 0 none, 1 page, 2 interval
+    double interval = 0;
+    bool horizontal = false, offset = false, phase = false, zoom = false;
+    int phase_now = 0;
+    double last_zoom = 1, start = 0;
+    bool snapping = false;
+};
+static std::map<void*, std::shared_ptr<DayScrollState>> g_scroll_states;
+
+static void day_scroll_phase(DayScrollState& st, int phase) {
+    if (!st.phase || st.phase_now == phase) return;
+    st.phase_now = phase;
+    if (st.cb) st.cb(st.id, 1, phase, 0);
+}
+
+void day_xaml_scroll_configure(void* sv, unsigned long long id, int hide_bars, int snap,
+                               double interval, double zoom_min, double zoom_max, int track_offset,
+                               int track_phase, void (*cb)(unsigned long long, int, double, double)) try {
+    auto s = elem(sv).as<WUXC::ScrollViewer>();
+    auto st = std::make_shared<DayScrollState>();
+    st->id = id;
+    st->cb = cb;
+    st->snap = snap;
+    st->interval = interval;
+    st->horizontal = s.HorizontalScrollMode() == WUXC::ScrollMode::Enabled &&
+                     s.VerticalScrollMode() == WUXC::ScrollMode::Disabled;
+    st->offset = track_offset != 0;
+    st->phase = track_phase != 0;
+    st->zoom = zoom_max > 0;
+    using SBV = WUXC::ScrollBarVisibility;
+    const SBV shown = hide_bars ? SBV::Hidden : SBV::Auto;
+    if (st->zoom) {
+        // Zoomed content pans both ways, whatever the axis it scrolls along at 1×.
+        s.ZoomMode(WUXC::ZoomMode::Enabled);
+        s.MinZoomFactor(static_cast<float>(zoom_min));
+        s.MaxZoomFactor(static_cast<float>(zoom_max));
+        s.HorizontalScrollMode(WUXC::ScrollMode::Enabled);
+        s.VerticalScrollMode(WUXC::ScrollMode::Enabled);
+        s.HorizontalScrollBarVisibility(shown);
+        s.VerticalScrollBarVisibility(shown);
+    } else if (hide_bars) {
+        // Hidden keeps the axis scrolling with no bar; the axis that does not scroll stays off.
+        if (st->horizontal) s.HorizontalScrollBarVisibility(SBV::Hidden);
+        else s.VerticalScrollBarVisibility(SBV::Hidden);
+    }
+    g_scroll_states[sv] = st;
+    if (!st->offset && !st->phase && !st->zoom && !st->snap) return;
+    std::weak_ptr<DayScrollState> weak = st;
+    s.ViewChanged([weak, s](WF::IInspectable const&, WUXC::ScrollViewerViewChangedEventArgs const& a) {
+        auto st = weak.lock();
+        if (!st) return;
+        if (st->offset && st->cb) st->cb(st->id, 0, s.HorizontalOffset(), s.VerticalOffset());
+        if (st->zoom && st->cb) {
+            const double z = s.ZoomFactor();
+            if (std::fabs(z - st->last_zoom) > 1e-6 || !a.IsIntermediate()) {
+                st->last_zoom = z;
+                st->cb(st->id, 2, z, 0);
+            }
+        }
+        if (a.IsIntermediate()) return;
+        if (st->snap && !st->snapping) {
+            // At rest off a stop: settle on the nearest one, a page at most from where the
+            // gesture started (docs/scroll.md "Snapping").
+            const double off = st->horizontal ? s.HorizontalOffset() : s.VerticalOffset();
+            const double page = st->horizontal ? s.ViewportWidth() : s.ViewportHeight();
+            const double step = st->snap == 1 ? page : st->interval;
+            const double range = st->horizontal ? s.ScrollableWidth() : s.ScrollableHeight();
+            if (step > 0) {
+                double target = std::round(off / step) * step;
+                if (st->snap == 1) target = std::clamp(target, st->start - page, st->start + page);
+                target = std::clamp(target, 0.0, range);
+                if (std::fabs(target - off) > 0.5) {
+                    st->snapping = true;
+                    day_scroll_phase(*st, 2);
+                    if (st->horizontal) s.ChangeView(WF::IReference<double>(target), nullptr, nullptr, false);
+                    else s.ChangeView(nullptr, WF::IReference<double>(target), nullptr, false);
+                    return;
+                }
+            }
+        }
+        st->snapping = false;
+        st->start = st->horizontal ? s.HorizontalOffset() : s.VerticalOffset();
+        day_scroll_phase(*st, 0);
+    });
+    s.DirectManipulationStarted([weak, s](WF::IInspectable const&, WF::IInspectable const&) {
+        auto st = weak.lock();
+        if (!st) return;
+        st->snapping = false;
+        st->start = st->horizontal ? s.HorizontalOffset() : s.VerticalOffset();
+        day_scroll_phase(*st, 1);
+    });
+    s.ViewChanging([weak](WF::IInspectable const&, WUXC::ScrollViewerViewChangingEventArgs const& a) {
+        auto st = weak.lock();
+        if (st && a.IsInertial() && st->phase_now == 1) day_scroll_phase(*st, 2);
+    });
+    s.DirectManipulationCompleted([weak](WF::IInspectable const&, WF::IInspectable const&) {
+        auto st = weak.lock();
+        if (st && !st->snapping) day_scroll_phase(*st, 0);
+    });
+    // A wheel or a touchpad's scroll has no manipulation: its burst of view changes is the
+    // drag, and the change that settles ends it.
+    s.AddHandler(UIElement::PointerWheelChangedEvent(),
+                 winrt::box_value(WUXIn::PointerEventHandler(
+                     [weak, s](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const&) {
+                         auto st = weak.lock();
+                         if (!st || st->phase_now != 0) return;
+                         st->start = st->horizontal ? s.HorizontalOffset() : s.VerticalOffset();
+                         day_scroll_phase(*st, 1);
+                     })),
+                 true);
+} catch (...) {
+}
+
+// Zoom to `scale` (clamped to the view's range) about the viewport's center (docs/scroll.md
+// "Zoom"), with the platform's zoom animation or none.
+void day_xaml_scroll_zoom(void* sv, double scale, int animated) try {
+    auto s = elem(sv).as<WUXC::ScrollViewer>();
+    if (s.ZoomMode() != WUXC::ZoomMode::Enabled) return;
+    const double z0 = s.ZoomFactor();
+    const double z1 = std::clamp(scale, static_cast<double>(s.MinZoomFactor()), static_cast<double>(s.MaxZoomFactor()));
+    const double cx = (s.HorizontalOffset() + s.ViewportWidth() / 2) / z0 * z1 - s.ViewportWidth() / 2;
+    const double cy = (s.VerticalOffset() + s.ViewportHeight() / 2) / z0 * z1 - s.ViewportHeight() / 2;
+    s.ChangeView(WF::IReference<double>((std::max)(0.0, cx)), WF::IReference<double>((std::max)(0.0, cy)),
+                 WF::IReference<float>(static_cast<float>(z1)), animated == 0);
+} catch (...) {
+}
+
 // The day name for a key the route carries, or null for every other key (docs/menus.md).
 // `mods` is the day KeyEvent mask already read for this press. A digit is the PHYSICAL key,
 // main row or keypad (a virtual key does not say what the layout types), and never under Ctrl
@@ -2696,6 +2893,38 @@ static const char* day_xaml_key_name(winrt::Windows::System::VirtualKey k, int m
 // The WinUI canvas uses Win2D for both screen drawing and PNG export.
 // The deprecated system-XAML target deliberately has no canvas renderer.
 static std::map<uint64_t, std::vector<uint8_t>>& xaml_bitmaps();
+// The key routes' memory (docs/menus.md "Key phases"): per element that routes keys, the keys
+// whose down it claimed, each with the name its down carried, so the release reports the same key
+// and only a claimed key reports one. Cleared when the element loses focus (no up after that) and
+// dropped with the node.
+extern "C++" {
+struct DayKeyState {
+    std::map<int, std::string> down;
+    // The virtual key of the latest KeyDown, which a following CharacterReceived typed.
+    int last_vk = -1;
+    // The high half of a surrogate pair `CharacterReceived` delivered, waiting for its low half.
+    wchar_t pending_high = 0;
+};
+static std::map<void*, std::shared_ptr<DayKeyState>> g_key_states;
+static void keys_forget(void* h) { g_key_states.erase(h); }
+// Whether two WinRT references are the same object.
+static bool day_same(WF::IInspectable const& a, WF::IInspectable const& b) {
+    return a && b && a.as<WF::IUnknown>() == b.as<WF::IUnknown>();
+}
+// Run `f` on the UI thread after `ms` (the shim's own delayed post, so it shares day's timers).
+static void day_after(unsigned ms, std::function<void()> f) {
+    auto* p = new std::function<void()>(std::move(f));
+    day_xaml_post_delayed(ms, [](void* raw) {
+        auto* fn = static_cast<std::function<void()>*>(raw);
+        try { (*fn)(); } catch (...) {}
+        delete fn;
+    }, p);
+}
+
+// Wire bits beside the modifier mask (`KeyPhase::from_wire`): a repeat, a release.
+constexpr int kDayKeyRepeat = 1 << 8;
+constexpr int kDayKeyUp = 1 << 9;
+} // extern "C++"
 #ifdef DAY_WINUI
 #include "canvas-winui.inc"
 #else
@@ -2718,6 +2947,9 @@ void* day_xaml_list_new(void** out_content) {
     sv.VerticalContentAlignment(WUX::VerticalAlignment::Top);
     WUXC::Canvas content;
     content.VerticalAlignment(WUX::VerticalAlignment::Top);
+    // The scroll view takes the wheel and touch over its whole content, passive children
+    // included (docs/gestures.md "Pass-through").
+    content.Background(WUXM::SolidColorBrush(color_argb(0)));
     sv.Content(content);
     if (out_content) *out_content = boxh(content);
     return boxh(sv);
@@ -3179,6 +3411,76 @@ extern "C" void day_xaml_set_appearance(int mode) try {
     g_app_override = (mode == 1 || mode == 2) ? mode : 0;
     apply_appearance_everywhere();
 } catch (...) {
+}
+
+// ---- system colors (docs/color.md "Roles") ----
+//
+// A role is a Fluent theme resource, read from the theme dictionary of the appearance asked
+// for. The application's own resources answer for the SYSTEM scheme only (an override re-themes
+// per element; `Application::RequestedTheme` is unsupported under Islands), so the lookup goes
+// to the `Light` / `Dark` theme dictionaries (`Default` is the dark one) of the application's
+// dictionaries and every dictionary merged into them, XamlControlsResources included.
+extern "C++" {
+static bool theme_color_value(WF::IInspectable const& v, WUI::Color& out) {
+    if (auto brush = v.try_as<WUXM::SolidColorBrush>()) {
+        out = brush.Color();
+        return true;
+    }
+    if (auto color = v.try_as<WF::IReference<WUI::Color>>()) {
+        out = color.Value();
+        return true;
+    }
+    return false;
+}
+
+static bool theme_color_in(WUX::ResourceDictionary const& d, bool dark, WF::IInspectable const& key,
+                           WUI::Color& out, int depth) {
+    if (!d || depth > 12) return false;
+    auto themes = d.ThemeDictionaries();
+    for (const wchar_t* name : {dark ? L"Dark" : L"Light", dark ? L"Default" : L""}) {
+        if (!*name) continue;
+        auto boxed = winrt::box_value(winrt::hstring(name));
+        if (!themes.HasKey(boxed)) continue;
+        auto theme = themes.Lookup(boxed).try_as<WUX::ResourceDictionary>();
+        if (!theme) continue;
+        if (theme.HasKey(key) && theme_color_value(theme.Lookup(key), out)) return true;
+        for (auto const& merged : theme.MergedDictionaries())
+            if (theme_color_in(merged, dark, key, out, depth + 1)) return true;
+        break;
+    }
+    for (auto const& merged : d.MergedDictionaries())
+        if (theme_color_in(merged, dark, key, out, depth + 1)) return true;
+    return false;
+}
+} // extern "C++"
+
+/// The color of the theme resource `key` in the light (`dark` 0) or dark appearance, as ARGB in
+/// `out`. Returns 0 when no theme dictionary defines it as a color or a solid brush.
+extern "C" int day_xaml_theme_color(const char* key, int dark, unsigned int* out) try {
+    if (!key || !out) return 0;
+    auto resources = WUX::Application::Current().Resources();
+    WUI::Color c{};
+    if (!theme_color_in(resources, dark != 0, winrt::box_value(hs(key)), c, 0)) return 0;
+    *out = (unsigned(c.A) << 24) | (unsigned(c.R) << 16) | (unsigned(c.G) << 8) | unsigned(c.B);
+    return 1;
+} catch (...) {
+    return 0;
+}
+
+/// Whether the element `h` is shown dark: its window's own scheme (`WindowChange::Appearance`)
+/// where that window has one, else the app's.
+extern "C" int day_xaml_element_dark(void* h) try {
+    if (h) {
+        if (auto root = elem(h).XamlRoot()) {
+            for (auto const& entry : g_chrome) {
+                auto const& c = entry.second;
+                if (c.appearance >= 0 && c.root && c.root.XamlRoot() == root) return c.appearance == 1;
+            }
+        }
+    }
+    return effective_dark() ? 1 : 0;
+} catch (...) {
+    return effective_dark() ? 1 : 0;
 }
 
 extern "C" int day_xaml_toggle_sidebar() try {
@@ -3772,14 +4074,23 @@ void day_xaml_remove_child(void* parent, void* child) {
 void day_xaml_transfer_release(void* h);
 extern "C++" { // inside the extern "C" block; defined with the picker section below
 static void picker_forget(void* h);
+static void gestures_forget(void* h); // gestures.inc
+static void keys_forget(void* h);     // the key routes below
 } // extern "C++"
 void day_xaml_delete(void* h) {
     day_xaml_transfer_release(h);
     picker_forget(h);
+    gestures_forget(h);
+    keys_forget(h);
 #ifdef DAY_WINUI
     canvas_forget(h);
 #endif
     g_clip_geometry.erase(h);
+    g_scroll_states.erase(h);
+    g_line_multiple.erase(h);
+    g_label_wraps.erase(h);
+    g_surfaces.erase(h);
+    g_passive.erase(h);
     g_image_views.erase(h);
     g_field_live.erase(h);
     g_field_parents.erase(h);
@@ -3804,6 +4115,8 @@ void* day_xaml_unbox(void* handle) {
 }
 
 void day_xaml_set_geometry(void* h, int x, int y, int width, int height) {
+    // A frame set outright ends a frame animation under way (docs/tween.md, rule 7).
+    for (auto path : {L"(Canvas.Left)", L"(Canvas.Top)", L"Width", L"Height"}) stop_anim(h, path);
     guard([&] {
         auto& e = elem(h);
         WUXC::Canvas::SetLeft(e, static_cast<double>(x));
@@ -3812,6 +4125,14 @@ void day_xaml_set_geometry(void* h, int x, int y, int width, int height) {
             fe.Width(static_cast<double>(width));
             fe.Height(static_cast<double>(height));
         }
+        day_geometry_follows(h, width, height);
+    });
+}
+// What follows a frame's size besides the frame: an image's content mode, a rounded clip, a
+// styled surface's box. An animated frame applies them at its final size up front.
+void day_geometry_follows(void* h, int width, int height) {
+    guard([&] {
+        auto& e = elem(h);
         if (auto it = g_image_views.find(h); it != g_image_views.end()) {
             layout_image(e.as<WUXC::Canvas>(), it->second->mode, width, height);
         }
@@ -3820,6 +4141,8 @@ void day_xaml_set_geometry(void* h, int x, int y, int width, int height) {
         if (it != g_clip_geometry.end()) {
             it->second.Size({ static_cast<float>(width), static_cast<float>(height) });
         }
+        // …and so do a styled surface's box, clip and shadow (docs/surfaces.md).
+        if (auto s = surface_of(h)) surface_resize(*s, width, height);
     });
 }
 

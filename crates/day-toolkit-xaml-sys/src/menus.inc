@@ -201,6 +201,9 @@ extern "C" void day_xaml_set_context_menu(void* h, const char* spec) try {
         e.ContextFlyout(nullptr);
         return;
     }
+    // A context menu takes the right-click, so the node takes input (docs/gestures.md
+    // "Pass-through").
+    day_hit_on(h);
     WUXC::MenuFlyout fly;
     build_menu_items(fly.Items(), spec);
     e.ContextFlyout(fly);

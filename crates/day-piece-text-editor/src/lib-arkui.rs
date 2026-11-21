@@ -16,8 +16,10 @@
 
 use super::*;
 use day_toolkit_arkui::{AHandle, ArkUi, piece};
+use day_spec::props::TextAlign;
 use day_spec::sidetable::SideTable;
-use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size};
+use day_spec::{ListStyle, NodeId, Proposal, Size};
+use std::fmt::Write as _;
 
 /// Field separator inside a props or command string; runs are separated by the record separator.
 const SEP: char = '\u{1f}';
@@ -47,7 +49,7 @@ fn style_flags(s: &RunStyle) -> u32 {
     if s.font.monospace {
         f |= 4;
     }
-    if s.strikethrough {
+    if s.strikethrough.is_some() {
         f |= 8;
     }
     if s.color.is_some() {
@@ -56,7 +58,7 @@ fn style_flags(s: &RunStyle) -> u32 {
     if s.background.is_some() {
         f |= 32;
     }
-    if s.underline.is_on() {
+    if s.underline.is_some() {
         f |= 64;
     }
     f
@@ -74,15 +76,18 @@ fn encode_runs(text: &str, runs: &[TextRun]) -> String {
             out.push(RUN_SEP);
         }
         let s = r.style();
-        out.push_str(&format!(
+        // Inks resolve against the current palette; the piece sends the attributes again when
+        // the appearance changes, so a pair or a role follows the switch.
+        let _ = write!(
+            out,
             "{},{},{},{},{},{}",
             start,
             start + len,
             style_flags(&s),
-            r.color.map(argb).unwrap_or(0),
-            r.background.map(argb).unwrap_or(0),
+            r.color.map_or(0, |c| argb(c.resolved())),
+            r.background.map_or(0, |c| argb(c.resolved())),
             (r.font.scale * 1000.0).round() as i64,
-        ));
+        );
     }
     out
 }
@@ -98,15 +103,16 @@ fn encode_paragraphs(text: &str, paragraphs: &[ParagraphRun]) -> String {
             out.push(RUN_SEP);
         }
         let s = p.style();
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{},{},{},{},{}",
             start,
             start + len,
             match s.align {
-                ParagraphAlign::Natural => 0,
-                ParagraphAlign::Center => 1,
-                ParagraphAlign::Trailing => 2,
-                ParagraphAlign::Justified => 3,
+                TextAlign::Leading => 0,
+                TextAlign::Center => 1,
+                TextAlign::Trailing => 2,
+                TextAlign::Justified => 3,
             },
             (s.indent + f64::from(s.list_level) * LEVEL_INDENT).round() as i64,
             if s.list == ListStyle::None {
@@ -114,14 +120,14 @@ fn encode_paragraphs(text: &str, paragraphs: &[ParagraphRun]) -> String {
             } else {
                 MARKER_INDENT as i64
             },
-        ));
+        );
     }
     out
 }
 
-fn push_attributes(h: &AHandle, doc_text: &str, runs: &[TextRun], paragraphs: &[ParagraphRun]) {
-    piece::update(h, "runs", &encode_runs(doc_text, runs));
-    piece::update(h, "paragraphs", &encode_paragraphs(doc_text, paragraphs));
+fn push_attributes(h: AHandle, doc_text: &str, runs: &[TextRun], paragraphs: &[ParagraphRun]) {
+    piece::update(&h, "runs", &encode_runs(doc_text, runs));
+    piece::update(&h, "paragraphs", &encode_paragraphs(doc_text, paragraphs));
 }
 
 day_core::tls_group! {
@@ -134,11 +140,11 @@ day_core::tls_group! {
 
 }
 
-fn key(h: &AHandle) -> usize {
+fn key(h: AHandle) -> usize {
     h.0 as usize
 }
 
-fn text_of(h: &AHandle) -> String {
+fn text_of(h: AHandle) -> String {
     TEXT.with(|t| t.with(key(h), |s| s.clone())).unwrap_or_default()
 }
 
@@ -159,10 +165,10 @@ fn make(_backend: &mut ArkUi, p: &EditorProps, id: NodeId) -> AHandle {
         text = p.doc.text,
     );
     let h = piece::make(KIND, id, &props);
-    TEXT.with(|t| t.insert(key(&h), p.doc.text.clone()));
+    TEXT.with(|t| t.insert(key(h), p.doc.text.clone()));
     BAND.with(|t| {
         t.insert(
-            key(&h),
+            key(h),
             (
                 day_toolkit_arkui::font_vp(day_spec::FontSpec::new(p.base)),
                 p.min_lines,
@@ -171,26 +177,30 @@ fn make(_backend: &mut ArkUi, p: &EditorProps, id: NodeId) -> AHandle {
         )
     });
     if !p.doc.runs.is_empty() || !p.doc.paragraphs.is_empty() {
-        push_attributes(&h, &p.doc.text, &p.doc.runs, &p.doc.paragraphs);
+        push_attributes(h, &p.doc.text, &p.doc.runs, &p.doc.paragraphs);
     }
     h
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_spec::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
     match patch {
         EditorPatch::SetDocument(doc) => {
             piece::update(h, "text", &doc.text);
-            TEXT.with(|t| t.with(key(h), |s| *s = doc.text.clone()));
-            push_attributes(h, &doc.text, &doc.runs, &doc.paragraphs);
+            TEXT.with(|t| t.with(key(*h), |s| s.clone_from(&doc.text)));
+            push_attributes(*h, &doc.text, &doc.runs, &doc.paragraphs);
         }
         EditorPatch::SetAttributes(attrs) => {
             // The patch carries the text, so a keystroke's re-highlight encodes its ranges
             // against the string the editor holds now rather than the one before it.
-            TEXT.with(|t| t.with(key(h), |s| *s = attrs.text.clone()));
-            push_attributes(h, &attrs.text, &attrs.runs, &attrs.paragraphs);
+            TEXT.with(|t| t.with(key(*h), |s| s.clone_from(&attrs.text)));
+            push_attributes(*h, &attrs.text, &attrs.runs, &attrs.paragraphs);
         }
         EditorPatch::SetSelection(r) => {
-            let text = text_of(h);
+            let text = text_of(*h);
             if let Some((start, len)) = utf16_range(&text, r) {
                 piece::update(h, "selection", &format!("{},{}", start, start + len));
             }
@@ -202,8 +212,8 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
                 &format!(
                     "{},{},{},{}",
                     style_flags(s),
-                    s.color.map(argb).unwrap_or(0),
-                    s.background.map(argb).unwrap_or(0),
+                    s.color.map_or(0, argb),
+                    s.background.map_or(0, argb),
                     (s.font.scale * 1000.0).round() as i64,
                 ),
             );
@@ -223,14 +233,18 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
 /// buttons over the editor's text, and left the node with no frame for a walkthrough to assert.
 /// The band is what the piece promises (`min_lines`..`max_lines`); the ArkTS side fills the
 /// frame (`Index.ets`) and scrolls inside it.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_spec::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn measure(_backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
     let wanted_w = p.width.unwrap_or(320.0);
     let avail_w = wanted_w.max(width_floor(0));
     BAND.with(|t| {
-        t.with(key(h), |&mut (base, min_lines, max_lines)| {
+        t.with(key(*h), |&mut (base, min_lines, max_lines)| {
             let avail_w = wanted_w.max(width_floor(max_lines));
             let line_h = base * 1.4 + 4.0;
-            let lines = text_of(h).lines().count().max(1) as f64;
+            let lines = text_of(*h).lines().count().max(1) as f64;
             let min_h = f64::from(min_lines) * line_h;
             let max_h = if max_lines > 0 {
                 f64::from(max_lines) * line_h
@@ -243,12 +257,16 @@ fn measure(_backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
     .unwrap_or_else(|| Size::new(avail_w, 88.0))
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_spec::renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn release(_backend: &mut ArkUi, h: &AHandle) {
     TEXT.with(|t| {
-        t.remove(key(h));
+        let _ = t.remove(key(*h));
     });
     BAND.with(|t| {
-        t.remove(key(h));
+        let _ = t.remove(key(*h));
     });
 }
 

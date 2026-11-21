@@ -3,7 +3,7 @@
 
 //! `Decorate`, the chainable modifiers every piece inherits: padding and sizing, background and
 //! corner radius, gestures (`on_tap`, drag), accessibility (`A11yBuilder`), and native-handle
-//! capture (`NativeRef`), plus the `Modifier` / `IntoInsets` supporting traits.
+//! capture (`NativeRef`), plus the `Modifier` supporting trait.
 //!
 //! Modifiers return [`Decorated<P>`], which keeps the decorated piece's type, so a chain
 //! never stops reaching that piece's builder methods (§5.2).
@@ -12,9 +12,11 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Scope, bind};
+use day_reactive::{Scope, Signal, bind};
 use day_spec::props::*;
-use day_spec::{A11yProps, AnimSpec, Color, Cursor, Event, Insets, Role, Transform, kinds};
+use day_spec::{
+    A11yProps, Angle, AnimSpec, Cursor, Event, Ink, Insets, Paint, Role, Transform, kinds,
+};
 
 use crate::menus::lower_menu_scoped;
 use crate::*;
@@ -22,20 +24,6 @@ use crate::*;
 // ---------------------------------------------------------------------------
 // Decorators (§5.2 Decorate)
 // ---------------------------------------------------------------------------
-
-pub trait IntoInsets {
-    fn into_insets(self) -> Insets;
-}
-impl IntoInsets for f64 {
-    fn into_insets(self) -> Insets {
-        Insets::all(self)
-    }
-}
-impl IntoInsets for Insets {
-    fn into_insets(self) -> Insets {
-        self
-    }
-}
 
 /// A one-shot, by-value view transform (the SwiftUI `ViewModifier` analog): wrap a piece into a
 /// new one. Pure composition, with no per-backend work. A plain `FnOnce(AnyPiece) -> AnyPiece`
@@ -133,10 +121,10 @@ fn layer_node(cx: &mut BuildCx) -> RNode {
     cx.native(
         kinds::CONTAINER,
         &ContainerProps {
-            background: None,
             corner_radius: 0.0,
             clips: false,
             role: None,
+            ..Default::default()
         },
         Rc::new(FillThrough),
         Flex::default(),
@@ -368,6 +356,30 @@ fn op_cursor(cursor: Reactive<Cursor>) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_layout_direction(
+    direction: Reactive<day_spec::LayoutDirection>,
+) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            let seed = direction.get_untracked();
+            with_tree(|t| t.set_node_direction(n, Some(seed)));
+            if let Reactive::Dyn(_) = &direction {
+                bind(
+                    move || direction.get(),
+                    move |d: &day_spec::LayoutDirection| {
+                        with_tree(|t| {
+                            t.set_node_direction(n, Some(*d));
+                            t.layout_if_needed();
+                        });
+                    },
+                );
+            }
+            n
+        })
+    }
+}
+
 fn op_window_drag_region() -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -390,46 +402,77 @@ fn op_native_ref(r: NativeRef) -> impl FnOnce(Build) -> Build {
     }
 }
 
-fn op_padding(insets: Insets) -> impl FnOnce(Build) -> Build {
+fn op_padding(insets: Reactive<Insets>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let w = cx.layout_only(
-                Rc::new(PaddingLayout { insets }),
-                Flex::default(),
-                Boundary::No,
-            );
+            let seed = insets.get_untracked();
+            let layout = Rc::new(PaddingLayout {
+                insets: Cell::new(seed),
+            });
+            let w = cx.layout_only(layout.clone(), Flex::default(), Boundary::No);
             cx.under(w, |cx| {
                 let _ = inner(cx);
             });
+            // A constant pads once; a signal or a closure (`move || day::safe_area()`) re-pads
+            // in place when it changes, a rotation included.
+            if let Reactive::Dyn(_) = &insets {
+                day_reactive::bind_seeded(
+                    seed,
+                    move || insets.get(),
+                    move |v: &Insets| {
+                        layout.insets.set(*v);
+                        with_tree(|t| t.mark_needs_measure(w));
+                    },
+                );
+            }
             w
         })
     }
 }
 
-fn op_max_width(max: f64) -> impl FnOnce(Build) -> Build {
+/// Follow a reactive length into the `Cell` a layout reads it from, re-measuring on change. A
+/// constant needs no binding.
+fn bind_length(value: Reactive<f64>, cell: impl Fn(f64) + 'static, node: RNode) {
+    if let Reactive::Dyn(_) = &value {
+        let seed = value.get_untracked();
+        day_reactive::bind_seeded(
+            seed,
+            move || value.get(),
+            move |v: &f64| {
+                cell(*v);
+                with_tree(|t| t.mark_needs_measure(node));
+            },
+        );
+    }
+}
+
+fn op_max_width(max: Reactive<f64>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let w = cx.layout_only(
-                Rc::new(MaxWidthLayout { max }),
-                Flex::default(),
-                Boundary::No,
-            );
+            let layout = Rc::new(MaxWidthLayout {
+                max: Cell::new(max.get_untracked()),
+            });
+            let w = cx.layout_only(layout.clone(), Flex::default(), Boundary::No);
             cx.under(w, |cx| {
                 let _ = inner(cx);
             });
+            bind_length(max, move |v| layout.max.set(v), w);
             w
         })
     }
 }
 
-fn op_max_height(max: f64) -> impl FnOnce(Build) -> Build {
+fn op_max_height(max: Reactive<f64>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             // Yielding, so a column sizes its other children first and gives this one what is
             // left, up to `max`: a capped scroll gives way to the button under it on a short
             // screen instead of pushing it out of the column, and the column still hugs.
+            let layout = Rc::new(day_core::MaxHeightLayout {
+                max: Cell::new(max.get_untracked()),
+            });
             let h = cx.layout_only(
-                Rc::new(day_core::MaxHeightLayout { max }),
+                layout.clone(),
                 Flex {
                     yields_h: true,
                     ..Flex::default()
@@ -439,38 +482,39 @@ fn op_max_height(max: f64) -> impl FnOnce(Build) -> Build {
             cx.under(h, |cx| {
                 let _ = inner(cx);
             });
+            bind_length(max, move |v| layout.max.set(v), h);
             h
         })
     }
 }
 
-fn op_min_width(min: f64) -> impl FnOnce(Build) -> Build {
+fn op_min_width(min: Reactive<f64>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let w = cx.layout_only(
-                Rc::new(day_core::MinWidthLayout { min }),
-                Flex::default(),
-                Boundary::No,
-            );
+            let layout = Rc::new(day_core::MinWidthLayout {
+                min: Cell::new(min.get_untracked()),
+            });
+            let w = cx.layout_only(layout.clone(), Flex::default(), Boundary::No);
             cx.under(w, |cx| {
                 let _ = inner(cx);
             });
+            bind_length(min, move |v| layout.min.set(v), w);
             w
         })
     }
 }
 
-fn op_min_height(min: f64) -> impl FnOnce(Build) -> Build {
+fn op_min_height(min: Reactive<f64>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let node = cx.layout_only(
-                Rc::new(MinHeightLayout { min: min.max(0.0) }),
-                Flex::default(),
-                Boundary::No,
-            );
+            let layout = Rc::new(MinHeightLayout {
+                min: Cell::new(min.get_untracked().max(0.0)),
+            });
+            let node = cx.layout_only(layout.clone(), Flex::default(), Boundary::No);
             cx.under(node, |cx| {
                 let _ = inner(cx);
             });
+            bind_length(min, move |v| layout.min.set(v.max(0.0)), node);
             node
         })
     }
@@ -685,7 +729,11 @@ fn op_on_tap_at(f: impl Fn(day_spec::Point) + 'static) -> impl FnOnce(Build) -> 
     }
 }
 
-fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) -> Build {
+/// A key handler for presses (`released: false`, which includes repeats) or releases.
+fn op_on_key(
+    released: bool,
+    f: impl Fn(&day_spec::KeyEvent) + 'static,
+) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
@@ -701,7 +749,9 @@ fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) ->
                 day_spec::keys::mark(day_core::rnode_to_id(view));
             }
             cx.on(n, move |ev| {
-                if let Event::Key(k) = ev {
+                if let Event::Key(k) = ev
+                    && k.is_release() == released
+                {
                     f(k);
                 }
             });
@@ -913,11 +963,34 @@ fn op_context_menu_fn_body(
     }
 }
 
-fn op_on_drag(f: impl Fn(Drag) + 'static) -> impl FnOnce(Build) -> Build {
+/// Enable `kind` on the node the modifier wraps and hand its events to `on`.
+fn op_gesture(
+    kind: GestureKind,
+    on: impl Fn(RNode, &Event) + 'static,
+) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
-            with_tree(|t| t.enable_gesture(n, GestureKind::Drag));
+            with_tree(|t| t.enable_gesture(n, kind));
+            cx.on(n, move |ev| on(n, ev));
+            n
+        })
+    }
+}
+
+fn op_on_drag(
+    axis: Option<day_spec::DragAxis>,
+    f: impl Fn(Drag) + 'static,
+) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| {
+                t.enable_gesture(n, GestureKind::Drag);
+                if axis.is_some() {
+                    t.set_drag_axis(n, axis);
+                }
+            });
             cx.on(n, move |ev| {
                 if let Event::Drag {
                     phase,
@@ -925,11 +998,9 @@ fn op_on_drag(f: impl Fn(Drag) + 'static) -> impl FnOnce(Build) -> Build {
                     translation,
                 } = ev
                 {
-                    f(Drag {
-                        phase: *phase,
-                        location: *location,
-                        translation: *translation,
-                    });
+                    let velocity =
+                        day_core::gesture::velocity(day_core::rnode_to_id(n), GestureKind::Drag);
+                    f(Drag::new(*phase, *location, *translation).with_velocity(velocity));
                 }
             });
             n
@@ -938,109 +1009,228 @@ fn op_on_drag(f: impl Fn(Drag) + 'static) -> impl FnOnce(Build) -> Build {
 }
 
 fn op_on_pinch(f: impl Fn(Pinch) + 'static) -> impl FnOnce(Build) -> Build {
-    move |inner| {
-        Box::new(move |cx| {
-            let n = inner(cx);
-            with_tree(|t| t.enable_gesture(n, GestureKind::Pinch));
-            cx.on(n, move |ev| {
-                if let Event::Pinch {
-                    phase,
-                    scale,
-                    location,
-                } = ev
-                {
-                    f(Pinch {
-                        phase: *phase,
-                        scale: *scale,
-                        location: *location,
-                    });
-                }
-            });
-            n
-        })
-    }
+    op_gesture(GestureKind::Pinch, move |_, ev| {
+        if let Event::Pinch {
+            phase,
+            scale,
+            location,
+        } = ev
+        {
+            f(Pinch::new(*phase, *scale, *location));
+        }
+    })
 }
 
 fn op_on_rotate(f: impl Fn(Rotate) + 'static) -> impl FnOnce(Build) -> Build {
-    move |inner| {
-        Box::new(move |cx| {
-            let n = inner(cx);
-            with_tree(|t| t.enable_gesture(n, GestureKind::Rotate));
-            cx.on(n, move |ev| {
-                if let Event::Rotate {
-                    phase,
-                    rotation,
-                    location,
-                } = ev
-                {
-                    f(Rotate {
-                        phase: *phase,
-                        rotation: *rotation,
-                        location: *location,
-                    });
-                }
-            });
-            n
-        })
-    }
+    op_gesture(GestureKind::Rotate, move |_, ev| {
+        if let Event::Rotate {
+            phase,
+            rotation,
+            location,
+        } = ev
+        {
+            f(Rotate::new(*phase, Angle::rad(*rotation), *location));
+        }
+    })
 }
 
 fn op_on_hover(f: impl Fn(Option<day_spec::Point>) + 'static) -> impl FnOnce(Build) -> Build {
-    move |inner| {
-        Box::new(move |cx| {
-            let n = inner(cx);
-            with_tree(|t| t.enable_gesture(n, GestureKind::Hover));
-            cx.on(n, move |ev| {
-                if let Event::Hover { phase, location } = ev {
-                    // `None` on exit rather than a phase the caller has to match on: what a
-                    // hover handler wants to know is where the pointer IS, and "nowhere" is a
-                    // state, not an event kind. It is also what makes a handler that writes a
-                    // `Signal<Option<Point>>` a one-liner.
-                    f(match phase {
-                        day_spec::DragPhase::Ended => None,
-                        _ => Some(*location),
-                    });
-                }
+    op_gesture(GestureKind::Hover, move |_, ev| {
+        if let Event::Hover { phase, location } = ev {
+            // `None` on exit rather than a phase the caller has to match on: what a hover
+            // handler wants to know is where the pointer IS, and "nowhere" is a state, not an
+            // event kind. It is also what makes a handler that writes a
+            // `Signal<Option<Point>>` a one-liner.
+            f(match phase {
+                day_spec::DragPhase::Ended => None,
+                _ => Some(*location),
             });
-            n
-        })
-    }
+        }
+    })
 }
 
 fn op_on_pan(f: impl Fn(Pan) + 'static) -> impl FnOnce(Build) -> Build {
+    op_gesture(GestureKind::Pan, move |n, ev| {
+        if let Event::Pan {
+            phase,
+            delta,
+            location,
+        } = ev
+        {
+            let velocity = day_core::gesture::velocity(day_core::rnode_to_id(n), GestureKind::Pan);
+            f(Pan::new(*phase, *delta, *location).with_velocity(velocity));
+        }
+    })
+}
+
+fn op_on_long_press(f: impl Fn(day_spec::Point) + 'static) -> impl FnOnce(Build) -> Build {
+    op_gesture(GestureKind::LongPress, move |_, ev| {
+        if let Event::LongPress(at) = ev {
+            f(*at);
+        }
+    })
+}
+
+fn op_on_double_tap(f: impl Fn() + 'static) -> impl FnOnce(Build) -> Build {
+    op_gesture(GestureKind::DoubleTap, move |_, ev| {
+        if matches!(ev, Event::DoubleTap(_)) {
+            f();
+        }
+    })
+}
+
+fn op_on_double_tap_at(f: impl Fn(day_spec::Point) + 'static) -> impl FnOnce(Build) -> Build {
+    op_gesture(GestureKind::DoubleTap, move |_, ev| {
+        if let Event::DoubleTap(at) = ev {
+            f(*at);
+        }
+    })
+}
+
+fn op_on_pressed(f: impl Fn(bool) + 'static) -> impl FnOnce(Build) -> Build {
+    op_gesture(GestureKind::Press, move |_, ev| {
+        if let Event::Press { pressed, .. } = ev {
+            f(*pressed);
+        }
+    })
+}
+
+fn op_on_touches(f: impl Fn(&[day_spec::Touch]) + 'static) -> impl FnOnce(Build) -> Build {
+    op_gesture(GestureKind::Touches, move |_, ev| {
+        if let Event::Touches(touches) = ev {
+            f(touches);
+        }
+    })
+}
+
+fn op_hit_slop(slop: Insets) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
-            with_tree(|t| t.enable_gesture(n, GestureKind::Pan));
-            cx.on(n, move |ev| {
-                if let Event::Pan {
-                    phase,
-                    delta,
-                    location,
-                } = ev
-                {
-                    f(Pan {
-                        phase: *phase,
-                        delta: *delta,
-                        location: *location,
-                    });
+            with_tree(|t| t.set_hit_slop(n, slop));
+            n
+        })
+    }
+}
+
+fn op_interaction(state: InteractionState) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| {
+                t.enable_gesture(n, GestureKind::Hover);
+                t.enable_gesture(n, GestureKind::Press);
+            });
+            cx.on(n, move |ev| match ev {
+                Event::Hover { phase, .. } => {
+                    state.hovered.set(*phase != day_spec::DragPhase::Ended);
                 }
+                Event::Press { pressed, .. } => state.pressed.set(*pressed),
+                Event::FocusChanged(focused) => state.focused.set(*focused),
+                _ => {}
             });
             n
         })
     }
 }
 
-fn op_background(color: Reactive<Color>) -> impl FnOnce(Build) -> Build {
+fn op_enabled(enabled: Reactive<bool>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
+            let n = inner(cx);
+            let apply = move |on: bool| {
+                day_core::gesture::set_subtree_enabled(n, on);
+                // The hover a disabled piece can no longer end is not left standing.
+                if !on {
+                    day_core::enqueue_event(
+                        day_core::rnode_to_id(n),
+                        Event::Hover {
+                            phase: day_spec::DragPhase::Ended,
+                            location: day_spec::Point::ZERO,
+                        },
+                    );
+                }
+            };
+            // Only a reactive source needs a binding, and only a disabled start needs a call.
+            if !enabled.get_untracked() {
+                apply(false);
+            }
+            if let Reactive::Dyn(_) = &enabled {
+                bind(move || enabled.get(), move |on: &bool| apply(*on));
+            }
+            n
+        })
+    }
+}
+
+/// The tracked interaction state of one piece: whether the pointer is over it, whether it is
+/// pressed, and whether it has the keyboard (docs/gestures.md "State styling").
+///
+/// Create one, attach it with [`Decorate::interaction`], and read it from any reactive
+/// modifier. Each read is tracked, so the modifier follows the state with no handler in between:
+///
+/// ```ignore
+/// let state = InteractionState::new();
+/// row((icon, title))
+///     .interaction(state)
+///     .background(move || if state.pressed() { PRESSED } else if state.hovered() { HOVER } else { REST })
+///     .opacity(move || if state.pressed() { 0.7 } else { 1.0 })
+/// ```
+///
+/// `hovered` follows the pointer where one exists and stays `false` on a touch-only device.
+/// `pressed` is `true` from the pointer-down itself until the release, the pointer leaving, or
+/// the platform taking the gesture away. `focused` follows keyboard focus on a piece that can
+/// take it ([`Decorate::focusable`], or a control inside). All three read `false` while the
+/// piece is disabled ([`Decorate::enabled`]).
+#[derive(Clone, Copy)]
+pub struct InteractionState {
+    hovered: Signal<bool>,
+    pressed: Signal<bool>,
+    focused: Signal<bool>,
+}
+
+impl Default for InteractionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InteractionState {
+    /// A state with nothing hovered, pressed or focused, owned by the scope it is created in.
+    #[must_use]
+    pub fn new() -> Self {
+        InteractionState {
+            hovered: Signal::new(false),
+            pressed: Signal::new(false),
+            focused: Signal::new(false),
+        }
+    }
+    /// Whether the pointer is over the piece. Tracked.
+    #[must_use]
+    pub fn hovered(&self) -> bool {
+        self.hovered.get()
+    }
+    /// Whether the piece is pressed. Tracked.
+    #[must_use]
+    pub fn pressed(&self) -> bool {
+        self.pressed.get()
+    }
+    /// Whether the piece has keyboard focus. Tracked.
+    #[must_use]
+    pub fn focused(&self) -> bool {
+        self.focused.get()
+    }
+}
+
+fn op_background(fill: Reactive<Paint>) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let seed = fill.get_untracked();
             let node = cx.native(
                 kinds::CONTAINER,
                 &ContainerProps {
-                    background: Some(color.get_untracked()),
-                    corner_radius: 0.0,
-                    clips: false,
-                    role: None,
+                    fill: Some(seed.clone()),
+                    ..Default::default()
                 },
                 Rc::new(FillThrough),
                 Flex::default(),
@@ -1049,13 +1239,15 @@ fn op_background(color: Reactive<Color>) -> impl FnOnce(Build) -> Build {
             cx.under(node, |cx| {
                 let _ = inner(cx);
             });
-            // Only a reactive source needs a binding; a constant fill is applied once at realize.
-            if let Reactive::Dyn(_) = &color {
-                bind(
-                    move || color.get(),
-                    move |c: &Color| {
+            // Only a reactive source needs a binding; a constant fill is applied once at
+            // realize, and an ink that follows the appearance is the toolkit's to follow.
+            if let Reactive::Dyn(_) = &fill {
+                day_reactive::bind_seeded(
+                    seed,
+                    move || fill.get(),
+                    move |p: &Paint| {
                         with_tree(|t| {
-                            t.patch(node, Box::new(ContainerPatch::Background(Some(*c))), false);
+                            t.patch(node, Box::new(ContainerPatch::Fill(Some(p.clone()))), false);
                         });
                     },
                 );
@@ -1073,10 +1265,10 @@ fn op_surface(role: day_spec::SurfaceRole, radius: f64) -> impl FnOnce(Build) ->
             let w = cx.native(
                 kinds::CONTAINER,
                 &ContainerProps {
-                    background: None,
                     corner_radius: radius,
                     clips: true,
                     role: Some(role),
+                    ..Default::default()
                 },
                 Rc::new(FillThrough),
                 Flex::default(),
@@ -1090,17 +1282,123 @@ fn op_surface(role: day_spec::SurfaceRole, radius: f64) -> impl FnOnce(Build) ->
     }
 }
 
-fn op_corner_radius(radius: f64) -> impl FnOnce(Build) -> Build {
+/// A styled native surface behind a piece: fill, rounded corners, border and shadow on one
+/// native view (docs/surfaces.md).
+///
+/// The single-purpose modifiers each wrap the piece in a view of their own, so a border added
+/// after `.corner_radius(..)` is a square border around a rounded view. A surface is one view
+/// that carries all of it, which is what lets the border follow the corners and the shadow take
+/// their shape:
+///
+/// ```ignore
+/// label("Sale")
+///     .padding(Space::M)
+///     .surface(
+///         Surface::new()
+///             .fill(LinearGradient::vertical(top, bottom))
+///             .corner_radius(Radius::L)
+///             .corners(Corners::TOP)
+///             .border(SystemColor::Separator, 1.0),
+///     )
+/// ```
+///
+/// Every color is an [`Ink`], so a surface follows the appearance with no rebuild. A surface
+/// with a corner radius clips its content to the rounded rectangle, as `.corner_radius(..)`
+/// does. A surface with a shadow does not clip: the shadow lies outside the frame a clip would
+/// cut to. Put a clipping `.corner_radius(..)` inside it when the content must be cut as well.
+/// The border is drawn over the content.
+#[derive(Clone, Debug, Default, PartialEq)]
+#[must_use]
+pub struct Surface {
+    fill: Option<Paint>,
+    radius: crate::Corner,
+    corners: day_spec::Corners,
+    border: Option<day_spec::Border>,
+    shadow: Option<day_spec::Shadow>,
+}
+
+impl Surface {
+    /// A surface with nothing on it yet: transparent, square, no border, no shadow.
+    pub fn new() -> Self {
+        Surface::default()
+    }
+    /// Fill with a [`Paint`]: a color, a [`SystemColor`](day_spec::SystemColor), an [`Ink`],
+    /// or a linear, radial or conic gradient. A gradient's unit points resolve against the
+    /// surface's frame and follow it as it resizes.
+    pub fn fill(mut self, fill: impl Into<Paint>) -> Self {
+        self.fill = Some(fill.into());
+        self
+    }
+    /// Round the corners (all four, unless [`Self::corners`] says which): points, a
+    /// [`Radius`](crate::Radius) step, or a frame-relative [`Corner`](crate::Corner) such as
+    /// [`Corner::CAPSULE`](crate::Corner::CAPSULE).
+    pub fn corner_radius(mut self, radius: impl Into<crate::Corner>) -> Self {
+        self.radius = radius.into();
+        self
+    }
+    /// Which corners the radius rounds; the others stay square.
+    pub fn corners(mut self, corners: day_spec::Corners) -> Self {
+        self.corners = corners;
+        self
+    }
+    /// A line of `color`, `width` points wide, around the edge, inside the frame and over the
+    /// content.
+    pub fn border(mut self, color: impl Into<Ink>, width: f64) -> Self {
+        self.border = (width > 0.0).then(|| day_spec::Border::new(color, width));
+        self
+    }
+    /// A shadow of the surface's rounded rectangle, outside its frame. It takes no room in
+    /// layout, so leave space around the piece for it, and it stops the surface clipping its
+    /// content.
+    pub fn shadow(mut self, shadow: day_spec::Shadow) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+
+    /// The realize props in a frame of `size` (zero before the first layout, which only
+    /// matters to a frame-relative radius).
+    fn props(&self, size: day_spec::Size, clip: Clip) -> ContainerProps {
+        let radius = match self.radius {
+            crate::Corner::Fixed(points) => points.max(0.0),
+            relative @ crate::Corner::Fraction(_) => relative.points(size),
+        };
+        let rounded = radius > 0.0 || self.radius.is_relative();
+        ContainerProps {
+            fill: self.fill.clone(),
+            corner_radius: radius,
+            corners: self.corners,
+            border: self.border,
+            shadow: self.shadow,
+            clips: match clip {
+                Clip::Always => true,
+                Clip::WhenRounded => rounded && self.shadow.is_none(),
+            },
+            role: None,
+        }
+    }
+}
+
+/// When a surface clips its content.
+#[derive(Clone, Copy)]
+enum Clip {
+    /// A rounded surface without a shadow clips: what `.surface(..)` does.
+    WhenRounded,
+    /// Always, square or not: what `.corner_radius(..)` does, so a radius that animates down
+    /// to zero keeps the content inside the frame.
+    Always,
+}
+
+/// The one surface op: realize the style, follow a reactive one with `ContainerPatch::Surface`,
+/// and re-resolve a frame-relative radius as layout resizes the view. A constant surface with a
+/// fixed radius binds nothing.
+fn op_styled_surface(surface: Reactive<Surface>, clip: Clip) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
+            let seed = surface.get_untracked();
+            let size = Rc::new(Cell::new(day_spec::Size::ZERO));
             let node = cx.native(
                 kinds::CONTAINER,
-                &ContainerProps {
-                    background: None,
-                    corner_radius: radius,
-                    clips: true,
-                    role: None,
-                },
+                &seed.props(size.get(), clip),
                 Rc::new(FillThrough),
                 Flex::default(),
                 Boundary::No,
@@ -1108,8 +1406,81 @@ fn op_corner_radius(radius: f64) -> impl FnOnce(Build) -> Build {
             cx.under(node, |cx| {
                 let _ = inner(cx);
             });
+            let current = Rc::new(std::cell::RefCell::new(seed.clone()));
+            let send = {
+                let (size, current) = (size.clone(), current.clone());
+                move || {
+                    let props = current.borrow().props(size.get(), clip);
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(ContainerPatch::Surface(Box::new(props))),
+                            false,
+                        );
+                    });
+                }
+            };
+            let relative = match &surface {
+                Reactive::Const(s) => s.radius.is_relative(),
+                // A reactive surface may turn relative later; it watches its frame throughout.
+                Reactive::Dyn(_) => true,
+            };
+            if relative {
+                // Resolved in the layout pass that sizes the view, with its frame, so the first
+                // frame the surface is shown at is already round.
+                let (size, current) = (size.clone(), current.clone());
+                day_core::patch_on_frame(
+                    node,
+                    Rc::new(move |new: day_spec::Size| {
+                        if new.approx_eq(size.get(), 0.25) {
+                            return None;
+                        }
+                        size.set(new);
+                        let surface = current.try_borrow().ok()?;
+                        surface.radius.is_relative().then(|| {
+                            Box::new(ContainerPatch::Surface(Box::new(surface.props(new, clip))))
+                                as Box<dyn std::any::Any>
+                        })
+                    }),
+                );
+                day_reactive::Scope::current()
+                    .on_cleanup(move || day_core::stop_frame_patches(node));
+            }
+            if let Reactive::Dyn(_) = &surface {
+                day_reactive::bind_seeded(
+                    seed,
+                    move || surface.get(),
+                    move |s: &Surface| {
+                        *current.borrow_mut() = s.clone();
+                        send();
+                    },
+                );
+            }
             node
         })
+    }
+}
+
+/// Combine reactive parts into one reactive value: constant when every part is.
+fn reactive_map2<A: Clone + 'static, B: Clone + 'static, T: Clone + 'static>(
+    a: Reactive<A>,
+    b: Reactive<B>,
+    f: impl Fn(A, B) -> T + 'static,
+) -> Reactive<T> {
+    match (&a, &b) {
+        (Reactive::Const(x), Reactive::Const(y)) => Reactive::Const(f(x.clone(), y.clone())),
+        _ => Reactive::Dyn(Rc::new(move || f(a.get(), b.get()))),
+    }
+}
+
+/// A reactive value mapped: constant when the source is.
+fn reactive_map<A: Clone + 'static, T: Clone + 'static>(
+    a: Reactive<A>,
+    f: impl Fn(A) -> T + 'static,
+) -> Reactive<T> {
+    match &a {
+        Reactive::Const(x) => Reactive::Const(f(x.clone())),
+        Reactive::Dyn(_) => Reactive::Dyn(Rc::new(move || f(a.get()))),
     }
 }
 
@@ -1185,14 +1556,19 @@ fn op_overlay_aligned(align: Alignment, over: impl Piece) -> impl FnOnce(Build) 
     }
 }
 
-fn op_aspect_ratio(ratio: f64) -> impl FnOnce(Build) -> Build {
+fn op_aspect_ratio(ratio: Reactive<f64>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            if !(ratio.is_finite() && ratio > 0.0) {
+            if let Reactive::Const(r) = &ratio
+                && !(r.is_finite() && *r > 0.0)
+            {
                 return inner(cx);
             }
+            let layout = Rc::new(AspectRatioLayout {
+                ratio: Cell::new(ratio.get_untracked()),
+            });
             let node = cx.layout_only(
-                Rc::new(AspectRatioLayout { ratio }),
+                layout.clone(),
                 Flex::default(),
                 // Not a boundary: the child still measures itself, and the ratio only decides
                 // the box it is offered.
@@ -1201,6 +1577,7 @@ fn op_aspect_ratio(ratio: f64) -> impl FnOnce(Build) -> Build {
             cx.under(node, |cx| {
                 let _ = inner(cx);
             });
+            bind_length(ratio, move |v| layout.ratio.set(v), node);
             node
         })
     }
@@ -1222,7 +1599,9 @@ fn op_aligned(align: Alignment) -> impl FnOnce(Build) -> Build {
     }
 }
 
-fn op_grow_axes(w: bool, h: bool) -> impl FnOnce(Build) -> Build {
+fn op_grow(grow: Grow) -> impl FnOnce(Build) -> Build {
+    let w = matches!(grow.dimension, Dimension::Width | Dimension::Both);
+    let h = matches!(grow.dimension, Dimension::Height | Dimension::Both);
     move |inner| {
         Box::new(move |cx| {
             let node = cx.layout_only(
@@ -1230,6 +1609,7 @@ fn op_grow_axes(w: bool, h: bool) -> impl FnOnce(Build) -> Build {
                 Flex {
                     grow_w: w,
                     grow_h: h,
+                    grow_weight: grow.weight,
                     ..Default::default()
                 },
                 Boundary::No,
@@ -1321,30 +1701,36 @@ impl<P: Piece> Decorated<P> {
     pub fn cursor<M>(self, cursor: impl IntoReactive<Cursor, M>) -> Self {
         self.push(op_cursor(cursor.into_reactive()))
     }
+    pub fn layout_direction<M>(
+        self,
+        direction: impl IntoReactive<day_spec::LayoutDirection, M>,
+    ) -> Self {
+        self.push(op_layout_direction(direction.into_reactive()))
+    }
     pub fn native_ref(self, r: &NativeRef) -> Self {
         self.push(op_native_ref(r.clone()))
     }
     pub fn window_drag_region(self) -> Self {
         self.push(op_window_drag_region())
     }
-    pub fn padding(self, insets: impl IntoInsets) -> Self {
-        self.push(op_padding(insets.into_insets()))
+    pub fn padding<M>(self, insets: impl IntoReactive<Insets, M>) -> Self {
+        self.push(op_padding(insets.into_reactive()))
     }
-    pub fn max_width(self, max: f64) -> Self {
-        self.push(op_max_width(max))
+    pub fn max_width<M>(self, max: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_max_width(max.into_reactive()))
     }
     /// Never taller than `max`: the child is never proposed more height, so a scroll stops
     /// growing at `max` and still shrinks where the screen is shorter. In a column it is sized
     /// after its siblings and takes what they leave, up to `max`, so the controls around a
     /// capped scroll stay on screen.
-    pub fn max_height(self, max: f64) -> Self {
-        self.push(op_max_height(max))
+    pub fn max_height<M>(self, max: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_max_height(max.into_reactive()))
     }
     /// Never narrower than `min`: a stretching control keeps a usable width, and a row that
     /// cannot give it that overflows, so a `labeled` row stacks the control under its label
     /// rather than squeezing it (docs/forms.md).
-    pub fn min_width(self, min: f64) -> Self {
-        self.push(op_min_width(min))
+    pub fn min_width<M>(self, min: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_min_width(min.into_reactive()))
     }
     pub fn reserving<M>(self, sample: impl IntoText<M>) -> Self {
         self.push(op_reserving(sample.into_text()))
@@ -1370,8 +1756,8 @@ impl<P: Piece> Decorated<P> {
         self.push(op_frame(None, Some(height.into_reactive())))
     }
     /// Keep at least `min` points of height, expanding for taller content.
-    pub fn min_height(self, min: f64) -> Self {
-        self.push(op_min_height(min))
+    pub fn min_height<M>(self, min: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_min_height(min.into_reactive()))
     }
     pub fn a11y(self, f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> Self {
         self.push(op_a11y(f))
@@ -1394,7 +1780,10 @@ impl<P: Piece> Decorated<P> {
         self.push(op_focused(want, on_native))
     }
     pub fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Self {
-        self.push(op_on_key(f))
+        self.push(op_on_key(false, f))
+    }
+    pub fn on_key_up(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Self {
+        self.push(op_on_key(true, f))
     }
     pub fn focusable(self) -> Self {
         self.push(op_focusable())
@@ -1432,7 +1821,7 @@ impl<P: Piece> Decorated<P> {
             })
         })
     }
-    /// Attach native drop acceptance policy and an owned-data receiver.
+    /// Accept drops through the platform's native drag session (docs/drag-and-drop.md).
     pub fn drop_target(self, target: day_spec::transfer::Target) -> Self {
         self.push(move |inner| {
             Box::new(move |cx| {
@@ -1453,7 +1842,45 @@ impl<P: Piece> Decorated<P> {
         }
     }
     pub fn on_drag(self, f: impl Fn(Drag) + 'static) -> Self {
-        self.push(op_on_drag(f))
+        self.push(op_on_drag(None, f))
+    }
+    pub fn on_drag_along(self, axis: day_spec::DragAxis, f: impl Fn(Drag) + 'static) -> Self {
+        self.push(op_on_drag(Some(axis), f))
+    }
+    pub fn on_long_press(self, f: impl Fn(day_spec::Point) + 'static) -> Self {
+        self.push(op_on_long_press(f))
+    }
+    pub fn on_double_tap(self, f: impl Fn() + 'static) -> Self {
+        self.push(op_on_double_tap(f))
+    }
+    /// See [`Decorate::on_double_tap_at`].
+    pub fn on_double_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> Self {
+        self.push(op_on_double_tap_at(f))
+    }
+    pub fn on_pressed(self, f: impl Fn(bool) + 'static) -> Self {
+        self.push(op_on_pressed(f))
+    }
+    pub fn on_touches(self, f: impl Fn(&[day_spec::Touch]) + 'static) -> Self {
+        self.push(op_on_touches(f))
+    }
+    pub fn hit_slop(self, slop: impl Into<Insets>) -> Self {
+        self.push(op_hit_slop(slop.into()))
+    }
+    pub fn interaction(self, state: InteractionState) -> Self {
+        self.push(op_interaction(state))
+    }
+    pub fn enabled<M>(self, enabled: impl IntoReactive<bool, M>) -> Self {
+        self.push(op_enabled(enabled.into_reactive()))
+    }
+    pub fn on_files_dropped(self, f: impl Fn(Vec<std::path::PathBuf>) + 'static) -> Self {
+        self.drop_target(day_spec::transfer::Target::files().on_drop(move |drop| {
+            let paths = drop.file_paths();
+            let any = !paths.is_empty();
+            if any {
+                f(paths);
+            }
+            any
+        }))
     }
     pub fn on_pinch(self, f: impl Fn(Pinch) + 'static) -> Self {
         self.push(op_on_pinch(f))
@@ -1478,14 +1905,37 @@ impl<P: Piece> Decorated<P> {
     /// rounded corners and a `Space::M` inset. Drawn by the toolkit, so it follows the
     /// appearance and never steals hit testing from the content.
     pub fn card(self) -> Self {
-        self.padding(crate::Space::M)
-            .push(op_surface(day_spec::SurfaceRole::SectionCard, 10.0))
+        self.padding(crate::Space::M).push(op_surface(
+            day_spec::SurfaceRole::SectionCard,
+            crate::Radius::M.points(),
+        ))
     }
-    pub fn background<M>(self, color: impl IntoReactive<Color, M>) -> Self {
-        self.push(op_background(color.into_reactive()))
+    pub fn background<M>(self, fill: impl IntoReactive<Paint, M>) -> Self {
+        self.push(op_background(fill.into_reactive()))
     }
-    pub fn corner_radius(self, radius: f64) -> Self {
-        self.push(op_corner_radius(radius))
+    pub fn corner_radius<M>(self, radius: impl IntoReactive<crate::Corner, M>) -> Self {
+        let surface = reactive_map(radius.into_reactive(), |r| Surface::new().corner_radius(r));
+        self.push(op_styled_surface(surface, Clip::Always))
+    }
+    pub fn surface<M>(self, surface: impl IntoReactive<Surface, M>) -> Self {
+        self.push(op_styled_surface(
+            surface.into_reactive(),
+            Clip::WhenRounded,
+        ))
+    }
+    pub fn border<Mc, Mw>(
+        self,
+        color: impl IntoReactive<Ink, Mc>,
+        width: impl IntoReactive<f64, Mw>,
+    ) -> Self {
+        let surface = reactive_map2(color.into_reactive(), width.into_reactive(), |c, w| {
+            Surface::new().border(c, w)
+        });
+        self.push(op_styled_surface(surface, Clip::WhenRounded))
+    }
+    pub fn shadow<M>(self, shadow: impl IntoReactive<day_spec::Shadow, M>) -> Self {
+        let surface = reactive_map(shadow.into_reactive(), |s| Surface::new().shadow(s));
+        self.push(op_styled_surface(surface, Clip::WhenRounded))
     }
     pub fn opacity<M>(self, opacity: impl IntoReactive<f64, M>) -> Self {
         self.push(op_opacity(opacity.into_reactive()))
@@ -1497,9 +1947,9 @@ impl<P: Piece> Decorated<P> {
         let f = factor.into_reactive();
         self.transform(move || Transform::scale(f.get(), f.get()))
     }
-    pub fn rotation<M>(self, degrees: impl IntoReactive<f64, M>) -> Self {
-        let d = degrees.into_reactive();
-        self.transform(move || Transform::rotate(d.get()))
+    pub fn rotation<M>(self, angle: impl IntoReactive<Angle, M>) -> Self {
+        let a = angle.into_reactive();
+        self.transform(move || Transform::rotate(a.get()))
     }
     pub fn translation<Mx, My>(
         self,
@@ -1522,19 +1972,16 @@ impl<P: Piece> Decorated<P> {
     pub fn overlay_aligned(self, align: Alignment, over: impl Piece) -> Self {
         self.push(op_overlay_aligned(align, over))
     }
-    pub fn aspect_ratio(self, ratio: f64) -> Self {
-        self.push(op_aspect_ratio(ratio))
+    pub fn aspect_ratio<M>(self, ratio: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_aspect_ratio(ratio.into_reactive()))
     }
     /// Position this piece within its assigned space; see [`Decorate::aligned`].
     pub fn aligned(self, alignment: Alignment) -> Self {
         self.push(op_aligned(alignment))
     }
     /// Expand in the selected dimensions; see [`Decorate::grow`].
-    pub fn grow(self, dimension: Dimension) -> Self {
-        self.push(op_grow_axes(
-            matches!(dimension, Dimension::Width | Dimension::Both),
-            matches!(dimension, Dimension::Height | Dimension::Both),
-        ))
+    pub fn grow(self, grow: impl Into<Grow>) -> Self {
+        self.push(op_grow(grow.into()))
     }
     #[deprecated(note = "use .grow(Dimension::Width)")]
     pub fn grow_w(self) -> Self {
@@ -1716,6 +2163,28 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).cursor(cursor)
     }
 
+    /// Lay this piece and everything inside it out in one reading direction, whatever the
+    /// app's is (docs/localization.md "Direction of a subtree"): `LayoutDirection::Ltr` for a
+    /// phone number, a code sample or a media transport inside a right-to-left app,
+    /// `LayoutDirection::Rtl` for a preview of Arabic content inside a left-to-right one.
+    ///
+    /// Day mirrors placement itself: inside the subtree leading means the direction's start
+    /// edge, so rows run the other way, leading and trailing insets swap sides and
+    /// alignments flip. Each native widget in the subtree is given the direction too, so text
+    /// takes that base writing direction and controls draw their own insides to match. The
+    /// piece keeps its place in its parent, which follows the parent's direction. A nested
+    /// `.layout_direction` overrides an outer one. A signal or closure re-lays the subtree out
+    /// when it changes.
+    ///
+    /// A canvas draws in its own coordinates and is not mirrored; `day::is_rtl()` answers for
+    /// the app, not for a subtree.
+    fn layout_direction<M>(
+        self,
+        direction: impl IntoReactive<day_spec::LayoutDirection, M>,
+    ) -> Decorated<Self> {
+        Decorated::new(self).layout_direction(direction)
+    }
+
     /// Let the user move the window by dragging this piece, as a title bar does
     /// (docs/window-chrome.md): what a custom title bar in a [`WindowChrome::Overlay`] or
     /// [`WindowChrome::Frameless`] window needs. The piece's own background starts the drag,
@@ -1735,28 +2204,37 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).native_ref(r)
     }
 
-    fn padding(self, insets: impl IntoInsets) -> Decorated<Self> {
+    /// Space between the piece and its frame: points on all four sides, a
+    /// [`Space`](crate::Space) step, an [`Insets`], or a signal or closure of any of them. A
+    /// reactive inset re-pads in place, so `.padding(move || day::safe_area())` follows a
+    /// rotation or a title bar that grows (docs/window-chrome.md "Safe area").
+    fn padding<M>(self, insets: impl IntoReactive<Insets, M>) -> Decorated<Self> {
         Decorated::new(self).padding(insets)
     }
 
     /// Cap this piece's width at `max` points: the child is never PROPOSED more, so text
     /// wraps inside the cap (chat bubbles, readable columns) while narrower content hugs.
-    fn max_width(self, max: f64) -> Decorated<Self> {
+    /// Takes points, a [`Space`](crate::Space) step, a signal or a closure; a change re-lays
+    /// the piece out without rebuilding it.
+    fn max_width<M>(self, max: impl IntoReactive<f64, M>) -> Decorated<Self> {
         Decorated::new(self).max_width(max)
     }
     /// Cap this piece's height at `max` points, the vertical twin of [`Decorate::max_width`]: a
     /// scroll or another piece that takes the height it is offered stops at `max`, and still
-    /// gets less where its parent has less to give.
-    fn max_height(self, max: f64) -> Decorated<Self> {
+    /// gets less where its parent has less to give. Reactive like [`Decorate::max_width`].
+    fn max_height<M>(self, max: impl IntoReactive<f64, M>) -> Decorated<Self> {
         Decorated::new(self).max_height(max)
     }
-    /// See [`Decorated::min_width`].
-    fn min_width(self, min: f64) -> Decorated<Self> {
+    /// Never narrower than `min` points: a stretching control keeps a usable width, and a row
+    /// that cannot give it that overflows, so a `labeled` row stacks the control under its
+    /// label rather than squeezing it (docs/forms.md). Reactive like [`Decorate::max_width`].
+    fn min_width<M>(self, min: impl IntoReactive<f64, M>) -> Decorated<Self> {
         Decorated::new(self).min_width(min)
     }
 
-    /// Keep at least `min` points of height, expanding for taller content.
-    fn min_height(self, min: f64) -> Decorated<Self> {
+    /// Keep at least `min` points of height, expanding for taller content. Reactive like
+    /// [`Decorate::max_width`].
+    fn min_height<M>(self, min: impl IntoReactive<f64, M>) -> Decorated<Self> {
         Decorated::new(self).min_height(min)
     }
 
@@ -1846,8 +2324,30 @@ pub trait Decorate: Piece + Sized {
     ///
     /// Which pieces can hold focus is the platform's to answer (docs/focus.md): a `canvas`
     /// is focusable on the backends that draw one from a real view (appkit, web-dom today).
+    ///
+    /// The handler hears each press and each repeat while the key is held
+    /// ([`KeyEvent::is_repeat`](day_spec::KeyEvent::is_repeat) tells them apart, so an action
+    /// that should fire once per press skips the repeats). The key is a typed
+    /// [`Key`](day_spec::Key):
+    ///
+    /// ```ignore
+    /// canvas(draw).focusable().on_key(move |k| match k.key {
+    ///     Key::ArrowLeft => nudge(-1.0),
+    ///     Key::ArrowRight => nudge(1.0),
+    ///     Key::Character(' ') if !k.is_repeat() => fire(),
+    ///     _ => {}
+    /// })
+    /// ```
     fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_key(f)
+    }
+
+    /// Handle the release of a key this piece heard go down (docs/menus.md "Keys"): the other
+    /// half of held-key movement, where [`Decorate::on_key`] starts moving and this stops.
+    /// Delivered where `Cap::KeyPhases` is supported; elsewhere it never fires, so step per
+    /// press there instead.
+    fn on_key_up(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_key_up(f)
     }
 
     /// Declare toolbar items on the chrome this piece sits under (docs/toolbars.md).
@@ -1895,7 +2395,7 @@ pub trait Decorate: Piece + Sized {
     /// unmodified character, and what it typed rides in [`day_spec::KeyEvent::text`]: the
     /// character, or the whole string an input method committed (a dead-key accent, a
     /// Japanese phrase), delivered once, after the composition. Control chords arrive with
-    /// [`day_spec::KeyEvent::CONTROL`] set and no text; only the platform's own command
+    /// [`day_spec::Modifiers::CONTROL`] set and no text; only the platform's own command
     /// chords (⌘ on Apple platforms) stay with the menu. On a phone, focusing the piece
     /// raises the soft keyboard, the way focusing a text field does, and what it types
     /// arrives the same way. For a terminal, a code editor or a game that reads letters, on
@@ -1918,17 +2418,36 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).keyboard()
     }
 
-    /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)
-    /// or long-press (mobile). Items are built with [`menu_item`]/[`sub_menu`]/[`menu_role`]/
-    /// [`menu_separator`]. Passing an empty `Vec` removes any menu.
+    /// Offer data when a drag starts on this piece (docs/drag-and-drop.md "Offering data"):
+    /// `source` gets the press point in the piece's own coordinates and answers what to carry,
+    /// or `None` to let the press be something else (a tap, a scroll).
     fn drag_source(
         self,
         source: impl Fn(day_spec::Point) -> Option<day_spec::transfer::Offer> + 'static,
     ) -> Decorated<Self> {
         Decorated::new(self).drag_source(source)
     }
+    /// Accept drops through the platform's native drag session (docs/drag-and-drop.md
+    /// "Accepting drops"). The target is one value: its types, an optional acceptance policy,
+    /// and what runs as a drag enters, leaves and drops.
+    ///
+    /// ```ignore
+    /// column(rows).drop_target(
+    ///     DropTarget::new(["text/plain"])
+    ///         .on_enter(move |_| hovering.set(true))
+    ///         .on_leave(move || hovering.set(false))
+    ///         .on_drop(move |drop| take(drop.items)),
+    /// )
+    /// ```
     fn drop_target(self, target: day_spec::transfer::Target) -> Decorated<Self> {
         Decorated::new(self).drop_target(target)
+    }
+
+    /// Accept files dropped on this piece: `f` receives their local paths. The short form of
+    /// [`Decorate::drop_target`] for the common case; use the full target for a hover
+    /// highlight or another data type.
+    fn on_files_dropped(self, f: impl Fn(Vec<std::path::PathBuf>) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_files_dropped(f)
     }
     /// A context menu (docs/menus.md): shown on secondary-click / long-press, built from the
     /// same `menu_item`/`sub_menu` entries as everywhere else. Takes a fixed list, or a closure
@@ -1944,8 +2463,98 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).context_menu(menu)
     }
 
+    /// Fire on each phase of a press-drag over this piece (docs/gestures.md "Gestures"). The
+    /// [`Drag`] carries where the pointer is, how far it has come, and how fast it is moving;
+    /// at `Ended` the velocity is the release velocity. Once the drag has begun it belongs to
+    /// this piece: an enclosing scroll view does not take it over.
     fn on_drag(self, f: impl Fn(Drag) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_drag(f)
+    }
+
+    /// [`Decorate::on_drag`] for a drag that follows one axis, inside a scroll view that
+    /// scrolls along the other: a horizontal swipe on a row of a vertical list. A pointer that
+    /// sets off along `axis` is this piece's drag; one that sets off across it scrolls, and
+    /// the handler hears nothing of it.
+    ///
+    /// ```ignore
+    /// row(content).on_drag_along(DragAxis::Horizontal, move |d| offset.set(d.translation.x))
+    /// ```
+    fn on_drag_along(
+        self,
+        axis: day_spec::DragAxis,
+        f: impl Fn(Drag) + 'static,
+    ) -> Decorated<Self> {
+        Decorated::new(self).on_drag_along(axis, f)
+    }
+
+    /// Fire when a press is held still on this piece (docs/gestures.md "Long press"), with the
+    /// press point in the piece's coordinates. It fires while the pointer is still down, and
+    /// the release that follows is not a tap, so `.on_tap(..).on_long_press(..)` are
+    /// alternatives. Pair it with another route to the same command (a menu, a button): a
+    /// long press is not discoverable.
+    fn on_long_press(self, f: impl Fn(day_spec::Point) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_long_press(f)
+    }
+
+    /// Fire on two taps in quick succession (docs/gestures.md "Double tap"). On a piece that
+    /// also has [`Decorate::on_tap`], a single tap waits out the double-tap interval and the
+    /// two never both fire; with a double tap alone nothing waits.
+    fn on_double_tap(self, f: impl Fn() + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_double_tap(f)
+    }
+
+    /// [`on_double_tap`](Self::on_double_tap), told where: the second tap's point in the
+    /// piece's own coordinate space, origin at its top-leading corner. What a map or an image
+    /// viewer zooms around.
+    fn on_double_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_double_tap_at(f)
+    }
+
+    /// Follow the press on this piece: `true` at the pointer-down itself, `false` when the
+    /// press ends (the release, the pointer leaving, or the platform taking the gesture away).
+    /// Every `true` is followed by one `false`, so a handler that writes a `Signal<bool>` is a
+    /// one-liner, and it never delays or cancels a tap or a drag on the same piece
+    /// (docs/gestures.md "Press"). For styling, [`Decorate::interaction`] already tracks it.
+    fn on_pressed(self, f: impl Fn(bool) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_pressed(f)
+    }
+
+    /// Receive the raw contacts on this piece (docs/gestures.md "Touches"): every finger that is
+    /// down, each with a stable id, plus the ones that lifted in this event. For a drawing
+    /// surface, a multi-finger instrument or a recognizer of your own. Where the platform
+    /// reports one pointer (`day::gesture_support(GestureKind::Touches)` is `Emulated`), the
+    /// list holds that one contact with id 0.
+    fn on_touches(self, f: impl Fn(&[day_spec::Touch]) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_touches(f)
+    }
+
+    /// Grow the area in which this piece takes pointer input by `slop` points on each edge,
+    /// without moving or resizing it (docs/gestures.md "Hit slop"): a 12-point dot with
+    /// `.hit_slop(16.0)` is a 44-point target. Layout and drawing do not change. Where
+    /// `Cap::HitSlop` is unsupported the piece keeps its own bounds.
+    fn hit_slop(self, slop: impl Into<Insets>) -> Decorated<Self> {
+        Decorated::new(self).hit_slop(slop)
+    }
+
+    /// Track this piece's hover, press and focus in `state` (docs/gestures.md "State styling"),
+    /// for reactive modifiers to read. See [`InteractionState`].
+    fn interaction(self, state: InteractionState) -> Decorated<Self> {
+        Decorated::new(self).interaction(state)
+    }
+
+    /// Enable or disable this piece and everything in it (docs/forms.md "Disabling a group").
+    /// While disabled, the controls inside are disabled the platform's way (dimmed, out of
+    /// the focus order, reported disabled to assistive technology) and no tap, drag, hover,
+    /// press or key reaches a handler in the subtree. Takes a constant, a signal or a closure:
+    ///
+    /// ```ignore
+    /// form((name_field, email_field, send_button)).enabled(move || !sending.get())
+    /// ```
+    ///
+    /// A control's own `.enabled(..)` builder still applies inside: a control is enabled when
+    /// it and every group around it are.
+    fn enabled<M>(self, enabled: impl IntoReactive<bool, M>) -> Decorated<Self> {
+        Decorated::new(self).enabled(enabled)
     }
 
     /// Fire on each phase of a pinch/magnify over this piece (docs/canvas.md "Zoom and
@@ -1956,8 +2565,9 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Fire on each phase of a two-finger rotation over this piece (docs/canvas.md "Zoom and
-    /// pan"). `rotation` is in radians, cumulative within a gesture, positive clockwise; a
-    /// trackpad tick arrives as a lone `Changed`. Pair it with a visible way back to north.
+    /// pan"). [`Rotate::rotation`] is an [`Angle`], cumulative within a gesture, positive
+    /// clockwise; a trackpad tick arrives as a lone `Changed`. Pair it with a visible way back
+    /// to north.
     fn on_rotate(self, f: impl Fn(Rotate) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_rotate(f)
     }
@@ -1976,26 +2586,57 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).on_hover(f)
     }
 
-    /// Fill the piece's bounds with a solid color painted behind it: a message-bubble / card /
-    /// badge surface. Accepts a constant [`Color`], a `Signal<Color>`, or a `Fn() -> Color`; a
-    /// reactive color repaints the surface when its source changes. Wraps the piece in a native
-    /// container that carries the fill, so it composes with [`Self::corner_radius`] for a rounded
-    /// colored surface and with [`Self::padding`] for interior inset.
-    /// The platform's card around this piece: the grouped-content surface with rounded
-    /// corners and a `Space::M` inset (see [`Decorated::card`]).
+    /// The platform's card around this piece: the grouped-content surface with
+    /// [`Radius::M`](crate::Radius::M) corners and a `Space::M` inset. Drawn by the toolkit, so
+    /// it follows the appearance and never steals hit testing from the content.
     fn card(self) -> Decorated<Self> {
         Decorated::new(self).card()
     }
 
-    fn background<M>(self, color: impl IntoReactive<Color, M>) -> Decorated<Self> {
-        Decorated::new(self).background(color)
+    /// Fill the piece's bounds with a [`Paint`] painted behind it: a message-bubble / card /
+    /// badge surface. Takes a [`Color`](day_spec::Color), a
+    /// [`SystemColor`](day_spec::SystemColor), an [`Ink`] (`Ink::adaptive(light, dark)`), a
+    /// gradient, or a signal or closure of any of them. An ink follows the appearance without a
+    /// rebuild or a closure; a reactive source repaints when it changes. Wraps the piece in a
+    /// native container that carries the fill, so it composes with [`Self::corner_radius`] for
+    /// a rounded colored surface and with [`Self::padding`] for interior inset.
+    fn background<M>(self, fill: impl IntoReactive<Paint, M>) -> Decorated<Self> {
+        Decorated::new(self).background(fill)
     }
 
-    /// Round the piece's corners to `radius` points, clipping its background and content to the
-    /// rounded rectangle. Compose after [`Self::background`] for a rounded colored surface, or use
-    /// alone to round a clipped child (e.g. an avatar image).
-    fn corner_radius(self, radius: f64) -> Decorated<Self> {
+    /// Round the piece's corners, clipping its background and content to the rounded
+    /// rectangle. Takes points, a [`Radius`](crate::Radius) step, a frame-relative
+    /// [`Corner`](crate::Corner) (`Corner::CAPSULE` for round ends), or a signal or closure
+    /// of any of them; a change patches the view in place. Compose after [`Self::background`]
+    /// for a rounded colored surface, or use alone to round a clipped child (an avatar image).
+    fn corner_radius<M>(self, radius: impl IntoReactive<crate::Corner, M>) -> Decorated<Self> {
         Decorated::new(self).corner_radius(radius)
+    }
+
+    /// Put a styled native [`Surface`] behind the piece: fill (any [`Paint`]), rounded corners
+    /// (all or some), a border and a shadow, all on one native view so the border follows the
+    /// corners and the shadow takes their shape (docs/surfaces.md). Takes a surface, or a
+    /// signal or closure of one; a change patches the view in place.
+    fn surface<M>(self, surface: impl IntoReactive<Surface, M>) -> Decorated<Self> {
+        Decorated::new(self).surface(surface)
+    }
+
+    /// A square line of `color`, `width` points wide, around the piece's frame, inside it and
+    /// over its content. Either argument may be a signal or a closure. For a border that
+    /// follows rounded corners, use [`Self::surface`].
+    fn border<Mc, Mw>(
+        self,
+        color: impl IntoReactive<Ink, Mc>,
+        width: impl IntoReactive<f64, Mw>,
+    ) -> Decorated<Self> {
+        Decorated::new(self).border(color, width)
+    }
+
+    /// A shadow of the piece's frame, drawn outside it by the toolkit. Takes a
+    /// [`Shadow`](day_spec::Shadow), or a signal or closure of one. For a rounded shadow, or
+    /// one under a filled surface, use [`Self::surface`].
+    fn shadow<M>(self, shadow: impl IntoReactive<day_spec::Shadow, M>) -> Decorated<Self> {
+        Decorated::new(self).shadow(shadow)
     }
 
     /// Animate/set the piece's opacity (`0.0` transparent … `1.0` opaque). Wrapped in a native
@@ -2006,8 +2647,8 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Apply an animatable [`Transform`] (translate/scale/rotate about the center): the cheap
-    /// movement/scaling channel that never triggers relayout (§8.4). Prefer this over `.offset`
-    /// for animated motion.
+    /// movement/scaling channel that never triggers relayout (§8.4). [`Self::translation`],
+    /// [`Self::scale`] and [`Self::rotation`] are its one-property forms.
     fn transform<M>(self, t: impl IntoReactive<Transform, M>) -> Decorated<Self> {
         Decorated::new(self).transform(t)
     }
@@ -2018,13 +2659,14 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).scale(factor)
     }
 
-    /// Rotate the piece by `degrees` clockwise about its center (animatable).
-    fn rotation<M>(self, degrees: impl IntoReactive<f64, M>) -> Decorated<Self> {
-        Decorated::new(self).rotation(degrees)
+    /// Rotate the piece by `angle` clockwise about its center (animatable):
+    /// `.rotation(Angle::deg(15.0))`.
+    fn rotation<M>(self, angle: impl IntoReactive<Angle, M>) -> Decorated<Self> {
+        Decorated::new(self).rotation(angle)
     }
 
-    /// Translate the piece by (`x`, `y`) points without relayout (animatable): the
-    /// animation-friendly sibling of `.offset`.
+    /// Translate the piece by (`x`, `y`) points without relayout (animatable). Layout still
+    /// places the piece where it was; only what is drawn moves.
     fn translation<Mx, My>(
         self,
         x: impl IntoReactive<f64, Mx>,
@@ -2071,8 +2713,9 @@ pub trait Decorate: Piece + Sized {
     /// resizes, say. `image` has carried this since it shipped; this is the same layout, for any
     /// piece.
     ///
-    /// A ratio that is not finite and positive describes no box, so it is ignored.
-    fn aspect_ratio(self, ratio: f64) -> Decorated<Self> {
+    /// A ratio that is not finite and positive describes no box, so it is ignored. The ratio
+    /// may be a signal or a closure; a change re-lays the piece out.
+    fn aspect_ratio<M>(self, ratio: impl IntoReactive<f64, M>) -> Decorated<Self> {
         Decorated::new(self).aspect_ratio(ratio)
     }
 
@@ -2092,8 +2735,16 @@ pub trait Decorate: Piece + Sized {
     /// Other dimensions hug the content. An unbounded proposal (such as a scroll view's
     /// scrolling axis) keeps the content's measured size. This layout-only wrapper carries
     /// grow [`Flex`] so its parent can allocate extra space; it adds no native view.
-    fn grow(self, dimension: Dimension) -> Decorated<Self> {
-        Decorated::new(self).grow(dimension)
+    ///
+    /// Siblings that grow along the same line share the spare space equally. Give one a
+    /// larger share with a weight: `.grow(Dimension::Width.weight(2.0))` beside a plain
+    /// `.grow(Dimension::Width)` takes two thirds. In a wrapping row
+    /// (`row(..).fit(RowFit::Wrap { .. })`) a line breaks on the children's natural widths
+    /// and the growing ones then share what the line has left, so
+    /// `.min_width(50.0).grow(Dimension::Width)` reads "at least 50 points, then share the
+    /// line".
+    fn grow(self, grow: impl Into<Grow>) -> Decorated<Self> {
+        Decorated::new(self).grow(grow)
     }
 
     #[deprecated(note = "use .grow(Dimension::Width)")]
@@ -2106,7 +2757,6 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).grow(Dimension::Height)
     }
 
-    #[doc(hidden)]
     /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers apply
     /// to the outermost layout node after wrapping modifiers, regardless of their chain position.
     fn grid_span(self, n: usize) -> Decorated<Self> {
@@ -2303,18 +2953,11 @@ fn scoped_drop_target(target: day_spec::transfer::Target) -> day_spec::transfer:
     let alive = Rc::new(Cell::new(true));
     let cleanup = alive.clone();
     scope.on_cleanup(move || cleanup.set(false));
-    let accept_alive = alive.clone();
-    day_spec::transfer::Target {
-        types: target.types,
-        accept: Rc::new(move |location| {
-            if accept_alive.get() {
-                scope.enter(|| (target.accept)(location))
-            } else {
-                day_spec::transfer::Operation::None
-            }
-        }),
-        receive: Rc::new(move |drop| alive.get() && scope.enter(|| (target.receive)(drop))),
-    }
+    target.guarded(Rc::new(move |run: &mut dyn FnMut()| {
+        if alive.get() {
+            scope.enter(run);
+        }
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -2325,9 +2968,9 @@ fn scoped_drop_target(target: day_spec::transfer::Target) -> day_spec::transfer:
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
     use day_core::AnyPiece;
-    use day_core::conformance::{Case, Drive, FrameExpect};
-    use day_reactive::Signal;
-    use day_spec::{Cap, Color, DragPhase, Transform};
+    use day_core::conformance::{Case, Drive, FrameExpect, NativeExpect};
+    use day_reactive::{Signal, untrack};
+    use day_spec::{Cap, Color, DragPhase, Point, Transform};
 
     use crate::*;
 
@@ -2375,6 +3018,69 @@ pub(crate) mod conformance {
                 d.tap("resize").await?;
                 d.assert_frame("resizing", size(120.0, 64.0)).await?;
                 d.assert_frame("minimum", size(120.0, 44.0)).await
+            })
+    }
+
+    /// A subtree's reading direction mirrors its placement and nothing outside it: in a
+    /// right-to-left subtree the first box sits at the right edge, a left-to-right subtree
+    /// nested inside it runs the usual way again, and a flip of the signal re-lays it out.
+    #[day_macros::test(day_core)]
+    fn layout_direction_mirrors_a_subtree() -> Case {
+        let direction = Signal::new(day_spec::LayoutDirection::Rtl);
+        let pair = |first: day_core::ElementId, second: day_core::ElementId| {
+            row((
+                rectangle()
+                    .fill(Color::hex(0x0033_6699))
+                    .frame(40.0, 20.0)
+                    .id(first),
+                rectangle()
+                    .fill(Color::hex(0x0099_3366))
+                    .frame(60.0, 20.0)
+                    .id(second),
+            ))
+        };
+        Case::new()
+            .proves_modifier("layout_direction")
+            .proves_duty("set_layout_direction")
+            .page(move || {
+                column((
+                    column((
+                        pair(day_core::id!(dir_a), day_core::id!(dir_b))
+                            .width(200.0)
+                            .wrapper_id(day_core::id!(dir_outer)),
+                        pair(day_core::id!(dir_c), day_core::id!(dir_d))
+                            .width(200.0)
+                            .wrapper_id(day_core::id!(dir_inner))
+                            .layout_direction(day_spec::LayoutDirection::Ltr),
+                        label("Text in the subtree").id(day_core::id!(dir_text)),
+                    ))
+                    .align(HAlign::Leading)
+                    .layout_direction(direction),
+                    button("Flip")
+                        .action(move || direction.set(day_spec::LayoutDirection::Ltr))
+                        .id(day_core::id!(dir_flip)),
+                ))
+                .align(HAlign::Leading)
+                .spacing(8.0)
+            })
+            .shot("rtl")
+            .drive(|d: Drive| async move {
+                let at = |x: f64, outer: &str| FrameExpect {
+                    x: Some(x),
+                    relative_to: Some(outer.into()),
+                    ..Default::default()
+                };
+                // Right to left: the first box ends at the row's right edge.
+                d.assert_frame("dir_a", at(160.0, "dir_outer")).await?;
+                d.assert_frame("dir_b", at(100.0, "dir_outer")).await?;
+                // The nested left-to-right row is not mirrored.
+                d.assert_frame("dir_c", at(0.0, "dir_inner")).await?;
+                d.assert_frame("dir_d", at(40.0, "dir_inner")).await?;
+                d.assert_text("dir_text", "Text in the subtree").await?;
+                d.tap("dir_flip").await?;
+                d.wait_idle().await?;
+                d.assert_frame("dir_a", at(0.0, "dir_outer")).await?;
+                d.assert_frame("dir_b", at(40.0, "dir_outer")).await
             })
     }
 
@@ -2672,6 +3378,414 @@ pub(crate) mod conformance {
             })
     }
 
+    /// A surface's border is drawn inside its frame, over the fill's edge and not its middle.
+    #[day_macros::test(day_core)]
+    fn surface_border_frames_fill() -> Case {
+        Case::new()
+            .proves_modifier("surface")
+            .proves_modifier("border")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                label("")
+                    .frame(80.0, 80.0)
+                    .surface(
+                        Surface::new()
+                            .fill(Color::rgb(0.0, 0.0, 1.0))
+                            .border(Color::rgb(1.0, 0.0, 0.0), 8.0),
+                    )
+                    .id(day_core::id!(framed))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("framed", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("framed", 0.5, 0.05, "#ff0000").await?;
+                d.sample_pixel("framed", 0.05, 0.5, "#ff0000").await?;
+                d.sample_pixel("framed", 0.95, 0.5, "#ff0000").await?;
+                d.sample_pixel("framed", 0.5, 0.95, "#ff0000").await
+            })
+    }
+
+    /// A surface rounds only the corners it is told to: the top two are cut, the bottom two
+    /// are still filled.
+    #[day_macros::test(day_core)]
+    fn surface_rounds_named_corners() -> Case {
+        Case::new()
+            .proves_modifier("surface")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    label("").frame(80.0, 80.0).surface(
+                        Surface::new()
+                            .fill(Color::rgb(0.0, 0.0, 1.0))
+                            .corner_radius(30.0)
+                            .corners(day_spec::Corners::TOP),
+                    ),
+                ))
+                .id(day_core::id!(ground))
+                .frame(80.0, 80.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.03, 0.03, "#ffffff").await?;
+                d.sample_pixel("ground", 0.97, 0.03, "#ffffff").await?;
+                d.sample_pixel("ground", 0.03, 0.97, "#0000ff").await?;
+                d.sample_pixel("ground", 0.97, 0.97, "#0000ff").await
+            })
+    }
+
+    /// A surface's gradient runs from its first stop at one edge to its last at the other.
+    #[day_macros::test(day_core)]
+    fn surface_gradient_fill() -> Case {
+        Case::new()
+            .proves_modifier("surface")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                label("")
+                    .frame(80.0, 80.0)
+                    .surface(Surface::new().fill(day_spec::LinearGradient::vertical(
+                        Color::rgb(1.0, 0.0, 0.0),
+                        Color::rgb(0.0, 0.0, 1.0),
+                    )))
+                    .id(day_core::id!(graded))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("graded", 0.5, 0.06, "#ff0000").await?;
+                d.sample_pixel("graded", 0.5, 0.5, "#800080").await?;
+                d.sample_pixel("graded", 0.5, 0.94, "#0000ff").await
+            })
+    }
+
+    /// A surface's shadow is drawn outside its frame, moved by its offset, and leaves the
+    /// surface itself and the ground beyond the shadow alone.
+    #[day_macros::test(day_core)]
+    fn surface_shadow_falls_outside() -> Case {
+        Case::new()
+            .proves_modifier("surface")
+            .proves_modifier("shadow")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                // The surface is the middle 60 points of a 120-point ground, so its shadow,
+                // 16 points down, shows in the band from 90 to 106.
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    label("").frame(60.0, 60.0).surface(
+                        Surface::new().fill(Color::rgb(0.0, 0.0, 1.0)).shadow(
+                            day_spec::Shadow::new(Color::rgb(0.0, 0.0, 0.0), 4.0).offset(0.0, 16.0),
+                        ),
+                    ),
+                ))
+                .id(day_core::id!(ground))
+                .frame(120.0, 120.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.5, 0.815, "#000000").await?;
+                d.sample_pixel("ground", 0.5, 0.97, "#ffffff").await?;
+                d.sample_pixel("ground", 0.5, 0.1, "#ffffff").await
+            })
+    }
+
+    /// Buttons that switch the app's appearance, for the cases that prove a view follows it.
+    fn appearance_switches() -> impl day_core::Piece {
+        row((
+            button("Light")
+                .action(|| day_core::set_appearance(Some(false)))
+                .id(day_core::id!(appearance::light)),
+            button("Dark")
+                .action(|| day_core::set_appearance(Some(true)))
+                .id(day_core::id!(appearance::dark)),
+            button("System")
+                .action(|| day_core::set_appearance(None))
+                .id(day_core::id!(appearance::system)),
+        ))
+        .spacing(8.0)
+    }
+
+    /// A fill given as an ink follows an appearance switch with no app code running: no
+    /// closure, no signal, no rebuild. A light/dark pair recolors in place, and a platform
+    /// role shows what `day::resolve` answers for it in each appearance (docs/color.md).
+    #[day_macros::test(day_core)]
+    fn ink_follows_the_appearance() -> Case {
+        const PAIR: day_spec::Ink =
+            day_spec::Ink::adaptive(Color::rgb(1.0, 0.0, 0.0), Color::rgb(0.0, 0.0, 1.0));
+        Case::new()
+            .proves_modifier("background")
+            .proves_cap(Cap::Appearance)
+            .requires(Cap::Appearance)
+            .page(|| {
+                column((
+                    label("")
+                        .frame(80.0, 40.0)
+                        .background(PAIR)
+                        .id(day_core::id!(paired)),
+                    label("")
+                        .frame(80.0, 40.0)
+                        .background(day_spec::SystemColor::Background)
+                        .border(day_spec::SystemColor::Separator, 2.0)
+                        .id(day_core::id!(role)),
+                    appearance_switches(),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                let shown = |c: Color| day_core::conformance::DisplayedExpect {
+                    background: Some(c),
+                    ..Default::default()
+                };
+                d.tap("appearance::light").await?;
+                d.sample_pixel("paired", 0.5, 0.5, "#ff0000").await?;
+                d.assert_displayed("paired", shown(Color::rgb(1.0, 0.0, 0.0)))
+                    .await?;
+                let light = day_core::resolve(day_spec::SystemColor::Background);
+                d.assert_displayed("role", shown(light)).await?;
+                d.tap("appearance::dark").await?;
+                d.sample_pixel("paired", 0.5, 0.5, "#0000ff").await?;
+                d.assert_displayed("paired", shown(Color::rgb(0.0, 0.0, 1.0)))
+                    .await?;
+                let dark = day_core::resolve(day_spec::SystemColor::Background);
+                d.assert_displayed("role", shown(dark)).await?;
+                d.tap("appearance::system").await
+            })
+    }
+
+    /// A canvas that draws with an ink records the color of the current appearance and draws
+    /// again when the appearance changes (docs/canvas.md "Colors").
+    #[day_macros::test(day_core)]
+    fn canvas_ink_follows_the_appearance() -> Case {
+        Case::new()
+            .proves(day_spec::kinds::CANVAS)
+            .requires(Cap::Appearance)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                column((
+                    canvas(|d, size| {
+                        d.fill(
+                            day_spec::Shape::Rect(day_spec::Rect::from_size(size)),
+                            day_spec::Ink::adaptive(
+                                Color::rgb(1.0, 0.0, 0.0),
+                                Color::rgb(0.0, 0.0, 1.0),
+                            ),
+                        );
+                    })
+                    .frame(80.0, 40.0)
+                    .id(day_core::id!(drawn)),
+                    appearance_switches(),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.tap("appearance::light").await?;
+                d.sample_pixel("drawn", 0.5, 0.5, "#ff0000").await?;
+                d.tap("appearance::dark").await?;
+                d.sample_pixel("drawn", 0.5, 0.5, "#0000ff").await?;
+                d.tap("appearance::system").await
+            })
+    }
+
+    /// A surface's border is drawn over its content: a child that fills the surface edge to
+    /// edge never covers the border (docs/surfaces.md "Rules").
+    #[day_macros::test(day_core)]
+    fn surface_border_over_content() -> Case {
+        Case::new()
+            .proves_modifier("surface")
+            .proves_modifier("border")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                rectangle()
+                    .fill(Color::rgb(0.0, 0.0, 1.0))
+                    .frame(80.0, 80.0)
+                    .surface(
+                        Surface::new()
+                            .corner_radius(12.0)
+                            .border(Color::rgb(1.0, 0.0, 0.0), 8.0),
+                    )
+                    .id(day_core::id!(framed))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("framed", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("framed", 0.5, 0.04, "#ff0000").await?;
+                d.sample_pixel("framed", 0.04, 0.5, "#ff0000").await?;
+                d.sample_pixel("framed", 0.5, 0.96, "#ff0000").await
+            })
+    }
+
+    /// A surface takes a radial and a conic paint like a shape does: the radial gradient's
+    /// first stop at the middle and its last at the edge; the conic gradient's quarters
+    /// clockwise from +x (docs/surfaces.md).
+    #[day_macros::test(day_core)]
+    fn surface_radial_and_conic_fill() -> Case {
+        Case::new()
+            .proves_modifier("surface")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let quarter = |at: f64, c: Color| [(at, c), (at + 0.25, c)];
+                let conic = [
+                    quarter(0.0, Color::rgb(1.0, 0.0, 0.0)),
+                    quarter(0.25, Color::rgb(0.0, 1.0, 0.0)),
+                    quarter(0.5, Color::rgb(0.0, 0.0, 1.0)),
+                    quarter(0.75, Color::rgb(1.0, 1.0, 0.0)),
+                ]
+                .concat();
+                row((
+                    label("")
+                        .frame(80.0, 80.0)
+                        .surface(Surface::new().fill(day_spec::RadialGradient::new(
+                            day_spec::UnitPoint::CENTER,
+                            0.5,
+                            [
+                                (0.0, Color::rgb(1.0, 0.0, 0.0)),
+                                (0.2, Color::rgb(1.0, 0.0, 0.0)),
+                                (0.8, Color::rgb(0.0, 0.0, 1.0)),
+                                (1.0, Color::rgb(0.0, 0.0, 1.0)),
+                            ],
+                        )))
+                        .id(day_core::id!(radial)),
+                    label("")
+                        .frame(80.0, 80.0)
+                        .background(day_spec::ConicGradient::centered(
+                            day_spec::Angle::ZERO,
+                            conic,
+                        ))
+                        .id(day_core::id!(conic)),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("radial", 0.5, 0.5, "#ff0000").await?;
+                d.sample_pixel("radial", 0.5, 0.97, "#0000ff").await?;
+                // Clockwise from +x on screen: right-below red, left-below green, left-above
+                // blue, right-above yellow.
+                d.sample_pixel("conic", 0.8, 0.6, "#ff0000").await?;
+                d.sample_pixel("conic", 0.2, 0.6, "#00ff00").await?;
+                d.sample_pixel("conic", 0.2, 0.4, "#0000ff").await?;
+                d.sample_pixel("conic", 0.8, 0.4, "#ffff00").await
+            })
+    }
+
+    /// Corner radius, border and shadow follow their signals in place, and a capsule radius
+    /// follows the frame as it resizes (docs/surfaces.md "Reactive surfaces").
+    #[day_macros::test(day_core)]
+    fn surface_follows_its_signals() -> Case {
+        Case::new()
+            .proves_modifier("corner_radius")
+            .proves_modifier("border")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let styled = Signal::new(false);
+                let width = Signal::new(80.0);
+                column((
+                    zstack((
+                        rectangle().fill(Color::WHITE),
+                        label("")
+                            .frame(80.0, 80.0)
+                            .background(Color::rgb(0.0, 0.0, 1.0))
+                            .border(Color::rgb(1.0, 0.0, 0.0), move || {
+                                if styled.get() { 8.0 } else { 0.0 }
+                            })
+                            .corner_radius(move || if styled.get() { 30.0 } else { 0.0 }),
+                    ))
+                    .frame(80.0, 80.0)
+                    .id(day_core::id!(styled)),
+                    zstack((
+                        rectangle().fill(Color::WHITE),
+                        label("")
+                            .frame(width, 40.0)
+                            .background(Color::rgb(0.0, 0.0, 1.0))
+                            .corner_radius(crate::Corner::CAPSULE),
+                    ))
+                    .frame(160.0, 40.0)
+                    .id(day_core::id!(pill)),
+                    button("Style")
+                        .action(move || {
+                            styled.set(true);
+                            width.set(160.0);
+                        })
+                        .id(day_core::id!(restyle)),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("styled", 0.03, 0.03, "#0000ff").await?;
+                d.sample_pixel("styled", 0.5, 0.04, "#0000ff").await?;
+                d.sample_pixel("pill", 0.02, 0.06, "#ffffff").await?;
+                d.tap("restyle").await?;
+                d.sample_pixel("styled", 0.03, 0.03, "#ffffff").await?;
+                d.sample_pixel("styled", 0.5, 0.04, "#ff0000").await?;
+                d.sample_pixel("styled", 0.5, 0.5, "#0000ff").await?;
+                // The capsule's ends stay round at the new width.
+                d.sample_pixel("pill", 0.01, 0.06, "#ffffff").await?;
+                d.sample_pixel("pill", 0.99, 0.94, "#ffffff").await?;
+                d.sample_pixel("pill", 0.5, 0.5, "#0000ff").await
+            })
+    }
+
+    /// Size limits and an aspect ratio follow their signals: the piece is laid out again at
+    /// the new limit, without being rebuilt (docs/layout.md).
+    #[day_macros::test(day_core)]
+    fn size_limits_follow_their_signals() -> Case {
+        Case::new()
+            .proves_modifier("max_width")
+            .proves_modifier("min_height")
+            .proves_modifier("aspect_ratio")
+            .page(|| {
+                let wide = Signal::new(false);
+                column((
+                    rectangle()
+                        .fill(Color::rgb(0.2, 0.4, 0.9))
+                        .max_width(move || if wide.get() { 120.0 } else { 60.0 })
+                        .min_height(move || if wide.get() { 30.0 } else { 20.0 })
+                        .frame(200.0, 10.0)
+                        .id(day_core::id!(capped)),
+                    rectangle()
+                        .fill(Color::rgb(0.9, 0.4, 0.2))
+                        .aspect_ratio(move || if wide.get() { 4.0 } else { 2.0 })
+                        .width(80.0)
+                        .id(day_core::id!(ratio)),
+                    button("Widen")
+                        .action(move || wide.set(true))
+                        .id(day_core::id!(widen)),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_size("capped", 60.0, 20.0).await?;
+                d.assert_size("ratio", 80.0, 40.0).await?;
+                d.tap("widen").await?;
+                d.assert_size("capped", 120.0, 30.0).await?;
+                d.assert_size("ratio", 80.0, 20.0).await
+            })
+    }
+
+    /// An `Angle` means the same turn in either unit: a quarter turn given in radians turns a
+    /// two-color bar exactly as `Angle::deg(90.0)` does (`rotation_turns_clockwise`).
+    #[day_macros::test(day_core)]
+    fn rotation_takes_an_angle_in_either_unit() -> Case {
+        Case::new()
+            .proves_modifier("rotation")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    shape_group([
+                        rectangle()
+                            .fill(Color::rgb(1.0, 0.0, 0.0))
+                            .at(0.0, 0.0, 0.5, 1.0),
+                        rectangle()
+                            .fill(Color::rgb(0.0, 0.0, 1.0))
+                            .at(0.5, 0.0, 0.5, 1.0),
+                    ])
+                    .frame(80.0, 40.0)
+                    .rotation(day_spec::Angle::rad(std::f64::consts::FRAC_PI_2)),
+                ))
+                .id(day_core::id!(ground))
+                .frame(120.0, 120.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.4, "#ff0000").await?;
+                d.sample_pixel("ground", 0.5, 0.6, "#0000ff").await
+            })
+    }
+
     /// Opacity zero leaves what is below showing.
     #[day_macros::test(day_core)]
     fn opacity_hides() -> Case {
@@ -2781,7 +3895,7 @@ pub(crate) mod conformance {
                             .at(0.5, 0.0, 0.5, 1.0),
                     ])
                     .frame(80.0, 40.0)
-                    .rotation(90.0),
+                    .rotation(day_spec::Angle::QUARTER),
                 ))
                 .id(day_core::id!(ground))
                 .frame(120.0, 120.0)
@@ -2962,7 +4076,7 @@ pub(crate) mod conformance {
                     label(move || format!("rotation {}", angle.get())).id(day_core::id!(angle)),
                     pad(day_core::id!(target)).on_rotate(move |r: Rotate| {
                         if r.phase == DragPhase::Ended {
-                            angle.set(format!("{:.2}", r.rotation));
+                            angle.set(format!("{:.2}", r.rotation.radians()));
                         }
                     }),
                 ))
@@ -2987,7 +4101,7 @@ pub(crate) mod conformance {
                     label(move || format!("key {}", last.get())).id(day_core::id!(last)),
                     pad(day_core::id!(target))
                         .focusable()
-                        .on_key(move |k| last.set(k.key.clone())),
+                        .on_key(move |k| last.set(k.key.name())),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -2996,6 +4110,559 @@ pub(crate) mod conformance {
                 d.assert_focused("target", true).await?;
                 d.key(None, "ArrowRight").await?;
                 d.assert_text("last", "key ArrowRight").await
+            })
+    }
+
+    /// A drag's release carries the velocity the platform's recognizer measured, and the
+    /// press point is `location - translation` in every phase.
+    #[day_macros::test(day_core)]
+    fn on_drag_reports_release_velocity() -> Case {
+        Case::new()
+            .proves_modifier("on_drag")
+            .page(|| {
+                let state = Signal::new(String::from("idle"));
+                column((
+                    label(move || state.get()).id(day_core::id!(state)),
+                    pad(day_core::id!(target)).on_drag(move |d: Drag| {
+                        if d.phase == DragPhase::Ended {
+                            state.set(format!(
+                                "from {:.0},{:.0} at {:.0},{:.0} speed {:.0}",
+                                d.start().x,
+                                d.start().y,
+                                d.velocity.x,
+                                d.velocity.y,
+                                d.speed()
+                            ));
+                        }
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.fling("target", (10.0, 20.0), (70.0, 20.0), (600.0, -800.0))
+                    .await?;
+                d.assert_text("state", "from 10,20 at 600,-800 speed 1000")
+                    .await?;
+                // A drag whose samples measure nothing reports no velocity, not a stale one.
+                d.drag("target", (10.0, 20.0), (70.0, 20.0)).await?;
+                d.assert_text("state", "from 10,20 at 0,0 speed 0").await
+            })
+    }
+
+    /// A drag declared along one axis hears the drags that set off along it, and none of the
+    /// ones that set off across it.
+    #[day_macros::test(day_core)]
+    fn on_drag_along_withholds_cross_axis() -> Case {
+        Case::new()
+            .proves_modifier("on_drag_along")
+            .proves_duty("set_drag_axis")
+            .page(|| {
+                let state = Signal::new(String::from("none"));
+                let events = Signal::new(0i64);
+                column((
+                    label(move || format!("{} after {}", state.get(), events.get()))
+                        .id(day_core::id!(state)),
+                    pad(day_core::id!(target)).on_drag_along(
+                        day_spec::DragAxis::Horizontal,
+                        move |d: Drag| {
+                            events.update(|n| *n += 1);
+                            if d.phase == DragPhase::Ended {
+                                state.set(format!("moved {:.0}", d.translation.x));
+                            }
+                        },
+                    ),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.drag("target", (60.0, 10.0), (60.0, 70.0)).await?;
+                d.assert_text("state", "none after 0").await?;
+                d.drag("target", (10.0, 40.0), (90.0, 44.0)).await?;
+                // Began, four samples and Ended: the whole drag, from its first event.
+                d.assert_text("state", "moved 80 after 6").await
+            })
+    }
+
+    /// A long press reports the press point, and a piece with a tap handler too hears the
+    /// long press alone.
+    #[day_macros::test(day_core)]
+    fn on_long_press_fires() -> Case {
+        Case::new()
+            .proves_modifier("on_long_press")
+            .proves_duty("gesture_support")
+            .page(|| {
+                let held = Signal::new(String::from("none"));
+                let taps = Signal::new(0i64);
+                column((
+                    label(move || format!("held {} taps {}", held.get(), taps.get()))
+                        .id(day_core::id!(state)),
+                    pad(day_core::id!(target))
+                        .on_tap(move || taps.update(|n| *n += 1))
+                        .on_long_press(move |at| held.set(format!("{:.0},{:.0}", at.x, at.y))),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.long_press("target").await?;
+                d.assert_text("state", "held 60,40 taps 0").await
+            })
+    }
+
+    /// A double tap runs its handler and not the single tap's.
+    #[day_macros::test(day_core)]
+    fn on_double_tap_fires() -> Case {
+        Case::new()
+            .proves_modifier("on_double_tap")
+            .page(|| {
+                let doubles = Signal::new(0i64);
+                let taps = Signal::new(0i64);
+                column((
+                    label(move || format!("doubles {} taps {}", doubles.get(), taps.get()))
+                        .id(day_core::id!(state)),
+                    pad(day_core::id!(target))
+                        .on_tap(move || taps.update(|n| *n += 1))
+                        .on_double_tap(move || doubles.update(|n| *n += 1)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.double_tap("target").await?;
+                d.assert_text("state", "doubles 1 taps 0").await
+            })
+    }
+
+    /// A double tap tells `.on_double_tap_at` where it landed, in the piece's coordinates.
+    #[day_macros::test(day_core)]
+    fn on_double_tap_at_reports_the_point() -> Case {
+        Case::new()
+            .proves_modifier("on_double_tap_at")
+            .page(|| {
+                let at = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("double at {}", at.get())).id(day_core::id!(state)),
+                    pad(day_core::id!(target))
+                        .on_double_tap_at(move |p| at.set(format!("{:.0},{:.0}", p.x, p.y))),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.double_tap("target").await?;
+                d.assert_text("state", "double at 60,40").await
+            })
+    }
+
+    /// Press-in and press-out reach `.on_pressed`, one of each per press.
+    #[day_macros::test(day_core)]
+    fn on_pressed_follows_press() -> Case {
+        Case::new()
+            .proves_modifier("on_pressed")
+            .page(|| {
+                let down = Signal::new(false);
+                let changes = Signal::new(0i64);
+                column((
+                    label(move || {
+                        let state = if down.get() { "down" } else { "up" };
+                        format!("{state} after {}", changes.get())
+                    })
+                    .id(day_core::id!(state)),
+                    pad(day_core::id!(target)).on_pressed(move |pressed| {
+                        down.set(pressed);
+                        changes.update(|n| *n += 1);
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.press("target", true).await?;
+                d.assert_text("state", "down after 1").await?;
+                d.press("target", false).await?;
+                d.assert_text("state", "up after 2").await
+            })
+    }
+
+    /// Raw contacts arrive as a list, each with its own id, and say when they lift.
+    #[day_macros::test(day_core)]
+    fn on_touches_reports_contacts() -> Case {
+        Case::new()
+            .proves_modifier("on_touches")
+            .page(|| {
+                let state = Signal::new(String::from("none"));
+                column((
+                    label(move || state.get()).id(day_core::id!(state)),
+                    pad(day_core::id!(target)).on_touches(move |touches: &[day_spec::Touch]| {
+                        let down = touches.iter().filter(|t| t.is_down()).count();
+                        let ids: Vec<String> = touches.iter().map(|t| t.id.to_string()).collect();
+                        let last = touches.last().map_or(Point::ZERO, |t| t.location);
+                        state.set(format!(
+                            "{down} down ids {} last {:.0},{:.0}",
+                            ids.join("+"),
+                            last.x,
+                            last.y
+                        ));
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                let points = [(10.0, 10.0), (50.0, 30.0)];
+                d.touches("target", &points, day_spec::TouchPhase::Began)
+                    .await?;
+                d.assert_text("state", "2 down ids 0+1 last 50,30").await?;
+                d.touches("target", &points, day_spec::TouchPhase::Ended)
+                    .await?;
+                d.assert_text("state", "0 down ids 0+1 last 50,30").await
+            })
+    }
+
+    /// A hit slop changes neither the piece's frame nor its neighbor's, and the piece still
+    /// takes its tap. That a press in the slop area lands on it is the platform's hit test,
+    /// which injected input does not exercise (docs/gestures.md "Hit slop").
+    #[day_macros::test(day_core)]
+    fn hit_slop_leaves_layout_alone() -> Case {
+        Case::new()
+            .proves_modifier("hit_slop")
+            .proves_duty("set_hit_slop")
+            .proves_cap(Cap::HitSlop)
+            .page(|| {
+                let taps = Signal::new(0i64);
+                column((
+                    label(move || format!("taps {}", taps.get())).id(day_core::id!(taps)),
+                    row((
+                        rectangle()
+                            .fill(Color::rgb(0.9, 0.2, 0.2))
+                            .frame(12.0, 12.0)
+                            .hit_slop(30.0)
+                            .on_tap(move || taps.update(|n| *n += 1))
+                            .id(day_core::id!(dot)),
+                        rectangle()
+                            .fill(Color::rgb(0.2, 0.4, 0.9))
+                            .frame(12.0, 12.0)
+                            .id(day_core::id!(next)),
+                    ))
+                    .spacing(4.0),
+                ))
+                .align(HAlign::Leading)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame("dot", size(12.0, 12.0)).await?;
+                d.assert_frame(
+                    "next",
+                    FrameExpect {
+                        x: Some(16.0),
+                        y: Some(0.0),
+                        relative_to: Some("dot".into()),
+                        ..FrameExpect::default()
+                    },
+                )
+                .await?;
+                d.tap("dot").await?;
+                d.assert_text("taps", "taps 1").await
+            })
+    }
+
+    /// An interaction state follows hover, press and focus, each on its own.
+    #[day_macros::test(day_core)]
+    fn interaction_state_tracks_hover_press_focus() -> Case {
+        Case::new()
+            .proves_modifier("interaction")
+            .page(|| {
+                let state = InteractionState::new();
+                column((
+                    label(move || {
+                        format!(
+                            "hovered {} pressed {} focused {}",
+                            state.hovered(),
+                            state.pressed(),
+                            state.focused()
+                        )
+                    })
+                    .id(day_core::id!(state)),
+                    pad(day_core::id!(target)).focusable().interaction(state),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("state", "hovered false pressed false focused false")
+                    .await?;
+                d.hover("target", None).await?;
+                d.assert_text("state", "hovered true pressed false focused false")
+                    .await?;
+                d.press("target", true).await?;
+                d.assert_text("state", "hovered true pressed true focused false")
+                    .await?;
+                d.press("target", false).await?;
+                d.hover_leave("target").await?;
+                d.assert_text("state", "hovered false pressed false focused false")
+                    .await?;
+                d.focus("target").await?;
+                d.assert_text("state", "hovered false pressed false focused true")
+                    .await
+            })
+    }
+
+    /// A reactive modifier reads the interaction state: the background follows the press.
+    #[day_macros::test(day_core)]
+    fn interaction_state_drives_background() -> Case {
+        Case::new()
+            .proves_modifier("interaction")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let state = InteractionState::new();
+                label("")
+                    .frame(80.0, 40.0)
+                    .interaction(state)
+                    .background(move || {
+                        if state.pressed() {
+                            Color::rgb(1.0, 0.0, 0.0)
+                        } else {
+                            Color::rgb(0.0, 0.0, 1.0)
+                        }
+                    })
+                    .id(day_core::id!(card))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("card", 0.5, 0.5, "#0000ff").await?;
+                d.press("card", true).await?;
+                d.sample_pixel("card", 0.5, 0.5, "#ff0000").await?;
+                d.press("card", false).await?;
+                d.sample_pixel("card", 0.5, 0.5, "#0000ff").await
+            })
+    }
+
+    /// `.enabled(false)` disables the controls in a subtree natively and stops its gestures;
+    /// enabling it again restores both.
+    #[day_macros::test(day_core)]
+    fn enabled_disables_subtree() -> Case {
+        Case::new()
+            .proves_modifier("enabled")
+            .proves_duty("set_subtree_enabled")
+            .page(|| {
+                let on = Signal::new(true);
+                let presses = Signal::new(0i64);
+                let drags = Signal::new(0i64);
+                let pressed = Signal::new(false);
+                column((
+                    label(move || {
+                        format!(
+                            "presses {} drags {} pressed {}",
+                            presses.get(),
+                            drags.get(),
+                            pressed.get()
+                        )
+                    })
+                    .id(day_core::id!(state)),
+                    button("Flip")
+                        .action(move || on.update(|v| *v = !*v))
+                        .id(day_core::id!(flip)),
+                    column((
+                        button("Inner")
+                            .action(move || presses.update(|n| *n += 1))
+                            .id(day_core::id!(inner)),
+                        pad(day_core::id!(target))
+                            .on_pressed(move |down| pressed.set(down))
+                            .on_drag(move |d: Drag| {
+                                if d.phase == DragPhase::Ended {
+                                    drags.update(|n| *n += 1);
+                                }
+                            }),
+                    ))
+                    .enabled(on),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                let native = |enabled| NativeExpect {
+                    enabled: Some(enabled),
+                    ..NativeExpect::default()
+                };
+                d.assert_enabled("inner", true).await?;
+                d.drag("target", (10.0, 10.0), (60.0, 10.0)).await?;
+                d.assert_text("state", "presses 0 drags 1 pressed false")
+                    .await?;
+                // Disabled while pressed: the press ends, and nothing more arrives.
+                d.press("target", true).await?;
+                d.assert_text("state", "presses 0 drags 1 pressed true")
+                    .await?;
+                d.tap("flip").await?;
+                d.assert_text("state", "presses 0 drags 1 pressed false")
+                    .await?;
+                d.assert_enabled("inner", false).await?;
+                d.assert_native("inner", native(false)).await?;
+                d.drag("target", (10.0, 10.0), (60.0, 10.0)).await?;
+                d.press("target", true).await?;
+                d.assert_text("state", "presses 0 drags 1 pressed false")
+                    .await?;
+                d.tap("flip").await?;
+                d.assert_enabled("inner", true).await?;
+                d.assert_native("inner", native(true)).await?;
+                d.tap("inner").await?;
+                d.drag("target", (10.0, 10.0), (60.0, 10.0)).await?;
+                d.assert_text("state", "presses 1 drags 2 pressed false")
+                    .await
+            })
+    }
+
+    /// A key reports each phase of its press: down and repeat reach `.on_key`, the release
+    /// reaches `.on_key_up`, and the key is typed.
+    #[day_macros::test(day_core)]
+    fn key_phases_reach_their_handlers() -> Case {
+        Case::new()
+            .proves_modifier("on_key_up")
+            .proves_cap(Cap::KeyPhases)
+            .page(|| {
+                let counts = Signal::new((0i64, 0i64, 0i64));
+                column((
+                    label(move || {
+                        let (down, repeat, up) = counts.get();
+                        format!("down {down} repeat {repeat} up {up}")
+                    })
+                    .id(day_core::id!(state)),
+                    pad(day_core::id!(target))
+                        .focusable()
+                        .on_key(move |k| {
+                            if k.key == day_spec::Key::ArrowRight {
+                                counts.update(|c| {
+                                    if k.is_repeat() {
+                                        c.1 += 1;
+                                    } else {
+                                        c.0 += 1;
+                                    }
+                                });
+                            }
+                        })
+                        .on_key_up(move |k| {
+                            if k.key == day_spec::Key::ArrowRight && k.is_release() {
+                                counts.update(|c| c.2 += 1);
+                            }
+                        }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.focus("target").await?;
+                d.key(None, "ArrowRight").await?;
+                d.assert_text("state", "down 1 repeat 0 up 0").await?;
+                d.key_phase(None, "ArrowRight", day_spec::KeyPhase::Repeat)
+                    .await?;
+                d.key_phase(None, "ArrowRight", day_spec::KeyPhase::Repeat)
+                    .await?;
+                d.assert_text("state", "down 1 repeat 2 up 0").await?;
+                d.key_phase(None, "ArrowRight", day_spec::KeyPhase::Up)
+                    .await?;
+                d.assert_text("state", "down 1 repeat 2 up 1").await
+            })
+    }
+
+    /// A focusable piece joins the focus system: it takes focus, says so, hears keys while
+    /// it holds it, and gives it up to the next control.
+    #[day_macros::test(day_core)]
+    fn focusable_piece_holds_and_yields_focus() -> Case {
+        Case::new()
+            .proves_cap(Cap::Focusable)
+            .proves_duty("set_focusable")
+            .requires(Cap::Focusable)
+            .page(|| {
+                let focused = Signal::new(false);
+                let keys = Signal::new(0i64);
+                let text = Signal::new(String::new());
+                column((
+                    label(move || format!("focused {} keys {}", focused.get(), keys.get()))
+                        .id(day_core::id!(state)),
+                    pad(day_core::id!(target))
+                        .focusable()
+                        .focused(focused)
+                        .on_key(move |_| keys.update(|n| *n += 1)),
+                    text_field(text).id(day_core::id!(field)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("state", "focused false keys 0").await?;
+                d.focus("target").await?;
+                d.assert_focused("target", true).await?;
+                d.assert_text("state", "focused true keys 0").await?;
+                d.key(None, "ArrowDown").await?;
+                d.assert_text("state", "focused true keys 1").await?;
+                // Focus moves to the field: the piece reports the loss.
+                d.focus("field").await?;
+                d.assert_focused("field", true).await?;
+                d.assert_focused("target", false).await?;
+                d.assert_text("state", "focused false keys 1").await
+            })
+    }
+
+    /// The input kind follows what the platform reports, and readers of it update.
+    #[day_macros::test(day_core)]
+    fn primary_pointer_follows_input() -> Case {
+        Case::new()
+            .proves_duty("primary_pointer")
+            .page(|| label(move || day_core::primary_pointer().name()).id(day_core::id!(kind)))
+            .drive(|d: Drive| async move {
+                let before = untrack(day_core::primary_pointer);
+                d.pointer(day_spec::PointerKind::Touch).await?;
+                d.assert_text("kind", "touch").await?;
+                d.pointer(day_spec::PointerKind::Stylus).await?;
+                d.assert_text("kind", "stylus").await?;
+                d.pointer(day_spec::PointerKind::Mouse).await?;
+                d.assert_text("kind", "mouse").await?;
+                // Leave the app as the platform had it.
+                d.pointer(before).await
+            })
+    }
+
+    /// A drop target hears the drag come over it, leave, and drop, and each hover ends once.
+    #[day_macros::test(day_core)]
+    fn drop_target_reports_enter_leave_drop() -> Case {
+        Case::new()
+            .proves_modifier("drop_target")
+            .proves_duty("set_drop_target")
+            .page(|| {
+                let hovering = Signal::new(0i64);
+                let got = Signal::new(String::from("nothing"));
+                column((
+                    label(move || format!("hovering {} got {}", hovering.get(), got.get()))
+                        .id(day_core::id!(state)),
+                    pad(day_core::id!(zone)).drop_target(
+                        DropTarget::new(["text/plain"])
+                            .on_enter(move |_| hovering.update(|n| *n += 1))
+                            .on_leave(move || hovering.update(|n| *n -= 1))
+                            .on_drop(move |drop| {
+                                let text = drop
+                                    .items
+                                    .first()
+                                    .and_then(|item| item.get("text/plain"))
+                                    .and_then(|bytes| std::str::from_utf8(bytes).ok());
+                                got.set(text.unwrap_or("?").to_owned());
+                                text.is_some()
+                            }),
+                    ),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.drag_enter("zone", "hello").await?;
+                // The platform asks again as the drag moves: still one hover.
+                d.drag_enter("zone", "hello").await?;
+                d.assert_text("state", "hovering 1 got nothing").await?;
+                d.drag_leave("zone").await?;
+                d.assert_text("state", "hovering 0 got nothing").await?;
+                d.drop_text("zone", "hello").await?;
+                d.assert_text("state", "hovering 0 got hello").await
+            })
+    }
+
+    /// `.on_files_dropped` hands over the local paths of the dropped files.
+    #[day_macros::test(day_core)]
+    fn on_files_dropped_receives_paths() -> Case {
+        Case::new()
+            .proves_modifier("on_files_dropped")
+            .page(|| {
+                let got = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("files {}", got.get())).id(day_core::id!(state)),
+                    pad(day_core::id!(zone)).on_files_dropped(move |paths| {
+                        let names: Vec<String> = paths
+                            .iter()
+                            .filter_map(|p| p.file_name())
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .collect();
+                        got.set(names.join("+"));
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.drop_files("zone", &["/work/first.txt", "/work/second%20draft.md"])
+                    .await?;
+                d.assert_text("state", "files first.txt+second draft.md")
+                    .await
             })
     }
 
@@ -3376,25 +5043,39 @@ mod transfer_tests {
         let owner = Scope::child();
         let foreign = Scope::child();
         foreign.provide(22u32);
+        let hovers = Rc::new(Cell::new(0i32));
+        let leaves = Rc::new(Cell::new(0i32));
+        let counts = (hovers.clone(), leaves.clone());
         let (source, target) = owner.enter(|| {
             owner.provide(11u32);
             let check = || assert_eq!(day_core::environment::<u32>(), Some(11));
+            let (hovers, leaves) = counts;
+            let entered = hovers.clone();
             (
                 scoped_drag_source(Rc::new(move |_| {
                     check();
                     Some(Offer::default())
                 })),
-                scoped_drop_target(Target {
-                    types: vec![],
-                    accept: Rc::new(move |_| {
-                        check();
-                        Operation::Copy
-                    }),
-                    receive: Rc::new(move |_| {
-                        check();
-                        true
-                    }),
-                }),
+                scoped_drop_target(
+                    Target::new(Vec::<String>::new())
+                        .accept(move |_| {
+                            check();
+                            Operation::Copy
+                        })
+                        .on_enter(move |_| {
+                            check();
+                            entered.set(entered.get() + 1);
+                        })
+                        .on_leave(move || {
+                            check();
+                            hovers.set(hovers.get() - 1);
+                            leaves.set(leaves.get() + 1);
+                        })
+                        .on_drop(move |_| {
+                            check();
+                            true
+                        }),
+                ),
             )
         });
         let location = || Location {
@@ -3405,17 +5086,25 @@ mod transfer_tests {
         };
         foreign.enter(|| {
             assert!(source(day_spec::Point::new(0., 0.)).is_some());
+            // The hover is entered once however often the platform asks, and left once: by
+            // the session leaving, and again by the drop that ends the next hover.
+            assert_eq!(target.proposal(&location()), Operation::Copy);
+            assert_eq!(target.proposal(&location()), Operation::Copy);
+            assert_eq!((hovers.get(), leaves.get()), (1, 0));
+            assert!(target.is_hovering());
+            target.leave();
+            target.leave();
+            assert_eq!((hovers.get(), leaves.get()), (0, 1));
+            assert_eq!(target.proposal(&location()), Operation::Copy);
             assert!(target.deliver(location(), Offer::default()));
+            assert_eq!((hovers.get(), leaves.get()), (0, 2));
+            assert!(!target.is_hovering());
             assert_eq!(day_core::environment::<u32>(), Some(22));
             owner.dispose();
             assert!(source(day_spec::Point::new(0., 0.)).is_none());
             assert_eq!(target.proposal(&location()), Operation::None);
-            assert!(!(target.receive)(Drop {
-                local: true,
-                position: day_spec::Point::new(0., 0.),
-                operation: Operation::Copy,
-                items: vec![]
-            }));
+            assert!(!target.deliver(location(), Offer::default()));
+            assert_eq!((hovers.get(), leaves.get()), (0, 2));
         });
         foreign.dispose();
     }

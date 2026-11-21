@@ -20,6 +20,91 @@ use ohos_sys::arkui::ui_input_event::{
     ArkUI_ModifierKeyName, ArkUI_UIInputEvent, OH_ArkUI_UIInputEvent_GetModifierKeyStates,
     OH_ArkUI_UIInputEvent_GetPressedKeys,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+use crate::paint::{KeyNote, KeysDown};
+
+day_reactive::tls_slots! {
+    events;
+    // The keys each node holds down (ArkUI reports no repeat flag: a second down is the
+    // auto-repeat) and the name each claimed down was reported under, for its release.
+    static KEYS: RefCell<KeysDown> = RefCell::new(KeysDown::default());
+    static KEY_NAMES: RefCell<HashMap<(u64, i32), String>> = RefCell::new(HashMap::new());
+    // Scroll views that report offsets and phases (docs/scroll.md), by native node: whether
+    // each is tracked, and the phase last sent.
+    static SCROLLS: RefCell<HashMap<usize, (bool, bool, day_spec::ScrollPhase)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Report scroll node `n`'s offsets (`ScrollChanged`) and user-driven phases (`ScrollPhase`)
+/// as node `id`, for what the app observes; nothing is registered for neither.
+pub fn track_scroll(n: crate::node::Handle, id: u64, offset: bool, phase: bool) {
+    if !offset && !phase {
+        return;
+    }
+    SCROLLS.with(|m| {
+        m.borrow_mut()
+            .insert(n as usize, (offset, phase, day_spec::ScrollPhase::Idle))
+    });
+    crate::node::register_event(n, Ev::NODE_SCROLL_EVENT_ON_SCROLL, id);
+    crate::node::register_event(n, Ev::NODE_SCROLL_EVENT_ON_SCROLL_STOP, id);
+    if phase {
+        crate::node::register_event(n, Ev::NODE_SCROLL_EVENT_ON_WILL_SCROLL, id);
+    }
+}
+
+/// Drop node `n`'s scroll tracking: it is being disposed.
+pub fn forget(n: crate::node::Handle) {
+    SCROLLS.with(|m| m.borrow_mut().remove(&(n as usize)));
+}
+
+/// A scroll event on tracked node `id` (`n` its native node): the offset after this frame,
+/// and the phase the frame's state and source mean. `state` is `ArkUI_ScrollState` and `source`
+/// `ArkUI_ScrollSource` from `ON_WILL_SCROLL`; `None` for the other events.
+fn scrolled(n: crate::node::Handle, id: u64, kind: Ev, will: Option<(i32, i32)>) {
+    use day_spec::ScrollPhase as P;
+    let Some((offset, phase, last)) = SCROLLS.with(|m| m.borrow().get(&(n as usize)).copied())
+    else {
+        return;
+    };
+    let node = day_spec::NodeId(id);
+    if offset && kind != Ev::NODE_SCROLL_EVENT_ON_WILL_SCROLL {
+        // A float at rest on an edge can read back as -0.0001: that is the edge.
+        let (x, y) = crate::node::scroll_offset(n);
+        let edge = |v: f64| if v.abs() < 0.01 { 0.0 } else { v };
+        crate::emit(
+            node,
+            day_spec::Event::ScrollChanged(day_spec::Point::new(edge(x), edge(y))),
+        );
+    }
+    if !phase {
+        return;
+    }
+    // User input only: a scroller (programmatic) or its animation sends no phase. States:
+    // IDLE 0, SCROLL 1, FLING 2. Sources: DRAG 0, FLING 1, EDGE_EFFECT 2, OTHER_USER_INPUT 3,
+    // SCROLL_BAR 4, SCROLL_BAR_FLING 5, SCROLLER 6, ANIMATION 7.
+    let next = match (kind, will) {
+        (Ev::NODE_SCROLL_EVENT_ON_SCROLL_STOP, _) => Some(P::Idle),
+        (_, Some((1, 0 | 3 | 4))) => Some(P::Dragging),
+        (_, Some((2 | 1, 1 | 2 | 5))) => Some(P::Coasting),
+        _ => None,
+    };
+    if let Some(next) = next
+        && next != last
+    {
+        SCROLLS.with(|m| {
+            if let Some(entry) = m.borrow_mut().get_mut(&(n as usize)) {
+                entry.2 = next;
+            }
+        });
+        crate::emit(node, day_spec::Event::ScrollPhase(next));
+    }
+}
+
+/// Bits 8 and 9 of a key's `num` on the wire: a repeat, a release (`KeyPhase::from_wire`).
+const KEY_REPEAT: f64 = 256.0;
+const KEY_UP: f64 = 512.0;
 
 /// The day name for a keycode the route carries, or `None` for every other key
 /// (docs/menus.md). ArkUI names the arrows for a D-pad, which is the same four keys a
@@ -219,18 +304,20 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                             f64::from(first.i32_.max(0)),
                             "day-list-first-visible",
                         );
-                        // A sectioned list's pinned header follows the visible range.
+                        // A sectioned list's pinned header follows the visible range, and an
+                        // observed viewport is reported.
                         let last = component(1).map_or(first.i32_, |last| last.i32_);
-                        crate::list::on_scroll_index(
-                            OH_ArkUI_NodeEvent_GetNodeHandle(ev),
-                            first.i32_,
-                            last,
-                        );
+                        let list = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
+                        crate::list::on_visible_rows(list, first.i32_, last);
+                        crate::list::on_scroll_index(list, first.i32_, last);
                     }
                 }
-                // Registered on sectioned lists only: the pin moves with every scrolled frame.
+                // Registered on sectioned lists (the pin moves with every scrolled frame) and on
+                // lists whose viewport the app observes.
                 Ev::NODE_LIST_ON_DID_SCROLL => {
-                    crate::list::on_did_scroll(OH_ArkUI_NodeEvent_GetNodeHandle(ev));
+                    let list = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
+                    crate::list::on_did_scroll(list);
+                    crate::list::on_scrolled(list);
                 }
                 Ev::NODE_ON_CLICK => {
                     // A selectable list CELL's click is a row selection, not a press: resolved
@@ -238,8 +325,16 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                     let n = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
                     if let Some((label, target)) = crate::node::span_link(n) {
                         crate::on_event(label, K::LinkActivated as i32, 0.0, &target);
+                    } else if crate::gesture::taps_grouped(id) {
+                        // The node's tap group reports its single taps, after the double-tap
+                        // interval (gesture.rs `enable_tap`).
                     } else if !crate::list::cell_click(n) {
-                        crate::on_event(id, K::Pressed as i32, 0.0, "");
+                        // The click's point in the node, in vp: what a tap reports.
+                        let (x, y) = (
+                            component(0).map_or(0.0, |v| v.f32_),
+                            component(1).map_or(0.0, |v| v.f32_),
+                        );
+                        crate::on_event(id, K::Pressed as i32, 0.0, &format!("{x},{y}"));
                     }
                 }
                 // Drag-to-reorder (docs/list.md).
@@ -271,6 +366,34 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                             end.i32_,
                         );
                     }
+                }
+                // A tracked scroll view's frames, stop, and the state behind each frame. A
+                // list that reports the reader's scrolls hears its stop too.
+                Ev::NODE_SCROLL_EVENT_ON_SCROLL | Ev::NODE_SCROLL_EVENT_ON_SCROLL_STOP => {
+                    let n = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
+                    if kind == Ev::NODE_SCROLL_EVENT_ON_SCROLL_STOP {
+                        crate::list::on_scroll_stop(n);
+                    }
+                    scrolled(n, id, kind, None);
+                }
+                // A list frame about to scroll, and what moves it (`ListSource::reader_scroll`):
+                // data[0] the offset, data[2] the `ArkUI_ScrollSource`.
+                Ev::NODE_LIST_ON_WILL_SCROLL => {
+                    crate::list::on_will_scroll(
+                        OH_ArkUI_NodeEvent_GetNodeHandle(ev),
+                        component(0).map_or(0.0, |v| v.f32_),
+                        component(2).map_or(-1, |v| v.i32_),
+                    );
+                }
+                Ev::NODE_SCROLL_EVENT_ON_WILL_SCROLL => {
+                    let state = component(2).map_or(0, |v| v.i32_);
+                    let source = component(3).map_or(0, |v| v.i32_);
+                    scrolled(
+                        OH_ArkUI_NodeEvent_GetNodeHandle(ev),
+                        id,
+                        kind,
+                        Some((state, source)),
+                    );
                 }
                 // A wheel or touchpad tick over a node that asked for a pan or a pinch.
                 Ev::NODE_ON_AXIS => {
@@ -347,7 +470,15 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                     }
                 }
                 // A touch on a switch arms its gate (`TOGGLE_GATE`); only switches register it.
-                Ev::NODE_TOUCH_EVENT => crate::arm_toggle(id),
+                // Also the press, contact and input-kind reports of a node that asked for
+                // them (gesture.rs); observed, never consumed.
+                Ev::NODE_TOUCH_EVENT => {
+                    crate::arm_toggle(id);
+                    crate::gesture::touch(
+                        OH_ArkUI_NodeEvent_GetNodeHandle(ev),
+                        OH_ArkUI_NodeEvent_GetInputEvent(ev),
+                    );
+                }
                 Ev::NODE_TOGGLE_ON_CHANGE => {
                     let on = component(0).map_or(0.0, |v| f64::from(v.i32_));
                     crate::on_event(id, K::ToggleChanged as i32, on, "");
@@ -375,7 +506,12 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 }
                 // Focus pair + text-input submit (docs/focus.md).
                 Ev::NODE_ON_FOCUS => crate::on_event(id, K::FocusChanged as i32, 1.0, ""),
-                Ev::NODE_ON_BLUR => crate::on_event(id, K::FocusChanged as i32, 0.0, ""),
+                Ev::NODE_ON_BLUR => {
+                    // Keys held while focus leaves send no release to this node.
+                    KEYS.with(|k| k.borrow_mut().clear(id));
+                    KEY_NAMES.with(|m| m.borrow_mut().retain(|(node, _), _| *node != id));
+                    crate::on_event(id, K::FocusChanged as i32, 0.0, "");
+                }
                 Ev::NODE_TEXT_INPUT_ON_SUBMIT => {
                     crate::on_event(id, K::Submitted as i32, 0.0, "");
                 }
@@ -391,33 +527,24 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                     // A key on a focused switch arms its gate, like a touch.
                     crate::arm_toggle(id);
                     let input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
-                    if input.is_null()
-                        || OH_ArkUI_KeyEvent_GetType(input)
-                            != ArkUI_KeyEventType::ARKUI_KEY_EVENT_DOWN
-                    {
+                    if input.is_null() {
+                        return;
+                    }
+                    let down = match OH_ArkUI_KeyEvent_GetType(input) {
+                        ArkUI_KeyEventType::ARKUI_KEY_EVENT_DOWN => true,
+                        ArkUI_KeyEventType::ARKUI_KEY_EVENT_UP => false,
+                        _ => return,
+                    };
+                    let node = day_spec::NodeId(id);
+                    if !day_spec::keys::handled(node) {
                         return;
                     }
                     let mut held = 0u64;
                     OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &raw mut held);
                     let code = ArkUI_KeyCode(OH_ArkUI_KeyEvent_GetKeyCode(input));
-                    let node = day_spec::NodeId(id);
-                    if !day_spec::keys::handled(node) {
-                        return;
-                    }
-                    let (kind, name) = if day_spec::keys::text(node) {
-                        match full_route_key(input, code, held) {
-                            Some(key) => key,
-                            None => return,
-                        }
-                    } else {
-                        match key_name(code, held) {
-                            Some(name) => (K::Key, name.to_string()),
-                            None => return,
-                        }
-                    };
                     let mut mods = 0.0;
                     if held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0) != 0 {
-                        mods += 1.0; // day KeyEvent::SHIFT
+                        mods += 1.0; // Modifiers::SHIFT
                     }
                     if held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0) != 0 {
                         mods += 2.0 + 8.0; // PRIMARY, and the Control key itself
@@ -425,7 +552,37 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                     if held & u64::from(ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0) != 0 {
                         mods += 4.0; // ALT
                     }
-                    crate::on_event(id, kind as i32, mods, &name);
+                    // ArkUI's key events carry no repeat flag: a down for a key this node
+                    // already holds is the auto-repeat, and only a claimed down's release is
+                    // reported, under the name its down had and with no text.
+                    let note = KEYS.with(|k| k.borrow_mut().note(id, code.0, down));
+                    if note == KeyNote::Up {
+                        if let Some(name) = KEY_NAMES.with(|m| m.borrow_mut().remove(&(id, code.0)))
+                        {
+                            crate::on_event(id, K::Key as i32, mods + KEY_UP, &name);
+                            OH_ArkUI_KeyEvent_SetConsumed(input, true);
+                        }
+                        return;
+                    }
+                    if note == KeyNote::Stray {
+                        return;
+                    }
+                    let claimed = if day_spec::keys::text(node) {
+                        full_route_key(input, code, held)
+                    } else {
+                        key_name(code, held).map(|name| (K::Key, name.to_string()))
+                    };
+                    let Some((kind, name)) = claimed else {
+                        KEYS.with(|k| k.borrow_mut().forget(id, code.0));
+                        return;
+                    };
+                    let phase = if note == KeyNote::Repeat {
+                        KEY_REPEAT
+                    } else {
+                        0.0
+                    };
+                    KEY_NAMES.with(|m| m.borrow_mut().insert((id, code.0), name.clone()));
+                    crate::on_event(id, kind as i32, mods + phase, &name);
                     OH_ArkUI_KeyEvent_SetConsumed(input, true);
                 }
                 _ => {}

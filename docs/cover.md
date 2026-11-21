@@ -45,6 +45,26 @@ zstack((
   (`Event::CoverHidden` on the cover node), so the surface never blanks mid-animation.
   Scope cleanups (the natural save-on-exit hook) run at that moment.
 
+## Open or closed
+
+A cover with one thing to show binds a `Binding<bool>` instead of a route: `true` presents,
+`false` dismisses, and a native dismissal writes `false` back. The builder receives the unit
+route [`Shown`](https://docs.rs/day-pieces/latest/day_pieces/struct.Shown.html), which it can
+ignore.
+
+```rust
+let editing = Signal::new(false);
+column((
+    button(res::str::edit()).action(move || editing.set(true)),
+    cover(editing, move |_| editor(editing)).sheet(),
+))
+```
+
+A bool cover is a panel, not a place: it stays out of the app's route space, as an
+[`unrouted`](https://docs.rs/day-pieces/latest/day_pieces/trait.CoverBuilder.html#tymethod.unrouted)
+cover does, so [`navigate(..)`](https://docs.rs/day-pieces/latest/day_pieces/fn.navigate.html) never presents it and
+[`current_route()`](https://docs.rs/day-pieces/latest/day_pieces/fn.current_route.html) does not name it.
+
 ## The `CoverHidden` delivery contract
 
 App teardown hangs off this one event, so its delivery is a hard guarantee, not a

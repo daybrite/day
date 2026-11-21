@@ -4,7 +4,8 @@
 import Logo from './Logo.astro';
 import Search from './Search.astro';
 import ThemeToggle from './ThemeToggle.astro';
-import { url, site } from '../lib/site';
+import SocialLinks from './SocialLinks.astro';
+import { url } from '../lib/site';
 import { res } from '../generated/strings.mjs';
 interface Props { active?: string }
 const { active } = Astro.props;
@@ -31,11 +32,11 @@ const product = [['', 'Home'], ['features', 'Features'], ['platforms', 'Platform
         <summary class:list={['nav-link', { on: ['product', 'contributing'].includes(active ?? '') }]}>Explore</summary>
         <div class="product-links">
           {product.map(([path, label]) => <a class="nav-link" href={url(path)}>{label}</a>)}
-          <a class="nav-link" href={site.repo} rel="noopener">GitHub</a>
         </div>
       </details>
     </nav>
     <div class="nav-tools">
+      <SocialLinks />
       <Search />
       <ThemeToggle compact />
     </div>
@@ -62,7 +63,7 @@ const product = [['', 'Home'], ['features', 'Features'], ['platforms', 'Platform
   .brand:hover { color: var(--text); }
   .brand-name { font-weight: 750; font-size: 1.12rem; letter-spacing: -0.02em; }
   .nav-links { display: flex; align-items: center; gap: 24px; margin-left: auto; }
-  .nav-tools { display: flex; align-items: center; gap: 24px; }
+  .nav-tools { display: flex; align-items: center; gap: 12px; }
   .nav-link { color: var(--muted); font-weight: 600; font-size: 0.95rem; white-space: nowrap; }
   .nav-link:hover { color: var(--text); }
   .nav-link.on { color: var(--text); }
@@ -70,11 +71,12 @@ const product = [['', 'Home'], ['features', 'Features'], ['platforms', 'Platform
   .product-menu summary { cursor: pointer; }
   .product-links { position: absolute; top: 32px; right: 0; min-width: 160px; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
   .product-links a { display: block; padding: 8px; }
-  @media (max-width: 760px) {
+  @media (max-width: 1040px) {
     .nav-inner { flex-wrap: wrap; height: auto; padding-block: 10px; gap: 12px; }
     .nav-links { order: 3; width: 100%; justify-content: space-between; gap: 12px; }
   }
   @media (max-width: 560px) {
+    .nav-tools { gap: 6px; }
     .nav-links { gap: 10px; }
     .nav-link { font-size: 0.82rem; }
   }

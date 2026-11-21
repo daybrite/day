@@ -6,7 +6,7 @@
 use crate::{Decorate, Decorated, canvas};
 use day_core::{BuildCx, Dimension, Piece, RNode, TaskHandle};
 use day_reactive::{Scope, Signal, watch};
-use day_spec::{Color, Rect, Shape};
+use day_spec::{Rect, Shape};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 pub use day_spec::props::ContentMode;
@@ -25,7 +25,7 @@ pub struct AsyncImage {
     source: Signal<Option<Arc<Vec<u8>>>>,
     clip: Clip,
     mode: ContentMode,
-    placeholder: Color,
+    placeholder: day_spec::Ink,
 }
 
 /// Decode each source asynchronously. A replacement cancels the previous decode; disposal
@@ -35,7 +35,7 @@ pub fn async_image(source: Signal<Option<Arc<Vec<u8>>>>) -> AsyncImage {
         source,
         clip: Clip::None,
         mode: ContentMode::Fill,
-        placeholder: Color::rgb(0.82, 0.82, 0.84),
+        placeholder: day_spec::Ink::system(day_spec::SystemColor::ControlFill),
     }
 }
 
@@ -57,8 +57,8 @@ impl AsyncImage {
         self
     }
     /// Color displayed while empty, loading, or invalid.
-    pub fn placeholder_color(mut self, color: Color) -> Self {
-        self.placeholder = color;
+    pub fn placeholder_color(mut self, color: impl Into<day_spec::Ink>) -> Self {
+        self.placeholder = color.into();
         self
     }
 }

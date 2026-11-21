@@ -24,8 +24,9 @@ use std::cell::Cell;
 use std::collections::HashMap;
 
 use day_toolkit_gtk::Gtk;
+use day_spec::props::TextAlign;
 use day_spec::sidetable::SideTable;
-use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size, Underline, ffi_guard};
+use day_spec::{Decoration, DecorationStyle, ListStyle, NodeId, Proposal, Size, ffi_guard};
 use gtk4::glib::translate::IntoGlib;
 use gtk4::prelude::*;
 
@@ -72,29 +73,38 @@ fn rgba(c: day_spec::Color) -> gtk4::gdk::RGBA {
 /// Pango has no dotted underline and no plain wavy one: `Error` is the wavy line (the spell-check
 /// squiggle), and dotted falls back to a single rule. Both are stated in docs/texteditor.md as the
 /// GTK approximations.
-fn pango_underline(u: Underline) -> gtk4::pango::Underline {
+fn pango_underline(u: Option<Decoration>) -> gtk4::pango::Underline {
     use gtk4::pango::Underline as U;
-    match u {
-        Underline::None => U::None,
-        Underline::Single | Underline::Dotted => U::Single,
-        Underline::Double => U::Double,
-        Underline::Wavy => U::Error,
+    match u.map(|d| d.style) {
+        None => U::None,
+        Some(DecorationStyle::Single | DecorationStyle::Dotted) => U::Single,
+        Some(DecorationStyle::Double) => U::Double,
+        Some(DecorationStyle::Wavy) => U::Error,
     }
+}
+
+/// A decoration's own line color, resolved for the current appearance. A tag holds concrete
+/// colors, so an appearance change reaches the buffer as a fresh attribute patch (the piece
+/// sends one when the palette changes), which interns a tag for the new colors.
+fn decoration_color(d: Option<Decoration>) -> Option<day_spec::Color> {
+    d.and_then(|d| d.color).map(day_spec::Ink::resolved)
 }
 
 /// A canonical key for a run style, so identical styles share one tag.
 fn style_key(s: &RunStyle, base_points: f64) -> String {
     let c = |c: Option<day_spec::Color>| c.map_or_default(|c| c.to_hex_string());
     format!(
-        "r|{:.2}|{}|{}|{}|{}|{}|{}|{}",
+        "r|{:.2}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
         s.font.resolved_points(base_points),
-        s.font.weight.map(|w| w as u8).unwrap_or(255),
-        s.font.italic as u8,
-        s.font.monospace as u8,
-        s.underline as u8,
-        s.strikethrough as u8,
+        s.font.weight.map_or(255, |w| w as u8),
+        u8::from(s.font.italic),
+        u8::from(s.font.monospace),
+        s.underline.map_or(0, |d| d.style as u8 + 1),
+        u8::from(s.strikethrough.is_some()),
         c(s.color),
         c(s.background),
+        c(decoration_color(s.underline)),
+        c(decoration_color(s.strikethrough)),
     )
 }
 
@@ -124,15 +134,21 @@ fn run_tag(st: &EdState, s: &RunStyle) -> gtk4::TextTag {
     if s.font.monospace {
         tag.set_family(Some("monospace"));
     }
-    if s.underline.is_on() {
+    if s.underline.is_some() {
         tag.set_underline(pango_underline(s.underline));
     }
-    tag.set_strikethrough(s.strikethrough);
+    tag.set_strikethrough(s.strikethrough.is_some());
     if let Some(c) = s.color {
         tag.set_foreground_rgba(Some(&rgba(c)));
     }
     if let Some(c) = s.background {
         tag.set_background_rgba(Some(&rgba(c)));
+    }
+    if let Some(c) = decoration_color(s.underline) {
+        tag.set_underline_rgba(Some(&rgba(c)));
+    }
+    if let Some(c) = decoration_color(s.strikethrough) {
+        tag.set_strikethrough_rgba(Some(&rgba(c)));
     }
     st.buffer.tag_table().add(&tag);
     st.tags.borrow_mut().insert(k, tag.clone());
@@ -148,10 +164,10 @@ fn para_tag(st: &EdState, p: &day_spec::ParagraphStyle) -> gtk4::TextTag {
     }
     let tag = gtk4::TextTag::new(None);
     tag.set_justification(match p.align {
-        ParagraphAlign::Natural => gtk4::Justification::Left,
-        ParagraphAlign::Center => gtk4::Justification::Center,
-        ParagraphAlign::Trailing => gtk4::Justification::Right,
-        ParagraphAlign::Justified => gtk4::Justification::Fill,
+        TextAlign::Leading => gtk4::Justification::Left,
+        TextAlign::Center => gtk4::Justification::Center,
+        TextAlign::Trailing => gtk4::Justification::Right,
+        TextAlign::Justified => gtk4::Justification::Fill,
     });
     let indent = p.indent + f64::from(p.list_level) * LEVEL_INDENT;
     let marker = if p.list == ListStyle::None {
@@ -263,7 +279,7 @@ fn make(_backend: &mut Gtk, p: &EditorProps, id: NodeId) -> gtk4::Widget {
     let ctx = textview.pango_context();
     let layout = gtk4::pango::Layout::new(&ctx);
     layout.set_text("Ag");
-    let line_h = layout.pixel_size().1 as f64;
+    let line_h = f64::from(layout.pixel_size().1);
 
     let scroll = gtk4::ScrolledWindow::new();
     if p.single_line {
@@ -315,12 +331,11 @@ fn make(_backend: &mut Gtk, p: &EditorProps, id: NodeId) -> gtk4::Widget {
                     return;
                 }
                 let text = buffer_text(b);
-                let (s, e) = match b.selection_bounds() {
-                    Some((a, z)) => (a.offset(), z.offset()),
-                    None => {
-                        let c = b.cursor_position();
-                        (c, c)
-                    }
+                let (s, e) = if let Some((a, z)) = b.selection_bounds() {
+                    (a.offset(), z.offset())
+                } else {
+                    let c = b.cursor_position();
+                    (c, c)
                 };
                 let start = byte_of_char(&text, s.max(0) as usize);
                 let end = byte_of_char(&text, e.max(0) as usize);
@@ -400,28 +415,28 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
         .with(|m| {
             m.with(key(h), |st| {
                 let (_, nat_w, _, _) = st.textview.measure(gtk4::Orientation::Horizontal, -1);
-                let avail_w = p.width.unwrap_or(nat_w as f64).max(width_floor(st.max_lines));
+                let avail_w = p.width.unwrap_or(f64::from(nat_w)).max(width_floor(st.max_lines));
                 let (_, nat_h, _, _) = st
                     .textview
                     .measure(gtk4::Orientation::Vertical, avail_w as i32);
-                let min_h = (st.min_lines as f64) * st.line_h + PAD;
+                let min_h = f64::from(st.min_lines) * st.line_h + PAD;
                 let max_h = if st.max_lines > 0 {
-                    (st.max_lines as f64) * st.line_h + PAD
+                    f64::from(st.max_lines) * st.line_h + PAD
                 } else {
                     f64::MAX
                 };
-                Size::new(avail_w, (nat_h as f64).clamp(min_h, max_h))
+                Size::new(avail_w, f64::from(nat_h).clamp(min_h, max_h))
             })
         })
         .unwrap_or_else(|| {
             let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
-            Size::new(p.width.unwrap_or(nat_w as f64).max(width_floor(0)), 88.0)
+            Size::new(p.width.unwrap_or(f64::from(nat_w)).max(width_floor(0)), 88.0)
         })
 }
 
 fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     STATE.with(|m| {
-        m.remove(key(h));
+        let _ = m.remove(key(h));
     });
 }
 

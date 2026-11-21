@@ -206,6 +206,30 @@ define_class!(
                 },
             )
         }
+        // The session left the view without dropping, or ended (dropped elsewhere,
+        // cancelled): the hover is over (docs/drag-and-drop.md "Accepting drops").
+        #[unsafe(method(dropInteraction:sessionDidExit:))]
+        fn exit(
+            &self,
+            _interaction: &UIDropInteraction,
+            _session: &ProtocolObject<dyn UIDropSession>,
+        ) {
+            let target = self.ivars().target.borrow().clone();
+            if let Some(target) = target {
+                ffi_guard::contain((), || target.leave());
+            }
+        }
+        #[unsafe(method(dropInteraction:sessionDidEnd:))]
+        fn end(
+            &self,
+            _interaction: &UIDropInteraction,
+            _session: &ProtocolObject<dyn UIDropSession>,
+        ) {
+            let target = self.ivars().target.borrow().clone();
+            if let Some(target) = target {
+                ffi_guard::contain((), || target.leave());
+            }
+        }
         #[unsafe(method(dropInteraction:performDrop:))]
         fn receive(
             &self,

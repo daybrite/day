@@ -63,6 +63,9 @@ fn main() {
         &host,
         ListSource {
             first_visible: None,
+            viewport: None,
+            reader_scroll: None,
+            is_supplement: None,
             is_header: None,
             len: Rc::new({
                 let count = count.clone();

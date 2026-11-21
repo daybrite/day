@@ -31,19 +31,19 @@ use day_toolkit_winui::{WinHandle, Xaml};
 
 const KIND: &str = "day-piece-settings.row";
 
-/// SettingsCard metrics (the shim holds the same numbers): 16px padding all round, 16px between
+/// `SettingsCard` metrics (the shim holds the same numbers): 16px padding all round, 16px between
 /// the text column and the control, a 68px minimum height.
 const PAD: f64 = 16.0;
 const GAP: f64 = 16.0;
 const MIN_HEIGHT: f64 = 68.0;
 /// The row width assumed when nothing proposes one.
 const DEFAULT_WIDTH: f64 = 480.0;
-/// Segoe symbol code points for the action glyph: ChevronRightMed, OpenInNewWindow.
+/// Segoe symbol code points for the action glyph: `ChevronRightMed`, `OpenInNewWindow`.
 const GLYPH_CHEVRON: u32 = 0xE974;
 const GLYPH_OPEN: u32 = 0xE8A7;
 
 /// Navigation's image channel handles bundled art. Standard symbols use Day's shared vectors
-/// here, including when a locale change replaces the NavigationViewItems.
+/// here, including when a locale change replaces the `NavigationViewItems`.
 pub(super) fn sidebar_symbols(nav: AnyPiece, groups: &[&Group]) -> AnyPiece {
     use day_toolkit_winui::xaml_raw;
     let paths = groups
@@ -134,8 +134,8 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &CardPatch) {
         description,
     } = patch;
     unsafe {
-        day_settings_xaml_card_set_text(h.0, cstr(header).as_ptr(), cstr(description).as_ptr())
-    };
+        day_settings_xaml_card_set_text(h.0, cstr(header).as_ptr(), cstr(description).as_ptr());
+    }
 }
 
 /// The text column's natural size at the proposed width (`CardLayout` asks; the padding and the
@@ -143,7 +143,9 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &CardPatch) {
 fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_settings_xaml_card_measure(h.0, p.width.unwrap_or(-1.0), &mut w, &mut hh) };
+    unsafe {
+        day_settings_xaml_card_measure(h.0, p.width.unwrap_or(-1.0), &raw mut w, &raw mut hh);
+    };
     Size::new(p.width.unwrap_or(w), hh)
 }
 
@@ -153,7 +155,7 @@ day_spec::renderer!(day_toolkit_winui::RENDERERS, Xaml,
 
 /// The card's layout: the native text column leading, the single Day child (the control) at the
 /// trailing edge, vertically centered, or below the header when the width is constrained.
-/// The row includes card padding and never falls below the SettingsCard minimum.
+/// The row includes card padding and never falls below the `SettingsCard` minimum.
 #[derive(Default)]
 struct CardLayout {
     // Borrowed from this layout's own native node; never used after the node is disposed.
@@ -322,7 +324,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
+    let enabled_fn = move || enabled.as_ref().is_none_or(day_pieces::Reactive::get);
     // The row title as the control's automation name: a ToggleSwitch with empty on/off content,
     // a ComboBox, a Slider or a TextBox has no name of its own, and the card's header TextBlock
     // is not associated with it the way a labeled control's header is.
@@ -453,7 +455,9 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             };
             let b = button(text_source_fn(&r.title))
                 .action(run)
-                .enabled(move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get()));
+                .enabled(move || {
+                    enabled_fn() && !busy_gate.as_ref().is_some_and(day_pieces::Reactive::get)
+                });
             let ctl = with_id(b.any());
             if let Some(c) = &r.caption {
                 show_caption_only(&mut props, c);
@@ -468,18 +472,15 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         }
         RowKind::Link(url) => {
             let url = url.clone();
-            match &r.caption {
-                // The Day link carries the title; the card shows the caption beside it.
-                Some(c) => {
-                    show_caption_only(&mut props, c);
-                    Some(with_id(link(text_source_fn(&r.title), url).any()))
-                }
-                None => {
-                    props.glyph = GLYPH_OPEN;
-                    props.clickable = true;
-                    on_tap = Some(Rc::new(move || day_core::open_url(&url)));
-                    None
-                }
+            // The Day link carries the title; the card shows the caption beside it.
+            if let Some(c) = &r.caption {
+                show_caption_only(&mut props, c);
+                Some(with_id(link(text_source_fn(&r.title), url).any()))
+            } else {
+                props.glyph = GLYPH_OPEN;
+                props.clickable = true;
+                on_tap = Some(Rc::new(move || day_core::open_url(&url)));
+                None
             }
         }
         RowKind::Navigate(build) => {
@@ -487,7 +488,6 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             props.clickable = true;
             let build = build.clone();
             let title = text_source_fn(&r.title);
-            let inst = inst.clone();
             on_tap = Some(Rc::new(move || {
                 push_subpage(inst.clone(), title(), build.clone());
             }));

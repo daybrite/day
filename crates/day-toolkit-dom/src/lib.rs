@@ -106,6 +106,47 @@ unsafe extern "C" {
     /// Attach shim listeners; `mask` bits: 1 click, 2 input, 4 change, 8 focus, 16 submit,
     /// 32 resize-observer, 64 scroll, 128 pointer-tap, 256 pointer-drag, 512 contenteditable.
     fn day_dom_listen(el: u32, mask: u32);
+    /// Set an animatable property (0 opacity, 1 transform, 2 background, 3 frame) to the
+    /// numbers at `to`, animated over one cycle of `samples` (`[offset, progress]` pairs) when
+    /// `duration_ms` is positive; `iterations` -1 for ever (docs/tween.md).
+    fn day_dom_animate(
+        el: u32,
+        prop: u32,
+        to: *const f64,
+        to_len: usize,
+        samples: *const f64,
+        samples_len: usize,
+        duration_ms: f64,
+        delay_ms: f64,
+        iterations: f64,
+        alternate: u32,
+    );
+    /// What `el` displays now: `[opacity, x, y, w, h, tx, ty, r, g, b, a]` into `out`; returns 1
+    /// when it shows a background color of its own.
+    fn day_dom_displayed(el: u32, out: *mut f64) -> u32;
+    /// A scroll view's preferences: `flags` bit 0 hidden indicators, bit 1 no bounce, bit 2
+    /// phase reports; `snap` 0 none, 1 page, 2 every `interval` points.
+    fn day_dom_scroll_setup(el: u32, flags: u32, snap: u32, interval: f64);
+    /// `navigator.maxTouchPoints`.
+    fn day_dom_touch_points() -> u32;
+    /// Measure a label element in its own computed style (font, letter spacing, line height,
+    /// line clamp, wrapping): its own content when `text_len` is 0, else `text` in its place.
+    /// `max_w` caps the width (a huge value for none); `out` receives `[width, height]`.
+    fn day_dom_measure_label(el: u32, text: *const u8, text_len: usize, max_w: f64, out: *mut f64);
+    /// The browser's default font size against the one Day's ramp is drawn for (docs/text.md
+    /// "Text size").
+    fn day_dom_text_scale() -> f64;
+    /// Grow `el`'s pointer hit area by the four insets, in PHYSICAL sides (top, left, bottom,
+    /// right); zeros restore its bounds (docs/gestures.md "Hit slop").
+    fn day_dom_hit_slop(el: u32, top: f64, left: f64, bottom: f64, right: f64);
+    /// The axis `el`'s drag follows: 0 any, 1 horizontal, 2 vertical.
+    fn day_dom_drag_axis(el: u32, axis: u32);
+    /// One disabled group around `el` more (`on` 0) or fewer (`on` 1).
+    fn day_dom_subtree_enabled(el: u32, on: u32);
+    /// The kind of pointer last used: 0 touch, 1 mouse, 2 stylus.
+    fn day_dom_pointer_kind() -> u32;
+    /// Make a pass-through element a pointer target (docs/gestures.md "Pass-through").
+    fn day_dom_takes_pointer(el: u32);
     fn day_dom_measure_text(
         t: *const u8,
         tl: usize,
@@ -126,7 +167,8 @@ unsafe extern "C" {
     fn day_dom_scroll_offset(el: u32, out: *mut f64);
     /// The emulated list's scrolled offset and visible height — which rows have to exist.
     fn day_dom_list_viewport(el: u32, out: *mut f64);
-    /// Report this list's scrolling into `day_dom_list_scrolled`, so rows coming into view build.
+    /// Report this list's scrolling into `day_dom_list_scrolled`, so rows coming into view build,
+    /// and the scrolls the reader starts into `day_dom_list_reader`.
     fn day_dom_list_on_scroll(el: u32);
     /// Give the emulated list a tab stop, the listbox role, and the arrow/Home/End route back
     /// into `day_dom_list_key` (docs/list.md). A browser has no native list to inherit keyboard
@@ -184,6 +226,9 @@ unsafe extern "C" {
     fn day_dom_image_set_bytes(el: u32, ptr: *const u8, len: usize);
     /// Revoke the blob URL an element made, when the element goes.
     fn day_dom_image_revoke(el: u32);
+    /// Turn an image element's mask on or off for a source whose URL the shim owns (bytes, a
+    /// decoded bitmap): on, the mask is cut from that URL now and again at each source swap.
+    fn day_dom_image_mask(el: u32, on: u32);
     fn day_dom_present(req: u32, json: *const u8, len: usize);
     /// The modifier keys held right now, as the shim last observed them (bit0 shift,
     /// bit1 primary = meta|ctrl, bit2 alt).
@@ -381,16 +426,28 @@ fn apply_button_style(el: u32, style: ButtonStyleSpec) {
         ButtonStyleSpec::Bordered => class(el, "bordered", true),
         ButtonStyleSpec::Compact => class(el, "compact", true),
         ButtonStyleSpec::Tinted(c) => {
-            let css = |x: day_spec::Color| {
-                format!(
-                    "rgb({} {} {})",
-                    (x.r.clamp(0.0, 1.0) * 255.0) as u8,
-                    (x.g.clamp(0.0, 1.0) * 255.0) as u8,
-                    (x.b.clamp(0.0, 1.0) * 255.0) as u8
-                )
+            let opaque = |x: day_spec::Color| day_spec::Color { a: 1.0, ..x };
+            // The tint follows the appearance through CSS; the readable title color is
+            // decided per side, from the tint each appearance shows.
+            let (light, dark) = day_spec::Palette::both();
+            let (on_light, on_dark) = c.pair(&light, &dark);
+            let fill = match c {
+                day_spec::Ink::Fixed(x) => color_css(opaque(x)),
+                day_spec::Ink::Adaptive { light, dark } => pair_css(opaque(light), opaque(dark)),
+                day_spec::Ink::System { role, .. } => ink_css(day_spec::Ink::System {
+                    role,
+                    alpha: Some(1.0),
+                }),
             };
-            s(el, "--day-tint", &css(c));
-            s(el, "--day-tint-fg", &css(ButtonStyleSpec::on_tint(c)));
+            s(el, "--day-tint", &fill);
+            s(
+                el,
+                "--day-tint-fg",
+                &pair_css(
+                    ButtonStyleSpec::on_tint(on_light),
+                    ButtonStyleSpec::on_tint(on_dark),
+                ),
+            );
             class(el, "tinted", true);
         }
         ButtonStyleSpec::Automatic | ButtonStyleSpec::Plain => {}
@@ -443,23 +500,55 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
     if let Some(r) = run {
         apply_font(el, &r.font);
         if let Some(c) = r.color {
-            s(el, "color", &color_css(c));
+            s(el, "color", &ink_css(c));
         }
         if let Some(c) = r.background {
-            s(el, "background-color", &color_css(c));
-        }
-        // One `text-decoration`, because the shorthand replaces itself: a run that is both
-        // underlined and struck through needs both words in one declaration, and setting the
-        // property twice would keep only the second.
-        let deco = decoration_css(r);
-        if !deco.is_empty() {
-            s(el, "text-decoration", &deco);
+            s(el, "background-color", &ink_css(c));
         }
         if let Some(url) = r.link.as_deref() {
             unsafe { day_dom_link(el, parent, url.as_ptr(), url.len()) };
         }
+        // One element has one decoration style and color for all its lines: an underline and
+        // a strikethrough that differ in either take an inner span for the strikethrough,
+        // which inherits the outer underline's drawing (CSS propagates decorations to inline
+        // descendants).
+        match (r.underline, r.strikethrough) {
+            (Some(u), Some(st)) if u != st => {
+                apply_decoration(el, "underline", Some(u));
+                let inner = unsafe { day_dom_create(EL_SPAN) };
+                text(el, "");
+                text(inner, content);
+                apply_decoration(inner, "line-through", Some(st));
+                unsafe { day_dom_insert(el, inner, u32::MAX) };
+            }
+            (Some(u), Some(_)) => apply_decoration(el, "underline line-through", Some(u)),
+            (Some(u), None) => apply_decoration(el, "underline", Some(u)),
+            (None, Some(st)) => apply_decoration(el, "line-through", Some(st)),
+            (None, None) => {}
+        }
     }
     unsafe { day_dom_insert(parent, el, u32::MAX) };
+}
+
+/// A decoration's lines, style and color on one element: `text-decoration-line`, `-style`
+/// (`solid`, `double`, `dotted`, `wavy`) and `-color` (the text's own where the run names none,
+/// docs/text-runs.md "Decorations").
+fn apply_decoration(el: u32, lines: &str, d: Option<day_spec::Decoration>) {
+    use day_spec::DecorationStyle as D;
+    let Some(d) = d else { return };
+    s(el, "text-decoration-line", lines);
+    let style = match d.style {
+        D::Single => "solid",
+        D::Double => "double",
+        D::Dotted => "dotted",
+        D::Wavy => "wavy",
+    };
+    s(el, "text-decoration-style", style);
+    s(
+        el,
+        "text-decoration-color",
+        &d.color.map_or_else(|| "currentcolor".to_owned(), ink_css),
+    );
 }
 
 fn class(el: u32, c: &str, on: bool) {
@@ -545,8 +634,10 @@ struct ImageState {
     src: String,
     /// The `object-fit` keyword the content mode mapped to, which the mask scales by.
     fit: &'static str,
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
     template: bool,
+    /// Realized as an `<img>` (no tint, not a template) rather than as the masked div.
+    is_img: bool,
 }
 
 impl ImageState {
@@ -557,6 +648,17 @@ impl ImageState {
 }
 
 thread_local! {
+    /// The linear gradient of each surface filled with one (docs/surfaces.md) and the size it
+    /// was last written for, kept so `set_frame` can resolve its unit points against the new
+    /// size. A `SideTable`, so release sweeps it.
+    static SURFACE_GRADIENTS: day_spec::sidetable::SideTable<(day_spec::LinearGradient, Size)> =
+        day_spec::sidetable::SideTable::new();
+
+    /// The realize-time role of each surface given one, which a `ContainerPatch::Surface`
+    /// keeps (its own `role` is ignored).
+    static SURFACE_ROLES: day_spec::sidetable::SideTable<day_spec::SurfaceRole> =
+        day_spec::sidetable::SideTable::new();
+
     /// Each realized image's [`ImageState`].
     static IMAGE_SRC: RefCell<HashMap<u32, ImageState>> = RefCell::new(HashMap::new());
 
@@ -567,26 +669,38 @@ thread_local! {
     static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> = RefCell::new(HashMap::new());
 }
 
-/// Recolor a template glyph (docs/vectors.md "Tint", "Template").
+/// Recolor an image (docs/vectors.md "Tint", "Template"; docs/images.md "Tinting").
 ///
-/// The browser cannot recolor the pixels of an `<img>`, so a tinted glyph becomes a MASK painted
-/// with the tint — the same technique the nav rows use for their icons. A template with no tint
-/// paints the mask with `currentColor`, so it follows the text color around it (light on a dark
-/// sidebar, white on a selected row) the way those rows do. The element keeps its `src` so the
-/// untinted path, the alt text and the layout are unchanged; a `None` tint on a plain image puts
-/// it back exactly as it was.
-fn apply_image_tint(el: u32, src: &str, fit: &str, tint: Option<day_spec::Color>, template: bool) {
-    if tint.is_some() || template {
-        // An empty `src` is a bytes image whose blob URL the shim already set as the mask
-        // (`day_dom_image_set_bytes`); only the paint changes here.
-        if !src.is_empty() {
-            let mask = format!("url(\"{src}\")");
+/// The browser cannot recolor the pixels of an `<img>`, so a tinted image becomes a MASK painted
+/// with the tint — the same technique the nav rows use for their icons. A CSS mask is cut from
+/// the image's alpha, so this is the source-in recolor the spec asks for, for a raster as much
+/// as for a glyph. A template with no tint paints the mask with `currentColor`, so it follows
+/// the text color around it (light on a dark sidebar, white on a selected row) the way those
+/// rows do.
+///
+/// An element realized tinted (or as a template) is a div and only ever shows the mask. One
+/// realized plain is an `<img>`; a tint that arrives later masks it too and moves its own
+/// pixels out of its box (`object-position`), so only the painted mask shows, and taking the
+/// tint away puts it back exactly as it was.
+fn apply_image_tint(el: u32, state: &ImageState) {
+    if state.masked() {
+        if state.src.is_empty() {
+            // Bytes or a decoded bitmap: the shim owns the URL and cuts the mask from it, now
+            // and at every later source swap.
+            // SAFETY: an element id the shim either knows or does not.
+            unsafe { day_dom_image_mask(el, 1) };
+        } else {
+            let mask = format!("url(\"{}\")", state.src);
             s(el, "mask-image", &mask);
             s(el, "-webkit-mask-image", &mask);
         }
         // The mask scales the way the untinted image would: `object-fit` and `mask-size`
         // share contain/cover, and Stretch's `fill` is `100% 100%`.
-        let size = if fit == "fill" { "100% 100%" } else { fit };
+        let size = if state.fit == "fill" {
+            "100% 100%"
+        } else {
+            state.fit
+        };
         for prop in ["mask-size", "-webkit-mask-size"] {
             s(el, prop, size);
         }
@@ -596,17 +710,16 @@ fn apply_image_tint(el: u32, src: &str, fit: &str, tint: Option<day_spec::Color>
         for prop in ["mask-position", "-webkit-mask-position"] {
             s(el, prop, "center");
         }
-        let paint = match tint {
-            Some(c) => format!(
-                "#{:02x}{:02x}{:02x}",
-                (c.r * 255.0) as u8,
-                (c.g * 255.0) as u8,
-                (c.b * 255.0) as u8
-            ),
-            None => "currentColor".to_owned(),
-        };
+        let paint = state
+            .tint
+            .map_or_else(|| "currentColor".to_owned(), ink_css);
         s(el, "background-color", &paint);
+        if state.is_img {
+            s(el, "object-position", "-100000px -100000px");
+        }
     } else {
+        // SAFETY: as above.
+        unsafe { day_dom_image_mask(el, 0) };
         for prop in [
             "mask-image",
             "-webkit-mask-image",
@@ -617,6 +730,7 @@ fn apply_image_tint(el: u32, src: &str, fit: &str, tint: Option<day_spec::Color>
             "mask-position",
             "-webkit-mask-position",
             "background-color",
+            "object-position",
         ] {
             s(el, prop, "");
         }
@@ -754,6 +868,31 @@ mod ev {
     pub const ROTATE_BEGAN: u32 = 24;
     pub const ROTATE_MOVED: u32 = 25;
     pub const ROTATE_ENDED: u32 = 26;
+    /// a,b = the press point; fired once while the pointer is still down (docs/gestures.md
+    /// "Long press").
+    pub const LONG_PRESS: u32 = 27;
+    /// a,b = the second tap's point (`dblclick`).
+    pub const DOUBLE_TAP: u32 = 28;
+    /// a,b = the point; c = 1 for the press, 0 for its end (docs/gestures.md "Press").
+    pub const PRESS: u32 = 29;
+    /// a = the user's scroll phase: 0 idle, 1 dragging, 2 coasting (docs/scroll.md "Phases").
+    pub const SCROLL_PHASE: u32 = 30;
+}
+
+/// Listen-mask bits for the recognizers `enable_gesture` attaches (shim.js `listen`), beyond
+/// the public [`listen`] constants.
+mod gesture_mask {
+    pub const TAP: u32 = 128;
+    pub const DRAG: u32 = 256;
+    pub const CONTEXT_MENU: u32 = 1024;
+    pub const PAN: u32 = 2048;
+    pub const PINCH: u32 = 4096;
+    pub const ROTATE: u32 = 8192;
+    pub const LONG_PRESS: u32 = 1 << 14;
+    pub const DOUBLE_TAP: u32 = 1 << 15;
+    pub const PRESS: u32 = 1 << 16;
+    pub const TOUCHES: u32 = 1 << 17;
+    pub const HOVER: u32 = 1 << 18;
 }
 
 // ---------------------------------------------------------------------------
@@ -855,10 +994,30 @@ impl ListEntry {
             .is_some_and(|src| src.is_header.is_some())
     }
 
-    /// Rows stand at their own heights rather than a pitch: a self-sizing list, or a sectioned
-    /// one, whose headers take their laid height even when the list is `Uniform`.
+    /// Whether row `row` is a header, footer, empty state or padding row Day added
+    /// (docs/list.md "Header, footer and empty state"): sized like a header, with no row chrome.
+    fn is_supplement(&self, row: usize) -> bool {
+        self.source
+            .as_ref()
+            .and_then(|src| src.is_supplement.as_ref())
+            .is_some_and(|f| f(row))
+    }
+
+    fn has_supplements(&self) -> bool {
+        self.source
+            .as_ref()
+            .is_some_and(|src| src.is_supplement.is_some())
+    }
+
+    /// A row the reader can select, activate and walk to: neither a header nor a supplement.
+    fn is_item(&self, row: usize) -> bool {
+        !self.is_header(row) && !self.is_supplement(row)
+    }
+
+    /// Rows stand at their own heights rather than a pitch: a self-sizing list, or one with
+    /// headers or supplementary rows, which take their laid height even when it is `Uniform`.
     fn stacked(&self) -> bool {
-        self.automatic || self.sectioned()
+        self.automatic || self.sectioned() || self.has_supplements()
     }
 
     /// The header of the section holding `row`: the row itself, or the nearest header above.
@@ -912,7 +1071,7 @@ impl ListEntry {
     /// Row `i`'s height: the pitch, or its measured height, or `estimate`. A section header
     /// is measured even in a uniform list, whose `heights` then hold only headers.
     fn height_of(&self, i: usize, estimate: f64) -> f64 {
-        if !self.automatic && !self.is_header(i) {
+        if !self.automatic && self.is_item(i) {
             return self.row_height.max(1.0);
         }
         match self.heights.get(i) {
@@ -994,6 +1153,248 @@ thread_local! {
     // `content_lines` counts the day-driven text's hard line breaks (realize + SetText) — an
     // approximation that ignores soft wrapping, noted in `measure`.
     static AREA_HINTS: RefCell<HashMap<u32, (u32, u32, u32)>> = RefCell::new(HashMap::new());
+    /// Per label element: the text it stands for and its paragraph attributes (docs/text.md).
+    static LABELS: RefCell<HashMap<u32, LabelState>> = RefCell::new(HashMap::new());
+    /// The recognizer bits already attached per element (`enable_gesture` is idempotent).
+    static GESTURES: RefCell<HashMap<u32, u32>> = RefCell::new(HashMap::new());
+    /// The reading direction `set_layout_direction` gave an element (`true` = right to left);
+    /// an element it never named follows the app's.
+    static DIRECTION: RefCell<HashMap<u32, bool>> = RefCell::new(HashMap::new());
+}
+
+/// Attach the shim listeners for `mask`'s bits not yet attached to `el`: a recognizer is a set of
+/// listeners, and a second `listen` would double what it reports.
+fn listen_once(el: u32, mask: u32) {
+    let fresh = GESTURES.with(|g| {
+        let mut g = g.borrow_mut();
+        let had = g.entry(el).or_insert(0);
+        let fresh = mask & !*had;
+        *had |= mask;
+        fresh
+    });
+    if fresh != 0 {
+        unsafe { day_dom_listen(el, fresh) };
+    }
+}
+
+/// What a label element shows and how (docs/text.md): kept beside the element because a head or
+/// middle truncation replaces the element's text with an elided copy, and every later change
+/// (width, font, paragraph, text) elides the full text again.
+struct LabelState {
+    /// The full text: `LabelProps::text` or the latest text patch.
+    text: String,
+    /// Styled runs are spans: elision (plain text only) falls back to the tail there.
+    runs: bool,
+    wraps: bool,
+    para: LabelParagraph,
+    /// The width of the last frame, which head and middle truncation elide to.
+    width: f64,
+    /// Whether the element shows an elided copy rather than `text`.
+    elided: bool,
+    /// Whether a nonempty selection was reported last (`LabelProps::reports_selection`).
+    selected: bool,
+}
+
+impl LabelState {
+    /// One line, where every truncation mode applies (docs/text.md "Truncation").
+    fn one_line(&self) -> bool {
+        !self.wraps || self.para.max_lines == 1
+    }
+
+    /// Whether the element must show `day_spec::elide`'s copy: CSS truncates only the tail.
+    fn elides(&self) -> bool {
+        self.one_line() && !self.runs && self.para.truncation != Truncation::Tail
+    }
+}
+
+/// A label's new text (a text or runs patch); a selection the patch discards is reported
+/// cleared.
+fn set_label_state_text(el: u32, t: &str, runs: bool) {
+    let cleared = LABELS.with(|tab| {
+        let mut tab = tab.borrow_mut();
+        let Some(st) = tab.get_mut(&el) else {
+            return false;
+        };
+        t.clone_into(&mut st.text);
+        st.runs = runs;
+        std::mem::take(&mut st.selected)
+    });
+    if cleared && let Some(node) = node_of(el) {
+        emit(node, Event::TextSelected { start: 0, end: 0 });
+    }
+}
+
+/// A line height a label can use: a finite positive multiple of the font size.
+fn usable_line_height(multiple: f64) -> Option<f64> {
+    (multiple.is_finite() && multiple > 0.0).then_some(multiple)
+}
+
+/// The paragraph attributes on a label element (docs/text.md): letter spacing in `em`, a
+/// unitless `line-height` (exactly Day's multiple-of-the-font-size model), and the line limit
+/// as `-webkit-line-clamp` on a vertical `-webkit-box`, which the measuring copy in the shim
+/// carries too. Idempotent; called at realize, on every paragraph or font patch (the `font`
+/// shorthand resets `line-height`), and the elision follows.
+fn apply_paragraph(el: u32) {
+    let Some((wraps, para)) = LABELS.with(|t| t.borrow().get(&el).map(|st| (st.wraps, st.para)))
+    else {
+        return;
+    };
+    let ls = if para.letter_spacing.is_finite() && para.letter_spacing != 0.0 {
+        format!("{}em", para.letter_spacing)
+    } else {
+        String::new()
+    };
+    s(el, "letter-spacing", &ls);
+    // Natural is what `font_css`'s shorthand says: 1.3.
+    let lh =
+        usable_line_height(para.line_height).map_or_else(|| "1.3".to_owned(), |m| m.to_string());
+    s(el, "line-height", &lh);
+    if wraps && para.max_lines > 0 {
+        let n = para.max_lines.to_string();
+        s(el, "display", "-webkit-box");
+        s(el, "-webkit-box-orient", "vertical");
+        s(el, "-webkit-line-clamp", &n);
+        s(el, "line-clamp", &n);
+    } else {
+        s(el, "display", "");
+        s(el, "-webkit-box-orient", "");
+        s(el, "-webkit-line-clamp", "");
+        s(el, "line-clamp", "");
+    }
+    if wraps && para.max_lines == 1 {
+        // One clamped line wraps nowhere: the tail ellipsis of a single line.
+        s(el, "white-space", "nowrap");
+    } else if wraps {
+        s(el, "white-space", "");
+    }
+    MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
+    elide_label(el);
+}
+
+/// Show `day_spec::elide`'s copy of a one-line label truncated at the head or the middle, or the
+/// full text again where none is needed. The full text stays the element's `data-day-text` (what
+/// `read_native` reports) and, unless the app named the element, its `aria-label`.
+fn elide_label(el: u32) {
+    let Some((full, elides, was, width, mode)) = LABELS.with(|t| {
+        t.borrow().get(&el).map(|st| {
+            (
+                st.text.clone(),
+                st.elides(),
+                st.elided,
+                st.width,
+                st.para.truncation,
+            )
+        })
+    }) else {
+        return;
+    };
+    let shown = if elides && width > 0.0 {
+        day_spec::elide(&full, mode, width, |candidate| {
+            label_size(el, Some(candidate), f64::MAX).width
+        })
+    } else {
+        full.clone()
+    };
+    let now = shown != full;
+    if now || was {
+        text(el, &shown);
+    }
+    if now || was {
+        attr(el, "data-day-text", if now { &full } else { "" });
+        if APP_NAMED.with(|t| t.get(el as usize)).is_none() {
+            attr(el, "aria-label", if now { &full } else { "" });
+        }
+    }
+    LABELS.with(|t| {
+        if let Some(st) = t.borrow_mut().get_mut(&el) {
+            st.elided = now;
+        }
+    });
+}
+
+/// A label's size in its own style, for `text` in place of its content when given.
+fn label_size(el: u32, text: Option<&str>, max_w: f64) -> Size {
+    let mut out = [0.0f64; 2];
+    let (ptr, len) = text.map_or((std::ptr::null(), 0), |t| (t.as_ptr(), t.len()));
+    // SAFETY: `text` outlives the call and `out` has room for the two values the shim writes.
+    unsafe { day_dom_measure_label(el, ptr, len, max_w, out.as_mut_ptr()) };
+    Size::new(out[0], out[1])
+}
+
+/// The byte offset in `text` of a UTF-16 offset (the DOM's `Range` counts), clamped to the
+/// text and landing on a character boundary.
+fn utf16_to_byte(text: &str, units: usize) -> usize {
+    let mut seen = 0usize;
+    for (i, ch) in text.char_indices() {
+        if seen >= units {
+            return i;
+        }
+        seen += ch.len_utf16();
+    }
+    text.len()
+}
+
+/// Whether `el` reads right to left: its own direction once told, else the app's.
+fn element_rtl(el: u32) -> bool {
+    DIRECTION
+        .with(|d| d.borrow().get(&el).copied())
+        .unwrap_or_else(day_core::is_rtl)
+}
+
+/// The shim's pointer-kind code (0 touch, 1 mouse, 2 stylus) as Day's kind.
+fn pointer_kind(code: u32) -> day_spec::PointerKind {
+    match code {
+        0 => day_spec::PointerKind::Touch,
+        2 => day_spec::PointerKind::Stylus,
+        _ => day_spec::PointerKind::Mouse,
+    }
+}
+
+/// One contact of the shim's touches wire, `"id,phase,x,y,pressure,kind"` (phase 0 began,
+/// 1 moved, 2 stationary, 3 ended, 4 cancelled; kind 0 touch, 1 mouse, 2 stylus), or `None`
+/// for a malformed entry.
+fn parse_touch(entry: &str) -> Option<day_spec::Touch> {
+    use day_spec::{Touch, TouchPhase};
+    let mut f = entry.split(',');
+    let id: u64 = f.next()?.trim().parse().ok()?;
+    let phase = match f.next()?.trim() {
+        "0" => TouchPhase::Began,
+        "1" => TouchPhase::Moved,
+        "2" => TouchPhase::Stationary,
+        "3" => TouchPhase::Ended,
+        "4" => TouchPhase::Cancelled,
+        _ => return None,
+    };
+    let x: f64 = f.next()?.trim().parse().ok()?;
+    let y: f64 = f.next()?.trim().parse().ok()?;
+    let pressure: f64 = f.next()?.trim().parse().ok()?;
+    let kind = pointer_kind(f.next()?.trim().parse().ok()?);
+    Some(
+        Touch::new(id, phase, Point::new(x, y))
+            .with_pressure(pressure)
+            .with_kind(kind),
+    )
+}
+
+/// The touches wire's whole list (entries separated by `;`), skipping malformed ones.
+fn parse_touches(wire: &str) -> Vec<day_spec::Touch> {
+    wire.split(';')
+        .filter(|e| !e.is_empty())
+        .filter_map(parse_touch)
+        .collect()
+}
+
+/// A key event from the shim's modifier word: the day mask in the low byte, the phase in bits 8
+/// and 9 ([`day_spec::KeyPhase::from_wire`]). A release carries no text.
+fn phased_key(key: &str, text: Option<String>, word: u32) -> day_spec::KeyEvent {
+    let phase = day_spec::KeyPhase::from_wire(f64::from(word));
+    let modifiers = (word & 0xff) as u8;
+    match text {
+        Some(text) if phase != day_spec::KeyPhase::Up => {
+            day_spec::KeyEvent::typed_by(key, text, modifiers).with_phase(phase)
+        }
+        _ => day_spec::KeyEvent::named(key, modifiers).with_phase(phase),
+    }
 }
 
 /// Measure one string in the control font with no wrap limit. The expression is day.css's `body`
@@ -1140,32 +1541,6 @@ fn font_css(f: &FontSpec) -> String {
     format!("{italic}{weight} {size}/1.3 {family}")
 }
 
-/// A run's `text-decoration`: the lines and, for the patterned underlines, the style word CSS
-/// spells them with. Empty when the run has neither.
-fn decoration_css(r: &day_spec::TextRun) -> String {
-    use day_spec::Underline as U;
-    let mut lines = String::new();
-    if r.underline.is_on() {
-        lines.push_str("underline");
-    }
-    if r.strikethrough {
-        if !lines.is_empty() {
-            lines.push(' ');
-        }
-        lines.push_str("line-through");
-    }
-    if lines.is_empty() {
-        return lines;
-    }
-    match r.underline {
-        U::Double => lines.push_str(" double"),
-        U::Dotted => lines.push_str(" dotted"),
-        U::Wavy => lines.push_str(" wavy"),
-        U::Single | U::None => {}
-    }
-    lines
-}
-
 fn color_css(c: day_spec::Color) -> String {
     format!(
         "rgba({},{},{},{})",
@@ -1176,6 +1551,86 @@ fn color_css(c: day_spec::Color) -> String {
     )
 }
 
+/// An ink as a CSS color the browser itself resolves for the page's appearance (docs/color.md),
+/// so a view follows a light/dark switch with no patch and no Rust code running: a fixed color
+/// is `rgba(…)`, a pair `light-dark(…)`, a role the stylesheet's `var(--day-<role>)` (day.css
+/// defines all sixteen for both appearances), and a role at an alpha that alpha over the role's
+/// channels (relative color syntax, which replaces the role's own alpha exactly).
+///
+/// Engines without those functions get equivalents that still follow: a pair through the
+/// stylesheet's appearance toggles (`--day-if-light`/`--day-if-dark`, day.css), and a role's alpha
+/// through `color-mix` toward transparent, which multiplies the role's own alpha instead of
+/// replacing it (the same on the opaque roles).
+fn ink_css(ink: day_spec::Ink) -> String {
+    use day_spec::Ink;
+    match ink {
+        Ink::Fixed(c) => color_css(c),
+        Ink::Adaptive { light, dark } => pair_css(light, dark),
+        Ink::System { role, alpha: None } => format!("var({})", role_var(role)),
+        Ink::System {
+            role,
+            alpha: Some(a),
+        } => {
+            let (var, a) = (role_var(role), a.clamp(0.0, 1.0));
+            if css_colors().1 {
+                format!("rgb(from var({var}) r g b / {a})")
+            } else {
+                format!("color-mix(in srgb, var({var}) {}%, transparent)", a * 100.0)
+            }
+        }
+    }
+}
+
+/// A light/dark pair as one CSS color (see [`ink_css`]).
+fn pair_css(light: day_spec::Color, dark: day_spec::Color) -> String {
+    let (l, d) = (color_css(light), color_css(dark));
+    if l == d {
+        l
+    } else if css_colors().0 {
+        format!("light-dark({l},{d})")
+    } else {
+        // Exactly one of the two toggles is the guaranteed-invalid `initial` (its fallback is
+        // used) and the other is empty, so the value is one color and a space.
+        format!("var(--day-if-light,{l}) var(--day-if-dark,{d})")
+    }
+}
+
+/// The stylesheet's custom property for a role (day.css; the brief's table in docs/color.md).
+fn role_var(role: day_spec::SystemColor) -> &'static str {
+    use day_spec::SystemColor as R;
+    match role {
+        R::Accent => "--day-accent",
+        R::Text => "--day-fg",
+        R::SecondaryText => "--day-fg-2",
+        R::Background => "--day-bg",
+        R::Surface => "--day-surface",
+        R::TertiaryText => "--day-fg-3",
+        R::Placeholder => "--day-placeholder",
+        R::Link => "--day-link",
+        R::Separator => "--day-separator",
+        R::ControlFill => "--day-control",
+        R::GroupedBackground => "--day-grouped",
+        R::ElevatedSurface => "--day-elevated",
+        R::Selection => "--day-selection",
+        R::Destructive => "--day-destructive",
+        R::Success => "--day-success",
+        R::Warning => "--day-warning",
+    }
+}
+
+/// Whether the engine parses `light-dark()` and relative color syntax, asked once.
+fn css_colors() -> (bool, bool) {
+    thread_local! {
+        static SUPPORT: std::cell::OnceCell<(bool, bool)> = const { std::cell::OnceCell::new() };
+    }
+    SUPPORT.with(|c| {
+        *c.get_or_init(|| {
+            let v = env("css_colors");
+            (v.contains('d'), v.contains('r'))
+        })
+    })
+}
+
 fn apply_font(el: u32, f: &FontSpec) {
     s(el, "font", &font_css(f));
     // The `font` shorthand RESETS every `font-variant-*` longhand to normal, so only the
@@ -1184,8 +1639,22 @@ fn apply_font(el: u32, f: &FontSpec) {
     // tabular-nums. Skipping the redundant write keeps the style attribute serializing as the
     // one compact `font:` declaration — touching any longhand of the family makes the browser
     // spell out every longhand individually, empty values and all.
-    if f.tabular {
-        s(el, "font-variant-numeric", "tabular-nums");
+    // The numeric features share one property, so tabular and old-style figures go in one
+    // declaration; small capitals are `smcp`, never synthesized from scaled capitals by Day.
+    let numeric = match (f.tabular, f.oldstyle_figures) {
+        (true, true) => "tabular-nums oldstyle-nums",
+        (true, false) => "tabular-nums",
+        (false, true) => "oldstyle-nums",
+        (false, false) => "",
+    };
+    if !numeric.is_empty() {
+        s(el, "font-variant-numeric", numeric);
+    }
+    if f.small_caps {
+        s(el, "font-variant-caps", "small-caps");
+        // A face without `smcp` draws its ordinary lowercase, as on every other toolkit,
+        // rather than capitals the browser scales down.
+        s(el, "font-synthesis-small-caps", "none");
     }
 }
 
@@ -1200,10 +1669,10 @@ fn apply_font(el: u32, f: &FontSpec) {
 fn navmenu_json(
     items: &[String],
     icons: &[Option<String>],
-    tints: &[Option<day_spec::Color>],
+    tints: &[Option<day_spec::Ink>],
     badges: &[Option<String>],
     badge_icons: &[Option<String>],
-    badge_tints: &[Option<day_spec::Color>],
+    badge_tints: &[Option<day_spec::Ink>],
     sections: &[Option<String>],
     selected: Option<usize>,
 ) -> String {
@@ -1228,15 +1697,7 @@ fn navmenu_json(
             // instead of currentColor.
             if let Some(Some(t)) = tints.get(i) {
                 json.push_str(",\"tint\":");
-                json_str(
-                    &mut json,
-                    &format!(
-                        "#{:02x}{:02x}{:02x}",
-                        (t.r * 255.0) as u8,
-                        (t.g * 255.0) as u8,
-                        (t.b * 255.0) as u8
-                    ),
-                );
+                json_str(&mut json, &ink_css(*t));
             }
         }
         // The row's count (docs/navigation.md `badge`), drawn dim at the trailing edge.
@@ -1251,15 +1712,7 @@ fn navmenu_json(
             json_str(&mut json, &image_url(badge));
             if let Some(Some(t)) = badge_tints.get(i) {
                 json.push_str(",\"badgeTint\":");
-                json_str(
-                    &mut json,
-                    &format!(
-                        "#{:02x}{:02x}{:02x}",
-                        (t.r * 255.0) as u8,
-                        (t.g * 255.0) as u8,
-                        (t.b * 255.0) as u8
-                    ),
-                );
+                json_str(&mut json, &ink_css(*t));
             }
         }
         json.push('}');
@@ -1922,6 +2375,9 @@ impl Toolkit for Dom {
 
     fn set_drag_region(&mut self, h: &DomHandle, drag: bool) {
         class(h.0, "day-drag-region", drag);
+        if drag {
+            unsafe { day_dom_takes_pointer(h.0) };
+        }
     }
 
     fn set_drag_source(&mut self, h: &DomHandle, source: day_spec::transfer::Source) {
@@ -2077,6 +2533,38 @@ impl Toolkit for Dom {
             Cap::NavReorder | Cap::ListReorder => Support::Emulated,
             // A topmost fixed-position child — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
+            // A `tabindex` stop with the key route, focused by a press in the capture phase,
+            // `:focus-visible` for the ring (docs/focus.md).
+            Cap::Focusable => Support::Native,
+            // `KeyboardEvent.repeat` and `keyup` (docs/menus.md "Keys").
+            Cap::KeyPhases => Support::Native,
+            // A grown pseudo-element, or a forwarding sibling where the element has none
+            // (docs/gestures.md "Hit slop").
+            Cap::HitSlop => Support::Native,
+            // The document's `selectionchange`, mapped to the label's text (docs/text.md).
+            Cap::LabelSelection => Support::Native,
+            // The list reports its visible rows and end distance from its own row table on
+            // every scroll, resize and data change, and scrolls rows to any alignment with the
+            // browser's own smooth scrolling (docs/list.md).
+            Cap::ListViewport | Cap::ListScrollAlign => Support::Native,
+            // A list scroll under a finger, with the scroll bar held, or right after a wheel or
+            // a key that scrolls is the reader's; `scrollTo` comes with none (docs/list.md
+            // "Following the end").
+            Cap::ListReaderScroll => Support::Native,
+            // A scroll view reports its offset per frame and at rest, and the user's phases from
+            // touch, wheel, keyboard and scroll-bar input with `scrollend` (docs/scroll.md).
+            Cap::ScrollOffset | Cap::ScrollPhases => Support::Native,
+            // CSS scroll snap on markers at each stop (`scroll-snap-type: mandatory`).
+            Cap::ScrollSnap => Support::Native,
+            // Blurring the field dismisses a touch screen's keyboard: the scroll piece resigns
+            // focus when a drag begins. A desktop browser has no software keyboard.
+            Cap::ScrollKeyboardDismiss => {
+                if unsafe { day_dom_touch_points() } > 0 {
+                    Support::Emulated
+                } else {
+                    Support::Unsupported
+                }
+            }
             _ => Support::Unsupported,
         }
     }
@@ -2091,7 +2579,12 @@ impl Toolkit for Dom {
                     return realize_placeholder(kind, id);
                 };
                 let el = unsafe { day_dom_create(EL_DIV) };
-                apply_surface(el, p.background, p.corner_radius, p.clips, p.role);
+                if let Some(role) = p.role {
+                    SURFACE_ROLES.with(|t| t.insert(el as usize, role));
+                }
+                apply_surface(el, p, p.role, None, true);
+                // Pass-through until something listens (docs/gestures.md "Pass-through").
+                class(el, "day-passive-host", true);
                 el
             }
             Some(Builtin::Label) => {
@@ -2099,10 +2592,11 @@ impl Toolkit for Dom {
                     return realize_placeholder(kind, id);
                 };
                 let el = unsafe { day_dom_create(EL_LABEL) };
+                class(el, "day-passive-leaf", true);
                 set_label_text(el, &p.text, &p.runs);
                 apply_font(el, &p.font);
                 if let Some(c) = p.color {
-                    s(el, "color", &color_css(c));
+                    s(el, "color", &ink_css(c));
                 } else if p.role == day_spec::props::TextRole::Secondary {
                     // No system "secondary label" on the web, so it is derived from the text color
                     // in force — which is what the light/dark switch already drives. Mixing toward
@@ -2122,8 +2616,30 @@ impl Toolkit for Dom {
                 // direction without the app asking (docs/localization.md).
                 match p.align {
                     day_spec::props::TextAlign::Leading => {}
+                    // Every line but the last stretched edge to edge; the last at the start.
+                    day_spec::props::TextAlign::Justified => s(el, "text-align", "justify"),
                     day_spec::props::TextAlign::Center => s(el, "text-align", "center"),
                     day_spec::props::TextAlign::Trailing => s(el, "text-align", "end"),
+                }
+                LABELS.with(|t| {
+                    t.borrow_mut().insert(
+                        el,
+                        LabelState {
+                            text: p.text.clone(),
+                            runs: !p.runs.is_empty(),
+                            wraps: p.wraps,
+                            para: p.paragraph(),
+                            width: 0.0,
+                            elided: false,
+                            selected: false,
+                        },
+                    );
+                });
+                apply_paragraph(el);
+                // Selection reports (docs/text.md "Selection"): the shim's `selectionchange`
+                // route reports ranges inside elements carrying this flag.
+                if p.reports_selection {
+                    attr(el, "data-day-reports-selection", "true");
                 }
                 el
             }
@@ -2274,17 +2790,25 @@ impl Toolkit for Dom {
                     fit,
                     tint: p.tint,
                     template: p.template,
+                    is_img: p.tint.is_none() && !p.template,
                 };
                 let el = unsafe { day_dom_create(if state.masked() { EL_DIV } else { EL_IMAGE }) };
                 if state.masked() {
                     if !p.decorative {
                         attr(el, "role", "img");
                     }
-                    // A template cut from bytes the app holds (a `Symbol`'s outline SVG, a
-                    // settings row's glyph): the shim makes the blob URL and sets it as this
-                    // div's mask, since a URL is the one thing a mask can be cut from.
-                    if let day_spec::ImageSource::Bytes(b) = &p.source {
-                        unsafe { day_dom_image_set_bytes(el, b.as_ptr(), b.len()) };
+                    // A mask cut from bytes the app holds (a `Symbol`'s outline SVG, a settings
+                    // row's glyph, a tinted photo) or from a shared decode: the shim makes or
+                    // finds the blob URL and sets it as this div's mask, since a URL is the
+                    // one thing a mask can be cut from.
+                    match &p.source {
+                        day_spec::ImageSource::Named(_) => {}
+                        day_spec::ImageSource::Bytes(b) => unsafe {
+                            day_dom_image_set_bytes(el, b.as_ptr(), b.len());
+                        },
+                        day_spec::ImageSource::Decoded(id) => unsafe {
+                            day_dom_image_set_bitmap(el, id.0 as f64);
+                        },
                     }
                 } else {
                     // Bytes and shared decodes never name a file (docs/images.md): the shim owns
@@ -2307,8 +2831,12 @@ impl Toolkit for Dom {
                 if p.decorative {
                     attr(el, "aria-hidden", "true");
                 }
-                apply_image_tint(el, &src, fit, p.tint, p.template);
+                if state.masked() {
+                    apply_image_tint(el, &state);
+                }
                 IMAGE_SRC.with(|m| m.borrow_mut().insert(el, state));
+                // Pass-through until something listens (docs/gestures.md "Pass-through").
+                class(el, "day-passive-leaf", true);
                 el
             }
             Some(Builtin::Canvas) => {
@@ -2320,6 +2848,16 @@ impl Toolkit for Dom {
                 // …and reports focus both ways (mask 8), so `.focused(signal)` binds two-way
                 // and dayscript's `assert_focused` can see where the keyboard is.
                 unsafe { day_dom_listen(el, 8) };
+                // Pass-through (docs/gestures.md): a canvas with no handler lets a press reach
+                // what is behind it. A key handler is declared while the piece builds, after
+                // this realize, so whether one came is asked once the build is over: a canvas
+                // that hears keys takes the press that focuses it.
+                class(el, "day-passive-leaf", true);
+                post_local(move || {
+                    if day_spec::keys::handled(id) || day_spec::keys::text(id) {
+                        unsafe { day_dom_takes_pointer(el) };
+                    }
+                });
                 el
             }
             Some(Builtin::Scroll) => {
@@ -2330,10 +2868,29 @@ impl Toolkit for Dom {
                 if p.horizontal {
                     class(el, "horizontal", true);
                 }
-                unsafe { day_dom_listen(el, 64) };
+                // Offsets only for a piece that reads them (docs/scroll.md "Offset").
+                if p.track_offset {
+                    unsafe { day_dom_listen(el, listen::SCROLL) };
+                }
+                let flags = u32::from(p.indicators == ScrollIndicators::Hidden)
+                    | (u32::from(p.bounce == Some(false)) << 1)
+                    | (u32::from(p.track_phase) << 2);
+                let (snap, interval) = match p.snap {
+                    ScrollSnap::Page => (1, 0.0),
+                    ScrollSnap::Interval(points) if points > 0.0 => (2, points),
+                    // No snapping, or an interval that names no stops.
+                    ScrollSnap::None | ScrollSnap::Interval(_) => (0, 0.0),
+                };
+                if flags != 0 || snap != 0 {
+                    unsafe { day_dom_scroll_setup(el, flags, snap, interval) };
+                }
                 el
             }
-            Some(Builtin::Divider) => unsafe { day_dom_create(EL_DIVIDER) },
+            Some(Builtin::Divider) => {
+                let el = unsafe { day_dom_create(EL_DIVIDER) };
+                class(el, "day-passive-leaf", true);
+                el
+            }
             Some(Builtin::Nav) => {
                 let Some(p) = day_spec::props_of::<NavProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
@@ -2517,92 +3074,95 @@ impl Toolkit for Dom {
                                 Some(state.clone())
                             });
                             if let Some(state) = state {
-                                // Only the color changes here: an element realized with a tint
-                                // or as a template is already the masked div, so this repaints
-                                // the mask's fill (a template with no tint goes back to
-                                // `currentColor`).
-                                apply_image_tint(el, &state.src, state.fit, *c, state.template);
+                                // An element realized with a tint or as a template is already
+                                // the masked div, so this repaints the mask's fill (a template
+                                // with no tint goes back to `currentColor`); an `<img>` gains
+                                // or loses its mask.
+                                apply_image_tint(el, &state);
                             }
                         }
                         // A source swap repaints the same element (docs/images.md), so an
                         // `image()` bound to a signal shows new pixels without rebuilding its
-                        // subtree. A masked glyph (tinted or a template) re-cuts its mask from the
-                        // new name — a recycled sidebar row shows the glyph it was rebound to —
-                        // while bytes keep the mask they were realized with: recoloring them
-                        // would need a URL this side never sees.
-                        day_spec::props::ImagePatch::Source(source) => match source {
-                            day_spec::ImageSource::Named(name) => {
-                                let src = if name.contains('/') {
+                        // subtree. A masked image (tinted or a template) re-cuts its mask from
+                        // the new source and keeps its tint: from the new name here — a
+                        // recycled sidebar row shows the glyph it was rebound to — or, for
+                        // bytes and decodes, in the shim, which owns their URL.
+                        day_spec::props::ImagePatch::Source(source) => {
+                            let src = match source {
+                                day_spec::ImageSource::Named(name) if name.contains('/') => {
                                     name.clone()
-                                } else {
-                                    format!("assets/images/{}.{}", name, image_ext(name))
-                                };
-                                let state = IMAGE_SRC.with(|m| {
-                                    let mut m = m.borrow_mut();
-                                    let state = m.get_mut(&el)?;
-                                    state.src.clone_from(&src);
-                                    Some(state.clone())
-                                });
-                                match state {
-                                    Some(state) if state.masked() => apply_image_tint(
-                                        el,
-                                        &state.src,
-                                        state.fit,
-                                        state.tint,
-                                        state.template,
-                                    ),
-                                    _ => attr(el, "src", &src),
                                 }
+                                day_spec::ImageSource::Named(name) => {
+                                    format!("assets/images/{}.{}", name, image_ext(name))
+                                }
+                                _ => String::new(),
+                            };
+                            let state = IMAGE_SRC.with(|m| {
+                                let mut m = m.borrow_mut();
+                                let state = m.get_mut(&el)?;
+                                state.src.clone_from(&src);
+                                Some(state.clone())
+                            });
+                            match source {
+                                day_spec::ImageSource::Named(_) => {
+                                    if state.as_ref().is_none_or(|s| s.is_img) {
+                                        attr(el, "src", &src);
+                                    }
+                                }
+                                day_spec::ImageSource::Bytes(b) => unsafe {
+                                    day_dom_image_set_bytes(el, b.as_ptr(), b.len());
+                                },
+                                day_spec::ImageSource::Decoded(id) => unsafe {
+                                    day_dom_image_set_bitmap(el, id.0 as f64);
+                                },
                             }
-                            day_spec::ImageSource::Bytes(b) => unsafe {
-                                day_dom_image_set_bytes(el, b.as_ptr(), b.len());
-                            },
-                            day_spec::ImageSource::Decoded(id) => unsafe {
-                                day_dom_image_set_bitmap(el, id.0 as f64);
-                            },
-                        },
+                            if let Some(state) = state.filter(ImageState::masked) {
+                                apply_image_tint(el, &state);
+                            }
+                        }
                     }
                 }
             }
-            kinds::CONTAINER => {
-                if let Some(ContainerPatch::Background(c)) = patch.downcast_ref::<ContainerPatch>()
-                {
-                    // `transition` persists on the element, so a non-animated patch must
-                    // CLEAR it — otherwise one animated patch makes every later plain
-                    // background change animate too.
-                    match anim {
-                        Some(a) => s(
-                            el,
-                            "transition",
-                            &format!("background-color {}", css_anim(a)),
-                        ),
-                        None => s(el, "transition", ""),
-                    }
-                    match c {
-                        Some(c) => s(el, "background-color", &color_css(*c)),
-                        None => s(el, "background-color", "transparent"),
-                    }
+            kinds::CONTAINER => match patch.downcast_ref::<ContainerPatch>() {
+                Some(ContainerPatch::Fill(fill)) => apply_fill(el, fill.as_ref(), anim, false),
+                Some(ContainerPatch::Surface(p)) => {
+                    let role = SURFACE_ROLES.with(|t| t.get(el as usize));
+                    apply_surface(el, p, role, anim, false);
                 }
-            }
+                None => {}
+            },
             kinds::LABEL => {
                 if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                     match p {
+                        LabelPatch::Paragraph(para) => {
+                            LABELS.with(|t| {
+                                if let Some(st) = t.borrow_mut().get_mut(&el) {
+                                    st.para = *para;
+                                }
+                            });
+                            apply_paragraph(el);
+                        }
                         LabelPatch::Text(t) => {
+                            set_label_state_text(el, t, false);
                             text(el, t);
                             // The measure cache is keyed by element — new text, new metrics.
                             MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
+                            elide_label(el);
                         }
                         LabelPatch::Runs(t, runs) => {
+                            set_label_state_text(el, t, !runs.is_empty());
                             set_label_text(el, t, runs);
                             MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
+                            elide_label(el);
                         }
                         LabelPatch::Color(c) => match c {
-                            Some(c) => s(el, "color", &color_css(*c)),
+                            Some(c) => s(el, "color", &ink_css(*c)),
                             None => s(el, "color", ""),
                         },
                         LabelPatch::Font(f) => {
                             apply_font(el, f);
-                            MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
+                            // The `font` shorthand reset the line height.
+                            apply_paragraph(el);
                         }
                     }
                 }
@@ -2746,10 +3306,12 @@ impl Toolkit for Dom {
                             // the stylesheet frosts the page under it, and its toolbar strip
                             // docks on the card rather than across the window (shim.js).
                             let sheet = COVER_SHEET.with(|set| set.borrow().contains(&el))
-                                && *background == Some(day_spec::Color::CLEAR);
+                                && *background == Some(day_spec::Color::CLEAR.into());
                             class(el, "day-sheet", sheet);
                             match background {
-                                Some(bg) if !sheet => s(el, "background-color", &color_css(*bg)),
+                                Some(bg) if !sheet => {
+                                    s(el, "background-color", &ink_css(*bg));
+                                }
                                 _ => s(el, "background-color", ""),
                             }
                             unsafe { day_dom_insert(1, el, u32::MAX) };
@@ -2875,6 +3437,9 @@ impl Toolkit for Dom {
         SEG_COUNT.with(|m| m.borrow_mut().remove(&el));
         PICKER_SIZE.with(|m| m.borrow_mut().remove(&el));
         SPINNERS.with(|s| s.borrow_mut().remove(&el));
+        LABELS.with(|t| t.borrow_mut().remove(&el));
+        GESTURES.with(|t| t.borrow_mut().remove(&el));
+        DIRECTION.with(|t| t.borrow_mut().remove(&el));
         MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
         if let Some(list) = LISTS.with(|m| m.borrow_mut().remove(&el)) {
             CELL_ROWS.with(|m| {
@@ -2947,18 +3512,17 @@ impl Toolkit for Dom {
                 if let Some(sz) = cache.borrow().get(&key) {
                     return *sz;
                 }
-                let mut out = [0.0f64; 2];
-                unsafe {
-                    day_dom_measure_text(
-                        std::ptr::null(),
-                        el as usize, // shim: null text ⇒ measure element `len`'s own text/font
-                        std::ptr::null(),
-                        0,
-                        max_w,
-                        out.as_mut_ptr(),
-                    );
-                };
-                let sz = Size::new(out[0].ceil().min(max_w), out[1].ceil());
+                // In the label's own style, so the line limit, the letter spacing and the line
+                // height count; an elided label measures the text it stands for, never the
+                // shorter copy it shows at its current width.
+                let full = LABELS.with(|t| {
+                    t.borrow()
+                        .get(&el)
+                        .filter(|st| st.elided)
+                        .map(|st| st.text.clone())
+                });
+                let m = label_size(el, full.as_deref(), max_w);
+                let sz = Size::new(m.width.ceil().min(max_w), m.height.ceil());
                 cache.borrow_mut().insert(key, sz);
                 sz
             }),
@@ -3037,19 +3601,51 @@ impl Toolkit for Dom {
         (b >= 0.0).then_some(b)
     }
 
-    fn set_frame(&mut self, h: &DomHandle, frame: Rect, _anim: Option<&AnimSpec>) {
+    fn set_frame(&mut self, h: &DomHandle, frame: Rect, anim: Option<&AnimSpec>) {
         if CSS_FRAMED.with(|s| s.borrow().contains(&h.0)) {
             return;
         }
-        unsafe {
-            day_dom_set_frame(
+        match anim {
+            Some(_) => animate(
                 h.0,
-                frame.origin.x,
-                frame.origin.y,
-                frame.size.width,
-                frame.size.height,
-            );
-        };
+                anim_prop::FRAME,
+                &[
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                ],
+                anim,
+            ),
+            None => unsafe {
+                day_dom_set_frame(
+                    h.0,
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                );
+            },
+        }
+        let relabel = LABELS.with(|t| {
+            t.borrow_mut().get_mut(&h.0).is_some_and(|st| {
+                let changed = (st.width - frame.size.width).abs() >= 0.5;
+                st.width = frame.size.width;
+                changed && st.elides()
+            })
+        });
+        if relabel {
+            elide_label(h.0);
+        }
+        let gradient = SURFACE_GRADIENTS.with(|t| {
+            t.with(h.0 as usize, |(g, size)| {
+                *size = frame.size;
+                linear_gradient_css(g, frame.size)
+            })
+        });
+        if let Some(css) = gradient {
+            s(h.0, "background-image", &css);
+        }
         // A list host framed: (re)populate when its width actually changed.
         let repopulate = LISTS.with(|m| {
             let mut m = m.borrow_mut();
@@ -3069,31 +3665,19 @@ impl Toolkit for Dom {
     }
 
     fn set_opacity(&mut self, h: &DomHandle, opacity: f64, anim: Option<&AnimSpec>) {
-        // Set-or-clear: a lingering `transition` would animate every later plain patch.
-        match anim {
-            Some(a) => s(h.0, "transition", &format!("opacity {}", css_anim(a))),
-            None => s(h.0, "transition", ""),
-        }
-        s(h.0, "opacity", &opacity.to_string());
+        animate(h.0, anim_prop::OPACITY, &[opacity], anim);
     }
 
     fn set_transform(&mut self, h: &DomHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
-        // Set-or-clear, as in `set_opacity`.
-        match anim {
-            Some(a) => s(h.0, "transition", &format!("transform {}", css_anim(a))),
-            None => s(h.0, "transition", ""),
-        }
         // Mark this element as a compositing root so its rounded-clip descendants get their own
         // clipped layer (day.css `.day-xform .day-clip`) — see the note in `apply_surface`.
         class(h.0, "day-xform", true);
         s(h.0, "transform-origin", "50% 50%");
-        s(
+        animate(
             h.0,
-            "transform",
-            &format!(
-                "translate({}px,{}px) rotate({}deg) scale({},{})",
-                t.tx, t.ty, t.rotate_deg, t.sx, t.sy
-            ),
+            anim_prop::TRANSFORM,
+            &[t.tx, t.ty, t.rotation.degrees(), t.sx, t.sy],
+            anim,
         );
     }
 
@@ -3101,6 +3685,9 @@ impl Toolkit for Dom {
         // Nothing is selectable by default (#day-root sets `user-select: none`); the class opts
         // this element and its text back in (`.day-selectable` in day.css). See docs/text.md.
         class(h.0, "day-selectable", selectable);
+        if selectable {
+            unsafe { day_dom_takes_pointer(h.0) };
+        }
         None
     }
 
@@ -3164,6 +3751,12 @@ impl Toolkit for Dom {
         };
         let p = "cursor";
         unsafe { day_dom_set_style(h.0, p.as_ptr(), p.len(), v.as_ptr(), v.len()) };
+        // A browser shows a cursor only over an element the pointer hits, so a cursor makes a
+        // pass-through element a pointer target (the one place the web departs from
+        // docs/gestures.md "Pass-through").
+        if cursor != Cursor::Default {
+            unsafe { day_dom_takes_pointer(h.0) };
+        }
     }
 
     fn set_scroll_content(&mut self, h: &DomHandle, content: Size) {
@@ -3183,6 +3776,58 @@ impl Toolkit for Dom {
         }
     }
 
+    /// Queued one turn, behind the populate a splice or reload in the same turn posted, so the
+    /// content has its new extent; then the browser scrolls (`behavior: smooth` when animated)
+    /// and its scroll events refill the window and send the viewport report.
+    fn list_scroll(&mut self, h: &DomHandle, to: day_spec::ListScroll) -> bool {
+        let el = h.0;
+        if !LISTS.with(|m| m.borrow().contains_key(&el)) {
+            return false;
+        }
+        post_local(move || {
+            let mut view = [0.0_f64; 2];
+            unsafe { day_dom_list_viewport(el, view.as_mut_ptr()) };
+            let target = LISTS.with(|m| {
+                let m = m.borrow();
+                let st = m.get(&el)?;
+                let n = st.source.as_ref().map_or(0, |src| (src.len)());
+                let extent = if st.stacked() {
+                    st.tops(n)[n]
+                } else {
+                    n as f64 * st.row_height.max(1.0)
+                };
+                match to.row {
+                    None => Some((extent - view[1]).max(0.0)),
+                    Some(row) if row < n => row_scroll_target(
+                        st.row_span(row),
+                        st.pinned_above(row),
+                        to.align,
+                        view[0],
+                        view[1],
+                        extent,
+                    ),
+                    Some(_) => None,
+                }
+            });
+            match target {
+                Some(y) => {
+                    // A list not laid out yet has nothing to scroll: the next fill repeats it.
+                    if view[1] <= 0.0 {
+                        LISTS.with(|m| {
+                            if let Some(st) = m.borrow_mut().get_mut(&el) {
+                                st.pending_scroll = Some(y);
+                            }
+                        });
+                    }
+                    unsafe { day_dom_scroll_to(el, 0.0, y, u32::from(to.animated)) };
+                }
+                // Nothing moves: the report still follows the request.
+                None => list_fill_window(el),
+            }
+        });
+        true
+    }
+
     fn scroll_to(&mut self, h: &DomHandle, target: Rect, animated: bool) {
         unsafe { day_dom_scroll_to(h.0, target.origin.x, target.origin.y, u32::from(animated)) };
     }
@@ -3199,19 +3844,110 @@ impl Toolkit for Dom {
 
     fn enable_gesture(&mut self, h: &DomHandle, node: NodeId, kind: GestureKind) {
         remember(h.0, node);
+        // Idempotent per (element, kind): each shim recognizer is a set of listeners, which a
+        // second `listen` would double.
         let mask = match kind {
-            GestureKind::Tap => 128,
-            GestureKind::Drag => 256,
-            GestureKind::Hover => 512,
-            // Long-press is not delivered on this backend yet.
-            GestureKind::LongPress => 0,
-            GestureKind::Pan => 2048,
-            GestureKind::Pinch => 4096,
-            GestureKind::Rotate => 8192,
+            GestureKind::Tap => gesture_mask::TAP,
+            GestureKind::Drag => gesture_mask::DRAG,
+            GestureKind::Hover => gesture_mask::HOVER,
+            GestureKind::LongPress => gesture_mask::LONG_PRESS,
+            GestureKind::DoubleTap => gesture_mask::DOUBLE_TAP,
+            GestureKind::Press => gesture_mask::PRESS,
+            GestureKind::Touches => gesture_mask::TOUCHES,
+            GestureKind::Pan => gesture_mask::PAN,
+            GestureKind::Pinch => gesture_mask::PINCH,
+            GestureKind::Rotate => gesture_mask::ROTATE,
         };
-        if mask != 0 {
-            unsafe { day_dom_listen(h.0, mask) };
+        listen_once(h.0, mask);
+    }
+
+    /// Every kind is the shim's own recognizer over pointer events (docs/gestures.md
+    /// "Recognizers"): long press and press from `pointerdown`, double tap from the browser's
+    /// `dblclick`, touches from the pointer stream of every contact.
+    fn gesture_support(&self, _kind: GestureKind) -> Support {
+        Support::Native
+    }
+
+    /// Leading and trailing follow the element's reading direction (`set_layout_direction`, else
+    /// the app's).
+    fn set_hit_slop(&mut self, h: &DomHandle, node: NodeId, slop: day_spec::Insets) {
+        remember(h.0, node);
+        let (left, right) = if element_rtl(h.0) {
+            (slop.trailing, slop.leading)
+        } else {
+            (slop.leading, slop.trailing)
+        };
+        unsafe {
+            day_dom_hit_slop(
+                h.0,
+                slop.top.max(0.0),
+                left.max(0.0),
+                slop.bottom.max(0.0),
+                right.max(0.0),
+            );
         }
+    }
+
+    /// `touch-action: pan-y` / `pan-x` on the element, so the browser scrolls across the axis
+    /// natively, and the shim's drag stands down at the slop when a mouse sets off across it.
+    fn set_drag_axis(&mut self, h: &DomHandle, _node: NodeId, axis: Option<day_spec::DragAxis>) {
+        let code = match axis {
+            None => 0,
+            Some(day_spec::DragAxis::Horizontal) => 1,
+            Some(day_spec::DragAxis::Vertical) => 2,
+        };
+        unsafe { day_dom_drag_axis(h.0, code) };
+    }
+
+    /// `inert` on the element (input, focus and the accessibility tree at once) plus
+    /// `aria-disabled`; form controls keep their own `disabled` from day-core's patches.
+    fn set_subtree_enabled(&mut self, h: &DomHandle, _node: NodeId, enabled: bool) {
+        unsafe { day_dom_subtree_enabled(h.0, u32::from(enabled)) };
+    }
+
+    /// The computed style mid-run (`getComputedStyle` reports what a Web Animation shows):
+    /// opacity, the frame from `left`/`top`/`width`/`height` in the root's space, the
+    /// transform's translation, and the fill of an element that has one (docs/tween.md).
+    fn read_displayed(&self, h: &DomHandle) -> day_spec::Displayed {
+        let mut v = [0.0f64; 11];
+        // SAFETY: `v` has room for the eleven values the shim writes.
+        let fill = unsafe { day_dom_displayed(h.0, v.as_mut_ptr()) } != 0;
+        day_spec::Displayed {
+            opacity: Some(v[0]),
+            frame: Some(Rect::new(v[1], v[2], v[3], v[4])),
+            translation: Some(Point::new(v[5], v[6])),
+            background: fill.then(|| day_spec::Color::rgba(v[7], v[8], v[9], v[10])),
+        }
+    }
+
+    /// The browser's default font size against the 16 px (17 px under iOS Dynamic Type) Day's
+    /// ramp is drawn for; one factor for every style.
+    fn text_scale(&mut self, _style: Font) -> f64 {
+        unsafe { day_dom_text_scale() }
+    }
+
+    /// `dir` on the element (docs/localization.md "Direction of a subtree"): a label's or a
+    /// field's base direction and what `start`/`end` alignment mean, a range's fill side. Day
+    /// places children with `left`, so a container's own `dir` moves nothing; scrolling hosts
+    /// keep theirs, since an RTL scroller counts its offsets from the right.
+    fn set_layout_direction(
+        &mut self,
+        h: &DomHandle,
+        kind: PieceKind,
+        direction: day_spec::LayoutDirection,
+    ) {
+        if kind == kinds::SCROLL || kind == kinds::LIST || kind == kinds::NAV {
+            return;
+        }
+        let rtl = direction == day_spec::LayoutDirection::Rtl;
+        DIRECTION.with(|d| d.borrow_mut().insert(h.0, rtl));
+        attr(h.0, "dir", if rtl { "rtl" } else { "ltr" });
+        MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != h.0));
+    }
+
+    /// `(pointer: coarse)` at launch, then the `pointerType` of each pointer down or hover.
+    fn primary_pointer(&self) -> day_spec::PointerKind {
+        pointer_kind(unsafe { day_dom_pointer_kind() })
     }
 
     fn set_focusable(&mut self, h: &DomHandle, node: NodeId, focusable: bool) {
@@ -3219,6 +3955,9 @@ impl Toolkit for Dom {
         if focusable {
             unsafe {
                 day_dom_canvas_keynav(h.0);
+                // The key route reports focus both ways itself (shim `reportFocus`), and a
+                // press focuses the element, so it is a pointer target from now on.
+                day_dom_takes_pointer(h.0);
             };
         }
     }
@@ -3338,14 +4077,14 @@ impl Toolkit for Dom {
         // listener and report `Event::ContextMenu`; the pieces layer presents the COMPOSED
         // menu from its own copy of the items (docs/menus.md), so none are stored here.
         remember(h.0, node);
-        unsafe { day_dom_listen(h.0, 1024) };
+        listen_once(h.0, gesture_mask::CONTEXT_MENU);
     }
 
     fn set_context_menu_fn(&mut self, h: &DomHandle, node: NodeId, _f: day_spec::ContextMenuFn) {
         // Summon-time menus take the same route as the static ones above: the event reaches
         // the piece that owns the provider, and the composed presenter calls it there.
         remember(h.0, node);
-        unsafe { day_dom_listen(h.0, 1024) };
+        listen_once(h.0, gesture_mask::CONTEXT_MENU);
     }
 
     fn supports_lifecycle(&self, phase: Lifecycle) -> bool {
@@ -3748,11 +4487,8 @@ impl Toolkit for Dom {
 
     fn modifiers(&mut self) -> day_spec::Modifiers {
         let mask = unsafe { day_dom_modifiers() };
-        day_spec::Modifiers {
-            shift: mask & 1 != 0,
-            primary: mask & 2 != 0,
-            alt: mask & 4 != 0,
-        }
+        // The shim's mask uses the wire bits (`Modifiers::bits`).
+        day_spec::Modifiers::from_bits((mask & 7) as u8)
     }
 
     fn present(&mut self, req: u64, spec: &PresentSpec) {
@@ -3936,38 +4672,233 @@ fn set_enabled(el: u32, enabled: bool) {
     attr(el, "disabled", if enabled { "" } else { "-" });
 }
 
+/// A surface's styling on its element (docs/surfaces.md): fill, corners, clipping, border and
+/// shadow. Idempotent: every property it owns is written and an absent one cleared, so a
+/// `ContainerPatch::Surface` runs it again on the realized element. `role` is the realize-time
+/// one ([`SURFACE_ROLES`]); a patch's own `role` is ignored. `anim` animates a solid fill;
+/// `fresh` is the realize (see [`apply_fill`]).
 fn apply_surface(
     el: u32,
-    bg: Option<day_spec::Color>,
-    radius: f64,
-    clips: bool,
+    p: &ContainerProps,
     role: Option<day_spec::SurfaceRole>,
+    anim: Option<&AnimSpec>,
+    fresh: bool,
 ) {
-    // The dimming under a composed sheet: the stylesheet frosts the page (`.day-scrim`, day.css)
-    // instead of laying the plain color over it.
-    if role == Some(day_spec::SurfaceRole::Scrim) {
-        class(el, "day-scrim", true);
-    } else if let Some(c) = bg {
-        s(el, "background-color", &color_css(c));
+    // A fresh element has nothing to clear: skip the empty writes.
+    let set = |prop: &str, value: &str| {
+        if !(fresh && value.is_empty()) {
+            s(el, prop, value);
+        }
+    };
+    let flag = |name: &str, on: bool| {
+        if on || !fresh {
+            class(el, name, on);
+        }
+    };
+    let radius = p.corner_radius;
+    match role {
+        // The dimming under a composed sheet: the stylesheet frosts the page (`.day-scrim`,
+        // day.css) instead of laying the plain color over it.
+        Some(day_spec::SurfaceRole::Scrim) => class(el, "day-scrim", true),
+        // The window's own surface: the page background a cover paints (`.day-cover`, day.css).
+        Some(day_spec::SurfaceRole::Window) => s(el, "background-color", "var(--day-bg)"),
+        _ => apply_fill(el, p.fill.as_ref(), anim, fresh),
     }
-    // The window's own surface: the page background a cover paints (`.day-cover`, day.css).
-    if role == Some(day_spec::SurfaceRole::Window) {
-        s(el, "background-color", "var(--day-bg)");
-    }
-    if radius > 0.0 {
-        s(el, "border-radius", &format!("{radius}px"));
-        // A rounded clip inside a transformed (animated) ancestor hits a WebKit bug: the clip
-        // layer's backing paints its SHARP bounding box black behind the rounded content. The
-        // `.day-xform .day-clip` rule (day.css) gives such a clip its own correctly-clipped layer;
-        // the class is inert everywhere else, so static rounded surfaces aren't promoted.
-        class(el, "day-clip", true);
-    }
-    if clips || radius > 0.0 {
-        s(el, "overflow", "hidden");
-    }
+    // A shadowed surface does not clip (docs/surfaces.md): the shadow itself would survive
+    // `overflow: hidden`, which cuts descendants only, but the rule is that content is not cut.
+    let cuts = p.clips || (radius > 0.0 && p.shadow.is_none());
+    let radii = if radius <= 0.0 {
+        String::new()
+    } else if p.corners == day_spec::Corners::ALL {
+        format!("{radius}px")
+    } else {
+        let r = p.corners.radii(radius);
+        format!(
+            "{}px {}px {}px {}px",
+            r.top_left, r.top_right, r.bottom_right, r.bottom_left
+        )
+    };
+    set("border-radius", &radii);
+    // A rounded clip inside a transformed (animated) ancestor hits a WebKit bug: the clip
+    // layer's backing paints its SHARP bounding box black behind the rounded content. The
+    // `.day-xform .day-clip` rule (day.css) gives such a clip its own correctly-clipped layer;
+    // the class is inert everywhere else, so static rounded surfaces aren't promoted.
+    flag("day-clip", radius > 0.0 && cuts);
+    set("overflow", if cuts { "hidden" } else { "" });
     if role == Some(day_spec::SurfaceRole::SectionCard) {
         class(el, "day-card", true);
     }
+    // The border is a layer of its own over the surface AND its content (`.day-bordered::after`,
+    // day.css: the last box painted in the element) rather than a CSS `border`: children are
+    // placed from the padding box, so a real border would move every one of them inward by its
+    // width, and it would be painted under them.
+    if let Some(b) = p.border.filter(|b| b.width > 0.0) {
+        s(el, "--day-border-width", &format!("{}px", b.width));
+        s(el, "--day-border-color", &ink_css(b.color));
+        class(el, "day-bordered", true);
+    } else {
+        flag("day-bordered", false);
+        set("--day-border-width", "");
+        set("--day-border-color", "");
+    }
+    // `box-shadow` is the spec's shadow exactly: the blur radius is the same number, it follows
+    // the per-corner radii, it paints outside the border box only, takes no layout room and no
+    // pointer events.
+    //
+    // The second, invisible layer is for WebKit: a single blurred shadow in an opaque color
+    // under an opaque fill takes a fast path there that paints the FILL color across the
+    // shadow's middle, leaving only a rim of shadow. Two layers take the general path.
+    let shadow = p.shadow.map_or_else(String::new, |sh| {
+        format!(
+            "{}px {}px {}px {},0 0 0 transparent",
+            sh.dx,
+            sh.dy,
+            sh.blur.max(0.0),
+            ink_css(sh.color)
+        )
+    });
+    set("box-shadow", &shadow);
+}
+
+/// A surface's fill (`ContainerProps::fill`, `ContainerPatch::Fill`): a solid ink is the
+/// background color, animated with `anim` (docs/tween.md rule 8) and written as the ink's own
+/// CSS so it follows the appearance; a gradient is the background image, with the color
+/// cleared; `None` clears both, back to what the stylesheet gives the element. `fresh` is a
+/// just-created element, which has nothing to clear and no animation to cancel.
+fn apply_fill(el: u32, fill: Option<&day_spec::Paint>, anim: Option<&AnimSpec>, fresh: bool) {
+    use day_spec::Paint;
+    match fill {
+        Some(Paint::Solid(ink)) if fresh => s(el, "background-color", &ink_css(*ink)),
+        Some(Paint::Solid(ink)) => {
+            // From the color shown to the new one under the whole contract; the shim writes
+            // the resolved target and runs from what is displayed. A dynamic ink then replaces
+            // the inline target with its own CSS, which the running animation overrides until
+            // it ends.
+            animate(
+                el,
+                anim_prop::BACKGROUND,
+                &color_parts(ink.resolved()),
+                anim,
+            );
+            if ink.is_dynamic() {
+                s(el, "background-color", &ink_css(*ink));
+            }
+        }
+        _ if fresh => {}
+        _ => {
+            animate(el, anim_prop::BACKGROUND, &[0.0; 4], None);
+            s(el, "background-color", "");
+        }
+    }
+    // A linear gradient depends on the frame (`linear_gradient_css`), so `set_frame` writes it
+    // again at every size; radial and conic ones are given in fractions of the box.
+    let image = match fill {
+        Some(Paint::Linear(g)) => {
+            let size = SURFACE_GRADIENTS
+                .with(|t| t.get(el as usize))
+                .map_or(Size::new(1.0, 1.0), |(_, size)| size);
+            SURFACE_GRADIENTS.with(|t| t.insert(el as usize, (g.clone(), size)));
+            linear_gradient_css(g, size)
+        }
+        Some(Paint::Radial(g)) => radial_gradient_css(g),
+        Some(Paint::Conic(g)) => conic_gradient_css(g),
+        Some(Paint::Solid(_)) | None => String::new(),
+    };
+    if !matches!(fill, Some(Paint::Linear(_))) {
+        SURFACE_GRADIENTS.with(|t| t.remove(el as usize));
+    }
+    if !(fresh && image.is_empty()) {
+        s(el, "background-image", &image);
+    }
+}
+
+/// Gradient stops as CSS color stops: each stop's ink (following the appearance) at its offset
+/// as a percentage of the gradient line or ray.
+fn css_stops(stops: &[(f64, day_spec::Ink)]) -> String {
+    stops
+        .iter()
+        .map(|(off, c)| format!("{} {}%", ink_css(*c), off.clamp(0.0, 1.0) * 100.0))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// A surface's radial gradient as CSS (docs/surfaces.md): an ellipse whose radii are `radius` of
+/// the box's width and of its height, so it is a circle in a square frame and stretches with a
+/// non-square one, as the unit space of the frame does. The stops run along that radius, and the
+/// last color holds beyond it.
+fn radial_gradient_css(g: &day_spec::RadialGradient) -> String {
+    if g.stops.len() < 2 {
+        return flat_gradient_css(&g.stops);
+    }
+    let r = g.radius.max(0.0) * 100.0;
+    format!(
+        "radial-gradient(ellipse {r}% {r}% at {}% {}%,{})",
+        g.center.x * 100.0,
+        g.center.y * 100.0,
+        css_stops(&g.stops)
+    )
+}
+
+/// A surface's conic gradient as CSS (docs/surfaces.md). Day's angles turn clockwise from +x; a
+/// CSS conic gradient's turn clockwise from up, so the start moves a quarter turn on.
+fn conic_gradient_css(g: &day_spec::ConicGradient) -> String {
+    if g.stops.len() < 2 {
+        return flat_gradient_css(&g.stops);
+    }
+    format!(
+        "conic-gradient(from {}deg at {}% {}%,{})",
+        g.start.degrees() + 90.0,
+        g.center.x * 100.0,
+        g.center.y * 100.0,
+        css_stops(&g.stops)
+    )
+}
+
+/// A gradient with nothing to run between: one flat color, the last stop's (none if empty).
+fn flat_gradient_css(stops: &[(f64, day_spec::Ink)]) -> String {
+    let c = stops
+        .last()
+        .map_or_else(|| color_css(day_spec::Color::CLEAR), |s| ink_css(s.1));
+    format!("linear-gradient({c},{c})")
+}
+
+/// A surface's gradient as a CSS `linear-gradient(…)` for a box of `size`.
+///
+/// CSS places a gradient by an ANGLE through the box's center, with a length that makes the
+/// end colors land in the corners; the spec places it by two unit points resolved against the
+/// frame, which is how a canvas gradient is given. So this resolves the points, takes the angle
+/// of the line through them, and moves each stop to where it falls on the CSS gradient line
+/// (positions outside 0–100% are allowed, and the end colors hold flat beyond them as they do
+/// on a canvas). The answer changes with the box's shape for any gradient that is not
+/// axis-aligned, which is why `set_frame` asks again.
+fn linear_gradient_css(g: &day_spec::LinearGradient, size: Size) -> String {
+    let (w, h) = (
+        if size.width > 0.0 { size.width } else { 1.0 },
+        if size.height > 0.0 { size.height } else { 1.0 },
+    );
+    let (x0, y0) = (g.start.x * w, g.start.y * h);
+    let (dx, dy) = (g.end.x * w - x0, g.end.y * h - y0);
+    let len = dx.hypot(dy);
+    if len < 1e-9 || g.stops.len() < 2 {
+        // No direction, or nothing to run between: one flat color, the last stop's.
+        return flat_gradient_css(&g.stops);
+    }
+    let (ux, uy) = (dx / len, dy / len);
+    // CSS: 0deg points up and angles turn clockwise, and the line's length is
+    // |w·sin| + |h·cos|, centered on the box.
+    let angle = ux.atan2(-uy).to_degrees();
+    let line = (w * ux).abs() + (h * uy).abs();
+    let t0 = ((x0 - w / 2.0) * ux + (y0 - h / 2.0) * uy + line / 2.0) / line;
+    let span = len / line;
+    let stops: Vec<String> = g
+        .stops
+        .iter()
+        .map(|(off, c)| {
+            let at = (t0 + off.clamp(0.0, 1.0) * span) * 100.0;
+            format!("{} {at}%", ink_css(*c))
+        })
+        .collect();
+    format!("linear-gradient({angle}deg,{})", stops.join(","))
 }
 
 fn apply_area_attrs(el: u32, editable: bool, selectable: bool, spellcheck: bool) {
@@ -4036,16 +4967,60 @@ fn picker_json(p: &PickerProps) -> String {
     json
 }
 
-fn css_anim(a: &AnimSpec) -> String {
-    let ease = match a.curve {
-        Curve::Linear => "linear",
-        Curve::EaseIn => "ease-in",
-        Curve::EaseOut => "ease-out",
-        Curve::EaseInOut => "ease-in-out",
-        // The fixed-duration overshoot convention every backend uses for springs (§8.4).
-        Curve::Spring { .. } => "cubic-bezier(0.34, 1.4, 0.5, 1)",
+/// The properties the shim animates (`animateProp` in shim.js).
+mod anim_prop {
+    pub const OPACITY: u32 = 0;
+    pub const TRANSFORM: u32 = 1;
+    pub const BACKGROUND: u32 = 2;
+    pub const FRAME: u32 = 3;
+}
+
+/// Set `prop` of `el` to `to`, playing the whole `AnimSpec` contract when `anim` is given
+/// (docs/tween.md): Day's own samples of one cycle as the keyframes (two for `Linear`, which
+/// needs no more), the delay, the cycles and the alternate direction. `None` sets at once and
+/// cancels a run on that property.
+fn animate(el: u32, prop: u32, to: &[f64], anim: Option<&AnimSpec>) {
+    let (samples, duration, delay, iterations, alternate) = match anim {
+        Some(a) if a.duration_ms > 0 => {
+            let samples: Vec<f64> = if matches!(a.curve, Curve::Linear) {
+                vec![0.0, 0.0, 1.0, 1.0]
+            } else {
+                a.keyframes()
+                    .iter()
+                    .flat_map(|k| [k.offset, k.progress])
+                    .collect()
+            };
+            let iterations = a.cycles().map_or(-1.0, f64::from);
+            (
+                samples,
+                f64::from(a.duration_ms),
+                f64::from(a.delay_ms),
+                iterations,
+                u32::from(a.autoreverse),
+            )
+        }
+        _ => (Vec::new(), 0.0, 0.0, 1.0, 0),
     };
-    format!("{}ms {} {}ms", a.duration_ms, ease, a.delay_ms)
+    // SAFETY: both slices outlive the call; the shim copies them before returning.
+    unsafe {
+        day_dom_animate(
+            el,
+            prop,
+            to.as_ptr(),
+            to.len(),
+            samples.as_ptr(),
+            samples.len(),
+            duration,
+            delay,
+            iterations,
+            alternate,
+        );
+    }
+}
+
+/// A color as the shim's `[r, g, b, a]`.
+fn color_parts(c: day_spec::Color) -> [f64; 4] {
+    [c.r, c.g, c.b, c.a]
 }
 
 fn nav_patch(el: u32, p: &NavPatch) {
@@ -4264,8 +5239,8 @@ fn list_populate(host: u32) {
 /// Build the rows the viewport shows and that are not built already. Idempotent and cheap when
 /// nothing moved, which is what lets every scroll event call it.
 fn list_fill_window(host: u32) {
-    let Some((content, rowh, source, work, n, width, separators, selectable, first_visible, tops)) =
-        LISTS.with(|m| {
+    let Some((content, rowh, source, work, n, width, separators, selectable, seen, tops)) = LISTS
+        .with(|m| {
             let mut m = m.borrow_mut();
             let st = m.get_mut(&host)?;
             let source = st.source.clone()?;
@@ -4277,11 +5252,14 @@ fn list_fill_window(host: u32) {
             // no height — build a screen's worth then, and let the scroll that follows extend it.
             let mut view = [0.0_f64; 2];
             unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
-            let (offset, vh) = (view[0], if view[1] > 0.0 { view[1] } else { 600.0 });
+            let laid_out = view[1] > 0.0;
+            let (offset, vh) = (view[0], if laid_out { view[1] } else { 600.0 });
             // A self-sizing list's rows stand where their heights add up to; a uniform list's
             // at multiples of the pitch, with no per-row table to build.
             let tops = st.stacked().then(|| st.tops(n));
-            let (first_visible, first, last) = match &tops {
+            // (first visible, last visible): rows with any part in the viewport, overscan
+            // excluded; `end` is one past the last.
+            let (first_visible, end) = match &tops {
                 Some(tops) => {
                     // The row whose span holds `offset`, and the first row starting below the
                     // viewport's bottom edge.
@@ -4289,18 +5267,25 @@ fn list_fill_window(host: u32) {
                         .partition_point(|t| *t <= offset)
                         .saturating_sub(1);
                     let end = tops[..n].partition_point(|t| *t < offset + vh);
-                    (
-                        at.min(n.saturating_sub(1)),
-                        at.saturating_sub(LIST_OVERSCAN),
-                        (end + LIST_OVERSCAN).min(n),
-                    )
+                    (at.min(n.saturating_sub(1)), end)
                 }
                 None => (
                     ((offset / rowh).floor() as usize).min(n.saturating_sub(1)),
-                    ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN),
-                    (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n),
+                    (((offset + vh) / rowh).ceil() as usize).min(n),
                 ),
             };
+            let (first, last) = (
+                first_visible.saturating_sub(LIST_OVERSCAN),
+                (end + LIST_OVERSCAN).min(n),
+            );
+            let extent = tops.as_ref().map_or(n as f64 * rowh, |t| t[n]);
+            // What the viewport report says (docs/list.md "Viewport"), for a laid-out list
+            // with rows: the visible range and how far the content runs past the bottom edge.
+            let seen = (laid_out && n > 0).then(|| day_spec::ListViewport {
+                first: first_visible,
+                last: end.saturating_sub(1).clamp(first_visible, n - 1),
+                end_distance: (extent - (offset + vh)).max(0.0),
+            });
             // Slots exist for every row (a Vec of zeros, not of elements): the cell for row i lives
             // at i for good, which is what keeps the click handler's recorded row honest.
             if st.cells.len() < n {
@@ -4310,9 +5295,9 @@ fn list_fill_window(host: u32) {
             if st.stacked() && st.heights.len() < n {
                 st.heights.resize(n, 0.0);
             }
-            // (row, cell, is a section header): a header takes its laid height even in a
-            // uniform list, and is drawn and wired as a header rather than an item.
-            let mut work: Vec<(usize, u32, bool)> = Vec::new();
+            // (row, cell, is a section header, is a supplementary row): both take their laid
+            // height even in a uniform list, and neither is drawn or wired as an item.
+            let mut work: Vec<(usize, u32, bool, bool)> = Vec::new();
             for i in first..last {
                 if st.cells[i] == 0 {
                     let cell = unsafe { day_dom_create(EL_CELL) };
@@ -4332,43 +5317,38 @@ fn list_fill_window(host: u32) {
                 }
                 if !st.bound[i] {
                     st.bound[i] = true;
-                    work.push((i, st.cells[i], st.is_header(i)));
+                    work.push((i, st.cells[i], st.is_header(i), st.is_supplement(i)));
                 }
             }
             st.last_width = width;
             Some((
-                content,
-                rowh,
-                source,
-                work,
-                n,
-                width,
-                separators,
-                selectable,
-                first_visible,
-                tops,
+                content, rowh, source, work, n, width, separators, selectable, seen, tops,
             ))
         })
     else {
         return;
     };
     // Application observers can synchronously rebuild overlays and relayout this list.
-    // Report only after releasing LISTS, just like bind_row below.
-    if source.first_visible.is_some() {
-        // Layout can hold the core tree borrow. Deliver viewport events on the
-        // next loop turn, after both the tree and the list registry are free.
+    // Report only after releasing LISTS, just like bind_row below. Layout can hold the core
+    // tree borrow, so the report goes out on the next loop turn, after both the tree and the
+    // list registry are free. The full viewport report supersedes the first-row one: both feed
+    // the same state, and the first-only one would overwrite the range with a single row.
+    if let Some(seen) = seen
+        && (source.viewport.is_some() || source.first_visible.is_some())
+    {
         post_local(move || {
             let source = LISTS.with(|m| m.borrow().get(&host).and_then(|st| st.source.clone()));
-            if let Some(source) = source
-                && let Some(report) = &source.first_visible
-            {
-                report(first_visible.min((source.len)().saturating_sub(1)));
+            let Some(source) = source else { return };
+            if let Some(report) = &source.viewport {
+                report(seen);
+            } else if let Some(report) = &source.first_visible {
+                report(seen.first.min((source.len)().saturating_sub(1)));
             }
         });
     }
     let mut measured = false;
     let automatic = LISTS.with(|m| m.borrow().get(&host).is_some_and(|st| st.automatic));
-    for &(i, cell, header) in &work {
+    for &(i, cell, header, supplement) in &work {
         let (top, height) = match &tops {
             Some(t) => (t[i], t[i + 1] - t[i]),
             None => (i as f64 * rowh, rowh),
@@ -4379,10 +5359,11 @@ fn list_fill_window(host: u32) {
         s(cell, "display", "block");
         // Cell index is row index, so a reload that moves the section breaks can turn an
         // item's cell into a header's and back: set (or clear) the header treatment every bind.
-        if source.is_header.is_some() {
+        if source.is_header.is_some() || source.is_supplement.is_some() {
             list_style_header(cell, header, selectable);
+            list_style_supplement(cell, supplement);
         }
-        if separators && !header {
+        if separators && !header && !supplement {
             // Inside the frame (border-box), so the line lands exactly on the row boundary
             // without growing the cell past its pitch.
             s(cell, "box-sizing", "border-box");
@@ -4396,7 +5377,7 @@ fn list_fill_window(host: u32) {
         // A self-sizing row takes the height Day just laid it at. `0.0` means the tree was
         // busy; the row keeps its estimate until a resize reaches it. A uniform list's items
         // keep the pitch, so only its headers are measured.
-        if tops.is_some() && (automatic || header) {
+        if tops.is_some() && (automatic || header || supplement) {
             let laid = (source.cell_height)(cell as usize as day_spec::RawHandle);
             if laid > 0.0 {
                 measured |= LISTS.with(|m| {
@@ -4459,6 +5440,18 @@ fn list_style_header(cell: u32, header: bool, selectable: bool) {
         s(cell, "background", "");
         attr(cell, "role", if selectable { "option" } else { "" });
         attr(cell, "aria-level", "");
+    }
+}
+
+/// A supplementary row (docs/list.md "Header, footer and empty state"): no row role, no
+/// separator, no hover or selection highlight. Runs after `list_style_header`, which gives an
+/// item row its role back.
+fn list_style_supplement(cell: u32, supplement: bool) {
+    class(cell, "day-supplement", supplement);
+    if supplement {
+        attr(cell, "role", "");
+        attr(cell, "aria-selected", "");
+        s(cell, "border-bottom", "");
     }
 }
 
@@ -4600,6 +5593,22 @@ pub extern "C" fn day_dom_list_scrolled(host: u32) {
     });
 }
 
+/// The reader scrolled a list themselves (the shim's input watch, docs/list.md "Following the
+/// end"): a finger, the scroll bar, the wheel or a key moved it, not the app.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_list_reader(host: u32) {
+    day_spec::ffi_guard::contain((), || {
+        let report = LISTS.with(|m| {
+            m.borrow()
+                .get(&host)
+                .and_then(|st| st.source.as_ref()?.reader_scroll.clone())
+        });
+        if let Some(report) = report {
+            report();
+        }
+    });
+}
+
 fn list_paint_selection(entry: &ListEntry) {
     for (i, &cell) in entry.cells.iter().enumerate() {
         // Unrealized rows have no cell to paint; they pick the treatment up when they are built
@@ -4678,8 +5687,13 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
             // first row, up on the last, which is what every desktop list does. Section headers
             // are not rows the keyboard can stand on, so every move steps over them
             // (docs/list.md "Sections").
+            // Supplementary rows (header, footer, empty state, padding) are skipped the same way.
             let is_header = st.source.as_ref().and_then(|src| src.is_header.clone());
-            let item = |i: &usize| !is_header.as_ref().is_some_and(|f| f(*i));
+            let is_supplement = st.source.as_ref().and_then(|src| src.is_supplement.clone());
+            let item = |i: &usize| {
+                !is_header.as_ref().is_some_and(|f| f(*i))
+                    && !is_supplement.as_ref().is_some_and(|f| f(*i))
+            };
             let cursor = list_cursor(st).map(|c| c.min(n - 1));
             let row = match (dir, cursor) {
                 (0, Some(c)) => (0..c).rev().find(item).unwrap_or(c),
@@ -4688,7 +5702,7 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
                 (1 | 2, None) | (2, _) => (0..n).find(item)?,
                 _ => return None,
             };
-            let shift = mods as u8 & day_spec::KeyEvent::SHIFT != 0;
+            let shift = mods as u8 & day_spec::Modifiers::SHIFT.bits() != 0;
             if st.multi && shift {
                 // Shift extends from the anchor and leaves it where it was, moving only the
                 // lead — so a run of shifted arrows grows and shrinks one range instead of
@@ -4724,7 +5738,19 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
 
 fn list_patch(el: u32, p: &ListPatch) {
     match p {
-        ListPatch::Reload | ListPatch::Splice(_) => post_local(move || list_populate(el)),
+        ListPatch::Reload => post_local(move || list_populate(el)),
+        // Cell index is row index, so every cell rebinds as on a reload; what must follow the
+        // deltas is the measured heights of a stacked list, which belong to rows, not slots.
+        ListPatch::Splice(deltas) => {
+            LISTS.with(|m| {
+                if let Some(st) = m.borrow_mut().get_mut(&el)
+                    && st.stacked()
+                {
+                    splice_heights(&mut st.heights, deltas);
+                }
+            });
+            post_local(move || list_populate(el));
+        }
         // No editing mode (Cap::ListEditing is Unsupported).
         ListPatch::Editing(_) => {}
         // A self-sizing row re-laid at a new height. This arrives inside day-core's layout
@@ -4792,6 +5818,58 @@ fn list_patch(el: u32, p: &ListPatch) {
     }
 }
 
+/// Apply sequential row deltas to a per-row table (docs/list.md "Splice"): each index is valid
+/// against the table the previous deltas left; an inserted row is unmeasured (0).
+fn splice_heights(heights: &mut Vec<f64>, deltas: &[day_spec::props::RowDelta]) {
+    use day_spec::props::RowDelta;
+    for d in deltas {
+        match *d {
+            RowDelta::Insert(i) => heights.insert(i.min(heights.len()), 0.0),
+            RowDelta::Remove(i) => {
+                if i < heights.len() {
+                    heights.remove(i);
+                }
+            }
+            RowDelta::Move(from, to) => {
+                if from < heights.len() {
+                    let h = heights.remove(from);
+                    heights.insert(to.min(heights.len()), h);
+                }
+            }
+        }
+    }
+}
+
+/// Where a row scroll leaves the viewport's top (docs/list.md "Scrolling to a row"), clamped to
+/// the scroll range; `None` for `Nearest` on a row already fully in view. `span` is the row's
+/// top and bottom in the content, `pin` what a pinned section header covers above it.
+fn row_scroll_target(
+    span: (f64, f64),
+    pin: f64,
+    align: day_spec::RowAlign,
+    offset: f64,
+    view: f64,
+    extent: f64,
+) -> Option<f64> {
+    use day_spec::RowAlign;
+    let (top, bottom) = span;
+    let y = match align {
+        RowAlign::Start => top - pin,
+        RowAlign::Center => f64::midpoint(top, bottom) - view / 2.0,
+        RowAlign::End => bottom - view,
+        RowAlign::Nearest => {
+            if top - pin < offset {
+                top - pin
+            } else if bottom > offset + view {
+                bottom - view
+            } else {
+                return None;
+            }
+        }
+    };
+    Some(y.clamp(0.0, (extent - view).max(0.0)))
+}
+
 /// A press on a list cell (docs/list.md): same semantics as the Qt emulated list.
 fn list_cell_click(cell: u32, mods: u32) {
     let Some((host, row)) = CELL_ROWS.with(|m| m.borrow().get(&cell).copied()) else {
@@ -4799,8 +5877,8 @@ fn list_cell_click(cell: u32, mods: u32) {
     };
     let emit_ev = LISTS.with(|m| {
         let mut m = m.borrow_mut();
-        // A section header is not selectable (docs/list.md "Sections").
-        let st = m.get_mut(&host).filter(|st| !st.is_header(row))?;
+        // A section header or a supplementary row is not selectable (docs/list.md).
+        let st = m.get_mut(&host).filter(|st| st.is_item(row))?;
         let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
         if st.multi && ctrl {
             if !st.selected.remove(&row) {
@@ -4813,7 +5891,7 @@ fn list_cell_click(cell: u32, mods: u32) {
             // stays, the lead comes to the clicked row.
             let a = st.anchor.unwrap_or(row);
             st.selected = (a.min(row)..=a.max(row))
-                .filter(|i| !st.is_header(*i))
+                .filter(|i| st.is_item(*i))
                 .collect();
             st.anchor = Some(a);
             st.lead = Some(row);
@@ -4863,18 +5941,14 @@ fn push_shape(buf: &mut Vec<f64>, shape: &Shape) {
             *rad,
         ]),
         Shape::Ellipse(r) => buf.extend([2.0, r.origin.x, r.origin.y, r.size.width, r.size.height]),
-        Shape::Arc {
-            rect,
-            start_deg,
-            sweep_deg,
-        } => buf.extend([
+        Shape::Arc { rect, start, sweep } => buf.extend([
             3.0,
             rect.origin.x,
             rect.origin.y,
             rect.size.width,
             rect.size.height,
-            *start_deg,
-            *sweep_deg,
+            start.degrees(),
+            sweep.degrees(),
         ]),
         Shape::Line(a, b) => buf.extend([4.0, a.x, a.y, b.x, b.y]),
         // The two variable-length kinds lead with their `geometry_key` and the length of what
@@ -4919,7 +5993,7 @@ fn push_shape(buf: &mut Vec<f64>, shape: &Shape) {
 
 fn push_paint(buf: &mut Vec<f64>, paint: &Paint, bounds: Rect) {
     match paint {
-        Paint::Solid(c) => buf.extend([0.0, pack_color(*c)]),
+        Paint::Solid(c) => buf.extend([0.0, pack_color((*c).resolved())]),
         Paint::Linear(g) => {
             let (o, sz) = (bounds.origin, bounds.size);
             buf.extend([
@@ -4931,7 +6005,7 @@ fn push_paint(buf: &mut Vec<f64>, paint: &Paint, bounds: Rect) {
                 g.stops.len() as f64,
             ]);
             for (off, c) in &g.stops {
-                buf.extend([*off, pack_color(*c)]);
+                buf.extend([*off, pack_color((*c).resolved())]);
             }
         }
         Paint::Radial(g) => {
@@ -4945,7 +6019,23 @@ fn push_paint(buf: &mut Vec<f64>, paint: &Paint, bounds: Rect) {
                 g.stops.len() as f64,
             ]);
             for (off, c) in &g.stops {
-                buf.extend([*off, pack_color(*c)]);
+                buf.extend([*off, pack_color((*c).resolved())]);
+            }
+        }
+        // [3, cx, cy, startDeg, stopCount, stops…] (docs/canvas.md "Conic gradients"): the
+        // center in canvas points, the start angle as recorded. The shim hands it to
+        // `createConicGradient`, whose angle runs clockwise from +x as the spec's does.
+        Paint::Conic(g) => {
+            let (o, sz) = (bounds.origin, bounds.size);
+            buf.extend([
+                3.0,
+                o.x + g.center.x * sz.width,
+                o.y + g.center.y * sz.height,
+                g.start.degrees(),
+                g.stops.len() as f64,
+            ]);
+            for (off, c) in &g.stops {
+                buf.extend([*off, pack_color((*c).resolved())]);
             }
         }
     }
@@ -5088,6 +6178,15 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                 src.size.height,
             ]),
             DrawOp::Concat(m) => buf.extend([5.0, m.a, m.b, m.c, m.d, m.tx, m.ty]),
+            // [10, dx, dy, blur, color] (docs/canvas.md "Shadows"): points, which the shim
+            // turns into backing-store pixels. A clear color is "no shadow", so `None` needs
+            // no code of its own.
+            DrawOp::Shadow(shadow) => {
+                let sh = shadow.unwrap_or(day_spec::Shadow::new(day_spec::Color::CLEAR, 0.0));
+                buf.extend([10.0, sh.dx, sh.dy, sh.blur, pack_color(sh.color.resolved())]);
+            }
+            // [11, mode] (docs/canvas.md "Blend modes"), numbered as `BlendMode::wire`.
+            DrawOp::Blend(mode) => buf.extend([11.0, f64::from(mode.wire())]),
         }
     }
     (buf, strs)
@@ -5366,7 +6465,7 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
             let row = CELL_ROWS
                 .with(|m| m.borrow().get(&el).copied())
                 .filter(|(host, row)| {
-                    !LISTS.with(|m| m.borrow().get(host).is_some_and(|st| st.is_header(*row)))
+                    LISTS.with(|m| m.borrow().get(host).is_some_and(|st| st.is_item(*row)))
                 });
             if let Some((host, row)) = row
                 && let Some(node) = node_of(host)
@@ -5432,7 +6531,18 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
             rotation: c,
             location: Point::new(a, b),
         },
+        ev::LONG_PRESS => Event::LongPress(Point::new(a, b)),
+        ev::DOUBLE_TAP => Event::DoubleTap(Point::new(a, b)),
+        ev::PRESS => Event::Press {
+            pressed: c != 0.0,
+            location: Point::new(a, b),
+        },
         ev::SCROLL => Event::ScrollChanged(Point::new(a, b)),
+        ev::SCROLL_PHASE => Event::ScrollPhase(match a as u32 {
+            1 => day_spec::ScrollPhase::Dragging,
+            2 => day_spec::ScrollPhase::Coasting,
+            _ => day_spec::ScrollPhase::Idle,
+        }),
         ev::CONTEXT => Event::ContextMenu {
             local: Point::new(a, b),
             window: Point::new(c, d),
@@ -5485,6 +6595,8 @@ pub extern "C" fn day_dom_event_text(el: u32, kind: u32, ptr: *mut u8, len: usiz
                         num: 0.0,
                         text: t,
                     },
+                    // Raw contacts (docs/gestures.md "Touches"), the shim's touches wire.
+                    18 => Event::Touches(parse_touches(&t)),
                     _ => Event::TextChanged(t),
                 },
             );
@@ -5703,6 +6815,49 @@ pub extern "C" fn day_dom_present_files(
 /// listeners forward it here while the event is still live, so day-part-clipboard's
 /// synchronous calls inside the app's handler read and write the event's `clipboardData`
 /// (docs/menus.md).
+/// The browser's text size moved (a resize or a return to the page re-read it): every tracked
+/// reader and every capped label follow (docs/text.md "Text size").
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_text_scale_changed() {
+    day_spec::ffi_guard::contain((), || {
+        MEASURE_CACHE.with(|c| c.borrow_mut().clear());
+        post_local(day_core::note_text_size_changed);
+    });
+}
+
+/// The reader's selection in a reporting label changed (docs/text.md "Selection"): `start` and
+/// `end` are UTF-16 offsets into the element's text, equal when the selection left it.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_label_selected(el: u32, start: u32, end: u32) {
+    day_spec::ffi_guard::contain((), || {
+        let Some((start, end)) = LABELS.with(|t| {
+            let mut t = t.borrow_mut();
+            let st = t.get_mut(&el)?;
+            let a = utf16_to_byte(&st.text, start as usize);
+            let b = utf16_to_byte(&st.text, end as usize).max(a);
+            st.selected = b > a;
+            Some((a, b))
+        }) else {
+            return;
+        };
+        if let Some(node) = node_of(el) {
+            emit(node, Event::TextSelected { start, end });
+        }
+    });
+}
+
+/// The device behind the latest pointer down or hover changed (docs/gestures.md "Input kind"):
+/// `kind` 0 touch, 1 mouse, 2 stylus.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_pointer_kind_changed(kind: u32) {
+    day_spec::ffi_guard::contain((), || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::PointerKindChanged(pointer_kind(kind)),
+        );
+    });
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_edit(op: u32) {
     day_spec::ffi_guard::contain((), || {
@@ -5717,8 +6872,10 @@ pub extern "C" fn day_dom_edit(op: u32) {
 }
 
 /// A non-text key pressed while this canvas has focus (docs/menus.md): `code` 0–5 is an arrow
-/// or a delete key, 10–19 a digit. Returns whether the app claimed it — a canvas nobody hung a
-/// key handler on keeps none of them, so the browser's own scrolling still works underneath it.
+/// or a delete key, 10–19 a digit; `modifiers` the day mask, with bit 8 for a repeat and bit 9
+/// for the release of a press this element claimed. Returns whether the app claimed it — a
+/// canvas nobody hung a key handler on keeps none of them, so the browser's own scrolling still
+/// works underneath it.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 {
     day_spec::ffi_guard::contain(0, || {
@@ -5738,16 +6895,13 @@ pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 
         if !day_spec::keys::handled(node) {
             return 0;
         }
-        emit(
-            node,
-            Event::Key(day_spec::KeyEvent::named(key, modifiers as u8)),
-        );
+        emit(node, Event::Key(phased_key(key, None, modifiers)));
         1
     })
 }
 
 /// A text field's Up, Down or Escape (docs/textfield.md "Keys"): `code` 0 is `ArrowUp`, 1
-/// `ArrowDown`, 2 Escape, `modifiers` the day mask. Returns whether the field claimed it, having
+/// `ArrowDown`, 2 Escape, `modifiers` the day mask with the phase in bits 8 and 9. Returns whether the field claimed it, having
 /// reported it; the shim then keeps the browser from acting on the key.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_field_key(el: u32, code: u32, modifiers: u32) -> u32 {
@@ -5758,10 +6912,18 @@ pub extern "C" fn day_dom_field_key(el: u32, code: u32, modifiers: u32) -> u32 {
         let Some(node) = node_of(el) else {
             return 0;
         };
-        if !day_spec::keys::field_claims(node, key, modifiers as u8) {
+        // A release follows the press the field claimed (the shim sends only those); a press
+        // or a repeat asks again.
+        let phase = day_spec::KeyPhase::from_wire(f64::from(modifiers));
+        if phase != day_spec::KeyPhase::Up
+            && !day_spec::keys::field_claims(node, key, (modifiers & 0xff) as u8)
+        {
             return 0;
         }
-        emit(node, Event::Key(day_spec::KeyEvent::named(key, 0)));
+        emit(
+            node,
+            Event::Key(day_spec::KeyEvent::named(key, 0).with_phase(phase)),
+        );
         1
     })
 }
@@ -5778,7 +6940,7 @@ pub extern "C" fn day_dom_canvas_text(el: u32) -> u32 {
 /// A key on the full route (docs/menus.md "The full route"): `key`/`key_len` the browser's
 /// `KeyboardEvent.key`, which is day's own vocabulary (empty for text no single key is
 /// behind), `text`/`text_len` what it typed (`text_len` 0 for a key that typed nothing),
-/// `modifiers` the day mask. Returns whether the app claimed it.
+/// `modifiers` the day mask with the phase in bits 8 and 9. Returns whether the app claimed it.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_canvas_text_key(
     el: u32,
@@ -5797,12 +6959,7 @@ pub extern "C" fn day_dom_canvas_text_key(
         if !day_spec::keys::handled(node) {
             return 0;
         }
-        let modifiers = modifiers as u8;
-        let event = match text {
-            Some(text) => day_spec::KeyEvent::typed_by(key, text, modifiers),
-            None => day_spec::KeyEvent::named(key, modifiers),
-        };
-        emit(node, Event::Key(event));
+        emit(node, Event::Key(phased_key(&key, text, modifiers)));
         1
     })
 }
@@ -5995,6 +7152,15 @@ fn fullscreen_enabled() -> bool {
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_motion_changed() {
     day_spec::ffi_guard::contain((), day_core::note_motion_changed);
+}
+
+/// The browser's `prefers-color-scheme` flipped while the page follows it (no override): the
+/// shim has switched the page already, and every ink on it followed in CSS. Day re-reads its
+/// palette and dark signal, which redraws canvases and re-runs appearance readers.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_appearance_changed(dark: u32) {
+    DARK.with(|d| d.set(dark == 1));
+    day_spec::ffi_guard::contain((), day_core::note_appearance_changed);
 }
 
 #[unsafe(no_mangle)]

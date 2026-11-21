@@ -252,6 +252,15 @@ pub fn resolve_with(
                 day_build::permissions::names().join(", ")
             ));
         };
+        // `<name> = false` holds the line against a permission a dependency would pull in.
+        if manifest
+            .permissions
+            .declared
+            .get(spec.name)
+            .is_some_and(|decl| !decl.enabled())
+        {
+            continue;
+        }
         if let Some(existing) = by_name.get_mut(spec.name) {
             existing.sources.push(crate_name.clone());
         } else {
@@ -605,6 +614,19 @@ mod tests {
         .expect("resolve");
         assert_eq!(plan.resolved.len(), 1);
         assert_eq!(plan.resolved[0].sources, ["Day.toml", "day-piece-media"]);
+    }
+
+    /// `<name> = false` holds the line: a dependency's contribution does not bring it back.
+    #[test]
+    fn an_explicit_false_refuses_a_contribution() {
+        let m = manifest("[permissions]\nnotifications = false\n");
+        let plan = resolve(
+            &m,
+            "ios",
+            &[("day-part-push".to_string(), "notifications".to_string())],
+        )
+        .expect("resolve");
+        assert!(plan.resolved.is_empty());
     }
 
     /// An Apple-only raw key is nobody else's business: an Android plan neither writes it nor

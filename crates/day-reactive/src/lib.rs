@@ -927,14 +927,18 @@ pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
 /// `GLib` runs a 200 ms timeout armed first before a 100 ms one armed after it. Sleeps would then
 /// resolve out of order exactly when the app is busiest.
 ///
-/// So the closures wait here, sorted by deadline, and each native timer runs every closure due by
-/// the time it fires, earliest first. A closure is run by its own timer at the latest, and by an
+/// So the closures wait here, and each native timer runs every closure due by the time it
+/// fires, earliest first. A closure is run by its own timer at the latest, and by an
 /// earlier-armed, later-due timer when that one happens to be dispatched first.
+///
+/// A timer runs ahead of time only closures armed on the thread it fires on. That is every
+/// sleep of an app, whose timers are armed and fired on the UI thread. It keeps a closure armed
+/// elsewhere for its own timer, and it keeps the threads of a test binary, each a UI thread of
+/// its own over the mock toolkit, from running one another's sleeps.
 #[cfg(not(target_arch = "wasm32"))]
 mod delayed {
-    use std::cmp::Reverse;
-    use std::collections::BinaryHeap;
     use std::sync::{Mutex, PoisonError};
+    use std::thread::ThreadId;
     use std::time::{Duration, Instant};
 
     type Job = Box<dyn FnOnce() + Send>;
@@ -943,62 +947,57 @@ mod delayed {
         due: Instant,
         /// Arming order, so two closures due at the same instant run first-armed first.
         seq: u64,
+        /// The thread that armed it.
+        thread: ThreadId,
         job: Job,
     }
 
-    impl PartialEq for Entry {
-        fn eq(&self, other: &Self) -> bool {
-            (self.due, self.seq) == (other.due, other.seq)
-        }
-    }
-    impl Eq for Entry {}
-    impl PartialOrd for Entry {
-        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-    impl Ord for Entry {
-        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-            (self.due, self.seq).cmp(&(other.due, other.seq))
-        }
-    }
-
     struct Queue {
-        waiting: BinaryHeap<Reverse<Entry>>,
+        waiting: Vec<Entry>,
         next_seq: u64,
     }
 
     static QUEUE: Mutex<Queue> = Mutex::new(Queue {
-        waiting: BinaryHeap::new(),
+        waiting: Vec::new(),
         next_seq: 0,
     });
 
     /// Queue `job` to be due `ms` from now; the returned closure is what the native timer runs.
     pub(super) fn arm(ms: u32, job: Job) -> Job {
         let due = Instant::now() + Duration::from_millis(u64::from(ms));
-        {
+        let seq = {
             let mut queue = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
             let seq = queue.next_seq;
             queue.next_seq += 1;
-            queue.waiting.push(Reverse(Entry { due, seq, job }));
-        }
-        Box::new(move || run_due(due))
+            queue.waiting.push(Entry {
+                due,
+                seq,
+                thread: std::thread::current().id(),
+                job,
+            });
+            seq
+        };
+        Box::new(move || run_due(seq, due))
     }
 
-    /// Run every waiting closure due by now, and in any case by `own`: a timer that fires a hair
-    /// early by this clock still runs the closure it was armed for.
-    fn run_due(own: Instant) {
+    /// Run the closure armed as `own_seq` and every closure of this thread due by now (and in
+    /// any case by `own`), earliest first: a timer that fires a hair early by this clock still
+    /// runs the closure it was armed for.
+    fn run_due(own_seq: u64, own: Instant) {
         let until = own.max(Instant::now());
+        let here = std::thread::current().id();
         loop {
             // The lock is released before the closure runs: it may arm another timer.
             let job = {
                 let mut queue = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-                match queue.waiting.peek() {
-                    Some(Reverse(entry)) if entry.due <= until => {
-                        queue.waiting.pop().map(|Reverse(entry)| entry.job)
-                    }
-                    _ => None,
-                }
+                queue
+                    .waiting
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.seq == own_seq || (e.thread == here && e.due <= until))
+                    .min_by_key(|(_, e)| (e.due, e.seq))
+                    .map(|(at, _)| at)
+                    .map(|at| queue.waiting.swap_remove(at).job)
             };
             let Some(job) = job else { break };
             job();
@@ -1043,6 +1042,30 @@ mod delayed {
             // Fired a minute early by this clock: it still runs the closure it was armed for.
             later();
             assert_eq!(*ran.lock().unwrap(), ["soon", "later"]);
+        }
+
+        /// A timer firing on one thread leaves the closures armed on another for their own
+        /// timers, however overdue they are.
+        #[test]
+        fn a_timer_leaves_another_threads_closures_alone() {
+            let ran = Arc::new(Mutex::new(Vec::new()));
+            let theirs = {
+                let ran = ran.clone();
+                std::thread::spawn(move || {
+                    arm(0, Box::new(move || ran.lock().unwrap().push("theirs")))
+                })
+                .join()
+                .unwrap()
+            };
+            let mine = {
+                let ran = ran.clone();
+                arm(60_000, Box::new(move || ran.lock().unwrap().push("mine")))
+            };
+            mine();
+            assert_eq!(*ran.lock().unwrap(), ["mine"]);
+            // Its own timer runs it, on whatever thread that fires.
+            theirs();
+            assert_eq!(*ran.lock().unwrap(), ["mine", "theirs"]);
         }
     }
 }

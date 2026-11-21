@@ -113,7 +113,7 @@ fn make(backend: &mut Dom, p: &EditorProps, _id: NodeId) -> DomHandle {
             "{flow}font-size:{FONT_SIZE}px;padding:{PAD}px;box-sizing:border-box;outline:none"
         ),
     );
-    set_document(backend, &h, &p.doc, p.base);
+    set_document(backend, h, &p.doc, p.base);
     backend.listen(&h, listen::EDITABLE);
     STATE.with(|t| {
         t.insert(
@@ -137,11 +137,15 @@ fn line_count(text: &str) -> usize {
 }
 
 /// Write the markup, and mark the empty state the placeholder rule keys off.
-fn set_document(backend: &mut Dom, h: &DomHandle, doc: &StyledText, base: Font) {
-    backend.set_html(h, &editor_html(doc, base));
-    backend.set_attr(h, "data-day-empty", if doc.is_empty() { "-" } else { "" });
+fn set_document(backend: &mut Dom, h: DomHandle, doc: &StyledText, base: Font) {
+    backend.set_html(&h, &editor_html(doc, base));
+    backend.set_attr(&h, "data-day-empty", if doc.is_empty() { "-" } else { "" });
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_spec::dom_renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn update(backend: &mut Dom, h: &DomHandle, patch: &EditorPatch) {
     let base = STATE
         .with(|t| t.with(h.0 as usize, |st| st.base))
@@ -154,15 +158,16 @@ fn update(backend: &mut Dom, h: &DomHandle, patch: &EditorPatch) {
         // Both patches write the same markup: on the web there is no separate "attributes only"
         // call, and the shim's caret preservation is what makes rewriting cheap enough to do on
         // every keystroke.
-        EditorPatch::SetDocument(doc) => set_document(backend, h, doc, base),
-        EditorPatch::SetAttributes(doc) => set_document(backend, h, doc, base),
+        EditorPatch::SetDocument(doc) | EditorPatch::SetAttributes(doc) => {
+            set_document(backend, *h, doc, base);
+        }
         EditorPatch::SetSelection(r) => backend.set_editor_selection(h, r.start, r.end),
         // The browser has no typing-attributes concept either (`execCommand` is the only thing
         // that ever did). The piece styles the inserted characters in its model instead, and the
         // markup that follows carries them; see the GTK arm, which resolves this the same way.
         EditorPatch::SetTypingStyle(_) => {}
         EditorPatch::SetEditable(v) => {
-            backend.set_attr(h, "contenteditable", if *v { "true" } else { "false" })
+            backend.set_attr(h, "contenteditable", if *v { "true" } else { "false" });
         }
         // Through the browser's editing command (see `dayEditorInsert` in the shim), so the
         // undo stack records it and the `input` event reports the text back.
@@ -172,6 +177,10 @@ fn update(backend: &mut Dom, h: &DomHandle, patch: &EditorPatch) {
 
 /// A growing leaf: take the proposed width, and a height from the content, clamped to the line
 /// band. Past `max_lines` the element scrolls, which is what the band promises.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_spec::dom_renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn measure(_backend: &mut Dom, h: &DomHandle, p: Proposal) -> Size {
     let wanted_w = p.width.unwrap_or(320.0);
     let avail_w = wanted_w.max(width_floor(0));
@@ -194,6 +203,10 @@ fn measure(_backend: &mut Dom, h: &DomHandle, p: Proposal) -> Size {
         .unwrap_or_else(|| Size::new(avail_w, 3.0 * line_h + 2.0 * PAD))
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "`day_spec::dom_renderer!` fixes the signature: the handle arrives by reference"
+)]
 fn release(_backend: &mut Dom, h: &DomHandle) {
     STATE.with(|t| {
         let _ = t.remove(h.0 as usize);

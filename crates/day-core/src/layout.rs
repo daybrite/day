@@ -74,6 +74,9 @@ pub struct EngineCx<'a, B: Toolkit> {
     pub(crate) current: RNode,
     /// The bounds the current node's `place()` was given: the mirroring axis for RTL.
     pub(crate) parent_size: Size,
+    /// The reading direction the current node's children are placed in: the app's, or the
+    /// nearest `.layout_direction()` override at or above the node.
+    pub(crate) direction: day_geometry::LayoutDirection,
 }
 
 impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
@@ -86,7 +89,9 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         // width, so leading means right everywhere (rows reverse, padding swaps sides,
         // alignment flips) without any layout impl knowing about direction. Leaf content
         // (canvas drawing, text runs) is not mirrored; native text handles RTL itself.
-        let rect = if crate::layout_direction() == day_geometry::LayoutDirection::Rtl {
+        // The direction is the current node's, so a `.layout_direction()` subtree mirrors
+        // (or stops mirroring) on its own.
+        let rect = if self.direction == day_geometry::LayoutDirection::Rtl {
             Rect::new(
                 self.parent_size.width - rect.origin.x - rect.size.width,
                 rect.origin.y,
@@ -192,6 +197,7 @@ pub(crate) fn measure_node<B: Toolkit>(tree: &mut Tree<B>, node: RNode, p: Propo
         offset: Point::ZERO,
         current: node,
         parent_size: Size::ZERO, // placement never happens during measure
+        direction: crate::layout_direction(),
     };
     let size = layout.measure(&mut cx, &children, p);
     if let Some(n) = tree.node_mut(node) {
@@ -239,6 +245,7 @@ pub(crate) fn baseline_node<B: Toolkit>(
                 offset: Point::ZERO,
                 current: node,
                 parent_size: Size::ZERO,
+                direction: crate::layout_direction(),
             };
             layout.baseline(&mut cx, &children, size)
         }
@@ -247,6 +254,50 @@ pub(crate) fn baseline_node<B: Toolkit>(
         n.baseline_cache = Some((key, baseline));
     }
     baseline
+}
+
+thread_local! {
+    /// The native nodes that asked for [`Event::FrameChanged`] like a canvas
+    /// ([`report_frames`]).
+    static FRAME_REPORTS: std::cell::RefCell<std::collections::HashSet<RNode>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Queue [`Event::FrameChanged`] on `node` whenever layout gives it a new size, as a canvas
+/// gets, until [`stop_frame_reports`]. What a surface with a frame-relative corner radius
+/// (`Corner::Fraction`, `Corner::CAPSULE`) re-resolves its radius from.
+pub fn report_frames(node: RNode) {
+    FRAME_REPORTS.with(|r| r.borrow_mut().insert(node));
+}
+
+/// Stop the reports [`report_frames`] started.
+pub fn stop_frame_reports(node: RNode) {
+    let _ = FRAME_REPORTS.try_with(|r| r.borrow_mut().remove(&node));
+}
+
+/// The patch a native node takes for a new size, or `None` when that size changes nothing it
+/// shows ([`patch_on_frame`]). Called inside layout with Day's tree borrowed, so it must not
+/// reach the tree.
+pub type FramePatch = std::rc::Rc<dyn Fn(Size) -> Option<Box<dyn std::any::Any>>>;
+
+thread_local! {
+    /// The native nodes whose look depends on their size ([`patch_on_frame`]).
+    static FRAME_PATCHES: std::cell::RefCell<std::collections::HashMap<RNode, FramePatch>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Apply `patch(size)` to `node` in the layout pass that gives it a new size, together with
+/// the frame, until [`stop_frame_patches`]: what a surface with a frame-relative corner radius
+/// (`Corner::CAPSULE`) uses, so the first frame it is shown at already has its radius. A
+/// queued [`Event::FrameChanged`](day_spec::Event::FrameChanged) would land after the view was
+/// first drawn square.
+pub fn patch_on_frame(node: RNode, patch: FramePatch) {
+    FRAME_PATCHES.with(|p| p.borrow_mut().insert(node, patch));
+}
+
+/// Stop the patches [`patch_on_frame`] started.
+pub fn stop_frame_patches(node: RNode) {
+    let _ = FRAME_PATCHES.try_with(|p| p.borrow_mut().remove(&node));
 }
 
 /// `rect` is in the parent node's coordinates; `offset` is the parent's origin in the nearest
@@ -286,10 +337,17 @@ pub(crate) fn place_node<B: Toolkit>(
                 if let Some(h) = h {
                     let anim = tree.resolve_anim(node);
                     tree.toolkit.set_frame(&h, abs, anim.as_ref());
+                    let patch = FRAME_PATCHES
+                        .with(|p| p.borrow().get(&node).cloned())
+                        .and_then(|f| f(abs.size));
+                    if let (Some(patch), Some(kind)) = (patch, tree.node(node).map(|n| n.kind)) {
+                        tree.toolkit.update(&h, kind, patch.as_ref(), anim.as_ref());
+                    }
                 }
                 if tree
                     .node(node)
                     .is_some_and(|n| n.kind == day_spec::kinds::CANVAS)
+                    || FRAME_REPORTS.with(|r| r.borrow().contains(&node))
                 {
                     // Queue-only (§8.3): canvases re-record against the new size after layout.
                     crate::tree::enqueue_event(
@@ -309,11 +367,18 @@ pub(crate) fn place_node<B: Toolkit>(
     // narrowing). It runs synchronously because interactive live-resize runs inside a
     // native tracking loop where deferred main-thread work may not drain until the drag
     // ends.
-    let relayout_cells = tree.node(node).is_some_and(|n| {
-        n.kind == day_spec::kinds::LIST
-            && n.last_native_frame
-                .is_some_and(|f| (f.size.width - abs.size.width).abs() > 0.25)
+    let (is_list, old_frame) = tree.node(node).map_or((false, None), |n| {
+        (n.kind == day_spec::kinds::LIST, n.last_native_frame)
     });
+    // A list with an empty state lays it out to fill the viewport, so that cell follows the
+    // list's height too, from the list's first frame on.
+    let fills = is_list
+        && old_frame.is_none_or(|f| (f.size.height - abs.size.height).abs() > 0.25)
+        && tree
+            .list_driver(node)
+            .is_some_and(|d| d.supplements.empty.is_some());
+    let relayout_cells = is_list
+        && (fills || old_frame.is_some_and(|f| (f.size.width - abs.size.width).abs() > 0.25));
     if let Some(n) = tree.node_mut(node) {
         n.last_native_frame = Some(abs);
         n.needs_layout = false;
@@ -323,11 +388,15 @@ pub(crate) fn place_node<B: Toolkit>(
             tree.list_layout_cell(node, key);
         }
     }
+    // The node's reading direction, and its widget told when that is not what it last heard.
+    // Free when no subtree overrides the app's direction, which is nearly always.
+    let direction = tree.sync_direction(node);
     let mut cx = EngineCx {
         tree,
         offset: child_offset,
         current: node,
         parent_size: rect.size,
+        direction,
     };
     layout.place(&mut cx, &children, Rect::from_size(rect.size));
 }
@@ -677,9 +746,12 @@ impl StackLayout {
             match main_p {
                 Some(mp) => {
                     let remaining = (mp - rigid_main - spacing_total).max(0.0);
-                    let share = remaining / flex_idx.len() as f64;
+                    // Growing children divide what is left by weight (`Grow::weight`); with
+                    // every weight at its default they take equal shares.
+                    let total: f64 = flex_idx.iter().map(|&i| cx.flex_of(kids[i]).weight()).sum();
                     for &i in &flex_idx {
                         let f = cx.flex_of(kids[i]);
+                        let share = remaining * f.weight() / total;
                         sizes[i] = if f.is_spacer {
                             self.mk(share, 0.0)
                         } else {
@@ -863,9 +935,11 @@ impl Layout for StackLayout {
 
 /// A wrapping row (docs/size-classes.md "Adaptive pieces"): children keep their natural
 /// measure and lay out leading-to-trailing, breaking onto a new line where the next child
-/// would overflow the proposed width. Wrapping replaces main-axis negotiation, so flex is
-/// inert here: nothing grows, and a `spacer()` contributes nothing. RTL mirroring comes from
-/// `place_child`, the same as every layout.
+/// would overflow the proposed width. A line breaks on natural widths; a child that grows
+/// (`.grow(Dimension::Width)`) then takes a share of what its line has left, by weight, so
+/// "at least 50 pt, then share the line" is `.min_width(50.0).grow(Dimension::Width)`. A
+/// `spacer()` contributes nothing. RTL mirroring comes from `place_child`, the same as every
+/// layout.
 pub struct FlowLayout {
     pub spacing: f64,
     /// Vertical gap between lines.
@@ -931,6 +1005,52 @@ impl FlowLayout {
         lines
     }
 
+    /// Hand each line's leftover width to its growing children, by weight, and settle the
+    /// line's height on what they measure at their new widths.
+    fn grow_lines(
+        &self,
+        cx: &mut dyn LayoutOps,
+        kids: &[RNode],
+        sizes: &mut [Size],
+        lines: &mut [FlowLine],
+        max_w: f64,
+    ) {
+        for line in lines {
+            let range = line.start..line.end;
+            let weights: Vec<f64> = kids[range.clone()]
+                .iter()
+                .map(|&k| {
+                    let f = cx.flex_of(k);
+                    if f.grow_w && !f.is_spacer {
+                        f.weight()
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            let total: f64 = weights.iter().sum();
+            if total <= 0.0 {
+                continue;
+            }
+            let used = sizes[range.clone()].iter().map(|s| s.width).sum::<f64>()
+                + self.spacing * (range.len() - 1) as f64;
+            let spare = (max_w - used).max(0.0);
+            if spare <= 0.0 {
+                continue;
+            }
+            for (offset, weight) in weights.iter().enumerate() {
+                if *weight <= 0.0 {
+                    continue;
+                }
+                let i = line.start + offset;
+                let width = sizes[i].width + spare * weight / total;
+                let s = cx.measure_child(kids[i], Proposal::new(Some(width), None));
+                sizes[i] = Size::new(width, s.height);
+            }
+            line.height = sizes[range].iter().map(|s| s.height).fold(0.0, f64::max);
+        }
+    }
+
     fn natural_sizes(cx: &mut dyn LayoutOps, kids: &[RNode]) -> Vec<Size> {
         kids.iter()
             .map(|&k| cx.measure_child(k, Proposal::UNCONSTRAINED))
@@ -942,11 +1062,12 @@ impl FlowLayout {
     fn plan(&self, cx: &mut dyn LayoutOps, kids: &[RNode], max_w: Option<f64>) -> FlowPlan {
         let natural = Self::natural_sizes(cx, kids);
         if !self.uniform {
-            let lines = self.pack(&natural, max_w);
-            return FlowPlan {
-                sizes: natural,
-                lines,
-            };
+            let mut lines = self.pack(&natural, max_w);
+            let mut sizes = natural;
+            if let Some(max_w) = max_w {
+                self.grow_lines(cx, kids, &mut sizes, &mut lines, max_w);
+            }
+            return FlowPlan { sizes, lines };
         }
         // The widest child sets the column, so no cell is ever narrower than its content.
         let cell_w = natural.iter().map(|s| s.width).fold(0.0, f64::max);
@@ -1038,6 +1159,111 @@ impl Layout for FlowLayout {
     }
 }
 
+/// Column lanes (docs/size-classes.md "Lanes"): as many equal-width columns as the available
+/// width holds at `min_width` each, up to `max`, with the children dealt into them and each
+/// lane stacking its own. The count is decided in layout, so a width change moves the same
+/// children between lanes: nothing is rebuilt and no state is lost.
+pub struct LanesLayout {
+    /// The narrowest a lane gets; the lane count is how many of these fit.
+    pub min_width: f64,
+    /// The most lanes, however wide the container; at least one.
+    pub max: usize,
+    /// Gap between lanes.
+    pub spacing: f64,
+    /// Gap between the children of one lane.
+    pub run_spacing: f64,
+    /// Put each child in the lane that is shortest so far, instead of dealing in turn.
+    pub balanced: bool,
+}
+
+/// A solved lane layout: every child's frame, and the size the lanes take.
+struct LanesPlan {
+    frames: Vec<Rect>,
+    size: Size,
+}
+
+impl LanesLayout {
+    /// How many lanes `width` holds: one more for every `min_width` plus gap that fits, never
+    /// fewer than one, never more than `max`. An unbounded width takes `max`.
+    #[must_use]
+    pub fn lane_count(&self, width: Option<f64>) -> usize {
+        let max = self.max.max(1);
+        match width {
+            Some(w) if self.min_width > 0.0 => {
+                let fit = ((w + self.spacing) / (self.min_width + self.spacing)).floor();
+                (fit as usize).clamp(1, max)
+            }
+            _ => max,
+        }
+    }
+
+    fn plan(&self, cx: &mut dyn LayoutOps, kids: &[RNode], width: Option<f64>) -> LanesPlan {
+        let lanes = self.lane_count(width).min(kids.len().max(1));
+        let lane_w = match width {
+            Some(w) => ((w - self.spacing * (lanes - 1) as f64) / lanes as f64).max(0.0),
+            None => self.min_width,
+        };
+        let mut heights = vec![0.0_f64; lanes];
+        let mut frames = Vec::with_capacity(kids.len());
+        for (i, &kid) in kids.iter().enumerate() {
+            let lane = if self.balanced {
+                // The shortest lane so far; the leading one on a tie, so the deal starts in
+                // reading order.
+                heights
+                    .iter()
+                    .enumerate()
+                    .fold((0, f64::INFINITY), |best, (at, h)| {
+                        if *h < best.1 - 0.5 { (at, *h) } else { best }
+                    })
+                    .0
+            } else {
+                i % lanes
+            };
+            let s = cx.measure_child(kid, Proposal::new(Some(lane_w), None));
+            let y = if heights[lane] > 0.0 {
+                heights[lane] + self.run_spacing
+            } else {
+                0.0
+            };
+            frames.push(Rect::new(
+                lane as f64 * (lane_w + self.spacing),
+                y,
+                lane_w,
+                s.height,
+            ));
+            heights[lane] = y + s.height;
+        }
+        let size = Size::new(
+            width.unwrap_or(lane_w * lanes as f64 + self.spacing * (lanes - 1) as f64),
+            heights.iter().copied().fold(0.0, f64::max),
+        );
+        LanesPlan { frames, size }
+    }
+}
+
+impl Layout for LanesLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let mut kids = Vec::new();
+        StackLayout::flatten(cx, children, &mut kids);
+        if kids.is_empty() {
+            return Size::new(p.width.unwrap_or(0.0), 0.0);
+        }
+        self.plan(cx, &kids, p.width).size
+    }
+
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        let mut kids = Vec::new();
+        StackLayout::flatten(cx, children, &mut kids);
+        if kids.is_empty() {
+            return;
+        }
+        let plan = self.plan(cx, &kids, Some(bounds.size.width));
+        for (&kid, frame) in kids.iter().zip(plan.frames) {
+            cx.place_child(kid, frame);
+        }
+    }
+}
+
 /// A grid cell, resolved from the realized tree: the node, its starting column, its span, and
 /// its layout facts (docs/grid.md).
 struct GridCell {
@@ -1079,6 +1305,21 @@ pub struct GridLayout {
 }
 
 impl GridLayout {
+    /// A row's cells: group anchors (`when`/`each`) expand inline as in a stack, and the
+    /// anchor of an absent optional child stays as one empty cell, so the cells after it keep
+    /// their columns.
+    fn flatten_cells(cx: &mut dyn LayoutOps, children: &[RNode], out: &mut Vec<RNode>) {
+        for &c in children {
+            let f = cx.flex_of(c);
+            if f.is_group && !(f.grid.holds_cell && cx.children_of(c).is_empty()) {
+                let inner = cx.children_of(c);
+                Self::flatten_cells(cx, &inner, out);
+            } else {
+                out.push(c);
+            }
+        }
+    }
+
     /// Expand group anchors and classify children into rows / full-width cells.
     fn collect(cx: &mut dyn LayoutOps, children: &[RNode]) -> (Vec<GridRowRef>, usize) {
         let mut tops = Vec::new();
@@ -1090,7 +1331,7 @@ impl GridLayout {
             if f.grid.is_row {
                 let inner = cx.children_of(t);
                 let mut cell_nodes = Vec::new();
-                StackLayout::flatten(cx, &inner, &mut cell_nodes);
+                Self::flatten_cells(cx, &inner, &mut cell_nodes);
                 let mut cells = Vec::new();
                 let mut col = 0usize;
                 for &c in &cell_nodes {
@@ -1457,6 +1698,38 @@ pub enum Dimension {
     Both,
 }
 
+impl Dimension {
+    /// Grow in this dimension with a share of `weight`: among siblings that grow along the
+    /// same line, each takes the spare space in proportion to its weight, so a `2.0` beside
+    /// a plain `.grow(..)` (weight `1.0`) takes two thirds of it.
+    #[must_use]
+    pub fn weight(self, weight: f64) -> Grow {
+        Grow {
+            dimension: self,
+            weight,
+        }
+    }
+}
+
+/// How a piece grows into the space its parent offers: the dimensions, and its share among
+/// growing siblings. `.grow(..)` takes a bare [`Dimension`] (weight `1.0`) or
+/// [`Dimension::weight`].
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Grow {
+    pub dimension: Dimension,
+    /// The share of spare space, relative to growing siblings; `1.0` unless set.
+    pub weight: f64,
+}
+
+impl From<Dimension> for Grow {
+    fn from(dimension: Dimension) -> Self {
+        Grow {
+            dimension,
+            weight: 1.0,
+        }
+    }
+}
+
 /// Z-layering (§overlay): children share the container bounds, stacked back-to-front in child
 /// order (first child = bottom of the z-order), each positioned by a single [`Alignment`].
 /// `size_to_first` reports only the first child's natural size, the badge/annotation sizing of
@@ -1512,30 +1785,33 @@ impl Layout for OverlayLayout {
     }
 }
 
+/// The `.padding(..)` decorator: the child inset by `insets` on each side.
 pub struct PaddingLayout {
-    pub insets: Insets,
+    /// A `Cell`, so a reactive `.padding(..)` (a closure over `day::safe_area()`) changes it in
+    /// place.
+    pub insets: std::cell::Cell<Insets>,
 }
 
 impl Layout for PaddingLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let inner = Proposal::new(
             p.width
-                .map(|w| (w - self.insets.horizontal_total()).max(0.0)),
+                .map(|w| (w - self.insets.get().horizontal_total()).max(0.0)),
             p.height
-                .map(|h| (h - self.insets.vertical_total()).max(0.0)),
+                .map(|h| (h - self.insets.get().vertical_total()).max(0.0)),
         );
         let s = match children.first() {
             Some(&c) => cx.measure_child(c, inner),
             None => Size::ZERO,
         };
         Size::new(
-            s.width + self.insets.horizontal_total(),
-            s.height + self.insets.vertical_total(),
+            s.width + self.insets.get().horizontal_total(),
+            s.height + self.insets.get().vertical_total(),
         )
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
-            let inner = bounds.inset_by(self.insets);
+            let inner = bounds.inset_by(self.insets.get());
             let s = cx.measure_child(c, Proposal::exact(inner.size));
             cx.place_child(
                 c,
@@ -1549,10 +1825,10 @@ impl Layout for PaddingLayout {
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
         // The one wrapper with a real offset: its child starts below the top inset.
         let inner = Size::new(
-            (size.width - self.insets.horizontal_total()).max(0.0),
-            (size.height - self.insets.vertical_total()).max(0.0),
+            (size.width - self.insets.get().horizontal_total()).max(0.0),
+            (size.height - self.insets.get().vertical_total()).max(0.0),
         );
-        wrapper_baseline(cx, children, inner, self.insets.top)
+        wrapper_baseline(cx, children, inner, self.insets.get().top)
     }
 }
 
@@ -1563,21 +1839,22 @@ impl Layout for PaddingLayout {
 /// take the width a container offers and compute the height from it: a canvas that keeps its
 /// proportions as the window resizes.
 pub struct AspectRatioLayout {
-    pub ratio: f64,
+    /// Width over height. A `Cell`, so `.aspect_ratio(signal)` changes it in place.
+    pub ratio: std::cell::Cell<f64>,
 }
 
 impl Layout for AspectRatioLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
         match (p.width, p.height) {
             (Some(w), Some(h)) => {
-                if w / h > self.ratio {
-                    Size::new(h * self.ratio, h)
+                if w / h > self.ratio.get() {
+                    Size::new(h * self.ratio.get(), h)
                 } else {
-                    Size::new(w, w / self.ratio)
+                    Size::new(w, w / self.ratio.get())
                 }
             }
-            (Some(w), None) => Size::new(w, w / self.ratio),
-            (None, Some(h)) => Size::new(h * self.ratio, h),
+            (Some(w), None) => Size::new(w, w / self.ratio.get()),
+            (None, Some(h)) => Size::new(h * self.ratio.get(), h),
             (None, None) => cx.measure_leaf(p),
         }
     }
@@ -1654,26 +1931,27 @@ impl Layout for GrowLayout {
 /// text wraps instead of overflowing, while narrower content still hugs. The vertical axis
 /// passes through untouched.
 pub struct MaxWidthLayout {
-    pub max: f64,
+    /// In points. A `Cell`, so a reactive modifier changes it in place.
+    pub max: std::cell::Cell<f64>,
 }
 
 impl Layout for MaxWidthLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let capped = Proposal::new(
-            Some(p.width.map_or(self.max, |w| w.min(self.max))),
+            Some(p.width.map_or(self.max.get(), |w| w.min(self.max.get()))),
             p.height,
         );
         match children.first() {
             Some(&c) => {
                 let s = cx.measure_child(c, capped);
-                Size::new(s.width.min(self.max), s.height)
+                Size::new(s.width.min(self.max.get()), s.height)
             }
             None => Size::ZERO,
         }
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
-            let w = bounds.size.width.min(self.max);
+            let w = bounds.size.width.min(self.max.get());
             let s = cx.measure_child(c, Proposal::exact(Size::new(w, bounds.size.height)));
             cx.place_child(c, Rect::from_size(Size::new(s.width.min(w), s.height)));
         }
@@ -1689,26 +1967,27 @@ impl Layout for MaxWidthLayout {
 /// sideways), the child gets that, so a capped box still fits a short screen. The horizontal
 /// axis passes through untouched.
 pub struct MaxHeightLayout {
-    pub max: f64,
+    /// In points. A `Cell`, so a reactive modifier changes it in place.
+    pub max: std::cell::Cell<f64>,
 }
 
 impl Layout for MaxHeightLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let capped = Proposal::new(
             p.width,
-            Some(p.height.map_or(self.max, |h| h.min(self.max))),
+            Some(p.height.map_or(self.max.get(), |h| h.min(self.max.get()))),
         );
         match children.first() {
             Some(&c) => {
                 let s = cx.measure_child(c, capped);
-                Size::new(s.width, s.height.min(self.max))
+                Size::new(s.width, s.height.min(self.max.get()))
             }
             None => Size::ZERO,
         }
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
-            let h = bounds.size.height.min(self.max);
+            let h = bounds.size.height.min(self.max.get());
             let s = cx.measure_child(c, Proposal::exact(Size::new(bounds.size.width, h)));
             cx.place_child(c, Rect::from_size(Size::new(s.width, s.height.min(h))));
         }
@@ -1724,23 +2003,24 @@ impl Layout for MaxHeightLayout {
 /// to nothing, which is what lets a `labeled` row notice and stack (docs/forms.md). The
 /// vertical axis passes through untouched.
 pub struct MinWidthLayout {
-    pub min: f64,
+    /// In points. A `Cell`, so a reactive modifier changes it in place.
+    pub min: std::cell::Cell<f64>,
 }
 
 impl Layout for MinWidthLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
-        let floored = Proposal::new(p.width.map(|w| w.max(self.min)), p.height);
+        let floored = Proposal::new(p.width.map(|w| w.max(self.min.get())), p.height);
         match children.first() {
             Some(&c) => {
                 let s = cx.measure_child(c, floored);
-                Size::new(s.width.max(self.min), s.height)
+                Size::new(s.width.max(self.min.get()), s.height)
             }
-            None => Size::new(self.min, 0.0),
+            None => Size::new(self.min.get(), 0.0),
         }
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
-            let w = bounds.size.width.max(self.min);
+            let w = bounds.size.width.max(self.min.get());
             let s = cx.measure_child(c, Proposal::exact(Size::new(w, bounds.size.height)));
             cx.place_child(c, Rect::from_size(Size::new(w, s.height)));
         }
@@ -1753,30 +2033,31 @@ impl Layout for MinWidthLayout {
 /// A minimum height that allows taller content and preserves the child's width.
 /// If the parent offers less than the minimum, the child overflows instead of shrinking.
 pub struct MinHeightLayout {
-    pub min: f64,
+    /// In points. A `Cell`, so a reactive modifier changes it in place.
+    pub min: std::cell::Cell<f64>,
 }
 
 impl Layout for MinHeightLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
-        let floored = Proposal::new(p.width, p.height.map(|h| h.max(self.min)));
+        let floored = Proposal::new(p.width, p.height.map(|h| h.max(self.min.get())));
         match children.first() {
             Some(&c) => {
                 let s = cx.measure_child(c, floored);
-                Size::new(s.width, s.height.max(self.min))
+                Size::new(s.width, s.height.max(self.min.get()))
             }
-            None => Size::new(0.0, self.min),
+            None => Size::new(0.0, self.min.get()),
         }
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
-            let height = bounds.size.height.max(self.min);
+            let height = bounds.size.height.max(self.min.get());
             let size = cx.measure_child(c, Proposal::exact(Size::new(bounds.size.width, height)));
             cx.place_child(c, Rect::from_size(Size::new(size.width, height)));
         }
     }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
         let &child = children.first()?;
-        let height = size.height.max(self.min);
+        let height = size.height.max(self.min.get());
         let measured = cx.measure_child(child, Proposal::exact(Size::new(size.width, height)));
         cx.baseline_of(child, Size::new(measured.width, height))
     }
@@ -1853,33 +2134,61 @@ impl Layout for FrameLayout {
 /// content coordinate space (the scroll node is their native ancestor).
 pub struct ScrollLayout {
     pub axis: Axis,
+    /// Space around the content, inside the scrolling area (`scroll(..).content_padding(..)`):
+    /// it scrolls with the content and counts toward the content size.
+    pub padding: Insets,
+}
+
+impl ScrollLayout {
+    /// The padding's extent across and along the scroll axis.
+    fn pad(&self) -> (f64, f64) {
+        let (h, v) = (
+            self.padding.leading + self.padding.trailing,
+            self.padding.top + self.padding.bottom,
+        );
+        match self.axis {
+            Axis::Vertical => (h, v),
+            Axis::Horizontal => (v, h),
+        }
+    }
 }
 
 impl Layout for ScrollLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let (pad_w, pad_h) = (
+            self.padding.leading + self.padding.trailing,
+            self.padding.top + self.padding.bottom,
+        );
         let content_p = match self.axis {
-            Axis::Vertical => Proposal::new(p.width, None),
-            Axis::Horizontal => Proposal::new(None, p.height),
+            Axis::Vertical => Proposal::new(p.width.map(|w| (w - pad_w).max(0.0)), None),
+            Axis::Horizontal => Proposal::new(None, p.height.map(|h| (h - pad_h).max(0.0))),
         };
         let cs = match children.first() {
             Some(&c) => cx.measure_child(c, content_p),
             None => Size::ZERO,
         };
-        Size::new(p.width.unwrap_or(cs.width), p.height.unwrap_or(cs.height))
+        Size::new(
+            p.width.unwrap_or(cs.width + pad_w),
+            p.height.unwrap_or(cs.height + pad_h),
+        )
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
             let vertical = self.axis == Axis::Vertical;
-            let proposal = |cross: f64| match self.axis {
-                Axis::Vertical => Proposal::new(Some(cross), None),
-                Axis::Horizontal => Proposal::new(None, Some(cross)),
+            let (pad_cross, pad_main) = self.pad();
+            let proposal = |cross: f64| {
+                let cross = (cross - pad_cross).max(0.0);
+                match self.axis {
+                    Axis::Vertical => Proposal::new(Some(cross), None),
+                    Axis::Horizontal => Proposal::new(None, Some(cross)),
+                }
             };
             let (cross, main) = match self.axis {
                 Axis::Vertical => (bounds.size.width, bounds.size.height),
                 Axis::Horizontal => (bounds.size.height, bounds.size.width),
             };
             let mut cs = cx.measure_child(c, proposal(cross));
-            let overflows = |s: Size| if vertical { s.height } else { s.width } > main;
+            let overflows = |s: Size| if vertical { s.height } else { s.width } + pad_main > main;
             // Content that overflows brings a scroll bar up. Where that bar is a classic one
             // taking room from the viewport (Qt's Fusion style), lay the content out beside it,
             // or the content is wider than what is left and scrolls sideways by the bar's width.
@@ -1891,11 +2200,32 @@ impl Layout for ScrollLayout {
                     cs = cx.measure_child(c, proposal(cross));
                 }
             }
-            let content = match self.axis {
-                Axis::Vertical => Size::new(cross, cs.height.max(bounds.size.height)),
-                Axis::Horizontal => Size::new(cs.width.max(bounds.size.width), cross),
+            // The content's box, padding included, and the child's frame inside it.
+            let (content, child) = match self.axis {
+                Axis::Vertical => {
+                    let h = (cs.height + pad_main).max(bounds.size.height);
+                    (
+                        Size::new(cross, h),
+                        Size::new((cross - pad_cross).max(0.0), h - pad_main),
+                    )
+                }
+                Axis::Horizontal => {
+                    let w = (cs.width + pad_main).max(bounds.size.width);
+                    (
+                        Size::new(w, cross),
+                        Size::new(w - pad_main, (cross - pad_cross).max(0.0)),
+                    )
+                }
             };
-            cx.place_child(c, Rect::from_size(content));
+            cx.place_child(
+                c,
+                Rect::new(
+                    self.padding.leading,
+                    self.padding.top,
+                    child.width,
+                    child.height,
+                ),
+            );
             cx.set_scroll_content(content);
         }
     }

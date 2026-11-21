@@ -17,6 +17,7 @@ unsafe extern "C" {
         h: *mut c_void,
         accept: extern "C" fn(*mut c_void, f64, f64, *const c_char, bool) -> bool,
         receive: extern "C" fn(*mut c_void, f64, f64, *const u8, usize, bool) -> bool,
+        leave: extern "C" fn(*mut c_void),
     );
 }
 extern "C" fn prepare(h: *mut c_void, x: f64, y: f64, len: *mut usize) -> *mut u8 {
@@ -79,6 +80,14 @@ extern "C" fn receive(h: *mut c_void, x: f64, y: f64, p: *const u8, n: usize, lo
         })
     })
 }
+/// The drag left the target without dropping, or its session ended over it.
+extern "C" fn leave(h: *mut c_void) {
+    ffi_guard::contain((), || {
+        if let Some(t) = TARGETS.with(|t| t.get(h as usize)) {
+            t.leave();
+        }
+    });
+}
 pub fn source(h: &WinHandle, source: Source) {
     SOURCES.with(|t| t.insert(h.0 as usize, source));
     unsafe {
@@ -102,6 +111,6 @@ pub fn migrate(old: usize, new: &WinHandle) {
 pub fn target(h: &WinHandle, target: Target) {
     TARGETS.with(|t| t.insert(h.0 as usize, target));
     unsafe {
-        day_xaml_drop_target(h.0, accept, receive);
+        day_xaml_drop_target(h.0, accept, receive, leave);
     }
 }

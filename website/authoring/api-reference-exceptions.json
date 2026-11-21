@@ -19,7 +19,12 @@
       "reason": "Rust standard-library function or trait method, outside the published Day API."
     }
   ],
-  "docs/color.md": [],
+  "docs/color.md": [
+    {
+      "code": "root()",
+      "reason": "Application root builder supplied to the framework, not a published function."
+    }
+  ],
   "docs/commands.md": [],
   "docs/cover.md": [
     {
@@ -298,12 +303,8 @@
   ],
   "docs/tween.md": [
     {
-      "code": "step(sample)",
-      "reason": "Caller-supplied animation callback, not a Day method."
-    },
-    {
-      "code": "day::frame",
-      "reason": "Module name, not a function."
+      "code": ".spring(response:dampingFraction:)",
+      "reason": "SwiftUI API that the spring curve matches, not a published Day function."
     }
   ],
   "docs/vectors.md": [

@@ -17,6 +17,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
+import android.view.VelocityTracker;
 import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
@@ -175,6 +176,38 @@ public final class DayBridge extends DayRuntime {
     /** A window's display state changed (docs/windows.md): num = the day WindowState code
      *  (0 normal, 3 fullscreen here), against the window's day node or 0 for the primary. */
     public static final int K_WINDOW_STATE_CHANGED = 34;
+
+    // --- gesture codes (K_GESTURE's `num`) -------------------------------------------------
+    // 0 to 3 are a tap and a drag's three phases, 4 to 11 are day_spec::bridge::gesture, and
+    // the codes from 13 up are this toolkit's own (lib.rs `gesture_wire`). The
+    // gesture_codes_parity test reads these lines, one constant each, so edit both together.
+    static final int G_TAP = 0;
+    static final int G_DRAG_BEGAN = 1;
+    static final int G_DRAG_CHANGED = 2;
+    static final int G_DRAG_ENDED = 3;
+    static final int G_LONG_PRESS = 4;
+    static final int G_DOUBLE_TAP = 5;
+    static final int G_PRESS_IN = 6;
+    static final int G_PRESS_OUT = 7;
+    static final int G_TOUCHES = 8;
+    static final int G_DRAG_VELOCITY = 9;
+    static final int G_POINTER_KIND = 11;
+    static final int G_ROTATE_BEGAN = 13;
+    static final int G_ROTATE_CHANGED = 14;
+    static final int G_ROTATE_ENDED = 15;
+    static final int G_PINCH_BEGAN = 16;
+    static final int G_PINCH_CHANGED = 17;
+    static final int G_PINCH_ENDED = 18;
+    static final int G_PAN = 19;
+    static final int G_HOVER_BEGAN = 20;
+    static final int G_HOVER_CHANGED = 21;
+    static final int G_HOVER_ENDED = 22;
+
+    /** Report gesture `code` with `payload` (px) for node `id`. */
+    static void gesture(long id, int code, String payload) {
+        nativeOnEvent(id, K_GESTURE, code, payload);
+    }
+
     /** Whether node `id` has an `.on_key` handler (docs/menus.md): a canvas asks before it
      *  claims a key or takes focus on a press. */
     public static native boolean nativeHandlesKeys(long id);
@@ -311,9 +344,16 @@ public final class DayBridge extends DayRuntime {
     public static native void nativeListRecycle(long hostId, View cell);
     /** Whether row `position` is in the list's programmatic selection (ListPatch::Selected). */
     public static native boolean nativeListIsSelected(long hostId, int position);
-    /** Whether display row `position` of a sectioned list is a section header
-     *  (docs/list.md "Sections"). */
-    public static native boolean nativeListIsHeader(long hostId, int position);
+    /** The adapter's view type of row `position`: LIST_ROW, LIST_HEADER (a section header,
+     *  docs/list.md "Sections") or LIST_SUPPLEMENT (the list's header, footer, empty state or
+     *  content padding, docs/list.md "Header, footer and empty state"). */
+    public static native int nativeListRowKind(long hostId, int position);
+    /** What the list shows (docs/list.md "Visible rows"): the first and last rows with any part
+     *  in view, and the distance from the viewport's end to the content's end, in px. */
+    public static native void nativeListViewport(long hostId, int first, int last, int endPx);
+    /** The reader moved the list themselves (docs/list.md "Following the end"): a drag, a
+     *  wheel, a key or an accessibility scroll, never a scroll Day asked for. */
+    public static native void nativeListReaderScroll(long hostId);
     /** The header row of the section holding display row `position`, or -1. */
     public static native int nativeListHeaderOf(long hostId, int position);
     /** Drag-to-reorder (docs/list.md): may `from` drop over `to`? (The app guard's live veto;
@@ -590,41 +630,301 @@ public final class DayBridge extends DayRuntime {
         if (clips || radiusPx > 0f) v.setClipToOutline(true);
     }
 
-    /** Animatable opacity (§8.4). durMs&lt;=0 sets instantly; otherwise ViewPropertyAnimator
-     *  runs it on the render thread with a curve-matched interpolator. */
-    public static void setOpacity(View v, float alpha, int durMs, int curve) {
-        if (durMs <= 0) { v.animate().cancel(); v.setAlpha(alpha); return; }
-        v.animate().alpha(alpha).setDuration(durMs).setInterpolator(interp(curve)).start();
+    /** A surface with a gradient, a border, named corners or a shadow (docs/surfaces.md):
+     *  drawn by the container itself, see {@link DayFixed#setSurfaceStyle}. */
+    public static void setSurfaceStyle(View v, double[] spec, boolean clips) {
+        if (v instanceof DayFixed) ((DayFixed) v).setSurfaceStyle(spec, clips);
     }
 
-    /** Animatable transform (§8.4): translation (px, additive over the laid-out position),
-     *  scale, and rotation (degrees) about the view's center pivot, with no relayout. A repeated
-     *  animate() call retargets the running animator. */
+    /** `ContainerPatch::Fill` with a gradient: drawn by the container, keeping its corners,
+     *  border and shadow (see {@link DayFixed#setSurfaceGradient}). */
+    public static void setSurfaceGradient(View v, double[] spec) {
+        cancelRun(v, ANIM_FILL);
+        if (v instanceof DayFixed) ((DayFixed) v).setSurfaceGradient(spec);
+    }
+
+    /** Before `ContainerPatch::Surface` applies a whole new style: drop what the previous one
+     *  left, a self-drawn surface, a GradientDrawable background, an outline clip, and a fill
+     *  animation in flight. */
+    public static void resetSurface(View v) {
+        cancelRun(v, ANIM_FILL);
+        if (v instanceof DayFixed) ((DayFixed) v).clearSurfaceStyle();
+        v.setBackground(null);
+        v.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+        v.setClipToOutline(false);
+    }
+
+    /** `ContainerPatch::Fill` with a color: a new fill color. A styled surface keeps everything
+     *  else it was given; a plain one is the square-cornered fill it always was. */
+    public static void setSurfaceFill(View v, int argb, boolean hasBg) {
+        if (v instanceof DayFixed && ((DayFixed) v).setSurfaceFill(argb, hasBg)) return;
+        setSurface(v, argb, hasBg, 0f, false);
+    }
+
+    // ---- Animation (docs/tween.md "The animation contract", §8.4) ------------------------------
+    // Every animated property runs on a ValueAnimator from 0 to 1 whose update listener writes
+    // `start + (target - start) * progress`, one animator per (view, channel). That one native
+    // animator carries the whole AnimSpec contract: setStartDelay holds the start value once
+    // before the first cycle; setRepeatCount with RESTART or REVERSE plays the cycles (Android
+    // counts each pass, as Day's `repeat` does, also when reversing, and plays a reversed pass
+    // as the curve read backwards); the interpolator is the cycle's curve, sampled in Rust
+    // (`AnimSpec::keyframes`) and read back with linear interpolation, so a spring's overshoot
+    // shows. ViewPropertyAnimator has no repeat, which is why it is not used here. The values
+    // are written to the view's own properties, so what the view answers mid-flight is what it
+    // draws (readDisplayed).
+
+    /** Animated channels: the index into a view's run table. */
+    static final int ANIM_OPACITY = 0, ANIM_TRANSFORM = 1, ANIM_FRAME = 2, ANIM_FILL = 3;
+    /** `timing` slots (src/lib.rs `motion_wire`): cycle length and delay in ms, the cycles
+     *  after the first (-1 = until the next set), autoreverse (0 or 1). */
+    static final int T_DURATION = 0;
+    static final int T_DELAY = 1;
+    static final int T_REPEAT = 2;
+    static final int T_REVERSE = 3;
+    static final int T_COUNT = 4;
+
+    /** The run in flight per view and channel. Weak in the view: a finished or cancelled run
+     *  leaves its slot, and a run on a view that left its window ends itself (AnimRun). */
+    private static final java.util.WeakHashMap<View, android.animation.ValueAnimator[]> runs =
+            new java.util.WeakHashMap<>();
+
+    /** One forward cycle's progress at even offsets (`AnimSpec::keyframes`), read with linear
+     *  interpolation between neighbors. Above 1 where a spring overshoots. */
+    static final class SampledCurve implements android.animation.TimeInterpolator {
+        private final float[] keys;
+        SampledCurve(float[] keys) { this.keys = keys; }
+        @Override public float getInterpolation(float t) {
+            int last = keys.length - 1;
+            if (t <= 0f) return keys[0];
+            if (t >= 1f) return keys[last];
+            float x = t * last;
+            int i = (int) x;
+            float f = x - i;
+            return keys[i] + (keys[Math.min(i + 1, last)] - keys[i]) * f;
+        }
+    }
+
+    /** What an animated channel writes for a progress: 0 is the start, 1 the target. */
+    interface AnimStep { void at(float p); }
+
+    /** Whether `timing` asks for a run: a cycle, or a delay before the target applies. */
+    static boolean animates(int[] timing) {
+        return timing != null && timing.length >= T_COUNT
+                && (timing[T_DURATION] > 0 || timing[T_DELAY] > 0);
+    }
+
+    /** Cancel the run on `channel`. The property keeps the value it shows. */
+    static void cancelRun(View v, int channel) {
+        android.animation.ValueAnimator[] r = runs.get(v);
+        if (r == null || r[channel] == null) return;
+        android.animation.ValueAnimator a = r[channel];
+        r[channel] = null;
+        a.cancel();
+    }
+
+    /** One run's listener: the step per frame, and the rest once a run ends uncancelled. */
+    private static final class AnimRun extends android.animation.AnimatorListenerAdapter
+            implements android.animation.ValueAnimator.AnimatorUpdateListener {
+        private final View view;
+        private final int channel;
+        private final AnimStep step;
+        private final Runnable rest;
+        private boolean cancelled, attached, ending;
+        AnimRun(View view, int channel, AnimStep step, Runnable rest) {
+            this.view = view;
+            this.channel = channel;
+            this.step = step;
+            this.rest = rest;
+        }
+        @Override public void onAnimationUpdate(android.animation.ValueAnimator a) {
+            // A view that has left its window is not drawn: end the run on its target rather
+            // than keep a run that repeats for ever (and the view with it) alive. Ended from
+            // the looper, not from here: end() delivers one more update, which would re-enter
+            // this listener.
+            if (view.isAttachedToWindow()) {
+                attached = true;
+            } else if (attached) {
+                if (!ending) {
+                    ending = true;
+                    main.post(() -> {
+                        if (a.isStarted()) a.end();
+                    });
+                }
+                return;
+            }
+            step.at((Float) a.getAnimatedValue());
+        }
+        @Override public void onAnimationCancel(android.animation.Animator a) { cancelled = true; }
+        @Override public void onAnimationEnd(android.animation.Animator a) {
+            android.animation.ValueAnimator[] r = runs.get(view);
+            if (r != null && r[channel] == a) r[channel] = null;
+            // Rule 5: a finite run rests on the target, also after a backward last cycle.
+            if (!cancelled) rest.run();
+        }
+    }
+
+    /** Play `step` from 0 to 1 under `timing` and `keys` on `channel`, replacing the run
+     *  there. The caller read the start from the view, so a retarget starts from the value
+     *  on screen (rule 7). */
+    static void startRun(View v, int channel, int[] timing, float[] keys, AnimStep step,
+                         Runnable rest) {
+        cancelRun(v, channel);
+        android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        a.setDuration(Math.max(0, timing[T_DURATION]));
+        a.setStartDelay(Math.max(0, timing[T_DELAY]));
+        int repeat = timing[T_REPEAT];
+        a.setRepeatCount(repeat < 0 ? android.animation.ValueAnimator.INFINITE : repeat);
+        a.setRepeatMode(timing[T_REVERSE] != 0
+                ? android.animation.ValueAnimator.REVERSE
+                : android.animation.ValueAnimator.RESTART);
+        a.setInterpolator(keys != null && keys.length >= 2
+                ? new SampledCurve(keys)
+                : new android.view.animation.LinearInterpolator());
+        AnimRun run = new AnimRun(v, channel, step, rest);
+        a.addUpdateListener(run);
+        a.addListener(run);
+        android.animation.ValueAnimator[] r = runs.get(v);
+        if (r == null) {
+            r = new android.animation.ValueAnimator[4];
+            runs.put(v, r);
+        }
+        r[channel] = a;
+        a.start();
+    }
+
+    private static float lerp(float a, float b, float p) { return a + (b - a) * p; }
+
+    /** Opacity (§8.4): `timing`/`keys` from src/lib.rs `motion_wire`; no timing sets it at
+     *  once and ends any run on it, one that repeats for ever included. */
+    public static void setOpacity(View v, float alpha, int[] timing, float[] keys) {
+        cancelRun(v, ANIM_OPACITY);
+        if (!animates(timing)) {
+            v.setAlpha(alpha);
+            return;
+        }
+        final float from = v.getAlpha();
+        startRun(v, ANIM_OPACITY, timing, keys,
+                p -> v.setAlpha(Math.max(0f, Math.min(1f, lerp(from, alpha, p)))),
+                () -> v.setAlpha(alpha));
+    }
+
+    /** Transform (§8.4): translation (px, additive over the laid-out position), scale, and
+     *  rotation (degrees) about the view's center pivot, with no relayout, animated as one. */
     public static void setTransform(View v, float tx, float ty, float sx, float sy, float rot,
-                                    int durMs, int curve) {
+                                    int[] timing, float[] keys) {
         // See addChild: a presented cover shell is positioned/animated natively.
         if (v instanceof DayCover && ((DayCover) v).presented) return;
-        if (durMs <= 0) {
-            v.animate().cancel();
+        cancelRun(v, ANIM_TRANSFORM);
+        Runnable target = () -> {
             v.setTranslationX(tx); v.setTranslationY(ty);
             v.setScaleX(sx); v.setScaleY(sy);
             v.setRotation(rot);
+        };
+        if (!animates(timing)) {
+            target.run();
             return;
         }
-        v.animate().translationX(tx).translationY(ty).scaleX(sx).scaleY(sy).rotation(rot)
-            .setDuration(durMs).setInterpolator(interp(curve)).start();
+        final float tx0 = v.getTranslationX(), ty0 = v.getTranslationY();
+        final float sx0 = v.getScaleX(), sy0 = v.getScaleY(), rot0 = v.getRotation();
+        startRun(v, ANIM_TRANSFORM, timing, keys, p -> {
+            v.setTranslationX(lerp(tx0, tx, p)); v.setTranslationY(lerp(ty0, ty, p));
+            v.setScaleX(lerp(sx0, sx, p)); v.setScaleY(lerp(sy0, sy, p));
+            v.setRotation(lerp(rot0, rot, p));
+        }, target);
     }
 
-    /** Day curve code (§8.4) → Android interpolator. Spring approximates as fast-out/slow-in
-     *  (a true spring would pull in androidx.dynamicanimation). */
-    private static android.view.animation.Interpolator interp(int curve) {
-        switch (curve) {
-            case 0: return new android.view.animation.LinearInterpolator();
-            case 1: return new android.view.animation.AccelerateInterpolator();
-            case 2: return new android.view.animation.DecelerateInterpolator();
-            case 4: return new android.view.animation.OvershootInterpolator(); // spring
-            default: return new android.view.animation.AccelerateDecelerateInterpolator();
+    /** `ContainerPatch::Fill` with a color, through `update` with an animation: from the fill
+     *  shown to `argb`, blended by the platform's ArgbEvaluator (linear light from API 26, sRGB
+     *  before), with the progress clamped to the two ends so a spring cannot leave them. A
+     *  fill appearing or going away applies at once (rule 8). */
+    public static void animateSurfaceFill(View v, int argb, boolean hasBg, int[] timing,
+                                          float[] keys) {
+        cancelRun(v, ANIM_FILL);
+        Integer shown = hasBg ? shownFill(v) : null;
+        if (!animates(timing) || shown == null) {
+            setSurfaceFill(v, argb, hasBg);
+            return;
         }
+        final int from = shown;
+        final android.animation.ArgbEvaluator blend = new android.animation.ArgbEvaluator();
+        startRun(v, ANIM_FILL, timing, keys,
+                p -> paintFill(v, (Integer) blend.evaluate(Math.max(0f, Math.min(1f, p)),
+                        from, argb)),
+                () -> setSurfaceFill(v, argb, true));
+    }
+
+    /** One in-between fill: the styled surface's color, or the plain background's
+     *  GradientDrawable recolored in place (a new drawable per frame would churn). */
+    private static void paintFill(View v, int argb) {
+        if (v instanceof DayFixed && ((DayFixed) v).setSurfaceFill(argb, true)) return;
+        android.graphics.drawable.Drawable bg = v.getBackground();
+        if (bg instanceof GradientDrawable) {
+            ((GradientDrawable) bg).setColor(argb);
+        } else {
+            setSurface(v, argb, true, 0f, false);
+        }
+    }
+
+    /** The fill color a view shows now, or null when it has none: a styled DayFixed's fill,
+     *  else a plain GradientDrawable or ColorDrawable background. */
+    static Integer shownFill(View v) {
+        if (v instanceof DayFixed && ((DayFixed) v).isStyled()) {
+            return ((DayFixed) v).styledFill();
+        }
+        android.graphics.drawable.Drawable bg = v.getBackground();
+        if (bg instanceof GradientDrawable) {
+            // GradientDrawable.getColor is API 24, the minimum.
+            android.content.res.ColorStateList c = ((GradientDrawable) bg).getColor();
+            return c == null ? null : c.getDefaultColor();
+        }
+        if (bg instanceof android.graphics.drawable.ColorDrawable) {
+            return ((android.graphics.drawable.ColorDrawable) bg).getColor();
+        }
+        return null;
+    }
+
+    /** `Toolkit::read_displayed`: what the view shows now, a run in flight included, since
+     *  every run writes the view's own properties each frame. Slots (src/lib.rs
+     *  `motion_wire::displayed`): [0] alpha, [1] [2] translation in dp, [3] 1 when a frame
+     *  was read, [4..7] the frame in dp from the Day root before the view's own transform,
+     *  [8] 1 when the view has a fill, [9] that fill as packed ARGB. */
+    public static double[] readDisplayed(View v) {
+        double[] out = new double[10];
+        float d = v.getResources().getDisplayMetrics().density;
+        if (d <= 0f) d = 1f;
+        out[0] = v.getAlpha();
+        out[1] = v.getTranslationX() / d;
+        out[2] = v.getTranslationY() / d;
+        View root = v.isAttachedToWindow() ? dayRootOf(v) : null;
+        if (root != null) {
+            int[] at = new int[2];
+            int[] origin = new int[2];
+            root.getLocationInWindow(origin);
+            double x, y;
+            if (v == root || !(v.getParent() instanceof View)) {
+                v.getLocationInWindow(at);
+                x = at[0];
+                y = at[1];
+            } else {
+                // The parent's place (its own and its ancestors' transforms included) plus
+                // this view's laid-out offset: the frame before this view's transform.
+                View p = (View) v.getParent();
+                p.getLocationInWindow(at);
+                x = at[0] + v.getLeft() - p.getScrollX();
+                y = at[1] + v.getTop() - p.getScrollY();
+            }
+            out[3] = 1;
+            out[4] = (x - origin[0]) / d;
+            out[5] = (y - origin[1]) / d;
+            out[6] = v.getWidth() / (double) d;
+            out[7] = v.getHeight() / (double) d;
+        }
+        Integer fill = shownFill(v);
+        if (fill != null) {
+            out[8] = 1;
+            out[9] = fill & 0xFFFFFFFFL;
+        }
+        return out;
     }
 
     /** A ViewHolder wrapping one DayFixed cell (docs/list.md). */
@@ -636,6 +936,15 @@ public final class DayBridge extends DayRuntime {
      *  (docs/list.md "Sections"), so a recycled header cell is never handed to an item. */
     static final int LIST_ROW = 0;
     static final int LIST_HEADER = 1;
+    /** A supplementary row (docs/list.md "Header, footer and empty state"): plain content
+     *  sized to itself, with no ripple, selection, swipe, drag or pin. Pooled apart, so a
+     *  recycled padding row never lends its height to an item. */
+    static final int LIST_SUPPLEMENT = 2;
+
+    /** `listSplice` operations (lib.rs `list_wire`), each followed by two ints. */
+    static final int SPLICE_INSERT = 0;
+    static final int SPLICE_REMOVE = 1;
+    static final int SPLICE_MOVE = 2;
 
     /** The RecyclerView behind every `list` (docs/list.md). An unsectioned list is a plain
      *  RecyclerView. A sectioned one (docs/list.md "Sections") also pins the current section's
@@ -653,11 +962,329 @@ public final class DayBridge extends DayRuntime {
         DayFixed pinned;
         int pinnedRow = -1;
         boolean pinShown;
+        /** The list has supplementary rows (listConfigure): they take their own view type. */
+        boolean supplements;
+        /** Day observes the viewport (listConfigure): report it, never the first row alone. */
+        boolean viewport;
+        /** Day follows the end (listConfigure): report the scrolls the reader starts
+         *  (docs/list.md "Following the end"). */
+        boolean reader;
+        /** The current drag has moved the list and been reported. */
+        boolean dragReported;
+        /** A wheel event, a scrolling key or an accessibility scroll action came in and the
+         *  scroll it starts has not moved the list yet. Cleared by that first move, by Day's
+         *  own scrolls (appScroll), and shortly after the input when nothing moved. */
+        boolean readerInput;
+        final Runnable readerInputExpired = new Runnable() {
+            public void run() { readerInput = false; }
+        };
+        /** The row count the adapter last told RecyclerView about (a reload, a splice, a
+         *  swipe-delete): a splice must start from it and land on Day's count, or it would
+         *  throw RecyclerView's inconsistency exception. -1 before the first reload. */
+        int shown = -1;
+        /** The last viewport report, so a scroll tick that changed nothing sends nothing;
+         *  cleared by every data change, which day-core must hear about even when unchanged. */
+        int reportedFirst = -1, reportedLast = -1, reportedEnd = -1;
 
         DayListView(Context c, long hostId, int rowHeightPx) {
             super(c);
             this.hostId = hostId;
             this.rowHeightPx = rowHeightPx;
+        }
+
+        /** The adapter's view type for row `position` (docs/list.md "Sections", "Header,
+         *  footer and empty state"): asked across JNI only where such rows exist. */
+        int rowKind(int position) {
+            return sections || supplements ? nativeListRowKind(hostId, position) : LIST_ROW;
+        }
+
+        /** Whether a viewport report is already posted for this turn. */
+        boolean viewportQueued;
+        final Runnable viewportPost = new Runnable() {
+            public void run() {
+                viewportQueued = false;
+                sendViewport();
+            }
+        };
+
+        /** Report what the list shows (docs/list.md "Visible rows"), after a scroll and after a
+         *  layout pass (a resize, a reload or splice laid out). Posted, coalesced to one per
+         *  turn: the report enters Day, which runs the app's handlers right away when its tree
+         *  is free (an `on_end_reached` that appends rows, a `follow_end` scroll), and those
+         *  change the adapter, which RecyclerView refuses inside its own scroll and layout
+         *  callbacks. */
+        void reportViewport() {
+            if (!viewport || viewportQueued) return;
+            viewportQueued = true;
+            post(viewportPost);
+        }
+
+        /** The report itself. The distance to the end is exact while the last row is laid out,
+         *  the layout manager's estimate otherwise (at least a pixel: an unlaid last row is past
+         *  the viewport). */
+        void sendViewport() {
+            if (!viewport) return;
+            LinearLayoutManager lm = (LinearLayoutManager) getLayoutManager();
+            Adapter<?> a = getAdapter();
+            int n = a == null ? 0 : a.getItemCount();
+            if (lm == null || n == 0 || getHeight() == 0) return;
+            int first = lm.findFirstVisibleItemPosition();
+            int last = lm.findLastVisibleItemPosition();
+            if (first == NO_POSITION) return;
+            if (last == NO_POSITION || last < first) last = first;
+            int bottom = getHeight() - getPaddingBottom();
+            View end = lm.findViewByPosition(n - 1);
+            int distance;
+            if (end != null) {
+                distance = Math.max(0, lm.getDecoratedBottom(end) - bottom);
+            } else {
+                distance = Math.max(1, computeVerticalScrollRange() - computeVerticalScrollOffset()
+                        - computeVerticalScrollExtent());
+            }
+            if (first == reportedFirst && last == reportedLast && distance == reportedEnd) return;
+            reportedFirst = first;
+            reportedLast = last;
+            reportedEnd = distance;
+            nativeListViewport(hostId, first, last, distance);
+        }
+
+        /** Bring row `pos` to where `align` says (docs/list.md "Programmatic scrolling").
+         *  Nearest resolves to Start or End by the side the row is on, or to nothing when it is
+         *  already fully in view.
+         *
+         *  Animated: RecyclerView's own smoothScrollBy over a distance known in advance: from
+         *  the row itself when it is laid out, from its laid-out neighbors and the row pitch
+         *  when it is within two screens, else after a jump that puts the row exactly one
+         *  viewport short of its place (Android's own lists jump near a far target too, so the
+         *  animation covers the last screen rather than every row between). Not
+         *  LinearSmoothScroller: it seeks a target view, and Day's row binds lay the list out
+         *  mid-scroll, which drops the view it found ("Passed over target position") and sends
+         *  it on to the end of the list. Once the glide rests, the row is checked and set
+         *  right without animation if the pitch was off.
+         *
+         *  Instant: scrollToPositionWithOffset, the offset from the row's height (laid out, else
+         *  the uniform pitch), corrected once before the frame draws when the real height
+         *  differs. The layout manager clamps to the content either way. */
+        void scrollRow(final int pos, final int align, boolean animated) {
+            final LinearLayoutManager lm = (LinearLayoutManager) getLayoutManager();
+            Adapter<?> adapter = getAdapter();
+            final int count = adapter == null ? 0 : adapter.getItemCount();
+            if (lm == null || count == 0) return;
+            // A newer scroll wins: the deferred parts of this one check they are still current.
+            final int gen = ++scrollGen;
+            restGen = -1;
+            appScroll();
+            stopScroll();
+            final int top = getPaddingTop();
+            final int box = getHeight() - getPaddingTop() - getPaddingBottom();
+            View view = lm.findViewByPosition(pos);
+            int first = lm.findFirstVisibleItemPosition();
+            int last = lm.findLastVisibleItemPosition();
+            int alignTo = align;
+            if (align == LIST_ALIGN_NEAREST) {
+                if (view != null) {
+                    int t = lm.getDecoratedTop(view), b = lm.getDecoratedBottom(view);
+                    if (t >= top && b <= top + box) {
+                        reportViewport();
+                        return;
+                    }
+                    alignTo = t < top ? LIST_ALIGN_START : LIST_ALIGN_END;
+                } else {
+                    alignTo = first != NO_POSITION && pos < first
+                            ? LIST_ALIGN_START : LIST_ALIGN_END;
+                }
+            }
+            final int to = alignTo;
+            final int guess = view != null ? lm.getDecoratedMeasuredHeight(view) : rowHeightPx;
+            final int want = top + rowOffset(to, box, guess);
+            if (animated && first != NO_POSITION && last != NO_POSITION) {
+                int span = Math.max(1, last - first + 1);
+                View edge;
+                int dy;
+                if (view != null) {
+                    dy = lm.getDecoratedTop(view) - want;
+                } else if (pos > last && pos <= last + 2 * span
+                        && (edge = lm.findViewByPosition(last)) != null) {
+                    dy = lm.getDecoratedBottom(edge) + (pos - last - 1) * rowHeightPx - want;
+                } else if (pos < first && pos >= first - 2 * span
+                        && (edge = lm.findViewByPosition(first)) != null) {
+                    dy = lm.getDecoratedTop(edge) - (first - pos) * rowHeightPx - want;
+                } else {
+                    final int glide = pos > last ? box : -box;
+                    // The row's top one viewport short of its place, set through the row that
+                    // then sits at the top of the viewport (at the row pitch), so the jump lays
+                    // out one screen of rows, as any jump does. Anchoring the far-off row itself
+                    // lays out every row between it and the viewport, which the pool cannot
+                    // take back: the surplus holders are discarded with their Day rows.
+                    int pitch = Math.max(1, rowHeightPx);
+                    int base = want - top + glide;
+                    int steps = -Math.floorDiv(base, pitch);
+                    int anchor = Math.max(0, Math.min(count - 1, pos + steps));
+                    lm.scrollToPositionWithOffset(anchor, base + (anchor - pos) * pitch);
+                    // Glides once that jump is laid out.
+                    post(new Runnable() {
+                        private int tries = 0;
+                        public void run() {
+                            if (gen != scrollGen) return;
+                            if ((isLayoutRequested() || hasPendingAdapterUpdates()) && tries++ < 10) {
+                                post(this);
+                                return;
+                            }
+                            glide(gen, pos, to, glide);
+                        }
+                    });
+                    return;
+                }
+                glide(gen, pos, to, dy);
+                return;
+            }
+            lm.scrollToPositionWithOffset(pos, want - top);
+            if (to == LIST_ALIGN_START) return;
+            getViewTreeObserver().addOnPreDrawListener(
+                    new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override public boolean onPreDraw() {
+                    getViewTreeObserver().removeOnPreDrawListener(this);
+                    if (gen != scrollGen) return true;
+                    View laid = lm.findViewByPosition(pos);
+                    if (laid == null) return true;
+                    int h = lm.getDecoratedMeasuredHeight(laid);
+                    if (h == guess) return true;
+                    lm.scrollToPositionWithOffset(pos, rowOffset(to, box, h));
+                    return false;
+                }
+            });
+        }
+
+        /** Counts row scrolls (scrollRow), so the parts of one that run later can tell a newer
+         *  one has replaced it. */
+        int scrollGen;
+        /** The animated row scroll to check once the list rests (-1: none), and its row. */
+        int restGen = -1, restPos, restAlign;
+
+        void glide(int gen, int pos, int align, int dy) {
+            if (dy == 0) {
+                reportViewport();
+                return;
+            }
+            restGen = gen;
+            restPos = pos;
+            restAlign = align;
+            smoothScrollBy(0, dy);
+        }
+
+        /** An animated row scroll at rest: its row where the alignment puts it, or set there
+         *  without animation (the pitch it was estimated from was off). A user's drag cancels
+         *  the check; an edge of the content that stopped the glide short is where it rests. */
+        @Override public void onScrollStateChanged(int state) {
+            super.onScrollStateChanged(state);
+            dragReported = false;
+            if (state == SCROLL_STATE_DRAGGING) restGen = -1;
+            if (state != SCROLL_STATE_IDLE || restGen < 0 || restGen != scrollGen) return;
+            restGen = -1;
+            LinearLayoutManager lm = (LinearLayoutManager) getLayoutManager();
+            if (lm == null) return;
+            final int pos = restPos, align = restAlign, gen = scrollGen;
+            View v = lm.findViewByPosition(pos);
+            if (v != null) {
+                int box = getHeight() - getPaddingTop() - getPaddingBottom();
+                int want = getPaddingTop() + rowOffset(align, box, lm.getDecoratedMeasuredHeight(v));
+                int t = lm.getDecoratedTop(v);
+                if (t == want || (t > want && !canScrollVertically(1))
+                        || (t < want && !canScrollVertically(-1))) {
+                    return;
+                }
+            }
+            post(new Runnable() {
+                public void run() {
+                    if (gen == scrollGen && getAdapter() != null
+                            && pos < getAdapter().getItemCount()) {
+                        scrollRow(pos, align, false);
+                    }
+                }
+            });
+        }
+
+        /** The reader's scrolls (docs/list.md "Following the end"), reported as they first move
+         *  the list, so the viewport report that follows always differs from the one before:
+         *  a drag (RecyclerView's SCROLL_STATE_DRAGGING, which a touch that catches a glide
+         *  also enters), and the scroll a wheel, a key or an accessibility action starts.
+         *  Day's own scrolls (scrollRow, the end and row props) settle without dragging and
+         *  clear any input waiting to move the list; a reload or splice reports no movement. */
+        @Override public void onScrolled(int dx, int dy) {
+            super.onScrolled(dx, dy);
+            if (!reader || dy == 0) return;
+            if (getScrollState() == SCROLL_STATE_DRAGGING) {
+                if (dragReported) return;
+                dragReported = true;
+            } else if (!readerInput) {
+                return;
+            }
+            readerInput = false;
+            nativeListReaderScroll(hostId);
+        }
+
+        /** Input that may start a scroll: its first move is the reader's. Expires when nothing
+         *  moved within a few frames (a key that only moved focus, a wheel at the edge). */
+        void readerInput() {
+            if (!reader) return;
+            readerInput = true;
+            removeCallbacks(readerInputExpired);
+            postDelayed(readerInputExpired, 150);
+        }
+
+        /** Day scrolls the list itself: input still waiting to move it is not the cause. */
+        void appScroll() {
+            readerInput = false;
+            removeCallbacks(readerInputExpired);
+        }
+
+        /** A mouse wheel or trackpad scroll, which RecyclerView applies right away. */
+        @Override public boolean onGenericMotionEvent(MotionEvent e) {
+            if (ScrollTrack.isWheel(e)) readerInput();
+            return super.onGenericMotionEvent(e);
+        }
+
+        /** The keys that move focus or the list: the focus change that follows scrolls the row
+         *  into view. Only keys for the focused row or the list itself pass through here. */
+        @Override public boolean dispatchKeyEvent(KeyEvent e) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                switch (e.getKeyCode()) {
+                    case KeyEvent.KEYCODE_DPAD_UP: case KeyEvent.KEYCODE_DPAD_DOWN:
+                    case KeyEvent.KEYCODE_PAGE_UP: case KeyEvent.KEYCODE_PAGE_DOWN:
+                    case KeyEvent.KEYCODE_MOVE_HOME: case KeyEvent.KEYCODE_MOVE_END:
+                    case KeyEvent.KEYCODE_TAB: case KeyEvent.KEYCODE_SPACE:
+                        readerInput();
+                        break;
+                    default:
+                        break;
+                }
+            }
+            return super.dispatchKeyEvent(e);
+        }
+
+        /** An accessibility service's scroll (TalkBack's scroll gestures, Switch Access). */
+        @Override public boolean performAccessibilityAction(int action, android.os.Bundle args) {
+            if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                    || action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    || action == android.R.id.accessibilityActionScrollUp
+                    || action == android.R.id.accessibilityActionScrollDown
+                    || action == android.R.id.accessibilityActionScrollToPosition) {
+                readerInput();
+            }
+            return super.performAccessibilityAction(action, args);
+        }
+
+        /** Where a row `h` px tall goes for an alignment, from the top of a `box` px viewport. */
+        static int rowOffset(int align, int box, int h) {
+            if (align == LIST_ALIGN_CENTER) return (box - h) / 2;
+            if (align == LIST_ALIGN_END) return box - h;
+            return 0;
+        }
+
+        /** The rows changed: the next report goes out even with the same numbers. */
+        void dataChanged() {
+            reportedFirst = reportedLast = reportedEnd = -1;
+            pinStale();
         }
 
         /** Re-place the pinned header for the current scroll offset: called from the scroll
@@ -732,6 +1359,10 @@ public final class DayBridge extends DayRuntime {
                     color = ((GradientDrawable) bg).getColor().getDefaultColor();
                 }
                 if (bg != null && bg.getAlpha() == 255 && (color >>> 24) == 0xFF) return color;
+                // A styled surface paints itself and has no background drawable to ask.
+                if (v instanceof DayFixed && ((DayFixed) v).opaqueFill() != 0) {
+                    return ((DayFixed) v).opaqueFill();
+                }
             }
             return MaterialColors.getColor(this,
                     com.google.android.material.R.attr.colorSurface, 0xFFFFFFFF);
@@ -781,6 +1412,7 @@ public final class DayBridge extends DayRuntime {
         @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
             super.onLayout(changed, l, t, r, b);
             updatePin();
+            reportViewport();
         }
 
         @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
@@ -814,10 +1446,16 @@ public final class DayBridge extends DayRuntime {
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
             int previous = -1;
             @Override public void onScrolled(RecyclerView view, int dx, int dy) {
-                int first = ((LinearLayoutManager) view.getLayoutManager()).findFirstVisibleItemPosition();
-                if (first >= 0 && first != previous) {
-                    previous = first;
-                    nativeOnEvent(hostId, K_CUSTOM, first, "day-list-first-visible");
+                if (rv.viewport) {
+                    // Every scroll, the user's or a programmatic one, each step of an animated
+                    // one included (docs/list.md "Visible rows").
+                    rv.reportViewport();
+                } else {
+                    int first = ((LinearLayoutManager) view.getLayoutManager()).findFirstVisibleItemPosition();
+                    if (first >= 0 && first != previous) {
+                        previous = first;
+                        nativeOnEvent(hostId, K_CUSTOM, first, "day-list-first-visible");
+                    }
                 }
                 rv.updatePin();
             }
@@ -825,13 +1463,18 @@ public final class DayBridge extends DayRuntime {
         rv.setAdapter(new RecyclerView.Adapter<DayCellHolder>() {
             public int getItemCount() { return nativeListLen(hostId); }
             @Override public int getItemViewType(int position) {
-                return rv.sections && nativeListIsHeader(hostId, position) ? LIST_HEADER : LIST_ROW;
+                return rv.rowKind(position);
             }
             public DayCellHolder onCreateViewHolder(ViewGroup parent, int viewType) {
                 DayFixed cell = new DayFixed(ctx);
                 cell.setLayoutParams(new RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
-                if (viewType == LIST_HEADER) {
+                if (viewType == LIST_SUPPLEMENT) {
+                    // The list's own header, footer, empty state or padding: content that
+                    // scrolls with the rows, not a row. No ripple, no click, no focus stop;
+                    // Day sizes it at bind, whatever the items' pitch.
+                    cell.setFocusable(false);
+                } else if (viewType == LIST_HEADER) {
                     // A section header (docs/list.md "Sections"): no ripple, no click, no focus
                     // stop for the arrow keys; Day sizes it to its content at bind, whatever the
                     // items' pitch. TalkBack reads it as a heading to navigate by.
@@ -853,7 +1496,7 @@ public final class DayBridge extends DayRuntime {
             }
             public void onBindViewHolder(DayCellHolder h, int position) {
                 nativeListBind(hostId, position, h.itemView);
-                if (selectable && h.getItemViewType() != LIST_HEADER) {
+                if (selectable && h.getItemViewType() == LIST_ROW) {
                     // A rebound holder inherits the row's selection state; the sync patch
                     // (listPaintSelection) covers the holders already on screen.
                     paintSelected(h.itemView, nativeListIsSelected(hostId, position));
@@ -887,8 +1530,9 @@ public final class DayBridge extends DayRuntime {
             new ItemTouchHelper(new ItemTouchHelper.Callback() {
                 public int getMovementFlags(RecyclerView r, RecyclerView.ViewHolder vh) {
                     // A section header never lifts or slides (docs/list.md "Sections"); a row
-                    // drags within its section, which Day's guard enforces at each swap.
-                    if (vh.getItemViewType() == LIST_HEADER) return 0;
+                    // drags within its section, which Day's guard enforces at each swap. A
+                    // supplementary row is not a row at all.
+                    if (vh.getItemViewType() != LIST_ROW) return 0;
                     int drag = reorderable ? (ItemTouchHelper.UP | ItemTouchHelper.DOWN) : 0;
                     // `START`, not `LEFT`: it resolves against the layout direction, so the gesture
                     // is a trailing-edge swipe in both LTR and RTL, the same edge iOS uses.
@@ -932,6 +1576,7 @@ public final class DayBridge extends DayRuntime {
                     int from = cur.getBindingAdapterPosition();
                     int to = target.getBindingAdapterPosition();
                     return from != RecyclerView.NO_POSITION && to != RecyclerView.NO_POSITION
+                        && target.getItemViewType() != LIST_SUPPLEMENT
                         && nativeListCanDrop(hostId, from, to);
                 }
                 public boolean onMove(RecyclerView r, RecyclerView.ViewHolder vh,
@@ -954,7 +1599,10 @@ public final class DayBridge extends DayRuntime {
                         // nativeListDelete already shortened day's snapshot; tell the adapter
                         // so the removal animates out of the swipe instead of snapping via a
                         // reload.
-                        if (a != null) a.notifyItemRemoved(pos);
+                        if (a != null) {
+                            a.notifyItemRemoved(pos);
+                            if (rv.shown > 0) rv.shown--;
+                        }
                     } else if (a != null) {
                         // Refused after the fact: put the row back where it was.
                         a.notifyItemChanged(pos);
@@ -986,7 +1634,7 @@ public final class DayBridge extends DayRuntime {
             int pos = rv.getChildAdapterPosition(child);
             RecyclerView.ViewHolder vh = rv.getChildViewHolder(child);
             // A section header is never selected and keeps its own look.
-            if (pos != RecyclerView.NO_POSITION && vh.getItemViewType() != LIST_HEADER) {
+            if (pos != RecyclerView.NO_POSITION && vh.getItemViewType() == LIST_ROW) {
                 paintSelected(child, nativeListIsSelected(hostId, pos));
             }
         }
@@ -1003,17 +1651,128 @@ public final class DayBridge extends DayRuntime {
                 : 0x00000000);
     }
 
+    /** What the attached source offers (docs/list.md): `viewport`, Day observes the viewport
+     *  (`ListSource::viewport`); `reader`, Day follows the end and hears the reader's scrolls
+     *  (`ListSource::reader_scroll`); `supplements`, the list has supplementary rows
+     *  (`ListSource::is_supplement`). Called by attach_list, before its reload binds a row. */
+    public static void listConfigure(View v, boolean viewport, boolean reader,
+                                     boolean supplements) {
+        if (!(v instanceof DayListView)) return;
+        DayListView rv = (DayListView) v;
+        rv.viewport = viewport;
+        rv.reader = reader;
+        rv.supplements = supplements;
+        rv.dataChanged();
+    }
+
     public static void listReload(View v) {
-        if (v instanceof DayListView) ((DayListView) v).pinStale();
+        if (v instanceof DayListView) {
+            DayListView rv = (DayListView) v;
+            rv.dataChanged();
+            rv.shown = nativeListLen(rv.hostId);
+        }
         if (v instanceof RecyclerView && ((RecyclerView) v).getAdapter() != null) {
             ((RecyclerView) v).getAdapter().notifyDataSetChanged();
         }
+    }
+
+    /** Apply Day's row deltas (ListPatch::Splice, docs/list.md "Keyed updates") as the
+     *  adapter's own range notifications, in order: triples of SPLICE_* kind and two ints
+     *  (lib.rs `list_wire::splice_ops`). The item animator animates them unless reduce motion
+     *  took it away.
+     *
+     *  RecyclerView throws (an inconsistency in its next layout) when the notifications do not
+     *  carry the count it last saw to the count the adapter now reports. So the operations are
+     *  checked first against `shown`, and they must land on Day's count; a splice that would not
+     *  (a delta missed by a code path that changed the rows without telling the list) becomes
+     *  a reload that keeps the first visible row where it was. */
+    public static void listSplice(View v, int[] ops) {
+        if (!(v instanceof DayListView)) {
+            listReload(v);
+            return;
+        }
+        DayListView rv = (DayListView) v;
+        RecyclerView.Adapter<?> a = rv.getAdapter();
+        LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
+        if (a == null || lm == null) return;
+        rv.dataChanged();
+        int count = rv.shown;
+        boolean valid = count >= 0 && ops != null && ops.length % 3 == 0;
+        for (int i = 0; valid && i < ops.length; i += 3) {
+            int at = ops[i + 1], b = ops[i + 2];
+            switch (ops[i]) {
+                case SPLICE_INSERT: valid = at >= 0 && at <= count && b > 0; count += b; break;
+                case SPLICE_REMOVE: valid = at >= 0 && b > 0 && at + b <= count; count -= b; break;
+                case SPLICE_MOVE: valid = at >= 0 && at < count && b >= 0 && b < count; break;
+                default: valid = false;
+            }
+        }
+        int actual = nativeListLen(rv.hostId);
+        if (!valid || count != actual) {
+            android.util.Log.w("day", "list splice does not match the source (" + rv.shown
+                    + " rows, ends at " + count + ", source has " + actual + "): reloading");
+            int first = lm.findFirstVisibleItemPosition();
+            View top = first == RecyclerView.NO_POSITION ? null : lm.findViewByPosition(first);
+            int offset = top == null ? 0 : lm.getDecoratedTop(top) - rv.getPaddingTop();
+            rv.shown = actual;
+            a.notifyDataSetChanged();
+            if (first != RecyclerView.NO_POSITION && actual > 0) {
+                lm.scrollToPositionWithOffset(Math.min(first, actual - 1), offset);
+            }
+            return;
+        }
+        // A list resting at its top stays there, as a scroll view's offset would: the layout
+        // manager otherwise anchors on the row that was first, and a row inserted or moved
+        // above it lands out of view.
+        boolean atTop = rv.getChildCount() > 0 && !rv.canScrollVertically(-1);
+        for (int i = 0; i < ops.length; i += 3) {
+            switch (ops[i]) {
+                case SPLICE_INSERT: a.notifyItemRangeInserted(ops[i + 1], ops[i + 2]); break;
+                case SPLICE_REMOVE: a.notifyItemRangeRemoved(ops[i + 1], ops[i + 2]); break;
+                default: a.notifyItemMoved(ops[i + 1], ops[i + 2]); break;
+            }
+        }
+        rv.shown = actual;
+        if (atTop && actual > 0) lm.scrollToPositionWithOffset(0, 0);
+    }
+
+    /** `listScroll` alignments (lib.rs `list_wire::align_code`). */
+    static final int LIST_ALIGN_NEAREST = 0;
+    static final int LIST_ALIGN_START = 1;
+    static final int LIST_ALIGN_CENTER = 2;
+    static final int LIST_ALIGN_END = 3;
+
+    /** Scroll the list to row `row`, or to the very end of its content for -1
+     *  (Toolkit::list_scroll, docs/list.md "Programmatic scrolling"). Posted: the scroll may
+     *  arrive in the same turn as the splice or reload that made its row, and a post runs
+     *  after the layout pass those requested. */
+    public static void listScroll(View v, final int row, final int align, final boolean animated) {
+        if (!(v instanceof DayListView)) return;
+        final DayListView rv = (DayListView) v;
+        rv.post(new Runnable() {
+            private int tries = 0;
+            public void run() {
+                RecyclerView.Adapter<?> a = rv.getAdapter();
+                int n = a == null ? 0 : a.getItemCount();
+                if (n == 0) return;
+                // Not laid out yet, or rows still pending: after the next layout pass
+                // (bounded, in case the list never lays out).
+                if ((rv.getHeight() == 0 || rv.hasPendingAdapterUpdates() || rv.isLayoutRequested())
+                        && tries++ < 10) {
+                    rv.post(this);
+                    return;
+                }
+                if (row < 0) rv.scrollRow(n - 1, LIST_ALIGN_END, animated);
+                else rv.scrollRow(Math.min(row, n - 1), align, animated);
+            }
+        });
     }
     /** Scroll the list so row `row` is visible (docs/list.md), realizing it if needed. Posted
      *  like listScrollToEnd; clamped to the count; no-op when empty. */
     public static void listScrollToRow(View v, final int row) {
         if (!(v instanceof RecyclerView)) return;
         final RecyclerView rv = (RecyclerView) v;
+        if (rv instanceof DayListView) ((DayListView) rv).appScroll();
         rv.post(new Runnable() {
             public void run() {
                 RecyclerView.Adapter<?> a = rv.getAdapter();
@@ -1027,6 +1786,7 @@ public final class DayBridge extends DayRuntime {
     public static void listScrollToEnd(View v) {
         if (!(v instanceof RecyclerView)) return;
         final RecyclerView rv = (RecyclerView) v;
+        if (rv instanceof DayListView) ((DayListView) rv).appScroll();
         rv.post(new Runnable() {
             public void run() {
                 RecyclerView.Adapter<?> a = rv.getAdapter();
@@ -1039,12 +1799,281 @@ public final class DayBridge extends DayRuntime {
         });
     }
 
-    public static View makeScroll(boolean horizontal) {
+    /** `makeScroll` preference bits (lib.rs `list_wire::scroll_flags`, docs/scroll.md). */
+    static final int SCROLL_HIDE_INDICATORS = 1;
+    static final int SCROLL_BOUNCE_NEVER = 2;
+    static final int SCROLL_BOUNCE_ALWAYS = 4;
+    static final int SCROLL_SNAP_PAGE = 8;
+    static final int SCROLL_SNAP_INTERVAL = 16;
+    static final int SCROLL_KEYBOARD_DRAG = 32;
+    static final int SCROLL_KEYBOARD_TAPS = 64;
+    static final int SCROLL_TRACK_OFFSET = 128;
+    static final int SCROLL_TRACK_PHASE = 256;
+    static final int PHASE_IDLE = 0, PHASE_DRAGGING = 1, PHASE_COASTING = 2;
+
+    /** What a Day scroll view adds to ScrollView / HorizontalScrollView (docs/scroll.md), one
+     *  per view, fed by both subclasses' overrides:
+     *  - the offset, sent at most once per frame on the custom channel and always once more
+     *    after the last change ("day:scroll:x,y", px from the leading edge);
+     *  - the phase, which ScrollView has no callback for: Dragging when the content moves under
+     *    a finger (or a wheel turns), Coasting when the finger lifts into a fling or a snap,
+     *    Idle when the content has held still for a few frames or the finger lifted with no
+     *    momentum ("day:scroll-phase:n");
+     *  - snapping, by taking over fling() and the release: the stop a fling would reach
+     *    (predicted with the same OverScroller physics ScrollView flings with), rounded to a
+     *    page or an interval, then smoothScrollTo it;
+     *  - the software keyboard, hidden when a drag begins and, with KeyboardTaps::Dismiss, by a
+     *    tap that is not on a text field, which the scroll view then keeps from its children. */
+    static final class ScrollTrack {
+        final ViewGroup view;
+        final long node;
+        final int flags;
+        /** The snap interval in px, unrounded: stop k is at round(k * snapPx). */
+        final float snapPx;
+        final boolean horizontal;
+        final int slop;
+        int phase = PHASE_IDLE;
+        boolean fingerDown, flung, tapDismiss, offsetPosted, watching;
+        float downX, downY;
+        int startLead, lastPos, stillFrames;
+        final Runnable sendOffset = new Runnable() {
+            public void run() {
+                offsetPosted = false;
+                int lead = lead(raw());
+                nativeOnEvent(node, K_CUSTOM, 0, "day:scroll:"
+                        + (horizontal ? lead + ",0" : "0," + lead));
+            }
+        };
+        final Runnable watch = new Runnable() {
+            public void run() {
+                if (phase != PHASE_COASTING) {
+                    watching = false;
+                    return;
+                }
+                int p = raw();
+                if (p == lastPos) stillFrames++;
+                else {
+                    stillFrames = 0;
+                    lastPos = p;
+                }
+                if (stillFrames >= 4) {
+                    watching = false;
+                    enter(PHASE_IDLE);
+                } else {
+                    view.postOnAnimation(this);
+                }
+            }
+        };
+        final Runnable wheelIdle = new Runnable() {
+            public void run() {
+                if (fingerDown || phase != PHASE_DRAGGING) return;
+                enter(snapRest() ? PHASE_COASTING : PHASE_IDLE);
+            }
+        };
+
+        ScrollTrack(ViewGroup view, long node, int flags, float snapPx, boolean horizontal) {
+            this.view = view;
+            this.node = node;
+            this.flags = flags;
+            this.snapPx = snapPx;
+            this.horizontal = horizontal;
+            this.slop = android.view.ViewConfiguration.get(view.getContext()).getScaledTouchSlop();
+        }
+
+        boolean has(int bit) { return (flags & bit) != 0; }
+        boolean snaps() { return has(SCROLL_SNAP_PAGE) || has(SCROLL_SNAP_INTERVAL); }
+        int raw() { return horizontal ? view.getScrollX() : view.getScrollY(); }
+        int extent() {
+            return horizontal ? view.getWidth() - view.getPaddingLeft() - view.getPaddingRight()
+                    : view.getHeight() - view.getPaddingTop() - view.getPaddingBottom();
+        }
+        int range() {
+            if (view.getChildCount() == 0) return 0;
+            View c = view.getChildAt(0);
+            return Math.max(0, (horizontal ? c.getWidth() : c.getHeight()) - extent());
+        }
+        boolean rtl() {
+            return horizontal && view.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+        }
+        /** A raw scroll position from the leading edge (an RTL horizontal view counts from
+         *  its right edge), and back: the same map both ways. */
+        int lead(int raw) { return rtl() ? range() - raw : raw; }
+
+        void scrolled() {
+            if (has(SCROLL_TRACK_OFFSET) && !offsetPosted) {
+                offsetPosted = true;
+                view.postOnAnimation(sendOffset);
+            }
+            if (fingerDown && phase != PHASE_DRAGGING) enter(PHASE_DRAGGING);
+        }
+
+        void enter(int next) {
+            if (next == phase) return;
+            phase = next;
+            if (has(SCROLL_TRACK_PHASE)) nativeOnEvent(node, K_CUSTOM, 0, "day:scroll-phase:" + next);
+            if (next == PHASE_DRAGGING && fingerDown && has(SCROLL_KEYBOARD_DRAG)) dismissKeyboard();
+            if (next == PHASE_COASTING && !watching) {
+                watching = true;
+                lastPos = raw();
+                stillFrames = 0;
+                view.postOnAnimation(watch);
+            }
+        }
+
+        /** Before the view dispatches a touch. */
+        void touchBefore(MotionEvent e) {
+            if (e.getActionMasked() != MotionEvent.ACTION_DOWN) return;
+            fingerDown = true;
+            flung = false;
+            downX = e.getX();
+            downY = e.getY();
+            startLead = lead(raw());
+            // A finger on coasting content stops it (ScrollView aborts the fling at the down).
+            if (phase == PHASE_COASTING) enter(PHASE_IDLE);
+        }
+
+        /** After the view dispatched a touch: its onTouchEvent may have flung on the up. */
+        void touchAfter(MotionEvent e) {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_MOVE && tapDismiss
+                    && Math.hypot(e.getX() - downX, e.getY() - downY) > slop) {
+                tapDismiss = false;
+            }
+            if (action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL) return;
+            fingerDown = false;
+            if (tapDismiss) {
+                tapDismiss = false;
+                if (action == MotionEvent.ACTION_UP) dismissKeyboard();
+            }
+            if (flung) {
+                if (phase == PHASE_DRAGGING) enter(PHASE_COASTING);
+            } else if (snapRest()) {
+                enter(PHASE_COASTING);
+            } else if (phase == PHASE_DRAGGING) {
+                enter(PHASE_IDLE);
+            }
+        }
+
+        /** The view's onInterceptTouchEvent: true keeps a keyboard-dismissing tap from the
+         *  children (the view's own onTouchEvent still scrolls if it turns into a drag). */
+        boolean intercept(MotionEvent e) {
+            if (e.getActionMasked() != MotionEvent.ACTION_DOWN) return tapDismiss;
+            tapDismiss = has(SCROLL_KEYBOARD_TAPS) && imeVisible(view)
+                    && !textEditorAt(view, e.getX(), e.getY());
+            return tapDismiss;
+        }
+
+        /** The view's fling(): true when snapping took it over. */
+        boolean fling(int velocity) {
+            flung = true;
+            if (!snaps()) return false;
+            int v = rtl() ? -velocity : velocity;
+            float unit = snapUnit();
+            if (unit < 1f) return false;
+            int lead = lead(raw());
+            int stop;
+            if (has(SCROLL_SNAP_PAGE)) {
+                // The next page in the fling's direction, never more than one from the page
+                // the swipe started on.
+                stop = (int) (v > 0 ? Math.ceil(lead / unit) : Math.floor(lead / unit));
+                int start = Math.round(startLead / unit);
+                stop = Math.max(start - 1, Math.min(start + 1, stop));
+            } else {
+                android.widget.OverScroller predict = new android.widget.OverScroller(view.getContext());
+                predict.fling(0, lead, 0, v, 0, 0, 0, range());
+                stop = Math.round(predict.getFinalY() / unit);
+                predict.abortAnimation();
+            }
+            smoothTo(Math.round(stop * unit));
+            return true;
+        }
+
+        /** At rest off a stop: glide to the nearest one. True when it moves. */
+        boolean snapRest() {
+            if (!snaps()) return false;
+            float unit = snapUnit();
+            if (unit < 1f) return false;
+            int lead = lead(raw());
+            int stop = Math.round(lead / unit);
+            if (has(SCROLL_SNAP_PAGE)) {
+                int start = Math.round(startLead / unit);
+                stop = Math.max(start - 1, Math.min(start + 1, stop));
+            }
+            int target = Math.max(0, Math.min(range(), Math.round(stop * unit)));
+            if (target == lead) return false;
+            smoothTo(target);
+            return true;
+        }
+
+        /** The distance between stops: the viewport for paging, else the interval. */
+        float snapUnit() { return has(SCROLL_SNAP_PAGE) ? extent() : snapPx; }
+
+        void smoothTo(int lead) {
+            int clamped = Math.max(0, Math.min(range(), lead));
+            int raw = rtl() ? range() - clamped : clamped;
+            if (view instanceof HorizontalScrollView) ((HorizontalScrollView) view).smoothScrollTo(raw, 0);
+            else if (view instanceof ScrollView) ((ScrollView) view).smoothScrollTo(0, raw);
+        }
+
+        /** A wheel or trackpad scroll the view handled: a short drag of its own. */
+        void wheel() {
+            if (phase == PHASE_IDLE) {
+                startLead = lead(raw());
+                enter(PHASE_DRAGGING);
+            }
+            view.removeCallbacks(wheelIdle);
+            view.postDelayed(wheelIdle, 150);
+        }
+
+        void dismissKeyboard() {
+            if (!imeVisible(view)) return;
+            InputMethodManager imm = (InputMethodManager)
+                    view.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+            View focused = view.getRootView().findFocus();
+            if (focused != null && focused.onCheckIsTextEditor()) focused.clearFocus();
+        }
+
+        /** Whether the software keyboard is up (WindowInsetsCompat: exact on API 30+, inferred
+         *  from the root insets below). */
+        static boolean imeVisible(View v) {
+            androidx.core.view.WindowInsetsCompat insets = androidx.core.view.ViewCompat.getRootWindowInsets(v);
+            return insets != null && insets.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime());
+        }
+
+        /** Whether the touch at (x, y) in `v`'s coordinates lands on a text input. */
+        static boolean textEditorAt(View v, float x, float y) {
+            if (v.onCheckIsTextEditor()) return true;
+            if (!(v instanceof ViewGroup)) return false;
+            ViewGroup g = (ViewGroup) v;
+            for (int i = g.getChildCount() - 1; i >= 0; i--) {
+                View c = g.getChildAt(i);
+                if (c.getVisibility() != View.VISIBLE) continue;
+                float cx = x + g.getScrollX() - c.getLeft() - c.getTranslationX();
+                float cy = y + g.getScrollY() - c.getTop() - c.getTranslationY();
+                if (cx >= 0 && cy >= 0 && cx < c.getWidth() && cy < c.getHeight()) {
+                    return textEditorAt(c, cx, cy);
+                }
+            }
+            return false;
+        }
+
+        static boolean isWheel(MotionEvent e) {
+            return e.getActionMasked() == MotionEvent.ACTION_SCROLL
+                    && (e.getSource() & android.view.InputDevice.SOURCE_CLASS_POINTER) != 0;
+        }
+    }
+
+    /** The scroll piece (docs/scroll.md): a ScrollView or HorizontalScrollView with its
+     *  preferences (SCROLL_* bits) and a ScrollTrack. `snapPx` is the interval for
+     *  SCROLL_SNAP_INTERVAL; `node` is where the offset and phase reports go. */
+    public static View makeScroll(boolean horizontal, int flags, float snapPx, long node) {
         // The onSizeChanged overrides are the keyboard-avoidance reveal (docs/focus.md): when
         // this viewport SHRINKS while a descendant holds focus (the IME just rose and Day
         // relaid out), scroll the focused view back in. Posted so it runs after the layout
         // pass that delivered the new size; requestRectangleOnScreen is a minimal scroll.
         ViewGroup sv;
+        final ScrollTrack[] track = new ScrollTrack[1];
         if (horizontal) {
             sv = new HorizontalScrollView(ctx) {
                 @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
@@ -1057,6 +2086,28 @@ public final class DayBridge extends DayRuntime {
                         f.requestRectangleOnScreen(new android.graphics.Rect(
                                 0, 0, f.getWidth(), f.getHeight()), false);
                     }
+                }
+                @Override public boolean dispatchTouchEvent(MotionEvent e) {
+                    track[0].touchBefore(e);
+                    boolean handled = super.dispatchTouchEvent(e);
+                    track[0].touchAfter(e);
+                    return handled;
+                }
+                @Override public boolean onInterceptTouchEvent(MotionEvent e) {
+                    boolean intercepted = super.onInterceptTouchEvent(e);
+                    return track[0].intercept(e) || intercepted;
+                }
+                @Override public void fling(int velocityX) {
+                    if (!track[0].fling(velocityX)) super.fling(velocityX);
+                }
+                @Override protected void onScrollChanged(int l, int t, int oldL, int oldT) {
+                    super.onScrollChanged(l, t, oldL, oldT);
+                    track[0].scrolled();
+                }
+                @Override public boolean onGenericMotionEvent(MotionEvent e) {
+                    boolean handled = super.onGenericMotionEvent(e);
+                    if (handled && ScrollTrack.isWheel(e)) track[0].wheel();
+                    return handled;
                 }
             };
         } else {
@@ -1072,10 +2123,39 @@ public final class DayBridge extends DayRuntime {
                                 0, 0, f.getWidth(), f.getHeight()), false);
                     }
                 }
+                @Override public boolean dispatchTouchEvent(MotionEvent e) {
+                    track[0].touchBefore(e);
+                    boolean handled = super.dispatchTouchEvent(e);
+                    track[0].touchAfter(e);
+                    return handled;
+                }
+                @Override public boolean onInterceptTouchEvent(MotionEvent e) {
+                    boolean intercepted = super.onInterceptTouchEvent(e);
+                    return track[0].intercept(e) || intercepted;
+                }
+                @Override public void fling(int velocityY) {
+                    if (!track[0].fling(velocityY)) super.fling(velocityY);
+                }
+                @Override protected void onScrollChanged(int l, int t, int oldL, int oldT) {
+                    super.onScrollChanged(l, t, oldL, oldT);
+                    track[0].scrolled();
+                }
+                @Override public boolean onGenericMotionEvent(MotionEvent e) {
+                    boolean handled = super.onGenericMotionEvent(e);
+                    if (handled && ScrollTrack.isWheel(e)) track[0].wheel();
+                    return handled;
+                }
             };
         }
+        track[0] = new ScrollTrack(sv, node, flags, snapPx, horizontal);
         if (sv instanceof ScrollView) ((ScrollView) sv).setFillViewport(false);
         else ((HorizontalScrollView) sv).setFillViewport(false);
+        if ((flags & SCROLL_HIDE_INDICATORS) != 0) {
+            sv.setVerticalScrollBarEnabled(false);
+            sv.setHorizontalScrollBarEnabled(false);
+        }
+        if ((flags & SCROLL_BOUNCE_NEVER) != 0) sv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        else if ((flags & SCROLL_BOUNCE_ALWAYS) != 0) sv.setOverScrollMode(View.OVER_SCROLL_ALWAYS);
         sv.addView(new DayFixed(ctx));
         return sv;
     }
@@ -1175,12 +2255,26 @@ public final class DayBridge extends DayRuntime {
         if (content instanceof DayFixed) ((DayFixed) content).setContentSize(w, h);
     }
 
-    /** A label's `TextAlign`: 1 = center, 2 = trailing. Leading keeps the default, which follows the layout direction. */
+    /** A label's `TextAlign`: 1 = center, 2 = trailing, 3 = justified. Leading keeps the default,
+     *  which follows the layout direction. Justified stretches every line but the last
+     *  (`JUSTIFICATION_MODE_INTER_WORD`, API 26); below that it stays leading. */
     public static void setLabelAlignment(View view, int align) {
-        ((TextView) view).setTextAlignment(align == 1 ? View.TEXT_ALIGNMENT_CENTER : View.TEXT_ALIGNMENT_VIEW_END);
+        TextView t = (TextView) view;
+        if (align == 3) {
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                t.setJustificationMode(android.text.Layout.JUSTIFICATION_MODE_INTER_WORD);
+            }
+            return;
+        }
+        t.setTextAlignment(align == 1 ? View.TEXT_ALIGNMENT_CENTER : View.TEXT_ALIGNMENT_VIEW_END);
     }
 
+    /** `.single_line()`: one line whatever the limit, ended as the label's truncation says. */
     public static void setLabelSingleLine(View view) {
+        if (view instanceof DayLabel) {
+            ((DayLabel) view).setDaySingleLine(true);
+            return;
+        }
         TextView label = (TextView) view;
         label.setSingleLine(true);
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -1193,12 +2287,72 @@ public final class DayBridge extends DayRuntime {
         label.setEllipsize(android.text.TextUtils.TruncateAt.END);
     }
 
+    /**
+     * A label's paragraph attributes (`LabelParagraph`, docs/text.md), whole and idempotent:
+     * the line limit (0 = unlimited), the truncation (0 tail, 1 head, 2 middle), the letter
+     * spacing in ems and the line height as a multiple of the font size (0 = the font's own).
+     * The next measurement answers for them.
+     */
+    public static void setLabelParagraph(View view, int maxLines, int truncation, float letterSpacing, float lineHeight) {
+        if (view instanceof DayLabel) {
+            ((DayLabel) view).setParagraph(maxLines, truncation, letterSpacing, lineHeight);
+        } else if (view instanceof TextView) {
+            TextView t = (TextView) view;
+            t.setLetterSpacing(letterSpacing);
+            if (maxLines > 0) setLabelMaxLines(view, maxLines);
+        }
+    }
+
+    /** Report the reader's selection in this label to Day node `node` (`Label::on_selection`). */
+    public static void setLabelReportsSelection(View view, long node) {
+        if (view instanceof DayLabel) ((DayLabel) view).reportSelection(node);
+    }
+
+    /** The whole label's OpenType features (`FontSpec::feature_tags`, comma-joined), after
+     *  `setLabelFont`, which sets tabular figures alone. */
+    public static void setLabelFeatures(View view, String features) {
+        ((TextView) view).setFontFeatureSettings(features == null || features.isEmpty() ? null : features);
+    }
+
     public static View makeLabel(String text) {
-        TextView t = new TextView(ctx);
-        t.setText(text);
+        DayLabel t = new DayLabel(ctx);
+        t.setDayText(text);
         return t;
     }
-    public static void setLabel(View v, String text) { ((TextView) v).setText(text); }
+    public static void setLabel(View v, String text) {
+        if (v instanceof DayLabel) ((DayLabel) v).setDayText(text);
+        else ((TextView) v).setText(text);
+    }
+
+    /**
+     * One widget's reading direction (`Toolkit::set_layout_direction`, docs/localization.md
+     * "Direction of a subtree"): its layout direction (a control's inner arrangement, which edge
+     * `View.TEXT_ALIGNMENT_VIEW_END` means) and its text direction (a label's or a field's base
+     * direction, so `Leading` is the right edge in a right-to-left subtree). Day places every
+     * child itself, so Day's own hosts are left alone: on a view group the property would only
+     * re-resolve start and end for children whose frames Day already mirrored.
+     */
+    public static void setViewDirection(View v, boolean rtl) {
+        if (v instanceof DayFixed || v instanceof ScrollView || v instanceof HorizontalScrollView
+                || v instanceof RecyclerView) {
+            return;
+        }
+        v.setLayoutDirection(rtl ? View.LAYOUT_DIRECTION_RTL : View.LAYOUT_DIRECTION_LTR);
+        v.setTextDirection(rtl ? View.TEXT_DIRECTION_RTL : View.TEXT_DIRECTION_LTR);
+    }
+
+    /**
+     * The factor the reader's font size setting applies to text of `sp` scaled pixels
+     * (`Toolkit::text_scale`, docs/text.md "Text scale"): the pixels Android gives that size
+     * over the pixels it would give it at the default setting. Android 14 scales large sizes
+     * less than small ones (non-linear font scaling), which `applyDimension` follows; before
+     * that it is `Configuration.fontScale` for every size.
+     */
+    public static float textScale(float sp) {
+        android.util.DisplayMetrics m = ctx.getResources().getDisplayMetrics();
+        if (sp <= 0f || m.density <= 0f) return 1f;
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, m) / (sp * m.density);
+    }
 
     /**
      * Set a label's text with styled RUNS (docs/text-runs.md).
@@ -1208,13 +2362,18 @@ public final class DayBridge extends DayRuntime {
      * label patch. Layout: starts[i], ends[i] are UTF-16 offsets (Java string indices; Rust
      * converts from its byte offsets), and flags[i] packs bold/italic/mono/strike/hasColor with
      * colors[i] holding the ARGB when the flag says so. `links[i]` is null for a plain run.
+     * Flag bits: 1 bold, 2 italic, 4 monospace, 8 a plain strikethrough, 16 a color, 32 a
+     * background, 64 a plain underline, 1024 small capitals (`smcp`), 2048 oldstyle figures
+     * (`onum`), 4096 tabular figures (`tnum`). A decoration Android has no span for (a double,
+     * dotted or wavy line, or one in its own color) arrives in `decorations` instead, five ints
+     * per line (`DayLabel.DECO_STRIDE`), and the label strokes it over its layout.
      *
      * The spans are Android's own, so the text stays one TextView: it wraps, selects and is read
      * by TalkBack as a single paragraph, which is the entire point of runs.
      */
     public static void setLabelRuns(
             View v, final long node, String text, int[] starts, int[] ends, int[] flags, int[] colors,
-            int[] backgrounds, int[] scales, String linksJoined) {
+            int[] backgrounds, int[] scales, String linksJoined, int[] decorations) {
         TextView tv = (TextView) v;
         boolean anyLink = false;
         android.text.SpannableString s = new android.text.SpannableString(text);
@@ -1237,12 +2396,17 @@ public final class DayBridge extends DayRuntime {
             if ((f & 8) != 0) s.setSpan(new android.text.style.StrikethroughSpan(), a, b, EXCL);
             if ((f & 16) != 0) s.setSpan(new android.text.style.ForegroundColorSpan(colors[i]), a, b, EXCL);
             if ((f & 32) != 0) s.setSpan(new android.text.style.BackgroundColorSpan(backgrounds[i]), a, b, EXCL);
-            // Android has one underline span: a dotted or wavy request draws a plain line
-            // (docs/text-runs.md records which toolkits distinguish them).
+            // A plain single underline is the native span; any other style or color arrives in
+            // `decorations` and DayLabel strokes it.
             if ((f & 64) != 0) s.setSpan(new android.text.style.UnderlineSpan(), a, b, EXCL);
             // Relative size (FontSpec::scale) as a RelativeSizeSpan, which is exactly its shape:
             // a multiplier over the inherited size, so the run still tracks the user's Font Size
             // setting rather than freezing at a pixel value.
+            String tags = ((f & 4096) != 0 ? "tnum," : "") + ((f & 1024) != 0 ? "smcp," : "")
+                    + ((f & 2048) != 0 ? "onum," : "");
+            if (!tags.isEmpty()) {
+                s.setSpan(new DayLabel.FeatureSpan(tags.substring(0, tags.length() - 1)), a, b, EXCL);
+            }
             if (i < scales.length && scales[i] != 1000 && scales[i] > 0) {
                 s.setSpan(new android.text.style.RelativeSizeSpan(scales[i] / 1000f), a, b, EXCL);
             }
@@ -1260,7 +2424,12 @@ public final class DayBridge extends DayRuntime {
                 anyLink = true;
             }
         }
-        tv.setText(s);
+        if (tv instanceof DayLabel) {
+            ((DayLabel) tv).setDayText(s);
+            ((DayLabel) tv).setDecorations(decorations);
+        } else {
+            tv.setText(s);
+        }
         // Clicks on spans need a movement method. It is set only when a link is present: it
         // replaces the selection movement method, so a selectable label without links keeps
         // its selection behavior intact (docs/text-runs.md).
@@ -1293,6 +2462,8 @@ public final class DayBridge extends DayRuntime {
             int style = (weight >= 600 ? Typeface.BOLD : Typeface.NORMAL) | (italic ? Typeface.ITALIC : 0);
             t.setTypeface(Typeface.create(base, style));
         }
+        // A line height is a multiple of the size just set.
+        if (t instanceof DayLabel) ((DayLabel) t).fontChanged();
     }
 
     private static final java.util.Map<String, Typeface> FONT_CACHE = new java.util.HashMap<>();
@@ -1518,25 +2689,28 @@ public final class DayBridge extends DayRuntime {
         b.setIconTint(android.content.res.ColorStateList.valueOf(fgArgb));
     }
 
-    /** Attach a tap or drag recognizer to a view (docs/shapes.md). Coordinates are px; Rust
-     *  converts to dp. Event kind 11; num = phase (0=tap 1=began 2=changed 3=ended). */
-    /** Per-view enabled gestures `{wantsTap, wantsDrag}`: a view can carry both (tap + drag), so
-     *  the single OnTouchListener must emit whichever the node asked for. UIKit's recognizers
-     *  coexist; a bare setOnTouchListener does not, so we accumulate here rather than overwrite. */
-    static final java.util.WeakHashMap<View, boolean[]> gestureFlags = new java.util.WeakHashMap<>();
+    /** Views made focusable by `.focusable()` (docs/focus.md): a primary press focuses them. */
+    private static final java.util.Set<View> pressFocus =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
 
-    /**
-     * Hover: a mouse or a stylus moving over the view (docs/canvas.md "Interaction"). Phases
-     * 10/11/12 match day_spec::Event::Hover's Began/Changed/Ended. A finger generates no HOVER_*
-     * actions at all, so a touch-only device wires this and never reports; that is the contract.
-     */
+    /** `.focusable()` on any view (docs/focus.md): it joins the focus order (in touch mode
+     *  too, so a request and a hardware keyboard reach it), reports focus both ways, takes
+     *  focus at a primary press before the press reaches its recognizers, and hands the keys
+     *  of the short route (or the full one) to node `id` with their phases while focused. */
     public static void enableKeys(View v, final long id) {
         v.setFocusable(true); v.setFocusableInTouchMode(true);
-        v.setOnFocusChangeListener((view, hasFocus) -> nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null));
+        v.setOnFocusChangeListener((view, hasFocus) -> {
+            // Keys held when focus goes are not this node's to release (docs/menus.md).
+            if (!hasFocus) DayCanvasView.forgetKeys(id);
+            nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null);
+        });
         v.setOnKeyListener((view, code, e) -> {
+            if (e.getAction() == KeyEvent.ACTION_UP) return DayCanvasView.sendKey(id, code, e);
             if (!view.isFocused() || e.getAction() != KeyEvent.ACTION_DOWN) return false;
             return DayCanvasView.sendKey(id, code, e);
         });
+        pressFocus.add(v);
+        updateTouchListener(v);
     }
 
     static boolean horizontalPan(View v, long id, MotionEvent e) {
@@ -1545,7 +2719,7 @@ public final class DayBridge extends DayRuntime {
         float y = e.getAxisValue(MotionEvent.AXIS_VSCROLL);
         if (Math.abs(x) <= Math.abs(y)) return false;
         float step = 40 * v.getResources().getDisplayMetrics().density;
-        nativeOnEvent(id, K_GESTURE, 8, e.getX() + "," + e.getY() + "," + (x * step) + "," + (y * step));
+        gesture(id, G_PAN, e.getX() + "," + e.getY() + "," + (x * step) + "," + (y * step));
         return true;
     }
     public static void enablePan(View v, final long id) {
@@ -1553,6 +2727,11 @@ public final class DayBridge extends DayRuntime {
         else v.setOnGenericMotionListener((view, event) -> horizontalPan(view, id, event));
     }
 
+    /**
+     * Hover: a mouse or a stylus moving over the view (docs/canvas.md "Interaction"): Began,
+     * Changed and Ended of day_spec::Event::Hover. A finger generates no HOVER_* actions at
+     * all, so a touch-only device wires this and never reports; that is the contract.
+     */
     public static void enableHover(View v, final long id) {
         v.setOnHoverListener(new View.OnHoverListener() {
             float lx, ly;
@@ -1561,16 +2740,16 @@ public final class DayBridge extends DayRuntime {
                 switch (ev.getActionMasked()) {
                     case MotionEvent.ACTION_HOVER_ENTER:
                         lx = x; ly = y;
-                        nativeOnEvent(id, K_GESTURE, 10, x + "," + y + ",0,0");
+                        gesture(id, G_HOVER_BEGAN, x + "," + y + ",0,0");
                         return true;
                     case MotionEvent.ACTION_HOVER_MOVE:
                         lx = x; ly = y;
-                        nativeOnEvent(id, K_GESTURE, 11, x + "," + y + ",0,0");
+                        gesture(id, G_HOVER_CHANGED, x + "," + y + ",0,0");
                         return true;
                     case MotionEvent.ACTION_HOVER_EXIT:
                         // The exit's own coordinates can already be outside; the contract is the
                         // last point seen inside.
-                        nativeOnEvent(id, K_GESTURE, 12, lx + "," + ly + ",0,0");
+                        gesture(id, G_HOVER_ENDED, lx + "," + ly + ",0,0");
                         return true;
                 }
                 return false;
@@ -1578,14 +2757,12 @@ public final class DayBridge extends DayRuntime {
         });
     }
 
-    private static final java.util.WeakHashMap<View, View.OnTouchListener> gestureTouches =
-            new java.util.WeakHashMap<>();
     private static final java.util.WeakHashMap<View, ScaleGestureDetector> pinchDetectors =
             new java.util.WeakHashMap<>();
 
     /**
      * Pinch (docs/canvas.md "Zoom and pan"): a ScaleGestureDetector fed from the shared touch
-     * listener. Phases 4/5/6 are day_spec::Event::Pinch's Began/Changed/Ended; the payload is the
+     * listener. G_PINCH_BEGAN/CHANGED/ENDED are day_spec::Event::Pinch's Began/Changed/Ended; the payload is the
      * focus point in px and the scale, which is CUMULATIVE since Began (the current span over
      * the span the gesture started with, not the detector's per-event factor). Quick scale
      * (double-tap-and-drag) stays off so a double tap remains two taps.
@@ -1600,19 +2777,19 @@ public final class DayBridge extends DayRuntime {
             float span0, scale;
             @Override public boolean onScaleBegin(ScaleGestureDetector sd) {
                 span0 = sd.getCurrentSpan(); scale = 1f;
-                nativeOnEvent(id, K_GESTURE, 4, sd.getFocusX() + "," + sd.getFocusY() + ",1,0");
+                gesture(id, G_PINCH_BEGAN, sd.getFocusX() + "," + sd.getFocusY() + ",1,0");
                 return true;
             }
             @Override public boolean onScale(ScaleGestureDetector sd) {
                 if (span0 > 0) scale = sd.getCurrentSpan() / span0;
-                nativeOnEvent(id, K_GESTURE, 5,
+                gesture(id, G_PINCH_CHANGED,
                         sd.getFocusX() + "," + sd.getFocusY() + "," + scale + ",0");
                 return true;
             }
             @Override public void onScaleEnd(ScaleGestureDetector sd) {
                 // The end's own span is measured over the finger still down (a single one
                 // spans nothing), so the gesture ends at the scale it last reported.
-                nativeOnEvent(id, K_GESTURE, 6,
+                gesture(id, G_PINCH_ENDED,
                         sd.getFocusX() + "," + sd.getFocusY() + "," + scale + ",0");
             }
         });
@@ -1636,7 +2813,7 @@ public final class DayBridge extends DayRuntime {
     /**
      * Rotation (docs/canvas.md "Zoom and pan"). Android has no rotation detector, so this
      * follows the first two fingers itself, fed from the shared touch listener beside the
-     * pinch's ScaleGestureDetector. Phases 13/14/15 are day_spec::Event::Rotate's
+     * pinch's ScaleGestureDetector. G_ROTATE_BEGAN/CHANGED/ENDED are day_spec::Event::Rotate's
      * Began/Changed/Ended; the payload is the midpoint in px and the angle, in radians, that
      * the line between the two fingers has turned since the second went down: cumulative, and
      * clockwise positive because the screen's y axis points down. A move that leaves the angle
@@ -1668,7 +2845,7 @@ public final class DayBridge extends DayRuntime {
         }
 
         private void send(int phase) {
-            nativeOnEvent(id, K_GESTURE, phase, fx + "," + fy + "," + total + ",0");
+            gesture(id, phase, fx + "," + fy + "," + total + ",0");
         }
 
         void onTouchEvent(MotionEvent ev) {
@@ -1679,7 +2856,7 @@ public final class DayBridge extends DayRuntime {
                     raw = angle(ev);
                     if (Double.isNaN(raw)) return;
                     total = 0; active = true;
-                    send(13);
+                    send(G_ROTATE_BEGAN);
                     return;
                 case MotionEvent.ACTION_MOVE: {
                     if (!active) return;
@@ -1692,7 +2869,7 @@ public final class DayBridge extends DayRuntime {
                     raw = a;
                     if (turn == 0) return;
                     total += turn;
-                    send(14);
+                    send(G_ROTATE_CHANGED);
                     return;
                 }
                 case MotionEvent.ACTION_POINTER_UP: {
@@ -1700,27 +2877,212 @@ public final class DayBridge extends DayRuntime {
                     int lifted = ev.getPointerId(ev.getActionIndex());
                     if (lifted != p0 && lifted != p1) return;
                     active = false;
-                    send(15); // at the angle it last reported, as the pinch ends at its scale
+                    send(G_ROTATE_ENDED); // at the angle it last reported, as the pinch ends at its scale
                     return;
                 }
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
                     if (!active) return;
                     active = false;
-                    send(15);
+                    send(G_ROTATE_ENDED);
                     return;
             }
         }
     }
 
-    private static void setGestureTouchListener(View v, View.OnTouchListener listener) {
-        gestureTouches.put(v, listener);
+    // ---- Recognizers (docs/gestures.md) ----------------------------------------------------
+    // One view carries any mix of tap, drag, long press, double tap, press and touches, all fed
+    // from the one OnTouchListener `updateTouchListener` installs (a bare setOnTouchListener
+    // would replace, where UIKit's recognizers coexist). Each kind reports for the node that
+    // asked for it. Coordinates are px; Rust converts to dp.
+
+    /** What Day attached to one view's touch stream. */
+    static final class Recognizers {
+        boolean tap, drag, longPress, doubleTap, press, touches;
+        long tapId, dragId, longPressId, doubleTapId, pressId, touchesId;
+        /** The drag's axis: 0 any direction, 1 horizontal only, 2 vertical only. */
+        int axis;
+        /** The platform's long-press and double-tap recognizer, while either is enabled. */
+        android.view.GestureDetector detector;
+        Detector detectorListener;
+        VelocityTracker velocity;
+        /** Where the stream went down, and the last point seen (the click path's tap point). */
+        float sx, sy, tx, ty;
+        /** The drag claimed this stream: Began was sent and the stream is held. */
+        boolean dragging;
+        /** An axis drag that set off across its axis: the stream is not the drag's. */
+        boolean declined;
+        /** A second finger ended the drag; the rest of the stream is the pinch's. */
+        boolean pinched;
+        /** The long press fired in this stream: its release is not a tap. */
+        boolean held;
+        /** A touch stream just lifted: the click View raises for it is not a fresh tap. */
+        boolean touchUp;
+        /** The press under way: its stream's down time, the last point, and where the view
+         *  sat on screen at the down (a scroll that moves it ends the press). */
+        boolean pressed;
+        long pressDown;
+        float px, py;
+        final int[] pressAt = new int[2];
+        boolean watchesDetach;
+        /** The contacts down on the view and where each was last reported, by pointer id. */
+        final android.util.SparseArray<float[]> contacts = new android.util.SparseArray<>();
+    }
+
+    static final java.util.WeakHashMap<View, Recognizers> recognizers = new java.util.WeakHashMap<>();
+
+    private static Recognizers recognizersOf(View v) {
+        Recognizers r = recognizers.get(v);
+        if (r == null) { r = new Recognizers(); recognizers.put(v, r); }
+        return r;
+    }
+
+    /** Attach a tap (`isDrag` false) or drag recognizer for node `id` (docs/gestures.md). */
+    public static void enableGesture(View v, final long id, final boolean isDrag) {
+        Recognizers r = recognizersOf(v);
+        if (isDrag) { r.drag = true; r.dragId = id; } else { r.tap = true; r.tapId = id; }
+        installRecognizers(v, r);
+    }
+
+    /** Attach a long press, double tap, press or touches recognizer for node `id`: `kind` is
+     *  G_LONG_PRESS, G_DOUBLE_TAP, G_PRESS_IN or G_TOUCHES. Idempotent. */
+    public static void enableRecognizer(View v, final long id, int kind) {
+        Recognizers r = recognizersOf(v);
+        switch (kind) {
+            case G_LONG_PRESS: r.longPress = true; r.longPressId = id; break;
+            case G_DOUBLE_TAP: r.doubleTap = true; r.doubleTapId = id; break;
+            case G_PRESS_IN: r.press = true; r.pressId = id; break;
+            case G_TOUCHES: r.touches = true; r.touchesId = id; break;
+            default: return;
+        }
+        installRecognizers(v, r);
+    }
+
+    /** The drag's axis (docs/gestures.md "Gestures inside a scroll view"): 0 any direction,
+     *  1 horizontal, 2 vertical. */
+    public static void setDragAxis(View v, int axis) {
+        recognizersOf(v).axis = axis;
+    }
+
+    private static void installRecognizers(final View v, final Recognizers r) {
+        if (r.tap && !r.drag) {
+            // A tap alone rides View's own click: it keeps native long-press menus and a
+            // RecyclerView's scroll interception arbitrating as they always do, and the
+            // accessibility click and the keyboard's Enter reach it too.
+            contextMenuForwardedClicks.remove(v);
+            gestureTapClicks.add(v);
+            v.setOnClickListener(DayBridge::clickTap);
+        } else if (r.drag && gestureTapClicks.remove(v)) {
+            v.setOnClickListener(null);
+        }
+        // Clickable, so View takes the stream at the press and the recognizers see all of
+        // it, while View's own handling (the click, a context menu's long click, the press
+        // state) still runs. Press alone stays an observer and claims nothing.
+        if (r.drag || r.longPress || r.doubleTap || r.touches) v.setClickable(true);
+        if (r.longPress || r.doubleTap) {
+            if (r.detector == null) {
+                r.detectorListener = new Detector(v, r);
+                r.detector = new android.view.GestureDetector(v.getContext(), r.detectorListener,
+                        main != null ? main : new Handler(Looper.getMainLooper()));
+            }
+            r.detector.setIsLongpressEnabled(r.longPress);
+            r.detector.setOnDoubleTapListener(r.doubleTap ? r.detectorListener : null);
+        }
+        if (r.press && !r.watchesDetach) {
+            r.watchesDetach = true;
+            v.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override public void onViewAttachedToWindow(View view) {}
+                @Override public void onViewDetachedFromWindow(View view) { pressOut(view, r); }
+            });
+        }
         updateTouchListener(v);
     }
 
-    // Observe menu coordinates without consuming touches or replacing a declared gesture.
+    /** The platform's long press (ViewConfiguration's timeout and slop) and double tap
+     *  (its interval and distance), over the stream the shared listener feeds it. */
+    private static final class Detector extends android.view.GestureDetector.SimpleOnGestureListener {
+        // Weak: the recognizers are the value of a WeakHashMap keyed by this view.
+        final java.lang.ref.WeakReference<View> view;
+        final Recognizers r;
+        Detector(View view, Recognizers r) { this.view = new java.lang.ref.WeakReference<>(view); this.r = r; }
+        @Override public boolean onDown(MotionEvent e) { return true; }
+        @Override public void onLongPress(MotionEvent e) {
+            // A view whose long press opens its context menu keeps that (View's own long
+            // click shows it), and no LongPress is sent.
+            View v = view.get();
+            if (!r.longPress || v == null || contextMenus.containsKey(v)) return;
+            r.held = true;
+            gesture(r.longPressId, G_LONG_PRESS, e.getX() + "," + e.getY());
+        }
+        @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+            // With a double tap enabled too, the single tap waits out the interval.
+            if (r.tap && r.doubleTap && !r.held) {
+                gesture(r.tapId, G_TAP, e.getX() + "," + e.getY() + ",0,0");
+            }
+            return true;
+        }
+        @Override public boolean onDoubleTap(MotionEvent e) {
+            if (r.doubleTap) gesture(r.doubleTapId, G_DOUBLE_TAP, e.getX() + "," + e.getY());
+            return true;
+        }
+    }
+
+    /** View's click on a tap target. A click a touch stream raised is a tap unless the long
+     *  press took that stream or the double-tap recognizer times the single tap; a click from
+     *  accessibility or the keyboard is always one. */
+    private static void clickTap(View view) {
+        Recognizers r = recognizers.get(view);
+        if (r == null || !r.tap) return;
+        if (r.touchUp) {
+            r.touchUp = false;
+            if (r.held || r.doubleTap) return;
+        }
+        gesture(r.tapId, G_TAP, r.tx + "," + r.ty + ",0,0");
+    }
+
+    // ---- A Day gesture keeps its touch stream ---------------------------------------------
+    // Every scrolling ancestor watches a child's touch stream and takes it over once the
+    // finger has moved past the touch slop: the child gets ACTION_CANCEL and the page scrolls.
+    // A piece with a drag handler (or a pinch or rotation under way) is the one the finger
+    // is on, so it asks its ancestors not to, as UIKit's recognizers settle it on iOS.
+
+    /** The view whose Day gesture holds the touch stream in progress, and that stream's down
+     *  time: a holder left behind by a stream that never ended is not taken for the next one. */
+    private static java.lang.ref.WeakReference<View> touchHolder;
+    private static long touchHolderDown;
+
+    /** Whether `e` belongs to a touch stream a Day drag, pinch or rotation holds. A native
+     *  container that ignores `requestDisallowInterceptTouchEvent` (SwipeRefreshLayout does,
+     *  over a child that is not a nested-scrolling one) asks this before intercepting. */
+    public static boolean gestureHoldsTouch(MotionEvent e) {
+        return touchHolder != null && touchHolder.get() != null
+                && e.getDownTime() == touchHolderDown;
+    }
+
+    /** Take (`hold`) or give back the touch stream `e` belongs to, for `v`. The request goes
+     *  to every ancestor in turn, not only the parent: a ViewGroup passes it up itself, but
+     *  one that overrides the call to ignore it would otherwise stop it there, and the
+     *  containers above (a pager, the nav host) would never hear it. */
+    private static void holdTouch(View v, MotionEvent e, boolean hold) {
+        if (hold) {
+            touchHolder = new java.lang.ref.WeakReference<>(v);
+            touchHolderDown = e.getDownTime();
+        } else if (touchHolder != null && touchHolder.get() == v) {
+            touchHolder = null;
+        } else {
+            return; // never held: nothing to give back
+        }
+        for (android.view.ViewParent p = v.getParent(); p != null; p = p.getParent()) {
+            p.requestDisallowInterceptTouchEvent(hold);
+        }
+    }
+
+    /** One listener per view for everything Day watches on its touch stream: a context menu's
+     *  press point, the recognizers, the pinch and rotation trackers and focus on press. It
+     *  consumes only what a drag or a two-finger gesture owns. */
     private static void updateTouchListener(View v) {
-        if (!contextMenus.containsKey(v) && !gestureTouches.containsKey(v) && !twoFinger(v)) {
+        if (!contextMenus.containsKey(v) && !recognizers.containsKey(v) && !twoFinger(v)
+                && !pressFocus.contains(v)) {
             v.setOnTouchListener(null);
             return;
         }
@@ -1728,6 +3090,11 @@ public final class DayBridge extends DayRuntime {
         v.setOnTouchListener((view, event) -> {
             int action = event.getActionMasked();
             boolean finished = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL;
+            // A focusable view takes focus before its recognizers see the press (docs/focus.md).
+            if (action == MotionEvent.ACTION_DOWN && pressFocus.contains(view) && !view.isFocused()
+                    && primaryButton(event)) {
+                view.requestFocus();
+            }
             ContextMenuBinding menu = contextMenus.get(view);
             if (menu != null) {
                 menu.x = finished ? 0 : event.getX();
@@ -1735,14 +3102,23 @@ public final class DayBridge extends DayRuntime {
             }
             if (action == MotionEvent.ACTION_DOWN) multi[0] = false;
             else if (action == MotionEvent.ACTION_POINTER_DOWN) multi[0] = true;
-            View.OnTouchListener gesture = gestureTouches.get(view);
-            boolean consumed = gesture != null && gesture.onTouch(view, event);
+            Recognizers r = recognizers.get(view);
+            boolean consumed = r != null && onRecognizers(view, r, event);
             // The detector sees each event after the drag listener, so a second finger ends
             // the drag before the pinch it starts reports its Began.
             ScaleGestureDetector pinch = pinchDetectors.get(view);
             if (pinch != null) pinch.onTouchEvent(event);
             RotateTracker rotate = rotateTrackers.get(view);
             if (rotate != null) rotate.onTouchEvent(event);
+            // A second finger on a pinch or rotate target: the two-finger gesture owns the
+            // stream from here, and no scrolling ancestor takes it for a scroll.
+            if (action == MotionEvent.ACTION_POINTER_DOWN && (pinch != null || rotate != null)) {
+                holdTouch(view, event, true);
+            }
+            if (finished) holdTouch(view, event, false);
+            // A stream that arrived through a parent's hit slop: the recognizers read the true
+            // point, View's own press handling the one its bounds understand.
+            if (slopStream == view && !consumed) clampIntoSlop(view, event);
             if ((pinch == null && rotate == null) || !multi[0]) return consumed;
             // Two fingers: ours, not View's. Its own onTouchEvent never saw the second finger,
             // so the release would still count as the click the press armed; cancel that
@@ -1757,67 +3133,478 @@ public final class DayBridge extends DayRuntime {
         });
     }
 
-    public static void enableGesture(View v, final long id, final boolean isDrag) {
-        boolean[] flags = gestureFlags.get(v);
-        if (flags == null) { flags = new boolean[2]; gestureFlags.put(v, flags); }
-        if (isDrag) flags[1] = true; else flags[0] = true;
-        final boolean[] f = flags; // {wantsTap, wantsDrag}
-        if (!f[1]) {
-            // Let View arbitrate taps, long presses and RecyclerView scroll interception.
-            // Consuming ACTION_DOWN ourselves prevents native long-press menus and an
-            // empty context-menu update can otherwise leave this target non-clickable.
-            final float[] point = new float[2];
-            setGestureTouchListener(v, (view, event) -> {
-                point[0] = event.getX();
-                point[1] = event.getY();
-                return false;
-            });
-            contextMenuForwardedClicks.remove(v);
-            gestureTapClicks.add(v);
-            v.setOnClickListener(view -> nativeOnEvent(id, K_GESTURE, 0,
-                    point[0] + "," + point[1] + ",0,0"));
+    /** Whether the press `e` began is a primary one: any finger or stylus, and a mouse only
+     *  with its primary button (docs/gestures.md "Press"). */
+    private static boolean primaryButton(MotionEvent e) {
+        return e.getToolType(0) != MotionEvent.TOOL_TYPE_MOUSE
+                || (e.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0
+                || e.getButtonState() == 0;
+    }
+
+    /** Run one event through a view's recognizers; true when the drag consumed it. */
+    private static boolean onRecognizers(View view, Recognizers r, MotionEvent ev) {
+        int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            r.sx = ev.getX(); r.sy = ev.getY();
+            r.held = false; r.touchUp = false; r.pinched = false;
+            r.dragging = false; r.declined = false;
+        }
+        r.tx = ev.getX(); r.ty = ev.getY();
+        if (r.press) pressTouch(view, r, ev);
+        if (r.touches) reportTouches(r, ev);
+        if (r.detector != null) r.detector.onTouchEvent(ev);
+        if (action == MotionEvent.ACTION_UP) {
+            // View posts the click this release raises; the flag lives until it has run.
+            r.touchUp = true;
+            view.post(() -> view.post(() -> r.touchUp = false));
+        }
+        if (!r.drag) return false; // View's own onTouchEvent takes the click
+        return drag(view, r, ev);
+    }
+
+    /** The drag recognizer: Began at the press (or, with an axis, once the movement shows its
+     *  direction), the stream held from Began to Ended, the release velocity before Ended. */
+    private static boolean drag(View view, Recognizers r, MotionEvent ev) {
+        float x = ev.getX(), y = ev.getY();
+        String at = x + "," + y + "," + (x - r.sx) + "," + (y - r.sy);
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                trackVelocity(r, ev, true);
+                if (r.axis == 0) {
+                    // The drag begins with the press, so the stream is held from the press:
+                    // an enclosing scroll view, pager or pull-to-refresh would otherwise
+                    // cancel it a few pixels in and scroll instead. Released by the shared
+                    // listener when the stream ends.
+                    r.dragging = true;
+                    holdTouch(view, ev, true);
+                    gesture(r.dragId, G_DRAG_BEGAN, x + "," + y + ",0,0");
+                }
+                return true;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                // On a pinch or rotate target the second finger hands the stream to those
+                // trackers: the one-finger drag ends here, and the two fingers never come out
+                // as drags (docs/canvas.md "Zoom and pan").
+                if (!twoFinger(view)) return false;
+                if (!r.pinched) {
+                    r.pinched = true;
+                    if (r.dragging) gesture(r.dragId, G_DRAG_ENDED, at);
+                    r.dragging = false;
+                }
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                trackVelocity(r, ev, false);
+                if (r.pinched || r.declined) return true;
+                if (!r.dragging) {
+                    // An axis drag decides at half the touch slop, before any scrolling
+                    // ancestor (which waits for the whole slop) can take the stream: along its
+                    // axis it is the drag's from here; across it, it is the scroll view's,
+                    // and the drag hears nothing of it.
+                    float dx = x - r.sx, dy = y - r.sy;
+                    float decide = android.view.ViewConfiguration.get(view.getContext())
+                            .getScaledTouchSlop() / 2f;
+                    if (Math.hypot(dx, dy) < decide) return true;
+                    boolean along = r.axis == 1 ? Math.abs(dx) >= Math.abs(dy)
+                                                : Math.abs(dy) >= Math.abs(dx);
+                    if (!along) { r.declined = true; return true; }
+                    r.dragging = true;
+                    holdTouch(view, ev, true);
+                    gesture(r.dragId, G_DRAG_BEGAN, at);
+                    return true;
+                }
+                gesture(r.dragId, G_DRAG_CHANGED, at);
+                return true;
+            case MotionEvent.ACTION_UP:
+                trackVelocity(r, ev, false);
+                if (r.pinched) { r.velocity = recycle(r.velocity); return true; }
+                if (r.dragging) {
+                    // The platform's own measure of the release, sent just before Ended.
+                    // The finger that lifts last, which is the one the drag followed at the end.
+                    if (r.velocity != null) {
+                        int finger = ev.getPointerId(ev.getActionIndex());
+                        r.velocity.computeCurrentVelocity(1000);
+                        gesture(r.dragId, G_DRAG_VELOCITY, r.velocity.getXVelocity(finger)
+                                + "," + r.velocity.getYVelocity(finger));
+                    }
+                    gesture(r.dragId, G_DRAG_ENDED, at);
+                    r.dragging = false;
+                }
+                r.velocity = recycle(r.velocity);
+                if (r.tap && !r.doubleTap && !r.held
+                        && Math.abs(x - r.sx) < 40 && Math.abs(y - r.sy) < 40) {
+                    gesture(r.tapId, G_TAP, x + "," + y + ",0,0");
+                    view.performClick();
+                }
+                return true;
+            case MotionEvent.ACTION_CANCEL:
+                if (r.dragging && !r.pinched) gesture(r.dragId, G_DRAG_ENDED, at);
+                r.dragging = false;
+                r.velocity = recycle(r.velocity);
+                return true;
+        }
+        return false;
+    }
+
+    /** Feed the drag's VelocityTracker in screen coordinates, so a piece the drag moves does
+     *  not measure its own motion. */
+    private static void trackVelocity(Recognizers r, MotionEvent ev, boolean start) {
+        if (start) {
+            r.velocity = recycle(r.velocity);
+            r.velocity = VelocityTracker.obtain();
+        }
+        if (r.velocity == null) return;
+        MotionEvent screen = MotionEvent.obtain(ev);
+        screen.offsetLocation(ev.getRawX() - ev.getX(), ev.getRawY() - ev.getY());
+        r.velocity.addMovement(screen);
+        screen.recycle();
+    }
+
+    private static VelocityTracker recycle(VelocityTracker t) {
+        if (t != null) t.recycle();
+        return null;
+    }
+
+    // ---- Press (docs/gestures.md "Press") --------------------------------------------------
+    // An observer: the view's listener sees the press go down and never claims the stream, so
+    // a tap on the row around it still lands. Whoever does take the stream, the activity sees
+    // all of it (observeTouch), which is where the press ends: at the release, when the finger
+    // leaves the view's hit area, or when a scroll view takes the stream and moves the view.
+
+    /** The views pressed right now. */
+    private static final java.util.Set<View> pressing =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    private static void pressTouch(View view, Recognizers r, MotionEvent ev) {
+        switch (ev.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                if (!primaryButton(ev)) return;
+                pressOut(view, r);
+                r.pressed = true;
+                r.pressDown = ev.getDownTime();
+                r.px = ev.getX(); r.py = ev.getY();
+                view.getLocationOnScreen(r.pressAt);
+                pressing.add(view);
+                gesture(r.pressId, G_PRESS_IN, r.px + "," + r.py);
+                return;
+            case MotionEvent.ACTION_MOVE:
+                if (!r.pressed) return;
+                r.px = ev.getX(); r.py = ev.getY();
+                if (!insideSlop(view, r.px, r.py)) pressOut(view, r);
+                return;
+            case MotionEvent.ACTION_UP:
+                if (r.pressed) { r.px = ev.getX(); r.py = ev.getY(); }
+                pressOut(view, r);
+                return;
+            case MotionEvent.ACTION_CANCEL:
+                pressOut(view, r);
+                return;
+        }
+    }
+
+    private static void pressOut(View view, Recognizers r) {
+        if (!r.pressed) return;
+        r.pressed = false;
+        pressing.remove(view);
+        gesture(r.pressId, G_PRESS_OUT, r.px + "," + r.py);
+    }
+
+    /** End every press under way: the window lost focus or went to the background. */
+    public static void cancelPresses() {
+        for (View v : new java.util.ArrayList<>(pressing)) {
+            Recognizers r = recognizers.get(v);
+            if (r != null) pressOut(v, r); else pressing.remove(v);
+        }
+    }
+
+    /** Whether `(x, y)` in `v`'s own px lies in its hit area: its bounds and its hit slop. */
+    private static boolean insideSlop(View v, float x, float y) {
+        int[] s = slopEdges(v);
+        return x >= -s[1] && x < v.getWidth() + s[2] && y >= -s[0] && y < v.getHeight() + s[3];
+    }
+
+    /** Every touch event a Day window receives, after its views had it (DayActivity and
+     *  DayWindowActivity call this from dispatchTouchEvent): the input kind, and the presses
+     *  whose view no longer owns the stream. */
+    public static void observeTouch(MotionEvent ev) {
+        if (!started) return;
+        int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            notePointerKind(ev.getToolType(ev.getActionIndex()));
+        }
+        if (pressing.isEmpty()) return;
+        // Screen coordinates of the first finger, which is the one that pressed.
+        float ox = ev.getRawX() - ev.getX(), oy = ev.getRawY() - ev.getY();
+        int[] at = new int[2];
+        for (View v : new java.util.ArrayList<>(pressing)) {
+            Recognizers r = recognizers.get(v);
+            if (r == null || !r.pressed) { pressing.remove(v); continue; }
+            // A new stream ends a press its view never saw end (the view registered this
+            // stream's own press before the activity sees the down).
+            boolean stale = action == MotionEvent.ACTION_DOWN && ev.getDownTime() != r.pressDown;
+            if (stale || !v.isAttachedToWindow() || !v.isShown()) {
+                pressOut(v, r);
+                continue;
+            }
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                pressOut(v, r);
+                continue;
+            }
+            if (action != MotionEvent.ACTION_MOVE) continue;
+            v.getLocationOnScreen(at);
+            r.px = ev.getX(0) + ox - at[0];
+            r.py = ev.getY(0) + oy - at[1];
+            if (!insideSlop(v, r.px, r.py)) { pressOut(v, r); continue; }
+            // The view moved under the finger: a scroll view, a pager or a pull-to-refresh
+            // took the stream. A Day drag that moves its own piece holds the stream instead.
+            if ((at[0] != r.pressAt[0] || at[1] != r.pressAt[1]) && !gestureHoldsTouch(ev)) {
+                pressOut(v, r);
+            }
+        }
+    }
+
+    /** Hover and wheel events a Day window receives (dispatchGenericMotionEvent): a mouse or a
+     *  stylus moving over it sets the input kind. */
+    public static void observeGenericMotion(MotionEvent ev) {
+        if (!started) return;
+        int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_HOVER_MOVE || action == MotionEvent.ACTION_HOVER_ENTER) {
+            notePointerKind(ev.getToolType(0));
+        }
+    }
+
+    // ---- Input kind (docs/gestures.md "Input kind") ----------------------------------------
+
+    private static String pointerKind;
+
+    /** The kind of pointer before any input: touch where the device has a touch screen. */
+    public static String primaryPointer() {
+        if (pointerKind == null) {
+            pointerKind = ctx != null && !ctx.getPackageManager().hasSystemFeature(
+                    android.content.pm.PackageManager.FEATURE_TOUCHSCREEN) ? "mouse" : "touch";
+        }
+        return pointerKind;
+    }
+
+    private static String kindName(int toolType) {
+        switch (toolType) {
+            case MotionEvent.TOOL_TYPE_MOUSE: return "mouse";
+            case MotionEvent.TOOL_TYPE_STYLUS:
+            case MotionEvent.TOOL_TYPE_ERASER: return "stylus";
+            default: return "touch";
+        }
+    }
+
+    private static void notePointerKind(int toolType) {
+        String kind = kindName(toolType);
+        if (kind.equals(primaryPointer())) return;
+        pointerKind = kind;
+        gesture(0, G_POINTER_KIND, kind);
+    }
+
+    // ---- Touches (docs/gestures.md "Touches") ----------------------------------------------
+
+    /** Every contact on the view, one report per MotionEvent: "id,phase,x,y,pressure,kind"
+     *  joined by ';' (phase 0 began, 1 moved, 2 stationary, 3 ended, 4 cancelled; kind 0
+     *  touch, 1 mouse, 2 stylus). */
+    private static void reportTouches(Recognizers r, MotionEvent ev) {
+        int action = ev.getActionMasked(), actor = ev.getActionIndex();
+        if (action == MotionEvent.ACTION_DOWN) r.contacts.clear();
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < ev.getPointerCount(); i++) {
+            int id = ev.getPointerId(i);
+            float x = ev.getX(i), y = ev.getY(i);
+            int phase;
+            if (action == MotionEvent.ACTION_CANCEL) phase = 4;
+            else if (action == MotionEvent.ACTION_DOWN
+                    || (action == MotionEvent.ACTION_POINTER_DOWN && i == actor)) phase = 0;
+            else if (action == MotionEvent.ACTION_UP
+                    || (action == MotionEvent.ACTION_POINTER_UP && i == actor)) phase = 3;
+            else {
+                float[] last = r.contacts.get(id);
+                phase = last != null && last[0] == x && last[1] == y ? 2 : 1;
+            }
+            if (phase >= 3) r.contacts.remove(id); else r.contacts.put(id, new float[]{x, y});
+            float pressure = ev.getPressure(i);
+            if (!(pressure > 0)) pressure = 1; // a device that reports no force
+            int tool = ev.getToolType(i);
+            int kind = tool == MotionEvent.TOOL_TYPE_MOUSE ? 1
+                    : tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER ? 2 : 0;
+            if (out.length() > 0) out.append(';');
+            out.append(id).append(',').append(phase).append(',').append(x).append(',').append(y)
+                    .append(',').append(Math.min(pressure, 1f)).append(',').append(kind);
+        }
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) r.contacts.clear();
+        gesture(r.touchesId, G_TOUCHES, out.toString());
+    }
+
+    // ---- Hit slop (docs/gestures.md "Hit slop") --------------------------------------------
+
+    /** Each view's hit slop in px: top, leading, bottom, trailing. */
+    private static final java.util.WeakHashMap<View, int[]> slops = new java.util.WeakHashMap<>();
+    /** The view a SlopDelegate is handing an event to, during that dispatch. */
+    private static View slopStream;
+
+    /** The view's slop as top, left, right, bottom px, leading and trailing resolved. */
+    private static int[] slopEdges(View v) {
+        int[] s = slops.get(v);
+        if (s == null) return new int[4];
+        boolean rtl = v.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+        return new int[]{s[0], rtl ? s[3] : s[1], rtl ? s[1] : s[3], s[2]};
+    }
+
+    /** Grow the area in which `v` takes pointer input by the given px on each edge, without
+     *  moving or resizing it. Zero on every edge restores its own bounds. */
+    public static void setHitSlop(View v, int top, int leading, int bottom, int trailing) {
+        if (top == 0 && leading == 0 && bottom == 0 && trailing == 0) {
+            slops.remove(v);
             return;
         }
-        if (gestureTapClicks.remove(v)) v.setOnClickListener(null);
-        v.setClickable(true);
-        setGestureTouchListener(v, new View.OnTouchListener() {
-            float sx, sy;
-            boolean pinched; // a second finger ended the drag; the rest of the stream is the pinch's
-            public boolean onTouch(View view, MotionEvent ev) {
-                float x = ev.getX(), y = ev.getY();
-                switch (ev.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                        sx = x; sy = y; pinched = false;
-                        if (f[1]) nativeOnEvent(id, K_GESTURE, 1, x + "," + y + ",0,0");
-                        return true;
-                    case MotionEvent.ACTION_POINTER_DOWN:
-                        // On a pinch or rotate target the second finger hands the stream to
-                        // those trackers: the one-finger drag ends here, and the two fingers
-                        // never come out as drags (docs/canvas.md "Zoom and pan").
-                        if (!twoFinger(view)) return false;
-                        if (!pinched) {
-                            pinched = true;
-                            if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
-                        }
-                        return true;
-                    case MotionEvent.ACTION_MOVE:
-                        if (f[1] && !pinched) nativeOnEvent(id, K_GESTURE, 2, x + "," + y + "," + (x - sx) + "," + (y - sy));
-                        return true;
-                    case MotionEvent.ACTION_UP:
-                        if (pinched) return true;
-                        if (f[1]) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
-                        if (f[0] && Math.abs(x - sx) < 40 && Math.abs(y - sy) < 40) {
-                            nativeOnEvent(id, K_GESTURE, 0, x + "," + y + ",0,0");
-                            view.performClick();
-                        }
-                        return true;
-                    case MotionEvent.ACTION_CANCEL:
-                        if (f[1] && !pinched) nativeOnEvent(id, K_GESTURE, 3, x + "," + y + "," + (x - sx) + "," + (y - sy));
-                        return true;
+        boolean first = !slops.containsKey(v);
+        slops.put(v, new int[]{top, leading, bottom, trailing});
+        installSlopDelegate(v);
+        if (first) {
+            // The parent the delegate serves is the one the view is attached under.
+            v.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override public void onViewAttachedToWindow(View view) { installSlopDelegate(view); }
+                @Override public void onViewDetachedFromWindow(View view) {}
+            });
+        }
+    }
+
+    private static void installSlopDelegate(View v) {
+        if (!(v.getParent() instanceof ViewGroup)) return;
+        ViewGroup parent = (ViewGroup) v.getParent();
+        android.view.TouchDelegate current = parent.getTouchDelegate();
+        if (current instanceof SlopDelegate) return;
+        if (current != null) return; // a delegate of the platform's own: leave it in charge
+        parent.setTouchDelegate(new SlopDelegate(parent, v));
+    }
+
+    /** Put a slop stream's point where View's own press handling expects it: inside the
+     *  view's bounds while it is inside the slop area, well outside once it leaves. */
+    private static void clampIntoSlop(View v, MotionEvent e) {
+        float x = e.getX(), y = e.getY();
+        if (insideSlop(v, x, y)) {
+            e.setLocation(Math.max(0, Math.min(x, v.getWidth() - 1)),
+                    Math.max(0, Math.min(y, v.getHeight() - 1)));
+        } else {
+            float out = -2 * android.view.ViewConfiguration.get(v.getContext()).getScaledTouchSlop();
+            e.setLocation(out, out);
+        }
+    }
+
+    /**
+     * The hit slop of a parent's children: its TouchDelegate, which View asks when no child
+     * took a press inside its own bounds. The platform's TouchDelegate serves one child and
+     * moves every point to that child's center; this one serves every child with a slop, the
+     * front one first, and hands the stream over in the child's own coordinates.
+     */
+    static final class SlopDelegate extends android.view.TouchDelegate {
+        final ViewGroup parent;
+        View target;
+        float dx, dy;
+
+        SlopDelegate(ViewGroup parent, View first) {
+            super(new android.graphics.Rect(), first);
+            this.parent = parent;
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent ev) {
+            int action = ev.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                target = null;
+                for (int i = parent.getChildCount() - 1; i >= 0; i--) {
+                    View c = parent.getChildAt(i);
+                    if (!slops.containsKey(c) || c.getVisibility() != View.VISIBLE) continue;
+                    float ox = parent.getScrollX() - c.getX(), oy = parent.getScrollY() - c.getY();
+                    if (insideSlop(c, ev.getX() + ox, ev.getY() + oy)) {
+                        target = c; dx = ox; dy = oy;
+                        break;
+                    }
                 }
-                return false;
             }
-        });
+            View t = target;
+            if (t == null) return false;
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) target = null;
+            MotionEvent copy = MotionEvent.obtain(ev);
+            copy.offsetLocation(dx, dy);
+            // A view with Day's listener reads the true point and clamps it for View itself;
+            // a native control only ever sees a point its bounds understand.
+            boolean listens = contextMenus.containsKey(t) || recognizers.containsKey(t)
+                    || twoFinger(t) || pressFocus.contains(t);
+            if (!listens) clampIntoSlop(t, copy);
+            slopStream = listens ? t : null;
+            try {
+                return t.dispatchTouchEvent(copy);
+            } finally {
+                slopStream = null;
+                copy.recycle();
+            }
+        }
+    }
+
+    // ---- Disabling a group (docs/forms.md "Disabling a group") ----------------------------
+
+    /** The views a disabled group root was called for, with how many roots disabled each. */
+    private static final java.util.WeakHashMap<View, Integer> disabledRoots = new java.util.WeakHashMap<>();
+    /** The enabled state each view had of its own before a group disabled it. */
+    private static final java.util.WeakHashMap<View, Boolean> ownEnabled = new java.util.WeakHashMap<>();
+    /** The descendant focusability each group had before a disabled group blocked it. */
+    private static final java.util.WeakHashMap<ViewGroup, Integer> ownFocusability =
+            new java.util.WeakHashMap<>();
+
+    /** Disable (or enable again) everything under `root`: native controls go disabled (dimmed,
+     *  unavailable to accessibility), the subtree leaves the focus order and takes no touches.
+     *  Calls nest: a view stays disabled while any root above it is. Composed content keeps
+     *  its look; the app styles that. */
+    public static void setSubtreeEnabled(View root, boolean enabled) {
+        Integer n = disabledRoots.get(root);
+        int count = (n == null ? 0 : n) + (enabled ? -1 : 1);
+        if (count > 0) disabledRoots.put(root, count); else disabledRoots.remove(root);
+        if (!enabled) {
+            View focused = root.findFocus();
+            if (focused != null) focused.clearFocus();
+        }
+        applyEnabled(root);
+    }
+
+    /** Whether a disabled group covers `v`: DayFixed refuses touches for its subtree then. */
+    static boolean underDisabledGroup(View v) {
+        if (disabledRoots.isEmpty()) return false;
+        for (Object p = v; p instanceof View; p = ((View) p).getParent()) {
+            if (disabledRoots.containsKey(p)) return true;
+        }
+        return false;
+    }
+
+    /** A view a person operates: what disabling a group disables. Plain containers, labels
+     *  and images keep their own state (and look). */
+    private static boolean operable(View v) {
+        return v.isClickable() || v.isLongClickable() || v.isFocusable()
+                || v instanceof EditText || v instanceof CompoundButton
+                || v instanceof android.widget.AbsSeekBar || v instanceof Slider
+                || v instanceof AdapterView;
+    }
+
+    private static void applyEnabled(View v) {
+        boolean off = underDisabledGroup(v);
+        if (off) {
+            if (!ownEnabled.containsKey(v) && operable(v)) {
+                ownEnabled.put(v, v.isEnabled());
+                v.setEnabled(false);
+            }
+        } else {
+            Boolean own = ownEnabled.remove(v);
+            if (own != null) v.setEnabled(own);
+        }
+        if (!(v instanceof ViewGroup)) return;
+        ViewGroup g = (ViewGroup) v;
+        if (off && !ownFocusability.containsKey(g)) {
+            ownFocusability.put(g, g.getDescendantFocusability());
+            g.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        } else if (!off && ownFocusability.containsKey(g)) {
+            g.setDescendantFocusability(ownFocusability.remove(g));
+        }
+        for (int i = 0; i < g.getChildCount(); i++) applyEnabled(g.getChildAt(i));
     }
 
     /** The editable inside a Material text box (TextInputLayout), or the view itself. */
@@ -2286,14 +4073,34 @@ public final class DayBridge extends DayRuntime {
         }
         if (p != null) p.removeView(child);
     }
-    public static void setFrame(View v, int x, int y, int w, int h) {
+    /** A child's frame in px in its DayFixed. With `timing` (src/lib.rs `motion_wire`) it
+     *  moves there from the frame it shows, through a run that places it each frame; without,
+     *  it is placed at once and any run on it ends. */
+    public static void setFrame(View v, int x, int y, int w, int h, int[] timing, float[] keys) {
         // See addChild: a presented cover shell is positioned natively (fullscreen).
         if (v instanceof DayCover && ((DayCover) v).presented) return;
         ViewGroup p = (ViewGroup) v.getParent();
         // Nav / tab pages fill the host's page frame; their frames are native-owned.
         if (p != null && p.getParent() instanceof DayNavHost) return;
         if (p != null && p.getParent() instanceof DayTabs) return;
-        if (p instanceof DayFixed) ((DayFixed) p).setChildFrame(v, x, y, w, h);
+        if (!(p instanceof DayFixed)) return;
+        final DayFixed f = (DayFixed) p;
+        cancelRun(v, ANIM_FRAME);
+        // A child placed for the first time has no frame to move from: it appears in place.
+        final int[] from = f.childFrame(v);
+        if (!animates(timing) || from == null) {
+            f.setChildFrame(v, x, y, w, h);
+            return;
+        }
+        startRun(v, ANIM_FRAME, timing, keys, q -> {
+            if (v.getParent() != f) return;
+            f.setChildFrame(v,
+                    Math.round(lerp(from[0], x, q)), Math.round(lerp(from[1], y, q)),
+                    Math.max(0, Math.round(lerp(from[2], w, q))),
+                    Math.max(0, Math.round(lerp(from[3], h, q))));
+        }, () -> {
+            if (v.getParent() == f) f.setChildFrame(v, x, y, w, h);
+        });
     }
 
     // --- navigation (docs/navigation.md) ---
@@ -2765,26 +4572,50 @@ public final class DayBridge extends DayRuntime {
         return false;
     }
 
-    /** Whether the system renders in dark appearance (Toolkit::dark_mode). */
-    /** `Toolkit::system_color`: the theme's Material 3 role for a Day `SystemColor`, as ARGB:
-     *  0 accent (colorPrimary), 1 text (colorOnSurface), 2 secondary text
-     *  (colorOnSurfaceVariant), 3 background (colorSurface, what the window and the status bar
-     *  behind it show), 4 surface (colorSurfaceContainer). 0, fully transparent, when there is
-     *  no themed context yet, which tells Rust to use Day's fallback palette. */
+    /** `Toolkit::system_color`: the theme's Material 3 color for a Day `SystemColor`, by its
+     *  wire number (`SystemColor::ALL` order), as ARGB: 0 accent (colorPrimary), 1 text
+     *  (colorOnSurface), 2 secondary text (colorOnSurfaceVariant), 3 background (colorSurface,
+     *  what the window and the status bar behind it show), 4 surface (colorSurfaceContainer),
+     *  5 tertiary text (colorOnSurfaceVariant at 60%), 6 placeholder (textColorHint), 7 link
+     *  (textColorLink), 8 separator (colorOutlineVariant), 9 control fill
+     *  (colorSurfaceContainerHighest), 10 grouped background (colorSurfaceContainerLow),
+     *  11 elevated surface (colorSurfaceContainerHigh), 12 selection (textColorHighlight),
+     *  13 destructive (colorError). 0, fully transparent, for success and warning, which
+     *  Material 3 has no role for, and when there is no themed context yet: Rust then uses
+     *  Day's fallback for that role.
+     *
+     *  Read from the activity's theme, which is the one its views were inflated with. A light
+     *  or dark switch recreates the activity (DayActivity.onConfigurationChanged), and the
+     *  re-mount reads every role again from the new one (day-core reads the palette when the
+     *  tree is installed) before the app's views are built and resolve their inks, so the
+     *  palette Day resolves inks against is always the theme on screen. */
     public static int systemColor(int role) {
         if (ctx == null) return 0;
         int attr;
+        int alpha = -1;
         switch (role) {
             case 0: attr = androidx.appcompat.R.attr.colorPrimary; break;
             case 1: attr = com.google.android.material.R.attr.colorOnSurface; break;
             case 2: attr = com.google.android.material.R.attr.colorOnSurfaceVariant; break;
             case 3: attr = com.google.android.material.R.attr.colorSurface; break;
             case 4: attr = com.google.android.material.R.attr.colorSurfaceContainer; break;
+            case 5: attr = com.google.android.material.R.attr.colorOnSurfaceVariant; alpha = 153; break;
+            case 6: attr = android.R.attr.textColorHint; break;
+            case 7: attr = android.R.attr.textColorLink; break;
+            case 8: attr = com.google.android.material.R.attr.colorOutlineVariant; break;
+            case 9: attr = com.google.android.material.R.attr.colorSurfaceContainerHighest; break;
+            case 10: attr = com.google.android.material.R.attr.colorSurfaceContainerLow; break;
+            case 11: attr = com.google.android.material.R.attr.colorSurfaceContainerHigh; break;
+            case 12: attr = android.R.attr.textColorHighlight; break;
+            case 13: attr = androidx.appcompat.R.attr.colorError; break;
             default: return 0;
         }
-        return MaterialColors.getColor((android.content.Context) ctx, attr, 0);
+        int argb = MaterialColors.getColor((android.content.Context) ctx, attr, 0);
+        if (alpha >= 0 && argb != 0) argb = (argb & 0x00FFFFFF) | (alpha << 24);
+        return argb;
     }
 
+    /** Whether the system renders in dark appearance (Toolkit::dark_mode). */
     public static boolean isDarkMode() {
         int night = ((android.content.Context) ctx).getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
@@ -4288,6 +6119,17 @@ public final class DayBridge extends DayRuntime {
         applyImageTint((android.widget.ImageView) v, tint);
     }
 
+    /** The tint a raster image is realized with (docs/images.md "Tinting"): the same channel
+     *  as {@link #makeImage}'s, for a view made from bytes or a decoded bitmap. The tint list
+     *  belongs to the view, so a later source swap draws the new pixels in it too. */
+    public static void initImageTint(View v, int tint) {
+        if (!(v instanceof android.widget.ImageView) || tint == 0) {
+            return;
+        }
+        if (tint == TEMPLATE_TINT) templateImages.add(v);
+        applyImageTint((android.widget.ImageView) v, tint);
+    }
+
     public static View makeImage(String name, int mode, int tint) {
         View v = makeImageInner(name, mode);
         // Vector-glyph tint (docs/vectors.md): drawable tint keeps a VectorDrawable/PNG's alpha
@@ -4652,20 +6494,25 @@ public final class DayBridge extends DayRuntime {
      *  DayFixed that DayActivity/DayWindowActivity hold in a wrapper under android.R.id.content,
      *  which is where Day's frames start. Null when the view is not attached under one (a
      *  dialog's own window, a detached view): there is no Day origin to measure from. */
-    private static String frameInDayRoot(View v) {
-        if (!v.isAttachedToWindow()) return null;
-        View root = null;
+    /** The Day root `v` sits in: the DayFixed held in a wrapper under android.R.id.content.
+     *  Null when there is none above it (a dialog's own window, a detached view). */
+    private static View dayRootOf(View v) {
         for (View p = v; p != null; ) {
             android.view.ViewParent wp = p.getParent();
             if (p instanceof DayFixed && wp instanceof View) {
                 android.view.ViewParent cp = ((View) wp).getParent();
                 if (cp instanceof View && ((View) cp).getId() == android.R.id.content) {
-                    root = p;
-                    break;
+                    return p;
                 }
             }
             p = wp instanceof View ? (View) wp : null;
         }
+        return null;
+    }
+
+    private static String frameInDayRoot(View v) {
+        if (!v.isAttachedToWindow()) return null;
+        View root = dayRootOf(v);
         if (root == null) return null;
         int[] at = new int[2];
         int[] origin = new int[2];

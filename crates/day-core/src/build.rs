@@ -197,7 +197,9 @@ impl<A: Piece, B: Piece> Piece for Either<A, B> {
 
 /// An optional piece (§5.1): `Some` builds the piece, `None` builds the same zero-size,
 /// layout-transparent anchor a false [`when`](/api/day_pieces/fn.when.html) leaves behind, so
-/// the slot keeps its place in a tuple without drawing anything.
+/// the slot keeps its place in a tuple without drawing anything. Inside a `grid_row` the
+/// anchor keeps its column as an empty cell (docs/grid.md "Spanning and empty cells"), so an
+/// absent value does not shift the cells after it.
 ///
 /// ```ignore
 /// let precip = (d.precip > 0).then(|| label(format!("{}%", d.precip)));
@@ -214,6 +216,10 @@ impl<P: Piece> Piece for Option<P> {
                 Rc::new(crate::layout::PassThrough),
                 Flex {
                     is_group: true,
+                    grid: crate::tree::GridFacts {
+                        holds_cell: true,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 Boundary::No,

@@ -160,9 +160,27 @@ image(move || match shown.get() {
 })
 ```
 
-One limit worth stating: [`VectorBuilder::tint`](https://docs.rs/day-pieces/latest/day_pieces/trait.VectorBuilder.html#tymethod.tint) applies to **named vector** sources only. A recolor re-reads the
-source art — an SVG's paths on ArkUI and WinUI, the file on GTK — and bytes have no such art to
-re-read.
+### Tinting
+
+[`image(source).tint(color)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ImageBuilder.html#tymethod.tint) recolors a raster image to `color`, keeping only its alpha: every
+pixel becomes `color` at the opacity the image had there. It is what turns a white-on-clear logo
+or a scanned signature into the theme's ink. On a photo with no transparency the result is a
+flat block of color.
+
+```rust
+image(res::images::logo_mark).tint(SystemColor::Text)
+```
+
+The tint applies to every source: a staged name, encoded bytes and a decoded bitmap. For
+bundled monochrome glyphs prefer [`vector()`](./vectors.md), whose tint is reactive and whose
+art scales.
+
+On Apple and Android the tint is the platform's template rendering. GTK and Qt recolor the
+pixels into a new image when the tint or the source changes, the web paints the tint through
+a CSS mask, ArkUI recolors a raster through a color filter and composites a color over an
+SVG, and WinUI renders a recolored bitmap
+(remote images are shown untinted there). GTK and the web ignore the tint's own
+alpha.
 
 For asynchronously loaded images in recycled rows, bind the source to a bundled placeholder
 until the current item's image is ready; see [list](./list.md#asynchronous-row-images).

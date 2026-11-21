@@ -95,11 +95,12 @@ delivery. A toolkit can keep a paused native source during delivery to reuse it 
 but must release it when demand ends. Qt keeps only an inert event filter after cancellation;
 its pending window update, if any, still belongs to Qt's backing-store machinery.
 
-The existing [`frame_clock`](https://docs.rs/day-pieces/latest/day_pieces/fn.frame_clock.html) piece uses this same service. Its compatibility contract still gives
-an initial 1/60 s step and clamps subsequent deltas to 100 ms. New clients should use the explicit
-handle API so they can stop while idle. Native-widget [`with_animation`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html) continues to use toolkit
-animators; this primitive does not replace them. Interpolation, timing and a frame-driven
-transition driver built on it are in [tween](tween.md).
+Native-widget [`with_animation`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html) continues to use toolkit
+animators; this primitive does not replace them. Animated values, composed animations and
+interpolation built on it are in [motion and tweening](tween.md): prefer
+[`day::motion`](tween.md#animation) for a tween, a spring or a sequence, and subscribe here for a
+simulation with rules of its own. Every subscriber of a window runs inside one reactive batch
+per frame, so the writes of a frame reach each binding once.
 
 Regression coverage lives in `day-core/src/frame.rs`: coalescing, callback reentrancy, cancellation,
 late native delivery, independent windows, lifecycle suspension, malformed timestamps, and

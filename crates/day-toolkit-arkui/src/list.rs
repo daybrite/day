@@ -86,8 +86,26 @@ struct List {
     /// The per-cell swipe user data records, owned by the list and freed with it.
     swipe_cells: Vec<*mut SwipeCell>,
     /// A row jump asked for before the adapter had rows (a list the page scrolls as it builds):
-    /// the next reload applies it.
-    pending_scroll: Option<u32>,
+    /// the next reload applies it. `(row, alignment, animated)`; `None` as the row is the end.
+    pending_scroll: Option<(Option<u32>, ArkUI_ScrollAlignment, bool)>,
+    /// The visible rows `NODE_LIST_ON_SCROLL_INDEX` last reported, every list.
+    visible: (i32, i32),
+    /// The app observes the viewport (`ListSource::viewport`, docs/list.md): reports go out on
+    /// every scrolled frame, index change and reload.
+    viewport: bool,
+    /// The app hears the reader's scrolls (`ListSource::reader_scroll`, docs/list.md
+    /// "Following the end"), and whether a frame of one is waiting for a viewport report that
+    /// moved: the report it goes out with. A frame that moves nothing (the edge effect's
+    /// stretch past the end) is not reported, and the scroll's stop, a reload or the app's own
+    /// scroll drops a frame still waiting.
+    reader: bool,
+    reader_moved: bool,
+    /// The last viewport report: whether the next one moved.
+    reported: Option<(usize, usize, u64, i32)>,
+    /// Supplementary rows' cells (a header, footer, empty state or padding row, docs/list.md):
+    /// sized to their content in any list, with no tap, drag, swipe or focus stop, pooled apart.
+    supplement_cells: HashSet<usize>,
+    supplement_pool: Vec<Handle>,
     /// A sectioned list's header cells (docs/list.md "Sections"): built inert (no tap, drag or
     /// swipe), sized to their header, and pooled apart from the item cells so a recycled
     /// header cell always rebinds a header.
@@ -242,8 +260,15 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                 }
                 AdapterEv::NODE_ADAPTER_EVENT_ON_ADD_NODE_TO_ADAPTER => {
                     let idx = OH_ArkUI_NodeAdapterEvent_GetItemIndex(ev);
-                    let header = dl.pin.is_some() && crate::list_is_header(dl.host_id, idx);
-                    let cell = if header {
+                    let supplement = crate::list_is_supplement(dl.host_id, idx);
+                    let header =
+                        !supplement && dl.pin.is_some() && crate::list_is_header(dl.host_id, idx);
+                    let cell = if supplement {
+                        match dl.supplement_pool.pop() {
+                            Some(cell) => cell,
+                            None => new_supplement_cell(dl),
+                        }
+                    } else if header {
                         match dl.header_pool.pop() {
                             Some(cell) => cell,
                             None => new_header_cell(dl),
@@ -261,7 +286,7 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                     let inner = node::child_at(cell, 0);
                     // Build (fresh) or rebind (recycled).
                     crate::list_bind(dl.host_id, idx, inner);
-                    if dl.row_h <= 0.0 || header {
+                    if dl.row_h <= 0.0 || header || supplement {
                         // Content-sized: the height Day just laid the row at. Left unset, the
                         // item only wraps its Stack, whose children are placed, not measured.
                         // A header sizes to its content even in a uniform list.
@@ -284,6 +309,8 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                         }
                         if dl.header_cells.contains(&(removed as usize)) {
                             dl.header_pool.push(removed);
+                        } else if dl.supplement_cells.contains(&(removed as usize)) {
+                            dl.supplement_pool.push(removed);
                         } else {
                             dl.pool.push(removed);
                         }
@@ -341,6 +368,19 @@ fn new_header_cell(dl: &mut List) -> Handle {
     cell
 }
 
+/// A fresh supplementary-row cell (docs/list.md "Supplementary rows"): the header cell's shape
+/// and inertness (no tap, drag, swipe or focus stop) without the header's ground.
+fn new_supplement_cell(dl: &mut List) -> Handle {
+    let cell = node::create(node::LIST_ITEM);
+    let inner = node::create(node::STACK);
+    node::set_f32(cell, Attr::NODE_WIDTH_PERCENT, 1.0);
+    node::set_f32(inner, Attr::NODE_WIDTH_PERCENT, 1.0);
+    node::add_child(cell, inner);
+    node::set_i32(cell, Attr::NODE_FOCUSABLE, 0);
+    dl.supplement_cells.insert(cell as usize);
+    cell
+}
+
 /// Give a content-sized list's cell (the `LIST_ITEM` and the Stack the row mounts in) the row's
 /// height in vp. A zero height (a bind that skipped under a day-core borrow) leaves it as is.
 fn size_row(dl: &mut List, cell: Handle, inner: Handle, height_vp: f64) {
@@ -374,14 +414,19 @@ pub fn resize_row(n: Handle, inner: Handle, height_vp: f64) {
         return;
     }
     let cell = node::parent(inner);
-    // A uniform list's item rows keep their declared height; its headers size to content.
-    if dl.row_h > 0.0 && !dl.header_cells.contains(&(cell as usize)) {
+    // A uniform list's item rows keep their declared height; its headers and supplementary
+    // rows size to content.
+    if dl.row_h > 0.0
+        && !dl.header_cells.contains(&(cell as usize))
+        && !dl.supplement_cells.contains(&(cell as usize))
+    {
         return;
     }
     // Only a cell this list still binds: a pooled one gets its height on its next bind.
     if dl.rows.contains_key(&(cell as usize))
         && !dl.pool.contains(&cell)
         && !dl.header_pool.contains(&cell)
+        && !dl.supplement_pool.contains(&cell)
     {
         size_row(dl, cell, inner, height_vp);
     }
@@ -451,6 +496,13 @@ pub fn init(n: Handle, host_id: u64, row_h_vp: f64, p: &day_spec::props::ListPro
         header_cells: HashSet::new(),
         header_pool: Vec::new(),
         pin,
+        visible: (0, 0),
+        viewport: false,
+        reader: false,
+        reader_moved: false,
+        reported: None,
+        supplement_cells: HashSet::new(),
+        supplement_pool: Vec::new(),
     });
     let user = ptr::from_mut(&mut *dl).cast::<c_void>();
     // SAFETY: the receiver's user data is the boxed list, stable until disposal.
@@ -705,6 +757,7 @@ pub fn reload(n: Handle) {
     // SAFETY: a live list; the count callback may realize rows but holds no map borrow.
     let dl = unsafe { &mut *dl };
     dl.generation += 1;
+    dl.reader_moved = false;
     let count = crate::list_count(dl.host_id);
     // SAFETY: a live adapter.
     unsafe {
@@ -712,9 +765,17 @@ pub fn reload(n: Handle) {
         OH_ArkUI_NodeAdapter_ReloadAllItems(dl.adapter);
     }
     if count > 0
-        && let Some(index) = dl.pending_scroll.take()
+        && let Some((row, align, animated)) = dl.pending_scroll.take()
     {
-        reveal_row(dl.node, (index as i32).min(count as i32 - 1));
+        let last = count as i32 - 1;
+        let index = row.map_or(last, |row| (row as i32).min(last));
+        scroll_list(dl.node, index, align, animated);
+    }
+    if dl.viewport {
+        // Once the reloaded rows are laid out: now, and again a little later.
+        let n = n as usize;
+        crate::main_thread::post_local(Box::new(move || report_viewport(n as Handle)));
+        crate::main_thread::post_delayed(120, Box::new(move || report_viewport(n as Handle)));
     }
     // The rows changed under the pin: its section, and the header bound in it, are re-read.
     // A shown pin rebinds now; the cells just re-added are not laid out yet, so a hidden one
@@ -736,6 +797,9 @@ pub fn scroll_to_end(n: Handle) {
     if dl.is_null() {
         return;
     }
+    // The app's own scroll: a reader frame still waiting is not its cause.
+    // SAFETY: a live list; no map borrow is held.
+    unsafe { (*dl).reader_moved = false };
     // SAFETY: a live list and its adapter.
     let (list, last) = unsafe {
         (
@@ -762,6 +826,9 @@ pub fn scroll_to_row(n: Handle, index: u32) {
     if dl.is_null() {
         return;
     }
+    // The app's own scroll: a reader frame still waiting is not its cause.
+    // SAFETY: a live list; no map borrow is held.
+    unsafe { (*dl).reader_moved = false };
     // SAFETY: a live list and its adapter.
     let (list, count) = unsafe {
         (
@@ -774,7 +841,13 @@ pub fn scroll_to_row(n: Handle, index: u32) {
     } else {
         // No rows yet: the jump waits for the reload that brings them (`reload`).
         // SAFETY: a live list (checked non-null above).
-        unsafe { (*dl).pending_scroll = Some(index) };
+        unsafe {
+            (*dl).pending_scroll = Some((
+                Some(index),
+                ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_AUTO,
+                false,
+            ));
+        };
     }
 }
 
@@ -791,6 +864,219 @@ fn reveal_row(list: Handle, index: i32) {
             node::i32v(ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_AUTO.0 as i32),
         ],
     );
+}
+
+/// `Toolkit::list_scroll` (docs/list.md "Programmatic scrolling"): bring `row` (or, for `None`,
+/// the last row, the end of the content) to the place `align` names, with ArkUI's own scroll
+/// animation when `animated`. Called posted, out of the day-core borrow; a list with no rows
+/// yet keeps the request for the reload that brings them.
+pub fn scroll_aligned(n: Handle, row: Option<usize>, align: day_spec::RowAlign, animated: bool) {
+    let dl = list_ptr(n);
+    if dl.is_null() {
+        return;
+    }
+    // The app's own scroll: a reader frame still waiting is not its cause.
+    // SAFETY: a live list; no map borrow is held.
+    unsafe { (*dl).reader_moved = false };
+    let align = match (row, align) {
+        (None, _) | (_, day_spec::RowAlign::End) => {
+            ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_END
+        }
+        (_, day_spec::RowAlign::Nearest) => ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_AUTO,
+        (_, day_spec::RowAlign::Start) => ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_START,
+        (_, day_spec::RowAlign::Center) => ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_CENTER,
+    };
+    // SAFETY: a live list and its adapter; no map borrow is held.
+    let (list, count) = unsafe {
+        (
+            (*dl).node,
+            OH_ArkUI_NodeAdapter_GetTotalNodeCount((*dl).adapter) as i32,
+        )
+    };
+    if count <= 0 {
+        let row = row.map(|r| u32::try_from(r).unwrap_or(u32::MAX));
+        // SAFETY: as above.
+        unsafe { (*dl).pending_scroll = Some((row, align, animated)) };
+        return;
+    }
+    let index = row.map_or(count - 1, |r| {
+        i32::try_from(r).unwrap_or(i32::MAX).min(count - 1)
+    });
+    // ArkUI animates a row scroll through every row between, building each: a far jump (more
+    // than a few screens away) goes at once, as a person would expect of a jump anyway.
+    // SAFETY: as above.
+    let (first, last) = unsafe { (*dl).visible };
+    let span = (last - first + 1).max(1);
+    let far = index < first - 3 * span || index > last + 3 * span;
+    scroll_list(list, index, align, animated && !far);
+}
+
+/// `NODE_LIST_SCROLL_TO_INDEX`: `[index, animated, alignment]`.
+fn scroll_list(list: Handle, index: i32, align: ArkUI_ScrollAlignment, animated: bool) {
+    node::set_values(
+        list,
+        Attr::NODE_LIST_SCROLL_TO_INDEX,
+        &[
+            node::i32v(index),
+            node::i32v(i32::from(animated)),
+            node::i32v(align.0 as i32),
+        ],
+    );
+}
+
+/// The app observes list host `n`'s viewport (`ListSource::viewport`): report it on every
+/// scrolled frame from now on.
+pub fn observe_viewport(n: Handle) {
+    let dl = list_ptr(n);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let dl = unsafe { &mut *dl };
+    if !dl.viewport {
+        dl.viewport = true;
+        node::register_event(dl.node, Ev::NODE_LIST_ON_DID_SCROLL, dl.host_id);
+    }
+}
+
+/// The app hears list host `n`'s reader scrolls (`ListSource::reader_scroll`, docs/list.md
+/// "Following the end"): the will-scroll frames name their source, and a stop ends one.
+pub fn observe_reader(n: Handle) {
+    let dl = list_ptr(n);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let dl = unsafe { &mut *dl };
+    if !dl.reader {
+        dl.reader = true;
+        node::register_event(dl.node, Ev::NODE_LIST_ON_WILL_SCROLL, dl.host_id);
+        node::register_event(dl.node, Ev::NODE_SCROLL_EVENT_ON_SCROLL_STOP, dl.host_id);
+    }
+}
+
+/// `NODE_LIST_ON_WILL_SCROLL` on a LIST node: the frame about to scroll `offset` px and its
+/// `ArkUI_ScrollSource`. The reader's sources are a drag (0), other user input (3: a wheel, a
+/// key) and the scroll bar (4); their flings (1, 5) and the edge effect (2) carry on whatever
+/// started them; the scroller (6) and its animation (7) are the app's own scrolls.
+pub fn on_will_scroll(list: Handle, offset: f32, source: i32) {
+    let dl = list_by_node(list);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let dl = unsafe { &mut *dl };
+    match source {
+        0 | 3 | 4 if offset != 0.0 => dl.reader_moved = true,
+        6 | 7 => dl.reader_moved = false,
+        _ => {}
+    }
+}
+
+/// `NODE_SCROLL_EVENT_ON_SCROLL_STOP` on a LIST node: a reader frame that moved nothing is not
+/// carried into the next scroll.
+pub fn on_scroll_stop(list: Handle) {
+    let dl = list_by_node(list);
+    if !dl.is_null() {
+        // SAFETY: a live list; no map borrow is held.
+        unsafe { (*dl).reader_moved = false };
+    }
+}
+
+/// The list whose LIST node is `list` (an event's node), as a raw pointer.
+fn list_by_node(list: Handle) -> *mut List {
+    LISTS.with(|l| {
+        l.borrow_mut()
+            .values_mut()
+            .find(|dl| dl.node == list)
+            .map_or(ptr::null_mut(), |b| ptr::from_mut(&mut **b))
+    })
+}
+
+/// `NODE_LIST_ON_SCROLL_INDEX` on any LIST node: record the visible rows, and report the
+/// viewport where the app observes it.
+pub fn on_visible_rows(list: Handle, first: i32, last: i32) {
+    let dl = list_by_node(list);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let dl = unsafe { &mut *dl };
+    dl.visible = (first.max(0), last.max(first.max(0)));
+    if dl.viewport {
+        report_viewport(dl.host);
+    }
+}
+
+/// The viewport report (`ListSource::viewport`, docs/list.md): the first and last visible rows
+/// as the list last reported them, and how far the content's bottom edge lies below the
+/// viewport's, read from the last visible cell's laid-out frame plus the rows after it at the
+/// list's row pitch (the uniform height, or the average of the heights laid so far).
+pub fn report_viewport(n: Handle) {
+    let dl = list_ptr(n);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let dl = unsafe { &mut *dl };
+    if !dl.viewport {
+        return;
+    }
+    // SAFETY: a live adapter.
+    let count = unsafe { OH_ArkUI_NodeAdapter_GetTotalNodeCount(dl.adapter) } as i32;
+    // Rows the source has but the adapter has not applied yet: the geometry is the old rows',
+    // and day-core reads the new count, so a report now would pair them. The reload reports.
+    if count <= 0 || crate::list_count(dl.host_id) != count as u32 {
+        return;
+    }
+    let (first, last) = (dl.visible.0.min(count - 1), dl.visible.1.min(count - 1));
+    let d = node::density();
+    let below = |cell: Handle| -> Option<f64> {
+        let (_, cy, _, ch) = node::layout_frame_px(cell)?;
+        let (_, ly, _, lh) = node::layout_frame_px(dl.node)?;
+        Some((cy + ch) - (ly + lh))
+    };
+    let live = dl.rows.iter().find(|&(&cell, &row)| {
+        row == last
+            && !dl.pool.contains(&(cell as Handle))
+            && !dl.header_pool.contains(&(cell as Handle))
+            && !dl.supplement_pool.contains(&(cell as Handle))
+    });
+    let pitch = if dl.row_h > 0.0 {
+        f64::from(dl.row_h)
+    } else if dl.heights.is_empty() {
+        0.0
+    } else {
+        dl.heights.values().map(|h| f64::from(*h)).sum::<f64>() / dl.heights.len() as f64
+    };
+    let tail = live
+        .and_then(|(&cell, _)| below(cell as Handle))
+        .unwrap_or(0.0);
+    let after = f64::from(count - 1 - last) * pitch;
+    let end_distance = ((tail + after) / d).max(0.0);
+    let (first, last) = (
+        usize::try_from(first).unwrap_or(0),
+        usize::try_from(last).unwrap_or(0),
+    );
+    // The reader's scroll goes out ahead of the first report it moved, so the report that
+    // follows always differs from the one before and says where the reader stopped.
+    let report = (first, last, end_distance.to_bits(), count);
+    if dl.reported.replace(report) != Some(report) && std::mem::take(&mut dl.reader_moved) {
+        crate::list_reader_scroll(dl.host_id);
+    }
+    crate::list_viewport(dl.host_id, first, last, end_distance);
+}
+
+/// `NODE_LIST_ON_DID_SCROLL` on any LIST node: every scrolled frame reports the viewport where
+/// the app observes it.
+pub fn on_scrolled(list: Handle) {
+    let dl = list_by_node(list);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let host = unsafe { (*dl).host };
+    report_viewport(host);
 }
 
 /// The sectioned list whose LIST node is `list` (an event's node), as a raw pointer.

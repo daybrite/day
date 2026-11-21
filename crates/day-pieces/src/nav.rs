@@ -684,10 +684,10 @@ type DerivedRows<K> = (
     Vec<Option<String>>,
     Vec<Option<String>>,
     Vec<Option<String>>,
-    Vec<Option<day_spec::Color>>,
+    Vec<Option<day_spec::Ink>>,
     Vec<Vec<day_spec::MenuItem>>,
     Vec<Option<String>>,
-    Vec<Option<day_spec::Color>>,
+    Vec<Option<day_spec::Ink>>,
 );
 
 /// The rows the native menu last received, to tell a value change (`rows_changed`) from a new
@@ -698,9 +698,9 @@ struct ShownRows {
     icons: Vec<Option<String>>,
     badges: Vec<Option<String>>,
     badge_icons: Vec<Option<String>>,
-    badge_tints: Vec<Option<day_spec::Color>>,
+    badge_tints: Vec<Option<day_spec::Ink>>,
     sections: Vec<Option<String>>,
-    tints: Vec<Option<day_spec::Color>>,
+    tints: Vec<Option<day_spec::Ink>>,
     menus: Vec<Vec<day_spec::MenuItem>>,
 }
 
@@ -734,7 +734,7 @@ pub struct SelItem<K> {
     /// Optional bundled-image name for the item's native icon (docs/navigation.md).
     icon: Option<String>,
     /// Optional per-row icon tint (docs/vectors.md).
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
     /// Per-row context menu (docs/menus.md), already lowered: items carry registered
     /// action ids. Empty = no menu.
     menu: Vec<day_spec::MenuItem>,
@@ -744,7 +744,7 @@ pub struct SelItem<K> {
     /// Trailing accessory glyph, in the same slot as `badge` (docs/navigation.md).
     badge_icon: Option<String>,
     /// Tint for `badge_icon`; `None` leaves it at the backend's neutral template tint.
-    badge_tint: Option<day_spec::Color>,
+    badge_tint: Option<day_spec::Ink>,
     /// Header introducing the group this item opens (docs/navigation.md).
     section: Option<SectionHeader>,
     /// Immersive-chrome page (docs/navigation.md): keeps the floating transparent bar on
@@ -766,11 +766,11 @@ pub struct NavItem<K = String> {
     key: K,
     title: TextSource,
     icon: Option<String>,
-    icon_tint: Option<day_spec::Color>,
+    icon_tint: Option<day_spec::Ink>,
     menu: Vec<day_spec::MenuItem>,
     badge: Option<TextSource>,
     badge_icon: Option<String>,
-    badge_tint: Option<day_spec::Color>,
+    badge_tint: Option<day_spec::Ink>,
     section: Option<SectionHeader>,
     immersive: bool,
     page: Option<PageFn>,
@@ -817,8 +817,8 @@ impl<K> NavItem<K> {
     }
     /// Tint this row's icon (docs/vectors.md): the glyph recolors to `color` instead of the
     /// backend's neutral template tint. Backends without per-row tinting keep the neutral look.
-    pub fn icon_tint(mut self, color: day_spec::Color) -> Self {
-        self.icon_tint = Some(color);
+    pub fn icon_tint(mut self, color: impl Into<day_spec::Ink>) -> Self {
+        self.icon_tint = Some(color.into());
         self
     }
     /// Attach a context menu to this row (docs/menus.md): shown on secondary-click /
@@ -855,8 +855,8 @@ impl<K> NavItem<K> {
         self
     }
     /// The color for [`Self::badge_icon`]. `None` (the default) keeps the neutral template tint.
-    pub fn badge_tint(mut self, color: day_spec::Color) -> Self {
-        self.badge_tint = Some(color);
+    pub fn badge_tint(mut self, color: impl Into<day_spec::Ink>) -> Self {
+        self.badge_tint = Some(color.into());
         self
     }
     /// Open a new section with this header, immediately before this row.
@@ -1036,11 +1036,11 @@ enum MetaSource<K> {
 #[derive(Clone, Default)]
 struct RowMeta {
     icon: Option<String>,
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
     menu: Vec<day_spec::MenuItem>,
     badge: Option<TextSource>,
     badge_icon: Option<String>,
-    badge_tint: Option<day_spec::Color>,
+    badge_tint: Option<day_spec::Ink>,
     section: Option<SectionHeader>,
 }
 
@@ -1237,10 +1237,10 @@ struct SidebarRow<K> {
     section_id: Option<String>,
     title: String,
     icon: Option<String>,
-    tint: Option<day_spec::Color>,
+    tint: Option<day_spec::Ink>,
     badge: Option<String>,
     badge_icon: Option<String>,
-    badge_tint: Option<day_spec::Color>,
+    badge_tint: Option<day_spec::Ink>,
     menu: Vec<day_spec::MenuItem>,
 }
 fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
@@ -1360,7 +1360,7 @@ fn sidebar_progress<K: Route>(
                         let fraction = drawn().flatten().unwrap_or(0.0).clamp(0.0, 1.0);
                         let color = slot
                             .field(|r| r.tint)
-                            .unwrap_or(day_spec::Color::hex(0x000A_84FF));
+                            .unwrap_or(day_spec::Ink::system(day_spec::SystemColor::Accent));
                         let rect = day_spec::Rect::new(
                             1.0,
                             1.0,
@@ -1370,8 +1370,8 @@ fn sidebar_progress<K: Route>(
                         draw.stroke(
                             day_spec::Shape::Arc {
                                 rect,
-                                start_deg: -90.0,
-                                sweep_deg: 360.0 * fraction,
+                                start: day_spec::Angle::deg(-90.0),
+                                sweep: day_spec::Angle::FULL * fraction,
                             },
                             color,
                             2.0,
@@ -1710,10 +1710,10 @@ struct NavRows<K> {
     icons: Vec<Option<String>>,
     badges: Vec<Option<String>>,
     badge_icons: Vec<Option<String>>,
-    badge_tints: Vec<Option<day_spec::Color>>,
+    badge_tints: Vec<Option<day_spec::Ink>>,
     sections: Vec<Option<String>>,
     section_ids: Vec<Option<String>>,
-    tints: Vec<Option<day_spec::Color>>,
+    tints: Vec<Option<day_spec::Ink>>,
     menus: Vec<Vec<day_spec::MenuItem>>,
 }
 
@@ -5760,7 +5760,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
 /// [`interactive_dismiss_disabled`](Decorate::interactive_dismiss_disabled) subtree is
 /// mounted inside the content, in which case only programmatic writes close it.
 /// A cover's per-route surface color (see [`Cover::background`]).
-type CoverBackground<R> = Rc<dyn Fn(&R) -> day_spec::Color>;
+type CoverBackground<R> = Rc<dyn Fn(&R) -> day_spec::Ink>;
 
 #[must_use]
 pub struct Cover<S, R: Route> {
@@ -5774,23 +5774,94 @@ pub struct Cover<S, R: Route> {
     _marker: std::marker::PhantomData<R>,
 }
 
-/// A fullscreen cover over `open`: `Some(r)` presents `build(&r)`, `None` dismisses
-/// (docs/cover.md). Registers a string-route adapter, so `navigate("<key>")` opens it and
-/// `nav_back()` closes it, and `current_route()` reports the presented key.
-pub fn cover<R: Route, S: Binding<Option<R>>, P: Piece>(
-    open: S,
+/// The route of a cover bound to a `bool` (docs/cover.md "Open or closed"): the cover has one
+/// thing to show, so its route carries nothing. The builder still receives it, so a bool cover
+/// is written `cover(open, |_| content())`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Shown;
+
+impl Route for Shown {
+    fn key(&self) -> String {
+        "shown".into()
+    }
+    fn from_key(key: &str) -> Option<Self> {
+        (key == "shown").then_some(Shown)
+    }
+}
+
+/// A `Binding<bool>` seen as the `Binding<Option<Shown>>` a cover presents from: `true` is
+/// `Some(Shown)`, and a native dismissal writes `false` back.
+#[derive(Clone)]
+pub struct ShownBinding<B>(B);
+
+impl<B: Binding<bool>> Binding<Option<Shown>> for ShownBinding<B> {
+    fn read(&self) -> Option<Shown> {
+        self.0.read().then_some(Shown)
+    }
+    fn peek(&self) -> Option<Shown> {
+        self.0.peek().then_some(Shown)
+    }
+    fn write(&self, v: Option<Shown>) {
+        self.0.write(v.is_some());
+    }
+}
+
+/// Marker for a cover opened by a `Binding<Option<R>>` ([`IntoCoverOpen`]).
+pub struct RouteOpen;
+/// Marker for a cover opened by a `Binding<bool>` ([`IntoCoverOpen`]).
+pub struct BoolOpen;
+
+/// What a [`cover`] presents from: a `Binding<Option<R>>` (a typed route, `None` closed) or a
+/// `Binding<bool>` (open or closed, route [`Shown`]).
+pub trait IntoCoverOpen<R: Route, M> {
+    /// The binding the cover reads and writes.
+    type Open: Binding<Option<R>>;
+    /// Whether the cover registers a string-route adapter (`navigate("<key>")`). A bool cover
+    /// does not: every bool cover would answer the same key.
+    const ROUTED: bool;
+    /// The binding.
+    fn into_open(self) -> Self::Open;
+}
+
+impl<R: Route, S: Binding<Option<R>>> IntoCoverOpen<R, RouteOpen> for S {
+    type Open = S;
+    const ROUTED: bool = true;
+    fn into_open(self) -> S {
+        self
+    }
+}
+
+impl<B: Binding<bool>> IntoCoverOpen<Shown, BoolOpen> for B {
+    type Open = ShownBinding<B>;
+    const ROUTED: bool = false;
+    fn into_open(self) -> ShownBinding<B> {
+        ShownBinding(self)
+    }
+}
+
+/// A fullscreen cover over `open` (docs/cover.md). With a `Binding<Option<R>>`, `Some(r)`
+/// presents `build(&r)` and `None` dismisses; the cover registers a string-route adapter, so
+/// `navigate("<key>")` opens it, `nav_back()` closes it, and `current_route()` reports the
+/// presented key. With a `Binding<bool>`, `true` presents and `false` dismisses:
+///
+/// ```ignore
+/// let editing = Signal::new(false);
+/// cover(editing, |_| editor()).sheet()
+/// ```
+pub fn cover<R: Route, M, O: IntoCoverOpen<R, M>, P: Piece>(
+    open: O,
     build: impl Fn(&R) -> P + 'static,
-) -> Cover<S, R> {
+) -> Cover<O::Open, R> {
     Cover {
         sheet: false,
         half: false,
         large: false,
-        open,
+        open: open.into_open(),
         // The stored builder is erased because a `Cover` holds one closure for every route it
         // presents; the parameter stays generic so callers never write `.any()` for us.
         build: Rc::new(move |r| AnyPiece::new(build(r))),
         background: None,
-        routed: true,
+        routed: O::ROUTED,
         _marker: std::marker::PhantomData,
     }
 }
@@ -5828,9 +5899,10 @@ impl<S: Binding<Option<R>>, R: Route> Cover<S, R> {
 
     /// The surface color painted edge-to-edge behind the content (under the status bar and
     /// home indicator) while `r` is presented. Without it the platform's default surface
-    /// color shows in the unsafe areas.
-    pub fn background(mut self, f: impl Fn(&R) -> day_spec::Color + 'static) -> Self {
-        self.background = Some(Rc::new(f));
+    /// color shows in the unsafe areas. Any ink: a role or a light/dark pair follows the
+    /// appearance while the cover is up.
+    pub fn background<C: Into<day_spec::Ink>>(mut self, f: impl Fn(&R) -> C + 'static) -> Self {
+        self.background = Some(Rc::new(move |r| f(r).into()));
         self
     }
 
@@ -5977,7 +6049,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     // The composed sheet paints its own card and dimmed page; the cover under
                     // them is clear, so the page shows through.
                     let bg = if card {
-                        Some(day_spec::Color::CLEAR)
+                        Some(day_spec::Ink::CLEAR)
                     } else {
                         background.as_ref().map(|f| f(r))
                     };
@@ -6275,6 +6347,42 @@ pub(crate) mod conformance {
                 d.nav_back().await?;
                 d.assert_missing("cover_text").await?;
                 d.assert_text("state", "open ").await
+            })
+    }
+
+    /// A cover bound to a `bool` presents on `true` and dismisses on `false`, and it stays out
+    /// of the app's route space: it is a panel, not a place (docs/cover.md "Open or closed").
+    #[day_macros::test(day_core)]
+    fn cover_bound_to_a_bool() -> Case {
+        Case::new()
+            .proves(kinds::COVER)
+            .page(|| {
+                let open = Signal::new(false);
+                column((
+                    label(move || format!("shown {}", open.get())).id(day_core::id!(state)),
+                    button("Show")
+                        .action(move || open.set(true))
+                        .id(day_core::id!(show)),
+                    cover(open, move |_| {
+                        column((
+                            label("Editor").id(day_core::id!(cover_text)),
+                            button("Done")
+                                .action(move || open.set(false))
+                                .id(day_core::id!(close)),
+                        ))
+                    })
+                    .sheet(),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_missing("cover_text").await?;
+                d.tap("show").await?;
+                d.assert_text("cover_text", "Editor").await?;
+                d.assert_text("state", "shown true").await?;
+                d.wait_idle().await?;
+                d.tap("close").await?;
+                d.assert_missing("cover_text").await?;
+                d.assert_text("state", "shown false").await
             })
     }
 

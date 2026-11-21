@@ -48,70 +48,65 @@ pub(crate) fn item_list() -> impl Piece {
             res::str::cmd_mark_done()
         }
     };
-    column((
-        when(
-            move || scene.visible_keys().is_empty(),
-            move || {
-                label(move || {
-                    if scene.query.get().is_empty() {
-                        res::str::items_empty().format()
-                    } else {
-                        res::str::search_empty().format()
-                    }
+    // Rows are recycled, so each one reads its current item through `slot`. A list item is the
+    // platform's own row: its fonts, icon size, check mark and spacing.
+    list(
+        scene.items.rows(move || scene.visible_keys()),
+        move |slot| {
+            list_item(move || display_name(slot.name().read()))
+                .icon(move || slot.kind().read().icon())
+                .icon_tint(move || slot.tint().read().color())
+                .checked(move || slot.done().read())
+                .context_menu(move || {
+                    let id = slot.key();
+                    vec![
+                        menu_item(done_label(id)).action(move || scene.toggle_done(id)),
+                        menu_item(res::str::cmd_delete()).action(move || scene.remove(id)),
+                    ]
                 })
-                .secondary()
-                .padding(Space::L)
-                .id(day::id!(items_empty))
-            },
-        ),
-        // Rows are recycled, so each one reads its current item through `slot`. A list item
-        // is the platform's own row: its fonts, icon size, check mark and spacing.
-        list(
-            scene.items.rows(move || scene.visible_keys()),
-            move |slot| {
-                list_item(move || display_name(slot.name().read()))
-                    .icon(move || slot.kind().read().icon())
-                    .icon_tint(move || slot.tint().read().color())
-                    .checked(move || slot.done().read())
-                    .context_menu(move || {
-                        let id = slot.key();
-                        vec![
-                            menu_item(done_label(id)).action(move || scene.toggle_done(id)),
-                            menu_item(res::str::cmd_delete()).action(move || scene.remove(id)),
-                        ]
-                    })
-            },
-        )
-        .selection(scene.selected)
-        // Rows map to the store's order only while nothing is filtered out.
-        .reorderable(
-            Reorder::new(move |from, to| {
-                scene.items.move_row(from, to);
-            })
-            .enabled(move || scene.query.get().is_empty() && SHOW_DONE.signal().get()),
-        )
-        .swipe_leading(move |row| {
-            let id = scene.key_at(row);
-            id.map(|id| {
-                swipe_action(done_label(id))
-                    .symbol(Symbol::Check)
-                    .action(move || scene.toggle_done(id))
-            })
-            .into_iter()
-            .collect()
+        },
+    )
+    // Shown in place of the rows while there are none.
+    .empty(move || {
+        label(move || {
+            if scene.query.get().is_empty() {
+                res::str::items_empty().format()
+            } else {
+                res::str::search_empty().format()
+            }
         })
-        .deletable(
-            Delete::new(move |row| {
-                if let Some(id) = scene.key_at(row) {
-                    scene.remove(id);
-                }
-            })
-            .label(res::str::cmd_delete()),
-        )
-        .a11y(|a| a.label(res::str::nav_items()))
-        .id(day::id!(item_list))
-        .grow(Dimension::Both),
-    ))
+        .secondary()
+        .padding(Space::L)
+        .id(day::id!(items_empty))
+    })
+    .selection(scene.selected)
+    // Rows map to the store's order only while nothing is filtered out.
+    .reorderable(
+        Reorder::new(move |from, to| {
+            scene.items.move_row(from, to);
+        })
+        .enabled(move || scene.query.get().is_empty() && SHOW_DONE.signal().get()),
+    )
+    .swipe_leading(move |row| {
+        let id = scene.key_at(row);
+        id.map(|id| {
+            swipe_action(done_label(id))
+                .symbol(Symbol::Check)
+                .action(move || scene.toggle_done(id))
+        })
+        .into_iter()
+        .collect()
+    })
+    .deletable(
+        Delete::new(move |row| {
+            if let Some(id) = scene.key_at(row) {
+                scene.remove(id);
+            }
+        })
+        .label(res::str::cmd_delete()),
+    )
+    .a11y(|a| a.label(res::str::nav_items()))
+    .id(day::id!(item_list))
     .grow(Dimension::Both)
     // The window toolbar holds the field on desktop; a phone shows it with the list.
     .searchable(Search::new(scene.query).prompt(res::str::search_items()))

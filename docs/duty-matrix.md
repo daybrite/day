@@ -10,7 +10,7 @@ implement them, and this table proves it.
 
 | duty | req | appkit | uikit | gtk | qt | xaml | android | arkui | dom | mock |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`request_frame`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.request_frame) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| [`request_frame`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.request_frame) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`capability`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.capability) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`realize`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#tymethod.realize) | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`update`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#tymethod.update) | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -25,6 +25,7 @@ implement them, and this table proves it.
 | [`set_opacity`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_opacity) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_transform`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_transform) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_selectable`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_selectable) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`set_layout_direction`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_layout_direction) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_input_traits`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#tymethod.set_input_traits) | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_cursor`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_cursor) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | [`set_presented`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_presented) | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
@@ -34,11 +35,17 @@ implement them, and this table proves it.
 | [`list_row_metrics`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.list_row_metrics) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | [`scroll_to`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.scroll_to) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`nav_scroll_to_edge`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.nav_scroll_to_edge) | · | · | ✓ | · | · | · | ✓ | · | · | · |
-| [`scroll_offset`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.scroll_offset) | · | · | · | · | · | ✓ | · | · | ✓ | ✓ |
+| [`scroll_offset`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.scroll_offset) | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ |
+| [`list_scroll`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.list_scroll) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_event_sink`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#tymethod.set_event_sink) | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`enable_gesture`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.enable_gesture) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`gesture_support`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.gesture_support) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| [`set_hit_slop`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_hit_slop) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`set_drag_axis`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_drag_axis) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`set_subtree_enabled`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_subtree_enabled) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`primary_pointer`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.primary_pointer) | · | ✓ | · | · | · | ✓ | ✓ | · | ✓ | · |
 | [`focus`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.focus) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| [`set_focusable`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_focusable) | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ | · |
+| [`set_focusable`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_focusable) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`attach_list`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.attach_list) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`attach_tree`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.attach_tree) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | [`set_route`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_route) | · | · | · | · | · | · | · | · | ✓ | · |
@@ -57,6 +64,7 @@ implement them, and this table proves it.
 | [`set_a11y`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_a11y) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`announce`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.announce) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`read_native`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.read_native) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`read_displayed`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.read_displayed) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | [`replay`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.replay) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`font_families`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.font_families) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`measure_text`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.measure_text) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -85,10 +93,11 @@ implement them, and this table proves it.
 | [`open_url_with_application`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.open_url_with_application) | · | ✓ | · | · | · | · | · | · | · | · |
 | [`defer_system_gestures`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.defer_system_gestures) | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
 | [`set_status_bar_hidden`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_status_bar_hidden) | · | · | ✓ | · | · | · | ✓ | ✓ | · | ✓ |
-| [`system_color`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.system_color) | · | ✓ | ✓ | · | · | · | ✓ | · | ✓ | ✓ |
-| [`dark_mode`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.dark_mode) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| [`system_color`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.system_color) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`dark_mode`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.dark_mode) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`reduce_motion`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.reduce_motion) | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ |
-| [`set_appearance`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_appearance) | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | · |
+| [`text_scale`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.text_scale) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`set_appearance`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_appearance) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_app_badge`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_app_badge) | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | · |
 | [`on_suspend`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.on_suspend) | · | · | · | · | · | · | · | · | · | ✓ |
 | [`on_resume`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.on_resume) | · | · | · | · | · | · | · | · | · | ✓ |

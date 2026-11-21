@@ -69,6 +69,8 @@ public class DayCanvasView extends View {
     // `assert_focused` can see it.
     @Override protected void onFocusChanged(boolean gained, int direction, Rect previous) {
         super.onFocusChanged(gained, direction, previous);
+        // Keys held when focus goes are not this node's to release (docs/menus.md).
+        if (!gained) forgetKeys(id);
         DayBridge.nativeOnEvent(id, DayBridge.K_FOCUS_CHANGED, gained ? 1 : 0, null);
         // The soft keyboard follows focus for a canvas that took the whole keyboard, the way it
         // follows a text field's (docs/menus.md "The full route").
@@ -94,27 +96,64 @@ public class DayCanvasView extends View {
         return super.onKeyDown(keyCode, ev);
     }
 
-    /** Deliver a hardware key to node `id` on whichever route it took (docs/menus.md), and
-     *  say whether it was claimed. Shared with the focusable containers. */
+    @Override public boolean onKeyUp(int keyCode, KeyEvent ev) {
+        if (sendKey(id, keyCode, ev)) return true;
+        return super.onKeyUp(keyCode, ev);
+    }
+
+    /** The phase bits beside the modifier mask on the key wire (day_spec::KeyPhase::from_wire). */
+    static final int REPEAT = 1 << 8, UP = 1 << 9;
+
+    /** The keys whose down was delivered, per node: key code to the name it went down as, so
+     *  its release goes to the same node under the same name and nowhere else. */
+    private static final java.util.HashMap<Long, android.util.SparseArray<String>> held =
+            new java.util.HashMap<>();
+
+    /** The node lost focus: the keys it holds are released elsewhere, or not at all. */
+    static void forgetKeys(long id) {
+        held.remove(id);
+    }
+
+    /** Deliver a hardware key to node `id` on whichever route it took (docs/menus.md), with its
+     *  phase, and say whether it was claimed. Shared with the focusable containers. A key
+     *  repeats (`getRepeatCount`) and comes up (`ACTION_UP`) only for the node its down was
+     *  delivered to; an up never carries text. */
     static boolean sendKey(long id, int keyCode, KeyEvent ev) {
-        if (!DayBridge.nativeHandlesKeys(id)) return false;
-        if (!DayBridge.nativeHandlesText(id)) {
-            String name = keyName(keyCode, ev);
+        android.util.SparseArray<String> down = held.get(id);
+        if (ev.getAction() == KeyEvent.ACTION_UP) {
+            String name = down == null ? null : down.get(keyCode);
             if (name == null) return false;
-            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, modifiers(ev), name);
+            down.remove(keyCode);
+            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, modifiers(ev) | UP, name);
             return true;
         }
-        // The full route: a key that types nothing or a chord is a key, what typed is text.
-        String name = fullKeyName(keyCode, ev);
-        if (name == null) return false;
-        int mods = modifiers(ev);
-        boolean altgr = ev.isAltPressed() && name.equals(altGrText(ev));
-        if (altgr) {
-            DayBridge.nativeOnEvent(id, DayBridge.K_TEXT, mods & 1, name);
-        } else if (NAMED.contains(name) || (mods & (2 | 4 | 8)) != 0) {
-            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, mods, name);
+        if (ev.getAction() != KeyEvent.ACTION_DOWN) return false;
+        boolean repeat = ev.getRepeatCount() > 0;
+        if (repeat && (down == null || down.get(keyCode) == null)) return false;
+        if (!DayBridge.nativeHandlesKeys(id)) return false;
+        int phase = repeat ? REPEAT : 0;
+        String name;
+        if (!DayBridge.nativeHandlesText(id)) {
+            name = keyName(keyCode, ev);
+            if (name == null) return false;
+            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, modifiers(ev) | phase, name);
         } else {
-            DayBridge.nativeOnEvent(id, DayBridge.K_TEXT, mods, name);
+            // The full route: a key that types nothing or a chord is a key, what typed is text.
+            name = fullKeyName(keyCode, ev);
+            if (name == null) return false;
+            int mods = modifiers(ev);
+            boolean altgr = ev.isAltPressed() && name.equals(altGrText(ev));
+            if (altgr) {
+                DayBridge.nativeOnEvent(id, DayBridge.K_TEXT, (mods & 1) | phase, name);
+            } else if (NAMED.contains(name) || (mods & (2 | 4 | 8)) != 0) {
+                DayBridge.nativeOnEvent(id, DayBridge.K_KEY, mods | phase, name);
+            } else {
+                DayBridge.nativeOnEvent(id, DayBridge.K_TEXT, mods | phase, name);
+            }
+        }
+        if (!repeat) {
+            if (down == null) { down = new android.util.SparseArray<>(); held.put(id, down); }
+            down.put(keyCode, name);
         }
         return true;
     }
@@ -245,6 +284,7 @@ public class DayCanvasView extends View {
                 // A key the input method sends as an event (its Enter, a hardware-style
                 // key): the same route a physical press takes, after any composition.
                 if (ev.getAction() == KeyEvent.ACTION_DOWN) { flush(); return onKeyDown(ev.getKeyCode(), ev); }
+                if (ev.getAction() == KeyEvent.ACTION_UP) onKeyUp(ev.getKeyCode(), ev);
                 return true;
             }
         };
@@ -277,8 +317,25 @@ public class DayCanvasView extends View {
         nums = n;
         texts = splitTexts(joined);
         geometry = geom;
+        boolean shadow = false, blend = false;
+        for (int i = 0; i + 8 < n.length; i += 9) {
+            int k = (int) n[i];
+            if (k == 24) shadow = true;
+            else if (k == 25) blend = true;
+        }
+        blends = blend;
+        // Before API 28 a hardware canvas drops mask filters, and the blur of a shadow is one,
+        // so a list that casts shadows renders through a software layer there. The layer is
+        // also a compositing group, which is what the blend modes need.
+        int layer = shadow && Build.VERSION.SDK_INT < 28 ? LAYER_TYPE_SOFTWARE : LAYER_TYPE_NONE;
+        if (getLayerType() != layer) setLayerType(layer, null);
         invalidate();
     }
+
+    /** Whether the list being shown sets a blend mode (docs/canvas.md "Blend modes"): such a
+     *  list draws into a layer of its own, so a mode combines with what this canvas drew and
+     *  never with the views behind it, and Erase leaves a hole those views show through. */
+    private boolean blends = false;
 
     /** The texts channel as `setOps` and the exports receive it: one entry per record that
      *  carries text, joined with U+001F. Empties are kept, since the channel is positional. */
@@ -364,10 +421,15 @@ public class DayCanvasView extends View {
 
     @Override protected void onDraw(Canvas cv) {
         float density = getResources().getDisplayMetrics().density;
+        // The canvas is its own compositing group (docs/canvas.md "Blend modes"). Without the
+        // layer a blend mode would read the window's pixels as its backdrop, and Erase would
+        // punch through to whatever the window holds there (black) instead of to the view behind.
+        int group = blends ? cv.saveLayer(0f, 0f, getWidth(), getHeight(), null) : -1;
         cv.save();
         cv.scale(density, density);
         painter.draw(cv, nums, texts, geometry);
         cv.restore();
+        if (group >= 0) cv.restoreToCount(group);
     }
 
     /** The one painter behind the screen and the exports (docs/canvas.md "Exporting"): it replays
@@ -459,7 +521,7 @@ public class DayCanvasView extends View {
             return built;
         }
 
-        // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
+        // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial, 2 conic) + unit geometry +
         // parsed stops, applied as the paint's shader for the next fill-shape record (resolved
         // against that shape's bounds).
         private boolean gradPending = false;
@@ -482,6 +544,18 @@ public class DayCanvasView extends View {
                 m.postTranslate(bounds.left, bounds.top);
                 rg.setLocalMatrix(m);
                 shader = rg;
+            } else if (gradType == 2) {
+                // Conic (a,b = center gsx,gsy as a unit point, c = start angle gex): the
+                // platform's sweep gradient, which turns clockwise from +x as the canvas's
+                // angles do, rotated about its center to the start angle. Angles are canvas
+                // angles, so the bounds place the center and never stretch the turn.
+                float cx = bounds.left + gsx * bounds.width(), cy = bounds.top + gsy * bounds.height();
+                android.graphics.SweepGradient sg =
+                        new android.graphics.SweepGradient(cx, cy, gradColors, gradOffsets);
+                Matrix m = new Matrix();
+                m.setRotate(gex, cx, cy);
+                sg.setLocalMatrix(m);
+                shader = sg;
             } else {
                 shader = new android.graphics.LinearGradient(
                         bounds.left + gsx * bounds.width(), bounds.top + gsy * bounds.height(),
@@ -490,6 +564,168 @@ public class DayCanvasView extends View {
             }
             paint.setShader(shader);
             gradPending = false;
+        }
+
+        // ---- Graphics state (docs/canvas.md "Shadows", "Blend modes") ----------------------
+        // A kind-24 record sets the shadow and a kind-25 record the blend mode; both hold until
+        // changed or until the restore that matches the save they were set under. Canvas saves
+        // neither, so they ride a stack of their own beside `cv.save()`, together with the
+        // transform the list has applied so far, which a shadow needs in order to stay out of it.
+        private int shColor = 0;
+        private float shBlur = 0f, shDx = 0f, shDy = 0f;
+        private int blend = 0;
+        private final Matrix user = new Matrix();
+        private final java.util.ArrayList<State> states = new java.util.ArrayList<State>();
+        /** Where the stamp being replayed moved the canvas, on top of {@link #user}. */
+        private float stampX = 0f, stampY = 0f;
+
+        private static final class State {
+            int shColor, blend;
+            float shBlur, shDx, shDy;
+            final Matrix user = new Matrix();
+        }
+
+        private void pushState() {
+            State st = new State();
+            st.shColor = shColor; st.shBlur = shBlur; st.shDx = shDx; st.shDy = shDy;
+            st.blend = blend;
+            st.user.set(user);
+            states.add(st);
+        }
+
+        private void popState() {
+            if (states.isEmpty()) return;
+            State st = states.remove(states.size() - 1);
+            shColor = st.shColor; shBlur = st.shBlur; shDx = st.shDx; shDy = st.shDy;
+            blend = st.blend;
+            user.set(st.user);
+            applyBlend(paint, blend);
+        }
+
+        private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        private final android.graphics.Path shapePath = new android.graphics.Path();
+        private final android.graphics.Path silhouette = new android.graphics.Path();
+        private final Matrix toBase = new Matrix(), fromBase = new Matrix();
+        private float filterBlur = -1f;
+        private android.graphics.MaskFilter filter;
+        // The last image shadow: the blurred alpha of one bitmap region, kept while the same
+        // image is drawn again with the same shadow.
+        private Bitmap shadowOf, shadowAlpha;
+        private float shadowAlphaSigma;
+        private final int[] shadowAlphaAt = new int[2];
+        private final Rect shadowOfSrc = new Rect();
+
+        private boolean shadowed() {
+            return (shColor >>> 24) != 0;
+        }
+
+        /** The mask filter for a shadow whose blur is `blur` canvas points, or null for a
+         *  hard edge. Day's blur is twice the Gaussian's sigma; Android's blur radius maps to
+         *  a sigma of 0.57735 x radius + 0.5 ({@link #blurRadius}). */
+        private android.graphics.MaskFilter blurFilter(float blur) {
+            if (blur != filterBlur) {
+                float r = blurRadius(blur / 2f);
+                filter = r > 0f ? new android.graphics.BlurMaskFilter(r, android.graphics.BlurMaskFilter.Blur.NORMAL) : null;
+                filterBlur = blur;
+            }
+            return filter;
+        }
+
+        /** Cast the shadow of `local`, a shape in the list's current coordinates that the
+         *  shared paint is about to fill or stroke: its silhouette (the stroked outline for a
+         *  stroke, dashes included) is moved into canvas points, where the offset and the blur
+         *  are measured, so a `Concat` scales the shape and never its shadow. */
+        private void castShadow(Canvas cv, android.graphics.Path local) {
+            if (paint.getStyle() == Paint.Style.STROKE) {
+                // False for a hairline, which has no outline to blur.
+                if (!paint.getFillPath(local, silhouette)) return;
+            } else {
+                silhouette.set(local);
+            }
+            toBase.set(user);
+            toBase.preTranslate(stampX, stampY);
+            if (!toBase.invert(fromBase)) return; // a degenerate transform draws nothing either
+            silhouette.transform(toBase);
+            shadowPaint.setColor(shColor);
+            shadowPaint.setMaskFilter(blurFilter(shBlur));
+            applyBlend(shadowPaint, blend);
+            cv.save();
+            cv.concat(fromBase);
+            cv.translate(shDx, shDy);
+            cv.drawPath(silhouette, shadowPaint);
+            cv.restore();
+        }
+
+        /** The shadow of an image drawn into `dst` at `opacity`. An opaque bitmap casts its
+         *  rectangle; one with transparency casts its alpha, blurred in the bitmap's own
+         *  pixels by the amount that comes out as the shadow's blur on the canvas. */
+        private void castImageShadow(Canvas cv, Bitmap bmp, Rect src, RectF dst, float opacity) {
+            int alpha = Math.round((shColor >>> 24) * Math.max(0f, Math.min(1f, opacity)));
+            int color = (shColor & 0x00FFFFFF) | (alpha << 24);
+            if (alpha == 0) return;
+            toBase.set(user);
+            toBase.preTranslate(stampX, stampY);
+            if (!toBase.invert(fromBase)) return;
+            Bitmap mask = null;
+            float kx = 0f, ky = 0f;
+            if (bmp.hasAlpha()) {
+                try {
+                    int sw = src == null ? bmp.getWidth() : src.width();
+                    int sh = src == null ? bmp.getHeight() : src.height();
+                    kx = dst.width() / sw;
+                    ky = dst.height() / sh;
+                    // Canvas points per bitmap pixel, the transform included.
+                    float[] m = new float[9];
+                    toBase.getValues(m);
+                    float scale = (float) Math.sqrt(Math.abs(m[0] * m[4] - m[1] * m[3]));
+                    float sigma = (shBlur / 2f) / Math.max(1e-6f, (float) Math.sqrt(kx * ky) * scale);
+                    boolean same = shadowAlpha != null && shadowOf == bmp && shadowAlphaSigma == sigma
+                            && (src == null ? shadowOfSrc.isEmpty() : shadowOfSrc.equals(src));
+                    if (!same) {
+                        Bitmap piece = src == null ? bmp
+                                : Bitmap.createBitmap(bmp, src.left, src.top, sw, sh);
+                        Paint blur = null;
+                        float r = blurRadius(sigma);
+                        if (r > 0f) {
+                            blur = new Paint();
+                            blur.setMaskFilter(new android.graphics.BlurMaskFilter(
+                                    r, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                        }
+                        shadowAlpha = piece.extractAlpha(blur, shadowAlphaAt);
+                        shadowOf = bmp;
+                        shadowAlphaSigma = sigma;
+                        if (src == null) shadowOfSrc.setEmpty(); else shadowOfSrc.set(src);
+                    }
+                    mask = shadowAlpha;
+                } catch (RuntimeException | OutOfMemoryError e) {
+                    // A bitmap whose pixels cannot be read (a hardware bitmap) or one too
+                    // large to copy: it casts its rectangle instead.
+                    mask = null;
+                }
+            }
+            if (mask == null) {
+                Paint.Style style = paint.getStyle();
+                paint.setStyle(Paint.Style.FILL);
+                int was = shColor;
+                shColor = color;
+                shapePath.rewind();
+                shapePath.addRect(dst, android.graphics.Path.Direction.CW);
+                castShadow(cv, shapePath);
+                shColor = was;
+                paint.setStyle(style);
+                return;
+            }
+            // The offset is in canvas points: bring it into the list's coordinates.
+            float[] by = { shDx, shDy };
+            fromBase.mapVectors(by);
+            RectF at = new RectF(dst.left + shadowAlphaAt[0] * kx, dst.top + shadowAlphaAt[1] * ky,
+                    dst.left + (shadowAlphaAt[0] + mask.getWidth()) * kx,
+                    dst.top + (shadowAlphaAt[1] + mask.getHeight()) * ky);
+            at.offset(by[0], by[1]);
+            shadowPaint.setColor(color);
+            shadowPaint.setMaskFilter(null);
+            applyBlend(shadowPaint, blend);
+            cv.drawBitmap(mask, null, at, shadowPaint);
         }
 
         /** Replay `nums` (nine numbers a record) and `texts` (one entry per record that carries
@@ -507,6 +743,13 @@ public class DayCanvasView extends View {
             fontPending = false;
             int ti = 0;
             gradPending = false;
+            // Nor does the graphics state: a list starts with no shadow and the normal mode.
+            shColor = 0; shBlur = 0f; shDx = 0f; shDy = 0f;
+            blend = 0;
+            user.reset();
+            states.clear();
+            stampX = 0f; stampY = 0f;
+            applyBlend(paint, 0);
             // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
             // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
             java.util.ArrayList<float[]> stampAt = new java.util.ArrayList<float[]>();
@@ -552,32 +795,49 @@ public class DayCanvasView extends View {
                 int tiStart = ti;
                 for (int rep = 0; rep < reps; rep++) {
                 ti = tiStart;
-                if (!stampAt.isEmpty()) { cv.save(); cv.translate(stampAt.get(rep)[0], stampAt.get(rep)[1]); }
+                if (!stampAt.isEmpty()) {
+                    stampX = stampAt.get(rep)[0]; stampY = stampAt.get(rep)[1];
+                    cv.save(); cv.translate(stampX, stampY);
+                }
                 switch (k) {
-                    case 0: paint.setStyle(Paint.Style.FILL);
-                            if (gradPending) applyGradient(new RectF(a, b, a+c, b+d));
-                            cv.drawRect(a, b, a+c, b+d, paint);
-                            paint.setShader(null); break;
-                    case 1: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawRect(a, b, a+c, b+d, paint); break;
-                    case 2: {
-                        paint.setStyle(Paint.Style.FILL);
-                        RectF r2 = new RectF(a, b, a+c, b+d);
-                        if (gradPending) applyGradient(r2);
-                        cv.drawRoundRect(r2, e, e, paint);
-                        paint.setShader(null); break;
+                    // The rectangle-shaped records: a fill or a stroke of a rect (0, 1), a
+                    // rounded rect (2, 13), an ellipse (3, 4) or an arc of one (5). A pending
+                    // gradient resolves against the rect; a shadow is cast first, of the
+                    // shape's own path.
+                    case 0: case 1: case 2: case 13: case 3: case 4: case 5: {
+                        boolean fill = k == 0 || k == 2 || k == 3;
+                        paint.setStyle(fill ? Paint.Style.FILL : Paint.Style.STROKE);
+                        if (!fill) paint.setStrokeWidth(g);
+                        RectF r = new RectF(a, b, a+c, b+d);
+                        if (shadowed()) {
+                            shapePath.rewind();
+                            if (k == 0 || k == 1) shapePath.addRect(r, android.graphics.Path.Direction.CW);
+                            else if (k == 2 || k == 13) shapePath.addRoundRect(r, e, e, android.graphics.Path.Direction.CW);
+                            else if (k == 5) shapePath.addArc(r, e, f);
+                            else shapePath.addOval(r, android.graphics.Path.Direction.CW);
+                            castShadow(cv, shapePath);
+                        }
+                        if (gradPending) applyGradient(r);
+                        if (k == 0 || k == 1) cv.drawRect(r, paint);
+                        else if (k == 2 || k == 13) cv.drawRoundRect(r, e, e, paint);
+                        else if (k == 5) cv.drawArc(r, e, f, false, paint);
+                        else cv.drawOval(r, paint);
+                        paint.setShader(null);
+                        break;
                     }
-                    case 13: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawRoundRect(new RectF(a, b, a+c, b+d), e, e, paint); break;
-                    case 3: {
-                        paint.setStyle(Paint.Style.FILL);
-                        RectF r3 = new RectF(a, b, a+c, b+d);
-                        if (gradPending) applyGradient(r3);
-                        cv.drawOval(r3, paint);
-                        paint.setShader(null); break;
+                    case 6: {
+                        paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g);
+                        if (shadowed()) {
+                            shapePath.rewind();
+                            shapePath.moveTo(a, b);
+                            shapePath.lineTo(c, d);
+                            castShadow(cv, shapePath);
+                        }
+                        if (gradPending) applyGradient(new RectF(Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)));
+                        cv.drawLine(a, b, c, d, paint);
+                        paint.setShader(null);
+                        break;
                     }
-                    case 4: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawOval(new RectF(a, b, a+c, b+d), paint); break;
-                    case 5: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g);
-                            cv.drawArc(new RectF(a, b, a+c, b+d), e, f, false, paint); break;
-                    case 6: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawLine(a, b, c, d, paint); break;
                     case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
                         String t = ti < texts.length ? texts[ti++] : "";
                         paint.setStyle(Paint.Style.FILL);
@@ -600,6 +860,12 @@ public class DayCanvasView extends View {
                         } else if (av == 3) {
                             y = b - fm.descent;
                         }
+                        if (shadowed()) {
+                            // The glyph outlines are the silhouette (a color bitmap glyph, an
+                            // emoji, has none and casts nothing).
+                            paint.getTextPath(t, 0, t.length(), x, y, shapePath);
+                            castShadow(cv, shapePath);
+                        }
                         cv.drawText(t, x, y, paint);
                         paint.setTypeface(null);
                         break;
@@ -611,14 +877,15 @@ public class DayCanvasView extends View {
                         fontPending = true;
                         break;
                     }
-                    case 8: cv.save(); break;
-                    case 9: cv.restore(); break;
+                    case 8: cv.save(); pushState(); break;
+                    case 9: cv.restore(); popState(); break;
                     case 10: {
                         // Packed affine (a,b,c,d,tx,ty) → Android Matrix (row-major 3x3); same
                         // row-vector meaning. Applied within the density-scaled space (dp units).
                         Matrix m = new Matrix();
                         m.setValues(new float[]{a, c, e, b, d, f, 0f, 0f, 1f});
                         cv.concat(m);
+                        user.preConcat(m);
                         break;
                     }
                     case 11: case 12: { // polygon (11 fill / 12 stroke); points ride texts as "x,y x,y …"
@@ -629,14 +896,15 @@ public class DayCanvasView extends View {
                         if (!path.isEmpty()) {
                             if (k == 11) {
                                 paint.setStyle(Paint.Style.FILL);
-                                if (gradPending) {
-                                    RectF pb = new RectF();
-                                    path.computeBounds(pb, true);
-                                    applyGradient(pb);
-                                }
                             } else {
                                 paint.setStyle(Paint.Style.STROKE);
                                 paint.setStrokeWidth(g);
+                            }
+                            if (shadowed()) castShadow(cv, path);
+                            if (gradPending) {
+                                RectF pb = new RectF();
+                                path.computeBounds(pb, true);
+                                applyGradient(pb);
                             }
                             cv.drawPath(path, paint);
                             paint.setShader(null);
@@ -648,19 +916,15 @@ public class DayCanvasView extends View {
                         android.graphics.Path path = cachedPath(a, t, b, c, (int) f);
                         if (k == 15) {
                             paint.setStyle(Paint.Style.FILL);
-                            if (gradPending) {
-                                RectF pb = new RectF();
-                                path.computeBounds(pb, true);
-                                applyGradient(pb);
-                            }
                         } else {
                             paint.setStyle(Paint.Style.STROKE);
                             paint.setStrokeWidth(g);
-                            if (gradPending) {
-                                RectF pb = new RectF();
-                                path.computeBounds(pb, true);
-                                applyGradient(pb);
-                            }
+                        }
+                        if (shadowed()) castShadow(cv, path);
+                        if (gradPending) {
+                            RectF pb = new RectF();
+                            path.computeBounds(pb, true);
+                            applyGradient(pb);
                         }
                         cv.drawPath(path, paint);
                         paint.setShader(null);
@@ -756,6 +1020,8 @@ public class DayCanvasView extends View {
                                                 a + (x1 - isx) * kx, b + (y1 - isy) * ky);
                                 src = new Rect(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1));
                             }
+                            applyBlend(ip, blend);
+                            if (shadowed()) castImageShadow(cv, bmp, src, dst, f);
                             cv.drawBitmap(bmp, src, dst, ip);
                         }
                         break;
@@ -765,8 +1031,18 @@ public class DayCanvasView extends View {
                         srcPending = true;
                         break;
                     }
+                    case 24: { // shadow state: a,b offset · c blur, in points · color (clear = none)
+                        shDx = a; shDy = b; shBlur = Math.max(0f, c);
+                        shColor = (int) col;
+                        break;
+                    }
+                    case 25: { // blend state: a = mode (day_spec::BlendMode::wire); unknown = normal
+                        blend = a >= 1f && a <= 7f ? (int) a : 0;
+                        applyBlend(paint, blend);
+                        break;
+                    }
                 }
-                if (!stampAt.isEmpty()) cv.restore();
+                if (!stampAt.isEmpty()) { cv.restore(); stampX = 0f; stampY = 0f; }
                 }
                 stampAt.clear();
                 // A style record applies to one stroke, so anything else clears it; a font record
@@ -775,6 +1051,63 @@ public class DayCanvasView extends View {
                 if (k != 19) fontPending = false;
                 if (k != 23) srcPending = false;
             }
+        }
+    }
+
+    /** The BlurMaskFilter radius whose Gaussian has standard deviation `sigma`: Android maps a
+     *  radius to sigma = 0.57735 x radius + 0.5. Zero means no filter: a sigma under a
+     *  quarter is a hard edge, and from there to a half (the smallest the filter makes) the
+     *  smallest radius it accepts. */
+    static float blurRadius(float sigma) {
+        if (!(sigma >= 0.25f)) return 0f;
+        return Math.max(0.01f, (sigma - 0.5f) / 0.57735f);
+    }
+
+    /** The Porter-Duff twins of day_spec::BlendMode, by wire number, for the API levels below
+     *  29. `MULTIPLY` there is Skia's modulate, which also multiplies the alphas: over a part
+     *  of the canvas nothing has drawn on, it draws nothing where the real mode would leave
+     *  the source. */
+    private static final android.graphics.PorterDuff.Mode[] PORTER_DUFF = {
+        null,
+        android.graphics.PorterDuff.Mode.MULTIPLY,
+        android.graphics.PorterDuff.Mode.SCREEN,
+        android.graphics.PorterDuff.Mode.OVERLAY,
+        android.graphics.PorterDuff.Mode.DARKEN,
+        android.graphics.PorterDuff.Mode.LIGHTEN,
+        android.graphics.PorterDuff.Mode.ADD,
+        android.graphics.PorterDuff.Mode.DST_OUT,
+    };
+    private static final android.graphics.PorterDuffXfermode[] XFERMODES =
+            new android.graphics.PorterDuffXfermode[PORTER_DUFF.length];
+    static {
+        for (int i = 1; i < PORTER_DUFF.length; i++) {
+            XFERMODES[i] = new android.graphics.PorterDuffXfermode(PORTER_DUFF[i]);
+        }
+    }
+
+    /** Set `p` to blend by day_spec::BlendMode `mode` (0 normal … 7 erase). API 29 has the
+     *  W3C modes by name; older levels take the Porter-Duff table. */
+    static void applyBlend(Paint p, int mode) {
+        if (mode < 0 || mode >= XFERMODES.length) mode = 0;
+        if (Build.VERSION.SDK_INT >= 29) Api29.blend(p, mode);
+        else p.setXfermode(XFERMODES[mode]);
+    }
+
+    /** `android.graphics.BlendMode` arrived with API 29: kept in a class of its own so that
+     *  older runtimes never load it. */
+    private static final class Api29 {
+        private static final android.graphics.BlendMode[] MODES = {
+            null,
+            android.graphics.BlendMode.MULTIPLY,
+            android.graphics.BlendMode.SCREEN,
+            android.graphics.BlendMode.OVERLAY,
+            android.graphics.BlendMode.DARKEN,
+            android.graphics.BlendMode.LIGHTEN,
+            android.graphics.BlendMode.PLUS,
+            android.graphics.BlendMode.DST_OUT,
+        };
+        static void blend(Paint p, int mode) {
+            p.setBlendMode(MODES[mode]);
         }
     }
 

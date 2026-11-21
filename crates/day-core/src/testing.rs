@@ -35,7 +35,7 @@ pub fn init_fast_animations(enabled: bool) {
 #[cfg(test)]
 mod tests {
     use crate::frame::{FrameClock, install_frame_requester};
-    use crate::tween::{Timing, Tweened, animate};
+    use crate::motion::{Animated, Animation};
     use day_spec::{AnimSpec, FrameStamp};
     use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
@@ -68,47 +68,47 @@ mod tests {
             Box::new(|| {})
         });
         let clock = FrameClock::for_root(crate::RNode::default());
-        let tween = Tweened::on(clock, 0.0);
-        tween.animate_to(42.0, AnimSpec::linear(1000));
+        let tween = Animated::on(clock, 0.0);
+        let _flight = tween.animate_to(42.0, AnimSpec::linear(1000));
         assert_eq!(tween.get_untracked(), if fast { 42.0 } else { 0.0 });
         let samples = Rc::new(RefCell::new(Vec::new()));
         let s = samples.clone();
-        let finite = animate(
-            clock,
-            Timing::new(AnimSpec {
+        let finite = Animation::drive(
+            AnimSpec {
                 repeat: 1,
                 autoreverse: true,
                 delay_ms: 500,
                 ..AnimSpec::linear(1000)
-            }),
+            },
             move |sample| s.borrow_mut().push(sample),
-        );
+        )
+        .start_on(clock);
         let continuous = clock.subscribe(|_| std::ops::ControlFlow::Continue(()));
-        let forever = animate(
-            clock,
-            Timing::new(AnimSpec {
+        let forever = Animation::drive(
+            AnimSpec {
                 repeat: u32::MAX,
                 ..AnimSpec::linear(1000)
-            }),
+            },
             |sample| assert!(!sample.done),
-        );
+        )
+        .start_on(clock);
         let instant = Rc::new(RefCell::new(None));
         let i = instant.clone();
-        let _instant = animate(
-            clock,
-            Timing::new(AnimSpec {
+        let _instant = Animation::drive(
+            AnimSpec {
                 repeat: 1,
                 autoreverse: true,
                 ..AnimSpec::linear(0)
-            }),
+            },
             move |sample| *i.borrow_mut() = Some(sample),
-        );
+        )
+        .start_on(clock);
         let cb = pending.borrow_mut().pop_front().unwrap();
         cb(FrameStamp::new(1.0));
         assert_eq!(samples.borrow()[0].done, fast);
         assert_eq!(samples.borrow()[0].progress, 0.0); // autoreverse ends at its start
-        assert_eq!(finite.is_active(), !fast);
-        assert!(continuous.is_active() && forever.is_active());
+        assert_eq!(finite.is_running(), !fast);
+        assert!(continuous.is_active() && forever.is_running());
         let instant = instant.borrow().unwrap();
         assert!(instant.done);
         assert_eq!(instant.progress, 1.0); // zero-duration timing always applies its target

@@ -228,7 +228,7 @@ impl std::error::Error for DynError {}
 pub struct DynPiece(Rc<std::cell::RefCell<Option<Inner>>>);
 
 enum Inner {
-    Label(Label),
+    Label(Box<Label>),
     Button(Button),
     Column(Column<Vec<AnyPiece>>),
     Row(Row<Vec<AnyPiece>>),
@@ -245,7 +245,7 @@ enum Inner {
 impl Inner {
     fn into_any(self) -> AnyPiece {
         match self {
-            Inner::Label(p) => p.any(),
+            Inner::Label(p) => (*p).any(),
             Inner::Button(p) => p.any(),
             Inner::Column(p) => p.any(),
             Inner::Row(p) => p.any(),
@@ -525,11 +525,15 @@ fn label_like(args: &[DynValue], what: &'static str) -> Result<Label, DynError> 
 fn builtin_ctors() -> HashMap<&'static str, CtorFn> {
     let mut m: HashMap<&'static str, CtorFn> = HashMap::new();
     m.insert("label", |a| {
-        Ok(DynPiece::new(Inner::Label(label_like(a, "label")?)))
+        Ok(DynPiece::new(Inner::Label(Box::new(label_like(
+            a, "label",
+        )?))))
     });
     // Familiar alias for scripters; same piece.
     m.insert("text", |a| {
-        Ok(DynPiece::new(Inner::Label(label_like(a, "text")?)))
+        Ok(DynPiece::new(Inner::Label(Box::new(label_like(
+            a, "text",
+        )?))))
     });
     m.insert("button", |a| {
         let b = match text_arg(a, 0, "button")? {
@@ -690,7 +694,7 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
                     });
                 }
             };
-            return Ok(Inner::Label(p.font(font)));
+            return Ok(Inner::Label(Box::new(p.font(font))));
         }
         (Inner::Button(p), "action") => match args.first() {
             Some(DynValue::Fn(f)) => return Ok(Inner::Button(p.action(callback0(f)))),

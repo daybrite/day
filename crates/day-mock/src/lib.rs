@@ -48,6 +48,257 @@ thread_local! {
     static NATIVE_EVENTS: RefCell<Vec<NativeEvent>> = RefCell::new(Vec::new());
     /// The primary window's size, which a presented cover fills.
     static MOCK_WINDOW: std::cell::Cell<Size> = const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
+    /// The mock's clock, in seconds: it moves only when a sleep is served (`post_delayed`), by
+    /// the time slept. Frames are stamped with it and the mock's animations are sampled at it,
+    /// so a test that pauses 400 ms finds every animation exactly 400 ms on.
+    static MOCK_CLOCK: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
+    /// Frame requests waiting for the clock to move (the native-behavior mode only).
+    static FRAMES: RefCell<Vec<(u64, FrameCallback)>> = const { RefCell::new(Vec::new()) };
+    static NEXT_FRAME: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// What the mock's animator gets wrong on purpose (`MockProbe::set_animation_flaw`).
+    static ANIM_FLAW: std::cell::Cell<Option<AnimFlaw>> = const { std::cell::Cell::new(None) };
+}
+
+// --- the mock's animator ------------------------------------------------------------------------
+//
+// A native toolkit plays an `AnimSpec` on its own animator. The mock's animator is the contract
+// itself: it records each animated change with the time it was made, and `read_displayed`
+// samples `AnimSpec::sample` at the mock's clock. That makes it the reference the conformance
+// cases are written against, and `AnimFlaw` turns it into each of the faulty animators those
+// cases exist to catch.
+
+/// A property the mock animates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AnimProperty {
+    /// `set_frame`.
+    Frame,
+    /// `set_opacity`.
+    Opacity,
+    /// `set_transform`.
+    Transform,
+    /// `ContainerPatch::Background`.
+    Background,
+    /// Any other `update` patch.
+    Other,
+}
+
+/// One animated change a widget was asked for, in the order asked (probe-visible).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AnimRequest {
+    /// What was changed.
+    pub property: AnimProperty,
+    /// The intent it came with.
+    pub spec: AnimSpec,
+    /// The mock's clock when it was asked, in seconds.
+    pub at: f64,
+}
+
+/// A way a toolkit's animator can fall short of the `AnimSpec` contract, for proving that the
+/// conformance cases notice ([`MockProbe::set_animation_flaw`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AnimFlaw {
+    /// Starts at once, whatever `delay_ms` says.
+    IgnoresDelay,
+    /// Plays one cycle, whatever `repeat` says.
+    IgnoresRepeat,
+    /// Restarts every cycle from the start, whatever `autoreverse` says.
+    IgnoresAutoreverse,
+    /// Plays a spring as an ease-in-out over the spring's response.
+    FlattensSprings,
+    /// Applies a background color at once instead of animating it.
+    SnapsBackground,
+    /// Applies every animated change at once.
+    Instant,
+}
+
+/// An animated change in flight: from where, to where, how, since when.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MockFlight<T> {
+    /// The value shown when the change was made.
+    pub from: T,
+    /// The value asked for.
+    pub to: T,
+    /// The intent.
+    pub spec: AnimSpec,
+    /// The mock's clock when the change was made, in seconds.
+    pub start: f64,
+}
+
+impl<T: Copy> MockFlight<T> {
+    /// The value shown at the mock's clock, mixing the two ends with `mix`.
+    fn shown(&self, mix: impl Fn(T, T, f64) -> T) -> T {
+        let mut spec = self.spec;
+        match ANIM_FLAW.with(std::cell::Cell::get) {
+            Some(AnimFlaw::IgnoresDelay) => spec.delay_ms = 0,
+            Some(AnimFlaw::IgnoresRepeat) => spec.repeat = 0,
+            Some(AnimFlaw::IgnoresAutoreverse) => spec.autoreverse = false,
+            Some(AnimFlaw::FlattensSprings) => {
+                if let Curve::Spring { response, .. } = spec.curve {
+                    spec.curve = Curve::EaseInOut;
+                    spec.duration_ms = (response * 1000.0) as u32;
+                }
+            }
+            Some(AnimFlaw::Instant) => return self.to,
+            Some(AnimFlaw::SnapsBackground) | None => {}
+        }
+        let sample = spec.sample(mock_now() - self.start);
+        if sample.done {
+            self.to
+        } else {
+            mix(self.from, self.to, sample.progress)
+        }
+    }
+}
+
+/// The animated changes a widget has in flight, one per property (probe-visible).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct MockFlights {
+    pub frame: Option<MockFlight<Rect>>,
+    pub opacity: Option<MockFlight<f64>>,
+    pub transform: Option<MockFlight<Transform>>,
+    pub background: Option<MockFlight<Color>>,
+}
+
+fn mix(a: f64, b: f64, t: f64) -> f64 {
+    a + (b - a) * t
+}
+
+fn mix_rect(a: Rect, b: Rect, t: f64) -> Rect {
+    Rect::new(
+        mix(a.origin.x, b.origin.x, t),
+        mix(a.origin.y, b.origin.y, t),
+        mix(a.size.width, b.size.width, t),
+        mix(a.size.height, b.size.height, t),
+    )
+}
+
+fn mix_transform(a: Transform, b: Transform, t: f64) -> Transform {
+    Transform {
+        tx: mix(a.tx, b.tx, t),
+        ty: mix(a.ty, b.ty, t),
+        sx: mix(a.sx, b.sx, t),
+        sy: mix(a.sy, b.sy, t),
+        rotation: Angle::deg(mix(a.rotation.degrees(), b.rotation.degrees(), t)),
+        ..b
+    }
+}
+
+/// Channel by channel in sRGB, as most native animators blend, kept inside the two ends.
+fn mix_color(a: Color, b: Color, t: f64) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    Color::rgba(
+        mix(a.r, b.r, t),
+        mix(a.g, b.g, t),
+        mix(a.b, b.b, t),
+        mix(a.a, b.a, t),
+    )
+}
+
+/// The solid color a fill shows in `palette`'s appearance; `None` for no fill or a gradient.
+fn solid_fill(fill: Option<&Paint>, palette: &Palette) -> Option<Color> {
+    match fill {
+        Some(Paint::Solid(ink)) => Some(ink.resolve(palette)),
+        _ => None,
+    }
+}
+
+/// Record a container's whole surface style, at realize or from `ContainerPatch::Surface`.
+fn apply_surface(w: &mut MockWidget, p: &ContainerProps) {
+    w.fill.clone_from(&p.fill);
+    w.background = solid_fill(p.fill.as_ref(), &Palette::current());
+    w.corner_radius = p.corner_radius;
+    w.corners = p.corners;
+    w.border = p.border;
+    w.shadow = p.shadow;
+    w.clips = p.clips;
+}
+
+/// The mock's clock, in seconds.
+fn mock_now() -> f64 {
+    MOCK_CLOCK.with(std::cell::Cell::get)
+}
+
+impl MockWidget {
+    /// The opacity shown at the mock's clock.
+    #[must_use]
+    pub fn shown_opacity(&self) -> f64 {
+        self.flights
+            .opacity
+            .map_or(self.opacity.unwrap_or(1.0), |f| f.shown(mix))
+    }
+
+    /// The frame shown at the mock's clock, in the parent's space.
+    #[must_use]
+    pub fn shown_frame(&self) -> Rect {
+        self.flights.frame.map_or(self.frame, |f| f.shown(mix_rect))
+    }
+
+    /// The transform shown at the mock's clock.
+    #[must_use]
+    pub fn shown_transform(&self) -> Transform {
+        self.flights
+            .transform
+            .map_or(self.transform.unwrap_or_default(), |f| {
+                f.shown(mix_transform)
+            })
+    }
+
+    /// The background color shown at the mock's clock.
+    #[must_use]
+    pub fn shown_background(&self) -> Option<Color> {
+        match self.flights.background {
+            Some(f) if ANIM_FLAW.with(std::cell::Cell::get) != Some(AnimFlaw::SnapsBackground) => {
+                Some(f.shown(mix_color))
+            }
+            _ => self.background,
+        }
+    }
+
+    /// Records an animated change and answers the flight to keep for it; a change with no
+    /// animation cancels the property's flight (rule 7 of the `AnimSpec` contract).
+    fn fly<T: Copy>(
+        &mut self,
+        property: AnimProperty,
+        shown: T,
+        to: T,
+        anim: Option<&AnimSpec>,
+    ) -> Option<MockFlight<T>> {
+        let spec = *anim?;
+        let at = mock_now();
+        self.last_anim = Some(spec);
+        self.animations.push(AnimRequest { property, spec, at });
+        Some(MockFlight {
+            from: shown,
+            to,
+            spec,
+            start: at,
+        })
+    }
+}
+
+/// Serve `ms` of sleep on the mock's clock: frames requested meanwhile are delivered a
+/// sixtieth of a second apart, each stamped with the clock, until the time is used up or
+/// nothing wants a frame. Off unless the native-behavior mode is on.
+fn frames_flush(ms: u32) {
+    let end = mock_now() + f64::from(ms) / 1000.0;
+    if VIEWPORT_ROWS.with(std::cell::Cell::get) > 0 {
+        loop {
+            let now = mock_now();
+            if now >= end {
+                break;
+            }
+            let due = FRAMES.with(|f| std::mem::take(&mut *f.borrow_mut()));
+            if due.is_empty() {
+                break;
+            }
+            let stamp = (now + 1.0 / 60.0).min(end);
+            MOCK_CLOCK.with(|c| c.set(stamp));
+            for (_, cb) in due {
+                cb(FrameStamp::new(stamp));
+            }
+        }
+    }
+    MOCK_CLOCK.with(|c| c.set(end));
 }
 
 struct Viewport {
@@ -58,6 +309,8 @@ struct Viewport {
     recycle: Rc<dyn Fn(RawHandle)>,
     /// The bound row's height (`ListSource::cell_height`); a tree's rows report none.
     cell_height: Option<Rc<dyn Fn(RawHandle) -> f64>>,
+    /// A list's viewport report (`ListSource::viewport`), made after every bind.
+    report: Option<Rc<dyn Fn(ListViewport)>>,
     /// A tree's disclosed rows, as `TreePatch::Expand` set them.
     expanded: std::collections::HashSet<u64>,
     /// The first row shown.
@@ -95,6 +348,20 @@ fn viewport_cell_top(cell: u64) -> f64 {
             })
             .sum()
     })
+}
+
+/// Whether widget `id` is, or sits under, a widget `set_subtree_enabled(false)` named.
+fn under_disabled_root(s: &MockState, id: u64) -> bool {
+    let mut stack: Vec<u64> = s.disabled_roots.iter().copied().collect();
+    while let Some(cur) = stack.pop() {
+        if cur == id {
+            return true;
+        }
+        if let Some(w) = s.widgets.get(&cur) {
+            stack.extend(w.children.iter().copied());
+        }
+    }
+    false
 }
 
 /// Widget `id`'s frame in the window, as `NativeSnapshot::frame` is defined: its own frame
@@ -157,7 +424,7 @@ fn viewport_flush() {
             .collect()
     });
     for host in dirty {
-        let Some((visible, bind_row, recycle, cell_height, expanded, start, to_end, bound)) =
+        let Some((visible, bind_row, recycle, cell_height, report, expanded, start, to_end, bound)) =
             VIEWPORTS.with(|v| {
                 let mut v = v.borrow_mut();
                 let p = v.get_mut(&host)?;
@@ -167,6 +434,7 @@ fn viewport_flush() {
                     p.bind_row.clone(),
                     p.recycle.clone(),
                     p.cell_height.clone(),
+                    p.report.clone(),
                     p.expanded.clone(),
                     p.start,
                     p.to_end,
@@ -184,14 +452,29 @@ fn viewport_flush() {
             start.min(total.saturating_sub(rows))
         };
         let count = rows.min(total - start.min(total));
+        let mut shown = 0.0;
         for slot in 0..count {
             let cell = viewport_cell(host, slot);
             bind_row(rows_now[start + slot], cell);
             // A native list sizes the row once it is bound, from the height Day laid it at.
             if let Some(height) = &cell_height {
                 let laid = height(cell);
+                shown += laid;
                 CELL_HEIGHTS.with(|h| h.borrow_mut().insert(cell as u64, laid));
             }
+        }
+        // What a native list says once it has laid the rows out: the window it shows, and how
+        // much content lies past it, estimated from the rows it has measured (a row that has
+        // no height yet counts as one point, so "more rows below" never reads as the end).
+        if let Some(report) = &report
+            && count > 0
+        {
+            let each = (shown / count as f64).max(1.0);
+            report(ListViewport {
+                first: start,
+                last: start + count - 1,
+                end_distance: (total - start - count) as f64 * each,
+            });
         }
         // Cells past a shrunk source go back to the pool, as a native list's would.
         for slot in count..bound {
@@ -236,6 +519,12 @@ pub struct MockWidget {
     pub input_traits: Option<day_spec::InputTraits>,
     /// The last `.cursor()` applied to this widget (probe-visible for tests), `None` until set.
     pub cursor: Option<day_spec::Cursor>,
+    /// The last `.hit_slop()` applied to this widget (`set_hit_slop`), probe-visible.
+    pub hit_slop: day_spec::Insets,
+    /// The axis this widget's drag follows (`set_drag_axis`), probe-visible.
+    pub drag_axis: Option<day_spec::DragAxis>,
+    /// Whether `set_focusable` opted this widget into the focus order, probe-visible.
+    pub focusable: bool,
     pub children: Vec<u64>,
     pub frame: Rect,
     pub a11y: A11yProps,
@@ -243,9 +532,26 @@ pub struct MockWidget {
     /// The scroll offset after the last `scroll_to` (docs/scroll.md), computed with the same
     /// minimal-reveal clamp every real backend applies (probe-visible for tests).
     pub scroll_offset: Point,
+    /// A scroll view's realize props (docs/scroll.md), probe-visible for tests; `None` on
+    /// every other widget.
+    pub scroll: Option<ScrollProps>,
+    /// A scroll view's zoom scale after the last `ScrollPatch::Zoom` or
+    /// [`MockProbe::scroll_zoom_by_user`]; `0.0` until either (read it as `1.0`).
+    pub zoom: f64,
     pub ops: Vec<DrawOp>,
-    /// Surface style from a `background`/`corner_radius` decorator (probe-visible for tests).
+    /// The solid fill a surface shows, resolved against the appearance shown: what a
+    /// `background`/`surface` decorator's [`Self::fill`] is right now (probe-visible). The mock
+    /// re-resolves it on `set_appearance`, as a toolkit with dynamic colors would.
     pub background: Option<Color>,
+    /// A surface's fill as Day sent it, inks unresolved (`ContainerProps::fill`).
+    pub fill: Option<Paint>,
+    /// A surface's border and shadow as Day sent them (`ContainerProps::{border, shadow}`).
+    pub border: Option<Border>,
+    pub shadow: Option<Shadow>,
+    /// Which corners the radius rounds (`ContainerProps::corners`).
+    pub corners: Corners,
+    /// A label's color as Day sent it (`LabelProps::color`, `LabelPatch::Color`).
+    pub text_color: Option<Ink>,
     pub corner_radius: f64,
     pub clips: bool,
     /// Semantic theme-adaptive surface (a form section card), probe-visible for tests.
@@ -256,6 +562,14 @@ pub struct MockWidget {
     /// second word is bold, which no screenshot comparison can state and no `assert_text` can
     /// see, since the plain text is identical either way.
     pub runs: Vec<day_spec::TextRun>,
+    /// A label's paragraph attributes (`LabelProps::paragraph`, `LabelPatch::Paragraph`):
+    /// the line limit, truncation mode, letter spacing and line height. The mock's label
+    /// measurement honors all but the truncation mode, which changes no size.
+    pub paragraph: day_spec::props::LabelParagraph,
+    /// A label asked to report its selection (`LabelProps::reports_selection`).
+    pub reports_selection: bool,
+    /// The last reading direction given through `set_layout_direction`; `None` until told.
+    pub direction: Option<day_spec::LayoutDirection>,
     /// Last focus state driven through the `focus` duty (docs/focus.md), probe-visible.
     pub focused: bool,
     /// Last opacity applied via `set_opacity` (§8.4); `None` until touched (probe-visible).
@@ -265,6 +579,12 @@ pub struct MockWidget {
     /// The most recent animation intent seen on any duty for this widget (`update`/`set_frame`/
     /// `set_opacity`/`set_transform`). Lets tests assert `with_animation` threaded the intent.
     pub last_anim: Option<AnimSpec>,
+    /// Every animated change the widget was asked for, in order: the property, the intent and
+    /// when (probe-visible, so a test can assert what a `with_animation` requested).
+    pub animations: Vec<AnimRequest>,
+    /// The animated changes in flight, which [`Toolkit::read_displayed`] samples at the mock's
+    /// clock.
+    pub flights: MockFlights,
     /// A nav host's current presentation (docs/size-classes.md), probe-visible so a test can
     /// assert which of the four a morph landed on. `flag` carries only split-ness, which cannot
     /// tell `Tabs` from `Rail` from `Stack`; both are kept because the older tests read `flag`.
@@ -305,8 +625,11 @@ pub struct MockWindow {
 
 #[derive(Default)]
 pub struct MockState {
-    /// Optional synthetic palette for appearance-reactivity tests.
-    pub system_colors: Option<[day_spec::Color; 5]>,
+    /// Optional synthetic palette for appearance-reactivity tests, one color per role in
+    /// [`SystemColor::ALL`] order.
+    pub system_colors: Option<[day_spec::Color; SystemColor::COUNT]>,
+    /// The appearance forced through `set_appearance`; `None` follows `DAY_THEME`.
+    pub dark: Option<bool>,
     /// Simulate native navigation that has not settled yet in engine tests.
     pub ui_busy: bool,
     next: u64,
@@ -330,6 +653,12 @@ pub struct MockState {
     /// What `scroll_bar_inset` answers (docs/scroll.md): 0, overlay bars, unless a test plays a
     /// backend whose classic bar takes room from the viewport.
     pub scroll_bar_inset: f64,
+    /// What `Cap::ScrollPhases` answers; `None` is `Native`
+    /// ([`MockProbe::set_scroll_phases`]).
+    pub scroll_phases: Option<Support>,
+    /// What `Cap::ScrollKeyboardDismiss` answers; `None` is `Unsupported`
+    /// ([`MockProbe::set_scroll_keyboard_dismiss`]).
+    pub scroll_keyboard_dismiss: Option<Support>,
     /// Recycling-list row-pull sources, keyed by list host handle (docs/list.md). A test drives
     /// the "viewport" through [`MockProbe::list_bind`], simulating what a native list would do.
     pub list_sources: HashMap<u64, ListSource>,
@@ -344,6 +673,11 @@ pub struct MockState {
     pub dock_menu: Vec<String>,
     /// The widgets marked as window drag regions (docs/window-chrome.md), by handle.
     pub drag_regions: std::collections::HashSet<u64>,
+    /// The widget that last took focus through the `focus` duty, and the node it reports
+    /// against: where the loss goes when another widget takes it.
+    pub focus_holder: Option<(u64, NodeId)>,
+    /// The widgets `set_subtree_enabled(false)` named: everything under one reads disabled.
+    pub disabled_roots: std::collections::HashSet<u64>,
     /// The status items as last applied (docs/status-item.md).
     pub status_items: Vec<day_spec::StatusItemSpec>,
     /// The Dock or taskbar progress as last applied.
@@ -406,6 +740,10 @@ pub struct MockState {
     /// the mock models it. A test flips it and calls `day_core::note_motion_changed`, as a
     /// backend's observer would.
     pub reduce_motion: bool,
+    /// What `text_scale` answers (docs/text.md); `None` is the platform default, 1.0.
+    pub text_scale: Option<f64>,
+    /// Answer `Cap::TextLinks` as `Native` (`MockProbe::set_text_links`).
+    pub text_links: bool,
     /// Model a toolkit whose secure field is a different native class (AppKit, WinUI):
     /// `set_input_traits` answers a secure flip with a replacement widget under a new handle
     /// (docs/textfield.md). Off by default: most toolkits flip a property.
@@ -466,6 +804,9 @@ impl MockToolkit {
         VIEWPORT_ROWS.with(|r| r.set(0));
         VIEWPORTS.with(|v| v.borrow_mut().clear());
         NATIVE_EVENTS.with(|q| q.borrow_mut().clear());
+        MOCK_CLOCK.with(|c| c.set(0.0));
+        FRAMES.with(|f| f.borrow_mut().clear());
+        ANIM_FLAW.with(|f| f.set(None));
         // Posts run on the calling thread here (see `Platform::post`), so a wake from a pool
         // thread would have no loop to land on: blocking jobs run inline, like the web's.
         day_async::set_blocking_inline(true);
@@ -556,6 +897,109 @@ impl MockProbe {
         }
     }
 
+    /// Report a list's viewport as a native host does after a scroll or a layout
+    /// (`ListSource::viewport`, docs/list.md "Visible rows"), in the host's own rows.
+    pub fn list_viewport(&self, host: MockHandle, viewport: ListViewport) {
+        let callback = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|source| source.viewport.clone());
+        if let Some(callback) = callback {
+            callback(viewport);
+        }
+    }
+
+    /// The reader starts scrolling a `LIST` host themselves, as a drag or a wheel does
+    /// (`ListSource::reader_scroll`): what a real host reports before its viewport moves.
+    pub fn list_reader_scroll(&self, host: MockHandle) {
+        let callback = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|source| source.reader_scroll.clone());
+        if let Some(callback) = callback {
+            callback();
+        }
+    }
+
+    /// Whether row `index` of a `LIST` host is a supplementary row
+    /// (`ListSource::is_supplement`): the list's header, footer, empty state or padding.
+    #[must_use]
+    pub fn list_is_supplement(&self, host: MockHandle, index: usize) -> bool {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|s| s.is_supplement.clone());
+        f.is_some_and(|f| f(index))
+    }
+
+    /// Scroll a `scroll` view to `to` as a user's drag does: the offset moves, and the view
+    /// reports what its props asked it to track, `Dragging`, the offset, then `Idle`
+    /// (docs/scroll.md "Offset and phase").
+    pub fn scroll_by_user(&self, scroll: MockHandle, to: Point) {
+        let (node, props, sink) = {
+            let mut s = self.state.borrow_mut();
+            let Some(w) = s.widgets.get_mut(&scroll.0) else {
+                return;
+            };
+            w.scroll_offset = to;
+            (
+                NodeId(w.node),
+                w.scroll.clone().unwrap_or_default(),
+                s.sink.clone(),
+            )
+        };
+        let Some(sink) = sink else {
+            return;
+        };
+        if props.track_phase {
+            sink(node, Event::ScrollPhase(ScrollPhase::Dragging));
+        }
+        if props.track_offset {
+            sink(node, Event::ScrollChanged(to));
+        }
+        if props.track_phase {
+            sink(node, Event::ScrollPhase(ScrollPhase::Idle));
+        }
+    }
+
+    /// Pinch a zooming `scroll` view to `scale` as a user does: clamped to the view's zoom
+    /// range and reported with `Event::ScrollZoomed` (docs/scroll.md "Zoom").
+    pub fn scroll_zoom_by_user(&self, scroll: MockHandle, scale: f64) {
+        let report = {
+            let mut s = self.state.borrow_mut();
+            let Some(w) = s.widgets.get_mut(&scroll.0) else {
+                return;
+            };
+            let Some(range) = w.scroll.as_ref().and_then(|p| p.zoom) else {
+                return;
+            };
+            w.zoom = scale.clamp(range.min, range.max);
+            (NodeId(w.node), w.zoom, s.sink.clone())
+        };
+        if let (node, zoom, Some(sink)) = report {
+            sink(node, Event::ScrollZoomed(zoom));
+        }
+    }
+
+    /// What `Cap::ScrollPhases` answers: `Native` by default; a test sets `Emulated` to play a
+    /// toolkit that reports offsets only, where day-core derives the phase.
+    pub fn set_scroll_phases(&self, support: Support) {
+        self.state.borrow_mut().scroll_phases = Some(support);
+    }
+
+    /// What `Cap::ScrollKeyboardDismiss` answers: `Unsupported` by default (a desktop with
+    /// no software keyboard); a test sets `Emulated` to play a toolkit that leaves the
+    /// dismissal to day-core.
+    pub fn set_scroll_keyboard_dismiss(&self, support: Support) {
+        self.state.borrow_mut().scroll_keyboard_dismiss = Some(support);
+    }
+
     /// Row count a `LIST` host would query from its data-source.
     #[must_use]
     pub fn list_len(&self, host: MockHandle) -> usize {
@@ -609,6 +1053,24 @@ impl MockProbe {
     /// the default, where unit tests drive [`Self::list_bind`] and the cover events by hand.
     pub fn set_native_behavior(&self, viewport_rows: usize) {
         VIEWPORT_ROWS.with(|r| r.set(viewport_rows));
+    }
+
+    /// Make the mock's animator fall short of the `AnimSpec` contract in one way (or `None`
+    /// to restore it), so a test can prove that a conformance case catches that fault.
+    pub fn set_animation_flaw(&self, flaw: Option<AnimFlaw>) {
+        ANIM_FLAW.with(|f| f.set(flaw));
+    }
+
+    /// The mock's clock, in seconds: it moves by the time slept whenever a sleep is served.
+    #[must_use]
+    pub fn now(&self) -> f64 {
+        mock_now()
+    }
+
+    /// Move the mock's clock on by `ms`, delivering the frames requested meanwhile, as a
+    /// sleep of that length does.
+    pub fn advance(&self, ms: u32) {
+        frames_flush(ms);
     }
 
     pub fn list_recycle(&self, host: MockHandle, cell: MockHandle) {
@@ -1027,6 +1489,20 @@ impl MockProbe {
         self.state.borrow_mut().reduce_motion = v;
     }
 
+    /// Stand in for a toolkit with activatable link runs: `Cap::TextLinks` answers `Native`,
+    /// so a `link` is built as a link run instead of tappable accent text. Set it before the
+    /// pieces build, from inside the root closure.
+    pub fn set_text_links(&self, v: bool) {
+        self.state.borrow_mut().text_links = v;
+    }
+
+    /// Model the reader changing the system's text size (docs/text.md "Text scale"): what
+    /// `Toolkit::text_scale` answers for every style. The test then calls
+    /// `day_core::note_text_size_changed()`, which is the backend observer's job.
+    pub fn set_text_scale(&self, scale: f64) {
+        self.state.borrow_mut().text_scale = Some(scale);
+    }
+
     /// Make a secure flip rebuild the text field under a new handle, the harness for the
     /// toolkits whose secure field is its own native class (docs/textfield.md).
     pub fn set_secure_class_swap(&self, v: bool) {
@@ -1193,6 +1669,55 @@ fn describe_image_source(source: &day_spec::ImageSource) -> String {
     }
 }
 
+/// A label's size: [`text_size`]'s 8 × 16 cell per character (an em space is one em wide, as
+/// in a real font), with the paragraph attributes
+/// applied the way a native label applies them. Explicit newlines start lines and a line limit
+/// caps the height. Letter spacing and line height are multiples of the font size, which the
+/// mock takes as 17 points at `Body` ([`font_scale`]): spacing widens every cell by that many
+/// ems, and a line height replaces the 16-point line.
+#[must_use]
+pub fn label_size(
+    text: &str,
+    proposal: Proposal,
+    wraps: bool,
+    scale: f64,
+    paragraph: &day_spec::props::LabelParagraph,
+) -> Size {
+    let points = 17.0 * scale;
+    let cell = 8.0 * scale + paragraph.letter_spacing * points;
+    let line = if paragraph.line_height.is_finite() && paragraph.line_height > 0.0 {
+        paragraph.line_height * points
+    } else {
+        MOCK_LINE_H * scale
+    };
+    let limit = proposal.width.filter(|w| wraps && *w > 0.0);
+    let mut lines = 0.0_f64;
+    let mut width = 0.0_f64;
+    for paragraph_text in text.split('\n') {
+        // An em space (U+2003) is one em wide by definition, as in every real font.
+        let em_spaces = paragraph_text.chars().filter(|&c| c == '\u{2003}').count() as f64;
+        let cells = paragraph_text.chars().count() as f64 - em_spaces;
+        let needed = cell * cells + (points + paragraph.letter_spacing * points) * em_spaces;
+        match limit {
+            Some(w) if needed > w => {
+                lines += (needed / w).ceil();
+                width = w;
+            }
+            _ => {
+                lines += 1.0;
+                width = width.max(needed);
+            }
+        }
+    }
+    if !wraps {
+        lines = 1.0;
+    }
+    if paragraph.max_lines > 0 {
+        lines = lines.min(f64::from(paragraph.max_lines));
+    }
+    Size::new(width, line * lines)
+}
+
 pub fn text_size(text: &str, proposal: Proposal, wraps: bool, scale: f64) -> Size {
     let needed = 8.0 * scale * text.chars().count() as f64;
     let line = MOCK_LINE_H * scale;
@@ -1246,12 +1771,48 @@ impl MockToolkit {
 }
 
 impl Toolkit for MockToolkit {
+    fn request_frame(&mut self, _host: &MockHandle, cb: FrameCallback) -> CancelFrame {
+        // Pending for ever by default: unit tests inject a scheduler in day-core. The
+        // native-behavior mode delivers frames as its clock moves (see `frames_flush`).
+        if VIEWPORT_ROWS.with(std::cell::Cell::get) == 0 {
+            return Box::new(|| {});
+        }
+        let id = NEXT_FRAME.with(|n| n.replace(n.get() + 1));
+        FRAMES.with(|f| f.borrow_mut().push((id, cb)));
+        Box::new(move || {
+            let _ = FRAMES.try_with(|f| f.borrow_mut().retain(|(other, _)| *other != id));
+        })
+    }
+
     fn system_color(&mut self, role: day_spec::SystemColor) -> day_spec::Color {
+        let dark = self.dark_mode();
         let colors = self.state.borrow().system_colors;
-        colors.map_or_else(
-            || role.fallback(self.dark_mode()),
-            |colors| colors[role as usize],
-        )
+        colors.map_or_else(|| role.fallback(dark), |colors| colors[role as usize])
+    }
+
+    fn dark_mode(&mut self) -> bool {
+        self.state
+            .borrow()
+            .dark
+            .unwrap_or_else(|| std::env::var("DAY_THEME").ok().as_deref() == Some("dark"))
+    }
+
+    /// Switch the appearance and re-resolve every surface fill, the way a toolkit with dynamic
+    /// colors shows the new appearance without Day sending anything.
+    fn set_appearance(&mut self, dark: Option<bool>) {
+        self.state.borrow_mut().dark = dark;
+        let dark = self.dark_mode();
+        let mut s = self.state.borrow_mut();
+        let palette = Palette {
+            dark,
+            colors: s.system_colors.unwrap_or(Palette::fallback(dark).colors),
+        };
+        for w in s.widgets.values_mut() {
+            if w.fill.is_some() {
+                w.background = solid_fill(w.fill.as_ref(), &palette);
+            }
+        }
+        s.log(format!("set_appearance dark={dark}"));
     }
 
     type Handle = MockHandle;
@@ -1293,6 +1854,12 @@ impl Toolkit for MockToolkit {
             Cap::CanvasBitmap => Support::Native,
             // Records the shape per widget (probe-visible), so a test can assert it.
             Cap::Cursor => Support::Native,
+            // Records focusability, the hit slop and the drag axis per widget, and passes
+            // every key phase through; the recognizers themselves stay day-core's derived
+            // ones (`gesture_support` keeps its default), so a headless test exercises them.
+            Cap::Focusable | Cap::KeyPhases | Cap::HitSlop => Support::Native,
+            // A test raises `Event::TextSelected` through the probe, as a native label would.
+            Cap::LabelSelection => Support::Native,
             // Records every window change and Dock menu and completes state requests the way a
             // platform reports them (`apply_window` below), so the two-way state signal and the
             // menu lowering are testable headless.
@@ -1340,11 +1907,32 @@ impl Toolkit for MockToolkit {
             // hit-tests text), so `Cap::TextLinks` stays Unsupported in the default arm; a test
             // that wants the rail emits `Event::LinkActivated` itself.
             Cap::TextRuns => Support::Native,
+            // On when a test asks (`set_text_links`), to take the pieces down the path of a
+            // toolkit with activatable link runs. The test raises `Event::LinkActivated`.
+            Cap::TextLinks if self.state.borrow().text_links => Support::Native,
             // The mock "runs" backend-executed animation by recording the intent (probe-visible).
             Cap::Animation => Support::Native,
+            // `set_appearance` switches the mock's palette and re-resolves every surface fill,
+            // as a toolkit with dynamic colors shows the new appearance (docs/color.md).
+            Cap::Appearance => Support::Native,
             // Covers "present" by recording the patch (probe-visible); tests emit the
             // FrameChanged size report themselves, as the native surface would.
             Cap::Cover => Support::Native,
+            // A scroll view records its props (probe-visible), reports its offset after every
+            // `scroll_to`, and reports phases and zoom when a test plays the user
+            // (`MockProbe::scroll_by_user`, `scroll_zoom_by_user`).
+            Cap::ScrollOffset | Cap::ScrollSnap | Cap::ScrollZoom => Support::Native,
+            // Unless a test plays a toolkit that reports offsets only.
+            Cap::ScrollPhases => self.state.borrow().scroll_phases.unwrap_or(Support::Native),
+            // No software keyboard, unless a test plays a toolkit that leaves it to day-core.
+            Cap::ScrollKeyboardDismiss => self
+                .state
+                .borrow()
+                .scroll_keyboard_dismiss
+                .unwrap_or(Support::Unsupported),
+            // The viewport mode reports after every bind; a unit test reports by hand
+            // (`MockProbe::list_viewport`). Row scrolls land where `ListScroll::align` says.
+            Cap::ListViewport | Cap::ListScrollAlign | Cap::ListReaderScroll => Support::Native,
             // The status bar "hides" by recording the duty call (probe-visible).
             Cap::StatusBarHidden => Support::Native,
             // The probe drives the whole reorder sequence, guard then commit (`list_can_move`/
@@ -1423,6 +2011,8 @@ impl Toolkit for MockToolkit {
         if let Some(p) = props.downcast_ref::<CoverProps>() {
             w.half = p.half;
             detail = format!(" sheet={} half={}", p.sheet, p.half);
+        } else if let Some(p) = props.downcast_ref::<ScrollProps>() {
+            w.scroll = Some(p.clone());
         } else if let Some(p) = props.downcast_ref::<ListItemProps>() {
             w.text.clone_from(&p.title);
             w.flag = p.checked;
@@ -1435,6 +2025,9 @@ impl Toolkit for MockToolkit {
             w.flag = p.wraps;
             w.font = Some(p.font);
             w.runs.clone_from(&p.runs);
+            w.text_color = p.color;
+            w.paragraph = p.paragraph();
+            w.reports_selection = p.reports_selection;
             detail = format!(" text={:?}", p.text);
         } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
             w.text.clone_from(&p.title);
@@ -1454,14 +2047,12 @@ impl Toolkit for MockToolkit {
         } else if let Some(p) = props.downcast_ref::<CanvasProps>() {
             w.ops.clone_from(&p.ops);
         } else if let Some(p) = props.downcast_ref::<ContainerProps>() {
-            w.background = p.background;
-            w.corner_radius = p.corner_radius;
-            w.clips = p.clips;
+            apply_surface(&mut w, p);
             w.surface_role = p.role;
-            if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
+            if w.background.is_some() || p.corner_radius > 0.0 || p.clips {
                 detail = format!(
                     " bg={:?} radius={} clips={}",
-                    p.background, p.corner_radius, p.clips
+                    w.background, p.corner_radius, p.clips
                 );
             }
         } else if let Some(p) = props.downcast_ref::<ImageProps>() {
@@ -1542,10 +2133,25 @@ impl Toolkit for MockToolkit {
         // A cover shown or hidden, for the native-behavior mode to report (see `NATIVE_EVENTS`).
         // (node, shown, half)
         let mut cover_shown: Option<(u64, bool, bool)> = None;
+        // A zoom applied to a scroll view, reported after the borrow.
+        let mut scroll_zoomed: Option<(u64, f64)> = None;
         {
             let w = s.widgets.get_mut(&h.0).expect("update on unknown widget");
-            if anim.is_some() {
-                w.last_anim = anim.copied();
+            if let Some(ContainerPatch::Fill(fill)) = patch.downcast_ref::<ContainerPatch>() {
+                // A color animates from the one shown; a fill appearing or going has no
+                // in-between and applies at once.
+                let to = solid_fill(fill.as_ref(), &Palette::current());
+                w.flights.background = match (w.shown_background(), to) {
+                    (Some(shown), Some(to)) => w.fly(AnimProperty::Background, shown, to, anim),
+                    _ => None,
+                };
+            } else if let Some(spec) = anim {
+                w.last_anim = Some(*spec);
+                w.animations.push(AnimRequest {
+                    property: AnimProperty::Other,
+                    spec: *spec,
+                    at: mock_now(),
+                });
             }
             detail = if let Some(p) = patch.downcast_ref::<ImagePatch>() {
                 match p {
@@ -1563,7 +2169,10 @@ impl Toolkit for MockToolkit {
                         w.text.clone_from(t);
                         format!("text={t:?}")
                     }
-                    LabelPatch::Color(_) => "color".into(),
+                    LabelPatch::Color(c) => {
+                        w.text_color = *c;
+                        "color".into()
+                    }
                     LabelPatch::Font(f) => {
                         w.font = Some(*f);
                         "font".into()
@@ -1572,6 +2181,10 @@ impl Toolkit for MockToolkit {
                         w.text.clone_from(text);
                         w.runs.clone_from(runs);
                         format!("runs={}", runs.len())
+                    }
+                    LabelPatch::Paragraph(paragraph) => {
+                        w.paragraph = *paragraph;
+                        format!("paragraph={paragraph:?}")
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
@@ -1765,7 +2378,7 @@ impl Toolkit for MockToolkit {
                         dismiss_disabled,
                     } => {
                         w.flag = true;
-                        w.background = *background;
+                        w.background = background.map(Ink::resolved);
                         cover_shown = Some((w.node, true, w.half));
                         format!(
                             "cover present bg={background:?} dismiss_disabled={dismiss_disabled}"
@@ -1778,11 +2391,30 @@ impl Toolkit for MockToolkit {
                         "cover dismiss".into()
                     }
                 }
-            } else if let Some(ContainerPatch::Background(c)) =
-                patch.downcast_ref::<ContainerPatch>()
+            } else if let Some(p) = patch.downcast_ref::<ContainerPatch>() {
+                match p {
+                    ContainerPatch::Fill(fill) => {
+                        w.fill.clone_from(fill);
+                        w.background = solid_fill(fill.as_ref(), &Palette::current());
+                    }
+                    ContainerPatch::Surface(props) => apply_surface(w, props),
+                }
+                format!(
+                    "bg={:?} radius={} border={:?}",
+                    w.background, w.corner_radius, w.border
+                )
+            } else if let Some(ScrollPatch::Zoom { scale, animated }) =
+                patch.downcast_ref::<ScrollPatch>()
             {
-                w.background = *c;
-                format!("bg={c:?}")
+                // Zoom where the view was realized to zoom, and say so, as a native view does.
+                match w.scroll.as_ref().and_then(|p| p.zoom) {
+                    Some(range) => {
+                        w.zoom = scale.clamp(range.min, range.max);
+                        scroll_zoomed = Some((w.node, w.zoom));
+                        format!("scroll zoom {} animated={animated}", w.zoom)
+                    }
+                    None => "scroll zoom ignored".into(),
+                }
             } else if let Some(p) = patch.downcast_ref::<ListPatch>() {
                 match p {
                     ListPatch::Reload => {
@@ -1836,6 +2468,9 @@ impl Toolkit for MockToolkit {
             };
         }
         s.log(format!("update {kind} #{} {detail}", h.0));
+        if let (Some((node, zoom)), Some(sink)) = (scroll_zoomed, s.sink.clone()) {
+            sink(NodeId(node), Event::ScrollZoomed(zoom));
+        }
         // What a native cover reports by itself: the size it gave the content, and that the
         // hide transition finished.
         if let (Some((node, shown, half)), Some(sink)) = (cover_shown, s.sink.clone())
@@ -1912,8 +2547,8 @@ impl Toolkit for MockToolkit {
         let w = s.widgets.get(&h.0).cloned().unwrap_or_default();
         let size = match kind {
             kinds::LABEL => {
-                let scale = w.font.map_or(1.0, |f| font_scale(f.style));
-                let s = text_size(&w.text, p, w.flag, scale);
+                let scale = w.font.map_or(1.0, |f| font_scale(f.style) * f.scale);
+                let s = label_size(&w.text, p, w.flag, scale, &w.paragraph);
                 Size::new(s.width.min(p.width.unwrap_or(s.width)), s.height)
             }
             kinds::BUTTON => {
@@ -1961,10 +2596,8 @@ impl Toolkit for MockToolkit {
     fn set_frame(&mut self, h: &MockHandle, frame: Rect, anim: Option<&AnimSpec>) {
         let mut s = self.state.borrow_mut();
         if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.flights.frame = w.fly(AnimProperty::Frame, w.shown_frame(), frame, anim);
             w.frame = frame;
-            if anim.is_some() {
-                w.last_anim = anim.copied();
-            }
         }
         let a = if anim.is_some() { " animated" } else { "" };
         s.log(format!("set_frame #{} {}{}", h.0, fmt_rect(frame), a));
@@ -1973,10 +2606,8 @@ impl Toolkit for MockToolkit {
     fn set_opacity(&mut self, h: &MockHandle, opacity: f64, anim: Option<&AnimSpec>) {
         let mut s = self.state.borrow_mut();
         if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.flights.opacity = w.fly(AnimProperty::Opacity, w.shown_opacity(), opacity, anim);
             w.opacity = Some(opacity);
-            if anim.is_some() {
-                w.last_anim = anim.copied();
-            }
         }
         let a = if anim.is_some() { " animated" } else { "" };
         s.log(format!("set_opacity #{} {:.3}{}", h.0, opacity, a));
@@ -1991,16 +2622,33 @@ impl Toolkit for MockToolkit {
     ) {
         let mut s = self.state.borrow_mut();
         if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.flights.transform = w.fly(AnimProperty::Transform, w.shown_transform(), t, anim);
             w.transform = Some(t);
-            if anim.is_some() {
-                w.last_anim = anim.copied();
-            }
         }
         let a = if anim.is_some() { " animated" } else { "" };
         s.log(format!(
             "set_transform #{} tx={:.1},ty={:.1},sx={:.2},sy={:.2},rot={:.1}{}",
-            h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, a
+            h.0,
+            t.tx,
+            t.ty,
+            t.sx,
+            t.sy,
+            t.rotation.degrees(),
+            a
         ));
+    }
+
+    fn set_layout_direction(
+        &mut self,
+        h: &MockHandle,
+        _kind: PieceKind,
+        direction: day_spec::LayoutDirection,
+    ) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.direction = Some(direction);
+        }
+        s.log(format!("set_layout_direction #{} {direction:?}", h.0));
     }
 
     fn set_selectable(&mut self, h: &MockHandle, selectable: bool) -> Option<MockHandle> {
@@ -2076,6 +2724,7 @@ impl Toolkit for MockToolkit {
 
     fn scroll_to(&mut self, h: &MockHandle, target: Rect, _animated: bool) {
         let mut s = self.state.borrow_mut();
+        let (mut track, mut node) = (false, 0);
         if let Some(w) = s.widgets.get_mut(&h.0) {
             // Minimal scroll that makes `target` (content space) visible, clamped to range.
             let (vw, vh) = (w.frame.size.width, w.frame.size.height);
@@ -2091,6 +2740,8 @@ impl Toolkit for MockToolkit {
                 o.clamp(0.0, (content - view).max(0.0))
             };
             let o = w.scroll_offset;
+            track = w.scroll.as_ref().is_some_and(|p| p.track_offset);
+            node = w.node;
             w.scroll_offset = Point::new(
                 clamp(
                     o.x,
@@ -2109,6 +2760,47 @@ impl Toolkit for MockToolkit {
             );
         }
         s.log(format!("scroll_to #{} {}", h.0, fmt_rect(target)));
+        // A native scroll view reports the offset a programmatic scroll leaves it at.
+        if track && let Some(sink) = s.sink.clone() {
+            let at = s.widgets.get(&h.0).map_or(Point::ZERO, |w| w.scroll_offset);
+            sink(NodeId(node), Event::ScrollChanged(at));
+        }
+    }
+
+    fn list_scroll(&mut self, h: &MockHandle, to: ListScroll) -> bool {
+        let rows = VIEWPORT_ROWS.with(std::cell::Cell::get);
+        let mut s = self.state.borrow_mut();
+        let line = match to.row {
+            None => {
+                // Record that the host was asked to follow its end (probe-visible).
+                if let Some(w) = s.widgets.get_mut(&h.0) {
+                    w.flag = true;
+                }
+                viewport_touch(h.0, |p| p.to_end = true);
+                format!("list scroll-to-end animated={}", to.animated)
+            }
+            Some(row) => {
+                viewport_touch(h.0, |p| {
+                    p.start = match to.align {
+                        RowAlign::Start => row,
+                        RowAlign::Center => row.saturating_sub(rows / 2),
+                        RowAlign::End => (row + 1).saturating_sub(rows),
+                        // The least movement that shows the row.
+                        RowAlign::Nearest if row < p.start => row,
+                        RowAlign::Nearest if row >= p.start + rows => {
+                            (row + 1).saturating_sub(rows)
+                        }
+                        RowAlign::Nearest => p.start,
+                    };
+                });
+                format!(
+                    "list scroll-to-row {row} align={:?} animated={}",
+                    to.align, to.animated
+                )
+            }
+        };
+        s.log(format!("update {} #{} {line}", kinds::LIST, h.0));
+        true
     }
 
     fn scroll_offset(&mut self, h: &MockHandle) -> Point {
@@ -2125,18 +2817,74 @@ impl Toolkit for MockToolkit {
             .log(format!("enable_gesture #{} {:?}", h.0, kind));
     }
 
+    fn set_hit_slop(&mut self, h: &MockHandle, _node: NodeId, slop: day_spec::Insets) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.hit_slop = slop;
+        }
+        s.log(format!(
+            "set_hit_slop #{} {},{},{},{}",
+            h.0, slop.top, slop.leading, slop.bottom, slop.trailing
+        ));
+    }
+
+    fn set_drag_axis(&mut self, h: &MockHandle, _node: NodeId, axis: Option<day_spec::DragAxis>) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.drag_axis = axis;
+        }
+        s.log(format!("set_drag_axis #{} {axis:?}", h.0));
+    }
+
+    fn set_subtree_enabled(&mut self, h: &MockHandle, _node: NodeId, enabled: bool) {
+        let mut s = self.state.borrow_mut();
+        if enabled {
+            s.disabled_roots.remove(&h.0);
+        } else {
+            s.disabled_roots.insert(h.0);
+        }
+        s.log(format!("set_subtree_enabled #{} {enabled}", h.0));
+    }
+
+    fn set_focusable(&mut self, h: &MockHandle, _node: NodeId, focusable: bool) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.focusable = focusable;
+        }
+        s.log(format!("set_focusable #{} {focusable}", h.0));
+    }
+
     fn focus(&mut self, h: &MockHandle, node: NodeId, focused: bool) {
-        let sink = {
+        let (sink, lost) = {
             let mut st = self.state.borrow_mut();
             st.log(format!("focus #{} {}", h.0, focused));
             if let Some(w) = st.widgets.get_mut(&h.0) {
                 w.focused = focused;
             }
-            st.sink.clone()
+            // One widget holds the keyboard: focusing another takes it from the last one.
+            let lost = match st.focus_holder {
+                Some((handle, holder)) if focused && handle != h.0 => {
+                    if let Some(w) = st.widgets.get_mut(&handle) {
+                        w.focused = false;
+                    }
+                    Some(holder)
+                }
+                _ => None,
+            };
+            if focused {
+                st.focus_holder = Some((h.0, node));
+            } else if st.focus_holder.is_some_and(|(handle, _)| handle == h.0) {
+                st.focus_holder = None;
+            }
+            (st.sink.clone(), lost)
         };
         // A native toolkit reports the focus it was given back as an event, which is what
-        // day-core's probe mirrors (docs/focus.md); the mock does the same, after the borrow.
+        // day-core's probe mirrors (docs/focus.md); the mock does the same, after the borrow:
+        // the loss on the widget that had it, then the gain.
         if let Some(sink) = sink {
+            if let Some(holder) = lost {
+                sink(holder, Event::FocusChanged(false));
+            }
             sink(node, Event::FocusChanged(focused));
         }
     }
@@ -2178,6 +2926,7 @@ impl Toolkit for MockToolkit {
                         bind_row: source.bind_row.clone(),
                         recycle: source.recycle.clone(),
                         cell_height: None,
+                        report: None,
                         expanded: std::collections::HashSet::default(),
                         start: 0,
                         to_end: false,
@@ -2208,6 +2957,7 @@ impl Toolkit for MockToolkit {
                         },
                         recycle: source.recycle.clone(),
                         cell_height: Some(source.cell_height.clone()),
+                        report: source.viewport.clone(),
                         expanded: std::collections::HashSet::default(),
                         start: 0,
                         to_end: false,
@@ -2237,6 +2987,9 @@ impl Toolkit for MockToolkit {
 
     fn reduce_motion(&mut self) -> bool {
         self.state.borrow().reduce_motion
+    }
+    fn text_scale(&mut self, _style: Font) -> f64 {
+        self.state.borrow().text_scale.unwrap_or(1.0)
     }
 
     fn announce(&mut self, text: &str, urgent: bool) {
@@ -2818,9 +3571,29 @@ impl Toolkit for MockToolkit {
                 "day.button" => Some(w.selected),
                 _ => None,
             },
-            enabled: Some(w.enabled),
+            enabled: Some(w.enabled && !under_disabled_root(&s, h.0)),
             visible: None,
             frame: Some(window_frame(&s, h.0)),
+        }
+    }
+
+    fn read_displayed(&self, h: &MockHandle) -> day_spec::Displayed {
+        // The mock's animator is the `AnimSpec` contract itself, sampled at the mock's clock.
+        let s = self.state.borrow();
+        let Some(w) = s.widgets.get(&h.0) else {
+            return day_spec::Displayed::default();
+        };
+        let (shown, model) = (w.shown_frame(), w.frame);
+        let mut frame = window_frame(&s, h.0);
+        frame.origin.x += shown.origin.x - model.origin.x;
+        frame.origin.y += shown.origin.y - model.origin.y;
+        frame.size = shown.size;
+        let t = w.shown_transform();
+        day_spec::Displayed {
+            opacity: Some(w.shown_opacity()),
+            frame: Some(frame),
+            translation: Some(Point::new(t.tx, t.ty)),
+            background: w.shown_background(),
         }
     }
 
@@ -2944,11 +3717,17 @@ impl Platform for MockToolkit {
         f();
     }
 
-    fn post_delayed(_ms: u32, f: Box<dyn FnOnce() + Send>) {
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
         // A sleep is where the opt-in list viewport binds (see `viewport_flush`).
         viewport_flush();
         // The default rides a helper thread home, which has no tree or task table: a sleep in
         // a synchronous test is over the moment it starts, on this thread.
         f();
+        // And where the mock's clock moves and its frames are delivered (see `frames_flush`).
+        // After `f`, not before it: `f` only marks the sleep done (the sleeping task is in the
+        // middle of its poll and goes round again once this returns, so it still resumes with
+        // the time served), and day-reactive's timer queue is shared by every thread of a test
+        // binary, so nothing slow may sit between a timer being armed and `f` running it.
+        frames_flush(ms);
     }
 }

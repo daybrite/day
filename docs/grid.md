@@ -111,6 +111,18 @@ A [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) insi
 empty column position. It contributes no width and does not push adjacent cells apart.
 Use column spacing for gaps between cells.
 
+An `Option` cell that is `None` keeps its column as an empty cell, so the cells after it stay
+in their columns. A forecast row whose precipitation is absent on a dry day lines up with the
+rows that have one:
+
+```rust
+grid_row((day_name, (precip > 0).then(|| label(format!("{precip}%"))), high, low))
+```
+
+A false [`when()`](https://docs.rs/day-pieces/latest/day_pieces/fn.when.html) and an empty
+[`each()`](https://docs.rs/day-pieces/latest/day_pieces/fn.each.html) contribute no cells; use
+an `Option` or a [`spacer()`](https://docs.rs/day-pieces/latest/day_pieces/fn.spacer.html) where a column must stay.
+
 Grid span and alignment apply to the cell's outermost layout node, including padding or frame
 wrappers. Within a modifier chain, they do not have to be the last modifiers. For example,
 the note above still spans two columns even though padding follows its span modifier.

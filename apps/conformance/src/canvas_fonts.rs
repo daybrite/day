@@ -14,7 +14,7 @@ fn specimen(d: &mut Draw, size: Size) {
         Point::new(8.0, 8.0),
         TextStyle {
             size: 32.0,
-            color: Color::hex(0x000000),
+            color: Color::hex(0x000000).into(),
             anchor: TextAnchor::LEADING,
             font: CanvasFont {
                 family: Some("Pacifico".into()),

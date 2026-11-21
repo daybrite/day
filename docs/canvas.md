@@ -34,8 +34,8 @@ controller; return `ControlFlow::Break(())` when motion settles and resume on th
 This avoids recording identical frames while idle. Frame timestamps are unclamped; simulation
 clients choose their own fixed-step and catch-up policy. Day-Showcase's Animation page contains
 a complete interactive example with trails, impact particles, pause/resume, and idle shutdown.
-For transitions between two states (a value, a rect, a color, a whole chart), `day::tween`
-supplies the interpolation, the timing and the frame-driven driver ([tween](tween.md)).
+For transitions between two states (a value, a rect, a color, a whole chart),
+[`day::tween`](https://docs.rs/day-core/latest/day_core/tween/index.html) supplies the interpolation, the timing and the frame-driven driver ([tween](tween.md)).
 
 Text samples use generated Fluent accessors; see the [example catalog](/docs/reference/localization#reference-example-messages)
 and [localization setup](/docs/how-to/localization).
@@ -75,15 +75,16 @@ d.fill(ring, TEAL);
 the opposite way. `FillRule::EvenOdd` makes any contour inside another a hole regardless of
 winding, which is what PDF's `f*` and SVG's `fill-rule: evenodd` mean.
 
-[`arc_to(center, radius, start_deg, sweep_deg)`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.arc_to) appends a circular arc — degrees, `0` = the +x
+[`arc_to(center, radius, start, sweep)`](https://docs.rs/day-pieces/latest/day_pieces/struct.PathBuilder.html#method.arc_to) appends a circular arc. Both are
+[`Angle`](https://docs.rs/day-geometry/latest/day_geometry/struct.Angle.html)s, `0` = the +x
 axis, positive sweeping **clockwise**, the same convention `Shape::Arc` and [`circle`](https://docs.rs/day-pieces/latest/day_pieces/fn.circle.html) use. It is a
 *segment*, not a shape, which is what lets a figure made of arcs be one closed contour:
 
 ```rust
 // A donut wedge: out along the far edge, back along the near one.
 let wedge = PathBuilder::new()
-    .arc_to(center, 60.0, 20.0, 100.0)     // outer edge, clockwise
-    .arc_to(center, 34.0, 120.0, -100.0)   // inner edge, back the other way
+    .arc_to(center, 60.0, Angle::deg(20.0), Angle::deg(100.0))    // outer edge, clockwise
+    .arc_to(center, 34.0, Angle::deg(120.0), Angle::deg(-100.0))  // inner edge, back the other way
     .close()
     .build();
 ```
@@ -161,6 +162,80 @@ API. Request round caps explicitly for lines with rounded ends.
 native 2-D context works this way, so there is no "unclip". [`clipped(shape, f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.clipped) wraps the
 save/clip/restore for you.
 
+## Colors
+
+Every color a canvas takes is an `Ink` ([color.md](color.md)):
+[`d.fill(shape, SystemColor::Separator)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.fill),
+[`d.stroke(shape, Ink::adaptive(light, dark), 1.0)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.stroke), a gradient whose stops are roles. The canvas
+records the color of the app's current appearance, so the display list a toolkit draws holds
+fixed colors only, and reading a role or a pair subscribes the draw closure to the appearance:
+the drawing records again when it changes. A drawing with fixed colors only subscribes to
+nothing. For arithmetic on a color (a tint mixed from a role), resolve it yourself with
+[`day::resolve(ink)`](https://docs.rs/day-core/latest/day_core/fn.resolve.html), which is tracked the same way.
+[`TextStyle::color`](https://docs.rs/day-pieces/latest/day_pieces/struct.TextStyle.html#structfield.color) defaults to
+`SystemColor::Text`, so canvas text is legible in both appearances without a color.
+
+## Conic gradients
+
+`ConicGradient` turns its color stops around a center: a color wheel, a gauge's ring, a pie
+without wedges. The center is a unit point in the shape's bounding box, like the other
+gradients. The start is an `Angle` in canvas space, `0` on the +x axis and clockwise, the
+convention arcs use, and a stop's offset is the fraction of a full turn from `start`.
+
+```rust
+let ring = Shape::Arc { rect, start: Angle::deg(135.0), sweep: Angle::deg(270.0) };
+d.stroke_styled(
+    ring,
+    ConicGradient::centered(Angle::deg(135.0), [(0.0, cool), (0.75, hot)]),
+    StrokeStyle::round(10.0),
+);
+```
+
+The colors meet at `start`. For a seamless wheel, make the first and last stops the same
+color.
+
+## Shadows
+
+[`shadowed(shadow, f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.shadowed) draws `f` with every fill, stroke, text and image in it casting a shadow:
+
+```rust
+d.shadowed(Shadow::new(Color::rgba(0.0, 0.0, 0.0, 0.3), 16.0).offset(0.0, 6.0), |d| {
+    d.fill(Shape::RoundedRect(card, 14.0), Color::WHITE);
+});
+```
+
+- `blur` is the CSS `box-shadow` blur radius: the width of the soft edge.
+- The offset and the blur are in points and are **not** scaled or rotated by the current
+  transform. A shape drawn under
+  [`scale(2.0, 2.0)`](https://docs.rs/day-geometry/latest/day_geometry/struct.Affine.html#method.scale) still casts its shadow `dy` points down.
+- Each drawing call casts its own shadow, so two overlapping shapes in one scope shade each
+  other. Draw them as one path when they should cast one shadow.
+- The shadow is graphics state, like the clip. [`d.shadow(Some(..))`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.shadow) sets it until the
+  enclosing `restore`, and [`d.shadow(None)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.shadow) stops it.
+
+## Blend modes
+
+[`blended(mode, f)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Draw.html#method.blended) draws `f` combined with what the canvas already holds:
+
+```rust
+d.fill(Shape::RoundedRect(ticket, 14.0), paper);
+d.blended(BlendMode::Erase, |d| d.fill(Shape::Ellipse(hole), Color::BLACK));
+```
+
+| Mode | Result |
+| --- | --- |
+| `Normal` | The new drawing covers the old by its alpha |
+| `Multiply` | Always darker; white changes nothing |
+| `Screen` | Always lighter; black changes nothing |
+| `Overlay` | Multiplies dark backdrops and screens light ones |
+| `Darken`, `Lighten` | The darker or the lighter of the two, per channel |
+| `Add` | Adds the colors, clamped |
+| `Erase` | Removes what has been drawn, by the new drawing's alpha |
+
+The backdrop is the canvas's own drawing, never the views behind it: a canvas is its own
+compositing group. `Erase` leaves the canvas transparent, so whatever is behind the canvas view
+shows through the hole. The mode is graphics state, scoped by `save` and `restore`.
+
 ## Toolkit support
 
 Platform guidance: [Apple: Core Graphics](https://developer.apple.com/documentation/coregraphics); [Qt: painting](https://doc.qt.io/qt-6/paintsystem.html).
@@ -177,6 +252,13 @@ Everything above works on every toolkit except where noted.
 | **[android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")** | [`font_families()`](https://docs.rs/day-core/latest/day_core/fn.font_families.html) is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
 | **[arkui](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")** | Canvas fonts and the font list compile against the SDK's `OH_Drawing_FontMgr` API and are exercised by CI on a device, not by a local emulator run. |
 | all | A weight or slant the family does not ship is synthesized where the platform does that (Skia, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango, CoreText). `face_for` on the family's `FontFamilyInfo` says which face will actually draw. |
+| **appkit**, **uikit** | Conic gradients are Core Graphics' own on macOS 14 and iOS 17. Below that, AppKit computes the gradient per pixel and UIKit draws half-degree wedges, both through the shape's clip. In PDF export `Add` draws as `Normal` and drawing under `Erase` is omitted. |
+| **android** | Shadows are a blurred pass per drawing call (`BlurMaskFilter`); color-bitmap glyphs cast none, and on API 24 to 27 a canvas that sets a shadow renders in a software layer. On API 24 to 28 `Multiply` over a part of the canvas with nothing drawn on it draws nothing. |
+| **gtk** | Conic gradients are a cairo mesh; hard color edges between stops are not antialiased. Shadows are an offscreen mask and blur per drawing call, an image in PDF. |
+| **qt** | Shadows are an offscreen layer and blur per drawing call. A canvas that uses a blend mode composes offscreen, so its text is grayscale-antialiased. In PDF export blend modes draw as `Normal`, drawing under `Erase` is omitted, and shadows and conic gradients are images. |
+| **winui** | Conic gradients are a fan of 360 to 1440 flat wedges and do not apply to text. `Multiply`, `Screen`, `Overlay`, `Darken` and `Lighten` paint the canvas through two offscreen targets; a canvas too large for a texture draws them as `Normal`. |
+| **web** | Conic gradients are the engine's own; on Safari before 16.1 they are a wedge fan. |
+| **arkui** | A gradient-painted shape casts its shadow at full strength. A canvas that uses a blend mode is drawn through a layer its own size, so a shadow reaching past its edge is cut there. |
 | **[Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt")**, **[Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material")**, **[WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui")** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
 
 Gradient strokes on Apple work by converting the stroke to the region it covers
@@ -366,7 +448,7 @@ canvas(draw)
     .on_rotate(move |g| turn_about(g.location, g.rotation, g.phase))
 ```
 
-`Rotate.rotation` is in radians, positive clockwise on screen, and cumulative like the pinch's
+`Rotate.rotation` is an `Angle` ([`.radians()`](https://docs.rs/day-geometry/latest/day_geometry/struct.Angle.html#method.radians), [`.degrees()`](https://docs.rs/day-geometry/latest/day_geometry/struct.Angle.html#method.degrees)), positive clockwise on screen, and cumulative like the pinch's
 scale: the total turn since the gesture began, applied to the bearing captured at
 `DragPhase::Began`. Where a platform reports a trackpad rotation without a gesture session,
 each rotate tick arrives as a lone `Changed` carrying that tick's own angle, the way a ctrl+wheel

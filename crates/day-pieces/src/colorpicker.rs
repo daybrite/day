@@ -343,7 +343,7 @@ fn composed_well<C: Binding<Color>>(
             TextStyle {
                 size: 12.0,
                 // Day's own readable-on-a-fill rule, the one `Button::tint` uses.
-                color: day_spec::props::ButtonStyleSpec::on_tint(c),
+                color: day_spec::props::ButtonStyleSpec::on_tint(c).into(),
                 anchor: TextAnchor::CENTERED,
                 ..Default::default()
             },

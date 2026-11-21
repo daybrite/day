@@ -9,6 +9,20 @@
 
 use std::os::raw::{c_char, c_double, c_int, c_uint, c_void};
 
+/// One `AnimSpec` as the shim plays it (docs/tween.md "The animation contract"): the delay,
+/// one cycle's length, the cycles beyond the first (`u32::MAX` for ever), auto-reverse, and
+/// the progress of one forward cycle sampled `frames` times at uniform offsets
+/// (`AnimSpec::keyframes`). `progress` must stay valid for the call.
+#[repr(C)]
+pub struct DayAnim {
+    pub delay_ms: c_int,
+    pub duration_ms: c_int,
+    pub repeat: c_uint,
+    pub autoreverse: c_int,
+    pub frames: c_int,
+    pub progress: *const c_double,
+}
+
 /// What [`day_xaml_read_native`] reads back from an element: the shim's `DayXamlNative`,
 /// field for field. A member the element does not carry keeps its "not read" value: `0` in a
 /// `has_*` flag, `-1` in a tri-state (`checked`, `enabled`, `visible`), a null string. Strings
@@ -240,6 +254,17 @@ unsafe extern "C" {
     pub fn day_xaml_is_dark() -> c_int;
     /// The app's own override: 0 follow the system, 1 light, 2 dark. Re-themes every live window.
     pub fn day_xaml_set_appearance(mode: c_int);
+    /// The color of the theme resource `key` (a Fluent brush or color key) in the light
+    /// (`dark` 0) or dark appearance, as ARGB in `out`; 0 when no theme dictionary has it.
+    pub fn day_xaml_theme_color(key: *const c_char, dark: c_int, out: *mut c_uint) -> c_int;
+    /// 1 when the element is shown dark: its window's own scheme where it has one, else the
+    /// app's.
+    pub fn day_xaml_element_dark(h: *mut c_void) -> c_int;
+    /// Pass-through (docs/gestures.md): a label, image or divider takes no pointer input until
+    /// [`day_xaml_hit_on`].
+    pub fn day_xaml_set_passive(h: *mut c_void);
+    /// The node takes pointer input over its whole box from now on.
+    pub fn day_xaml_hit_on(h: *mut c_void);
     /// Reduce motion (docs/accessibility.md): 1 while Windows' "Show animations" switch is off
     /// (`UISettings.AnimationsEnabled` false), read fresh on every call.
     pub fn day_xaml_reduce_motion() -> c_int;
@@ -265,8 +290,8 @@ unsafe extern "C" {
     // Backend-executed animation (DESIGN.md §8.4): day passes a target value + intent and XAML's
     // own compositor runs it. `dur_ms <= 0` sets the value outright. `curve`: 0 linear, 1 ease-in,
     // 2 ease-out, 3 ease-in-out, 4 spring — the same encoding day-toolkit-qt's shim takes.
-    pub fn day_xaml_set_opacity(w: *mut c_void, opacity: c_double, dur_ms: c_int, curve: c_int);
-    #[allow(clippy::too_many_arguments)]
+    pub fn day_xaml_set_opacity(w: *mut c_void, opacity: c_double, anim: *const DayAnim);
+    /// The transform channels about the element's center, played under `anim` (null: at once).
     pub fn day_xaml_set_transform(
         w: *mut c_void,
         tx: c_double,
@@ -274,16 +299,102 @@ unsafe extern "C" {
         sx: c_double,
         sy: c_double,
         rotate_deg: c_double,
-        dur_ms: c_int,
-        curve: c_int,
+        anim: *const DayAnim,
     );
-    // Animated fill. XAML is the only desktop backend that can tween a background color (§8.4).
-    pub fn day_xaml_container_animate_bg(w: *mut c_void, argb: u32, dur_ms: c_int, curve: c_int);
+    /// A container's fill, played under `anim` from the color shown now (null: at once).
+    pub fn day_xaml_container_animate_bg(w: *mut c_void, argb: u32, anim: *const DayAnim);
+    /// An animated frame: position and size played under `anim` from the frame shown now.
+    pub fn day_xaml_set_geometry_animated(
+        w: *mut c_void,
+        x: c_double,
+        y: c_double,
+        width: c_double,
+        height: c_double,
+        anim: *const DayAnim,
+    );
+    /// What the element shows now (docs/tween.md): `out[0]` opacity, `out[1..3]` translation,
+    /// `out[3..7]` frame before any transform (window content space), `out[7..11]` a
+    /// container's fill as r, g, b, a. The result's bits say which were read: 1 opacity,
+    /// 2 translation, 4 frame, 8 fill.
+    pub fn day_xaml_read_displayed(w: *mut c_void, out: *mut c_double) -> c_int;
     pub fn day_xaml_cover_ground(w: *mut c_void);
     /// Best-effort rounded clip for a `corner_radius` container: a rounded `RectangleGeometry`
     /// Clip whose Rect tracks the element size (`SizeChanged`). Corner support is limited on a bare
     /// Canvas, so this is best-effort (docs).
     pub fn day_xaml_container_set_corner(w: *mut c_void, radius: c_double);
+    /// Turn a container into a styled surface (docs/surfaces.md): a `Border` behind the
+    /// children that rounds only the corners in `corners` (`Corners::bits`: 1 top-left, 2
+    /// top-right, 4 bottom-right, 8 bottom-left) by `radius`, and, when `clips` is nonzero, a
+    /// Composition clip of that shape over the children. Call it before the setters below, which
+    /// do nothing on a container that is not a styled surface. Once it is one,
+    /// [`day_xaml_container_set_bg`] and [`day_xaml_container_animate_bg`] fill the `Border`.
+    /// Called again, it reshapes the surface in place; on a plain container it replaces the
+    /// plain fill and rounded clip.
+    pub fn day_xaml_container_set_surface(
+        w: *mut c_void,
+        radius: c_double,
+        corners: c_int,
+        clips: c_int,
+    );
+    /// A line of `width` points inside a styled surface's frame, following its corners, drawn
+    /// over the children. A width of zero removes it.
+    pub fn day_xaml_container_set_border(w: *mut c_void, argb: u32, width: c_double);
+    /// Fill a styled surface with a linear gradient between two unit points of its frame:
+    /// `line` is `[start x, start y, end x, end y]`; `offsets` and `colors` (ARGB) are `n`
+    /// parallel stops.
+    pub fn day_xaml_container_set_gradient(
+        w: *mut c_void,
+        line: *const c_double,
+        offsets: *const c_double,
+        colors: *const u32,
+        n: c_int,
+    );
+    /// The shadow of a styled surface's outline, outside its frame: a Composition `DropShadow`
+    /// of `argb`, `blur` points wide (twice the Gaussian's standard deviation), moved by
+    /// (`dx`, `dy`). Called again it updates the shadow; a transparent `argb` hides it.
+    pub fn day_xaml_container_set_shadow(
+        w: *mut c_void,
+        argb: u32,
+        blur: c_double,
+        dx: c_double,
+        dy: c_double,
+    );
+    /// Fill a styled surface with a radial gradient around the unit point (`cx`, `cy`) of its
+    /// frame, `radius` frame-widths across and frame-heights down; `offsets` and `colors` (ARGB)
+    /// are `n` parallel stops.
+    pub fn day_xaml_container_set_radial(
+        w: *mut c_void,
+        cx: c_double,
+        cy: c_double,
+        radius: c_double,
+        offsets: *const c_double,
+        colors: *const u32,
+        n: c_int,
+    );
+    /// Fill a styled surface with a conic gradient around the unit point (`cx`, `cy`) of its
+    /// frame, its first stop at `start_deg` clockwise from +x; drawn by the canvas painter at each size.
+    pub fn day_xaml_container_set_conic(
+        w: *mut c_void,
+        cx: c_double,
+        cy: c_double,
+        start_deg: c_double,
+        offsets: *const c_double,
+        colors: *const u32,
+        n: c_int,
+    );
+    /// The canvas painter's conic-gradient arithmetic, for tests: writes the ARGB color at
+    /// `turn` (0..=1 of a full turn) to `color` and the number of wedge edges to `edges`, and
+    /// returns the number of equal steps a fan reaching `reach` units is cut into.
+    #[cfg(feature = "winui")]
+    pub fn day_xaml_conic_probe(
+        offsets: *const c_double,
+        colors: *const u32,
+        n: c_int,
+        reach: c_double,
+        turn: c_double,
+        color: *mut u32,
+        edges: *mut c_int,
+    ) -> c_int;
     /// A canvas that can hold keyboard focus (docs/menus.md): `handles` asks whether the app
     /// claimed a key before the shim consumes it, `cb` delivers `(id, key_name, modifier_mask)`.
     pub fn day_xaml_canvas_new(
@@ -416,6 +527,41 @@ unsafe extern "C" {
     );
     /// Bundled custom font (§18.4): `spec` is a `FontFamily` source of the form
     /// "<ms-appx:///fonts>/<file>#<family>" (the font staged under `<exe>/fonts/`).
+    /// The paragraph attributes of a label (docs/text.md): one line (`wraps` 0) or at most
+    /// `max_lines` (0 = unlimited) with an ellipsis, letter spacing in ems, line height as a
+    /// multiple of the font size (0 = the font's own).
+    pub fn day_xaml_label_set_paragraph(
+        w: *mut c_void,
+        wraps: c_int,
+        max_lines: c_int,
+        letter_ems: c_double,
+        line_multiple: c_double,
+    );
+    /// Whether the label was built to wrap (`LabelProps::wraps`).
+    pub fn day_xaml_label_wraps(w: *mut c_void) -> c_int;
+    /// The label's text, runs flattened: a heap copy for [`day_xaml_string_free`].
+    pub fn day_xaml_label_text(w: *mut c_void) -> *mut c_char;
+    /// Small capitals and old-style figures (`FontSpec::{small_caps, oldstyle_figures}`).
+    pub fn day_xaml_label_set_features(w: *mut c_void, small_caps: c_int, oldstyle: c_int);
+    /// Show an elided string while the accessible name keeps the whole text.
+    pub fn day_xaml_label_show_elided(w: *mut c_void, shown: *const c_char, full: *const c_char);
+    /// The one-line width of `text` in the label's font and letter spacing, in DIPs.
+    pub fn day_xaml_label_text_width(w: *mut c_void, text: *const c_char) -> c_double;
+    /// The label's own reading direction and its alignment (0 leading, 1 center, 2 trailing,
+    /// 3 justified) read against it.
+    pub fn day_xaml_label_set_direction(w: *mut c_void, rtl: c_int, align: c_int);
+    /// A leaf control's reading direction; panels are left alone.
+    pub fn day_xaml_set_flow_direction(w: *mut c_void, rtl: c_int);
+    /// Report the label's selection as UTF-16 offsets `(start, end)` whenever it changes.
+    pub fn day_xaml_label_report_selection(
+        w: *mut c_void,
+        id: u64,
+        cb: extern "C" fn(u64, c_int, c_int),
+    );
+    /// Windows' text-size factor (`UISettings.TextScaleFactor`).
+    pub fn day_xaml_text_scale() -> c_double;
+    /// Call `cb` on the UI thread whenever the text-size factor changes.
+    pub fn day_xaml_watch_text_scale(cb: extern "C" fn());
     pub fn day_xaml_label_set_font_family(w: *mut c_void, spec: *const c_char);
     /// Make a label's text user-selectable (the `.selectable()` modifier). No-op on non-labels.
     pub fn day_xaml_label_set_selectable(w: *mut c_void, on: c_int);
@@ -526,7 +672,12 @@ unsafe extern "C" {
     /// Replace the raster/vector content of a stable image viewport. A source that will not
     /// load leaves the view as it was.
     pub fn day_xaml_image_set_vector(w: *mut c_void, spec: *const c_char);
+    /// Tint (`tinted` nonzero) or untint an image viewport. A vector recomposes its brushes;
+    /// a raster (a file, bytes, a held bitmap) is recolored to `argb` keeping its alpha, on
+    /// WinUI, and the tint stays through later source swaps (docs/images.md "Tinting").
     pub fn day_xaml_image_set_tint(w: *mut c_void, argb: u32, tinted: c_int);
+    /// A tinted image's tint color again, its tint mode kept; untinted images are left alone.
+    pub fn day_xaml_image_retint(w: *mut c_void, argb: u32);
     pub fn day_xaml_image_set_uri(w: *mut c_void, uri: *const c_char);
     pub fn day_xaml_image_set_bytes(w: *mut c_void, bytes: *const u8, len: c_int);
     pub fn day_xaml_image_set_bitmap(w: *mut c_void, id: u64);
@@ -616,6 +767,39 @@ unsafe extern "C" {
         kind: c_int,
         cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
     );
+
+    /// Where the touches recognizer (`day_xaml_enable_gesture` kind 10) reports: the node and
+    /// its contacts as `"id,phase,x,y,pressure,kind;…"` (phase 0 began, 1 moved, 2 stationary,
+    /// 3 ended, 4 cancelled; kind 0 touch, 1 mouse, 2 stylus), valid for the call.
+    pub fn day_xaml_set_touches_cb(cb: extern "C" fn(u64, *const c_char));
+    /// Grow the area in which a container takes pointer input by the four insets, in DIPs
+    /// (docs/gestures.md "Hit slop"); all zero restores its own bounds. Panels only.
+    pub fn day_xaml_set_hit_slop(
+        elem: *mut c_void,
+        left: c_double,
+        top: c_double,
+        right: c_double,
+        bottom: c_double,
+    );
+    /// The drag's axis: 0 any direction, 1 horizontal, 2 vertical (docs/gestures.md).
+    pub fn day_xaml_set_drag_axis(elem: *mut c_void, axis: c_int);
+    /// Make a container a tab stop that routes keys like a canvas and reports its own focus
+    /// changes (docs/focus.md); a control is made a tab stop only. WinUI only.
+    pub fn day_xaml_set_focusable(
+        elem: *mut c_void,
+        id: u64,
+        handles: extern "C" fn(u64) -> c_int,
+        handles_text: extern "C" fn(u64) -> c_int,
+        key_cb: extern "C" fn(u64, *const c_char, *const c_char, c_int),
+        focus_cb: extern "C" fn(u64, c_int),
+    );
+    /// Disable (0) or re-enable (1) every control under `elem` and its pointer input
+    /// (docs/forms.md "Disabling a group"); nested calls count.
+    pub fn day_xaml_set_subtree_enabled(elem: *mut c_void, enabled: c_int);
+    /// The input kind at launch: 0 touch, 1 mouse, 2 stylus (docs/gestures.md "Input kind").
+    pub fn day_xaml_primary_pointer() -> c_int;
+    /// Where a change of input kind is reported, with the same codes.
+    pub fn day_xaml_set_pointer_kind_cb(cb: extern "C" fn(c_int));
 
     // focus (docs/focus.md): observe via GotFocus/LostFocus (kind 1 gained / 0 lost / 2
     // submitted); drive via Focus(Programmatic), resigning to the window's focus sink.
@@ -802,6 +986,7 @@ unsafe extern "C" {
         action: extern "C" fn(*mut c_void, i32, u64, i32, i32),
         can_move: extern "C" fn(*mut c_void, i32, i32) -> i32,
         moved: extern "C" fn(*mut c_void, i32, i32),
+        reader: extern "C" fn(*mut c_void),
     ) -> *mut c_void;
     pub fn day_winui_list_forget(host: *mut c_void);
     pub fn day_winui_list_frame(host: *mut c_void, width: f64, height: f64);
@@ -820,6 +1005,36 @@ unsafe extern "C" {
         height: f64,
     );
     pub fn day_winui_list_scroll(host: *mut c_void, row: i32);
+    /// Scroll preferences and reports (docs/scroll.md): hidden bars, snapping (0 none, 1 page,
+    /// 2 every `interval`), zoom between `zoom_min` and `zoom_max` (0 = no zoom), and the
+    /// reports `cb(id, kind, a, b)`: kind 0 the offset, 1 the phase (0 idle, 1 dragging,
+    /// 2 coasting), 2 the zoom scale.
+    pub fn day_xaml_scroll_configure(
+        sv: *mut c_void,
+        id: u64,
+        hide_bars: c_int,
+        snap: c_int,
+        interval: c_double,
+        zoom_min: c_double,
+        zoom_max: c_double,
+        track_offset: c_int,
+        track_phase: c_int,
+        cb: extern "C" fn(u64, c_int, c_double, c_double),
+    );
+    /// Zoom to `scale` about the viewport's center, animated or not.
+    pub fn day_xaml_scroll_zoom(sv: *mut c_void, scale: c_double, animated: c_int);
+    /// Scroll row `row` (-1: the end of the content) into view with an alignment (0 nearest,
+    /// 1 start, 2 center, 3 end), animated or not (docs/list.md).
+    pub fn day_winui_list_scroll_to(host: *mut c_void, row: i32, align: c_int, animated: c_int);
+    /// The scroll extent, offset and viewport height, in DIPs.
+    pub fn day_winui_list_metrics(
+        host: *mut c_void,
+        extent: *mut c_double,
+        offset: *mut c_double,
+        viewport: *mut c_double,
+    );
+    /// The list's supplementary rows (no row chrome, never pinned), sent before each reload.
+    pub fn day_winui_list_plain(host: *mut c_void, rows: *const i32, len: i32);
     pub fn day_winui_list_select(host: *mut c_void, rows: *const i32, len: i32);
     pub fn day_winui_list_actions_begin(host: *mut c_void, cell: *mut c_void);
     pub fn day_winui_list_action_add(

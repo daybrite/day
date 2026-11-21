@@ -11,11 +11,15 @@ using Prepare=unsigned char*(*)(void*,double,double,size_t*);
 using Free=void(*)(unsigned char*,size_t);
 using Accept=bool(*)(void*,double,double,const char*,bool);
 using Receive=bool(*)(void*,double,double,const unsigned char*,size_t,bool);
+// The drag left the target without dropping, or the session ended over it (docs/drag-and-drop.md).
+using Leave=void(*)(void*);
 struct State {
     void* handle;
     bool alive=true;
     Prepare prepare=nullptr; Free release=nullptr; Accept accept=nullptr; Receive receive=nullptr;
+    Leave leave=nullptr;
 };
+static void left(std::shared_ptr<State> const& s) { if(s && s->alive && s->leave) s->leave(s->handle); }
 static std::map<void*,std::shared_ptr<State>> states;
 static winrt::hstring local_session;
 static std::shared_ptr<State> state(void* h) {
@@ -132,6 +136,7 @@ static winrt::fire_and_forget drop(std::shared_ptr<State> s,WUX::DragEventArgs e
 extern "C" void day_xaml_drag_source(void* h,day_transfer::Prepare prepare,day_transfer::Free release) {
     guard([&] {
         auto s=day_transfer::state(h); s->prepare=prepare; s->release=release;
+        day_hit_on(h);
         auto el=elem(h); el.CanDrag(true);
         el.DragStarting([s](WUX::UIElement const& el,WUX::DragStartingEventArgs const& args) {
             try {
@@ -148,16 +153,19 @@ extern "C" void day_xaml_drag_source(void* h,day_transfer::Prepare prepare,day_t
 // Cross-process drops need the host window registered with OLE; the island never registers itself.
 #include "transfer-host.inc"
 
-extern "C" void day_xaml_drop_target(void* h,day_transfer::Accept accept,day_transfer::Receive receive) {
+extern "C" void day_xaml_drop_target(void* h,day_transfer::Accept accept,day_transfer::Receive receive,day_transfer::Leave leave) {
     guard([&] {
-        auto s=day_transfer::state(h); s->accept=accept; s->receive=receive;
+        auto s=day_transfer::state(h); s->accept=accept; s->receive=receive; s->leave=leave;
         day_transfer::ensure_host_drop();
+        day_hit_on(h);
         auto el=elem(h); el.AllowDrop(true);
-        if(auto panel=el.try_as<WUXC::Panel>()) panel.Background(WUXM::SolidColorBrush(WUI::Colors::Transparent()));
         auto over=[s](WF::IInspectable const& sender,WUX::DragEventArgs const& e) {
             try {bool ok=day_transfer::proposal(s,e,sender.as<WUX::UIElement>()); e.AcceptedOperation(ok ? day_transfer::DT::DataPackageOperation::Copy : day_transfer::DT::DataPackageOperation::None); if(ok)e.Handled(true);} catch(...) {e.AcceptedOperation(day_transfer::DT::DataPackageOperation::None);}
         };
         el.DragEnter(over); el.DragOver(over);
+        // Out without a drop, or the session ended over it: a drop elsewhere raises DragLeave
+        // first, and so does Escape.
+        el.DragLeave([s](WF::IInspectable const&,WUX::DragEventArgs const&) { day_transfer::left(s); });
         el.Drop([s](WF::IInspectable const& sender,WUX::DragEventArgs const& e) {
             try {auto el=sender.as<WUX::UIElement>(); if(!day_transfer::proposal(s,e,el))return; e.Handled(true); day_transfer::drop(s,e,e.GetDeferral(),e.GetPosition(el));} catch(...) {e.AcceptedOperation(day_transfer::DT::DataPackageOperation::None);}
         });

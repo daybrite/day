@@ -18,6 +18,10 @@ struct State {
     touching: bool,
     pending: Option<PagerState>,
     serial: u64,
+    /// The app observes the continuous position (`PagerProps::track_progress`, docs/pager.md),
+    /// and the position last reported.
+    track: bool,
+    progress: f64,
 }
 day_reactive::tls_slots! {
     pager;
@@ -90,11 +94,32 @@ fn settle(key: usize, index: usize) {
     });
     if let Some((id, epoch, slot, pending)) = result {
         crate::emit(id, Event::custom("pager", format!("settle {epoch} {slot}")));
+        report_progress(key, index as f64);
         if let Some(config) = pending {
             apply(key as node::Handle, &config);
         }
     }
 }
+/// The pager's reading-order position, `position` pages from the first (docs/pager.md
+/// "Progress"), for a pager that tracks it; a repeat of the last value is not sent.
+fn report_progress(key: usize, position: f64) {
+    let event = STATES.with(|states| {
+        let mut states = states.borrow_mut();
+        let state = states.get_mut(&key)?;
+        if !state.track || (state.progress - position).abs() < 1e-4 {
+            return None;
+        }
+        state.progress = position;
+        Some((state.node, state.config.epoch))
+    });
+    if let Some((id, epoch)) = event {
+        crate::emit(
+            id,
+            Event::custom("pager", format!("progress {epoch} {position}")),
+        );
+    }
+}
+
 fn defer_settle(key: usize, index: Option<usize>) {
     let token = STATES.with(|states| states.borrow().get(&key).map(|s| (s.node, s.serial)));
     let Some(token) = token else {
@@ -152,6 +177,18 @@ unsafe extern "C" fn on_event(event: *mut ArkUI_NodeEvent) {
             if action == 0 || action == 3 {
                 defer_settle(key, None);
             }
+        } else if kind == Ev::NODE_SWIPER_EVENT_ON_CONTENT_DID_SCROLL {
+            // One event per page in the window each frame: page `data[1]` sits `data[2]` pages
+            // from the leading edge, so the edge is at page index minus that fraction.
+            // SAFETY: the event and its component payload are live for the callback.
+            let (page, ratio) = unsafe {
+                let payload = OH_ArkUI_NodeEvent_GetNodeComponentEvent(event);
+                if payload.is_null() {
+                    return;
+                }
+                ((*payload).data[1].i32_, (*payload).data[2].f32_)
+            };
+            report_progress(key, f64::from(page) - f64::from(ratio));
         } else if kind == Ev::NODE_SWIPER_EVENT_ON_ANIMATION_START {
             begin(key, true);
         } else if kind == Ev::NODE_SWIPER_EVENT_ON_GESTURE_SWIPE {
@@ -168,7 +205,7 @@ unsafe extern "C" fn on_event(event: *mut ArkUI_NodeEvent) {
         }
     });
 }
-fn make(_: &mut ArkUi, _: &PagerProps, id: NodeId) -> AHandle {
+fn make(_: &mut ArkUi, props: &PagerProps, id: NodeId) -> AHandle {
     let handle = node::create(ArkUI_NodeType::ARKUI_NODE_SWIPER);
     node::set_i32(handle, Attr::NODE_SWIPER_LOOP, 0);
     node::set_i32(handle, Attr::NODE_SWIPER_SHOW_INDICATOR, 0);
@@ -185,6 +222,8 @@ fn make(_: &mut ArkUi, _: &PagerProps, id: NodeId) -> AHandle {
                 touching: false,
                 pending: None,
                 serial: 0,
+                track: props.track_progress,
+                progress: 0.0,
             },
         );
     });
@@ -195,6 +234,9 @@ fn make(_: &mut ArkUi, _: &PagerProps, id: NodeId) -> AHandle {
         Ev::NODE_TOUCH_EVENT,
     ] {
         node::register_event(handle, event, id.0);
+    }
+    if props.track_progress {
+        node::register_event(handle, Ev::NODE_SWIPER_EVENT_ON_CONTENT_DID_SCROLL, id.0);
     }
     node::add_event_receiver(handle, on_event);
     AHandle(handle)

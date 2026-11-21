@@ -1,4 +1,4 @@
-# Native Android context-menu tests
+# Native Android instrumentation tests
 
 These instrumentation tests open real Android popups inside an installed debug Day app.
 They cover lazy providers, repeated summons, local touch coordinates, accessibility
@@ -23,3 +23,21 @@ The instrumentation invokes native `View.performLongClick` and checks the result
 `PopupMenu`; it does not use DayScript’s direct model dispatch. Also exercise a physical
 long press and scroll in the app: the fixture cannot verify an app’s own row bindings,
 menu actions, or touch interception by its complete view hierarchy.
+
+## Drag handlers keep their touch stream
+
+`--test DragHold` runs `DragHoldInstrumentation.java`: a piece with a drag handler inside
+Day's scroll view inside its pull-to-refresh, driven by touches injected through the input
+pipeline. It checks that the drag receives every move and no cancel, that the page neither
+scrolls nor refreshes under it, and that the same swipes on a piece with only a tap handler
+still scroll the page and pull to refresh. It then checks drags declared along one axis
+(`DayBridge.setDragAxis`, what `.on_drag_along` sets): a row that drags sideways inside a
+vertical scroll view keeps a horizontal swipe, uncancelled and with the page still, and gives a
+vertical swipe to the scroll view, which scrolls; a column that drags vertically inside a
+horizontal scroll view does the same the other way round. The app must include the
+pull-to-refresh piece.
+
+```sh
+python3 crates/day-toolkit-material/tests/android/run-native.py --test DragHold \
+  --serial emulator-5554 --package <app id> --classes <app classes>
+```

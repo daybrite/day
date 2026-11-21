@@ -209,6 +209,8 @@ struct HostDrop : winrt::implements<HostDrop, IDropTarget> {
     HRESULT __stdcall DragOver(DWORD, POINTL pt, DWORD *effect) noexcept { return over(pt, effect); }
     HRESULT __stdcall DragLeave() noexcept {
         data = nullptr;
+        left(hovered);
+        hovered = nullptr;
         return S_OK;
     }
     HRESULT __stdcall Drop(IDataObject *obj, DWORD, POINTL pt, DWORD *effect) noexcept {
@@ -228,15 +230,25 @@ struct HostDrop : winrt::implements<HostDrop, IDropTarget> {
         } catch (...) {
         }
         data = nullptr;
+        // The delivery ended the hover over the target it reached (a leave after it does
+        // nothing); a target the drop missed hears the session end.
+        left(hovered);
+        hovered = nullptr;
         return S_OK;
     }
 
   private:
+    // The target the drag is over, told when the drag moves off it (onto another or none).
+    std::shared_ptr<State> hovered;
+
     HRESULT over(POINTL pt, DWORD *effect) noexcept {
         if (effect) *effect = DROPEFFECT_NONE;
         try {
             Hit hit;
-            if (!data || !hit_test(app, pt, hit)) return S_OK;
+            const bool found = data && hit_test(app, pt, hit);
+            if (hovered && (!found || hit.state != hovered)) left(hovered);
+            hovered = found ? hit.state : nullptr;
+            if (!found) return S_OK;
             auto types = external_types(data.get());
             if (hit.state->accept(hit.state->handle, hit.local.X, hit.local.Y, types.c_str(),
                                   false) &&

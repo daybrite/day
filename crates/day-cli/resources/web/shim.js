@@ -18,6 +18,22 @@ function reduceMotion() {
   if (!reduceMotionQuery) reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
   return reduceMotionQuery;
 }
+// The browser's light/dark preference, made on first use like the query above, and the page's
+// appearance mode as `day_dom_set_dark` takes it: 0 light, 1 dark, 2 follow the browser.
+let prefersDarkQuery = null;
+function prefersDark() {
+  if (!prefersDarkQuery) prefersDarkQuery = matchMedia('(prefers-color-scheme: dark)');
+  return prefersDarkQuery;
+}
+let appearanceMode = 2;
+// Show one appearance: day.css keys its palette on `html.dark`, and `color-scheme` picks the
+// side of every `light-dark()` ink and the browser's own parts (scroll bars, form-control
+// internals, the caret). Returns 1 for dark.
+function showAppearance(dark) {
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  return dark ? 1 : 0;
+}
 const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-preferences
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
 let appStarted = false;     // day_dom_main has run; script lines before that queue in the inbox
@@ -609,6 +625,19 @@ function setSuggestions(dl, list) {
 // Crate-owned browser behaviors release subscriptions before their element is destroyed.
 const releaseHooks = new Map();
 
+// Show `url` (a blob this page made) in an image element: an `<img>` loads it, and a masked
+// element (the div a tinted or template image is, or an `<img>` tinted later) cuts its mask
+// from it. Remembered on the node so a tint that arrives after the source can find it.
+function showImageUrl(node, url) {
+  if (!node) return;
+  node.__dayUrl = url;
+  if (node.tagName === 'IMG') node.src = url;
+  if (node.tagName !== 'IMG' || node.__dayMasked) {
+    node.style.maskImage = `url("${url}")`;
+    node.style.webkitMaskImage = `url("${url}")`;
+  }
+}
+
 // Decoded bitmaps (docs/images.md), keyed by the id day-core minted: the `ImageBitmap` a canvas
 // draws, plus the object URL an `<img>` loads. Entries leave only through
 // `day_dom_image_release`, which day-core calls when the app drops its last handle. The URL is
@@ -811,19 +840,20 @@ const env = {
   day_dom_insert(parent, child, index) {
     const p = E(parent); const target = p.__content || p;
     const el = E(child);
-    const ref = target.children[index] ?? null;
+    const ref = dayChildAt(target, index);
     // Already where it belongs. `insertBefore` does not check: it removes the node and puts it
     // back, and removing a subtree that holds the focused element blurs it. Day re-inserts a
     // child at its existing index whenever a sibling's props change, so a text field lost focus
     // on every keystroke: the caret went to <body> and only the first character landed.
-    if (el === ref || (el.parentNode === target && el.nextSibling === ref)) return;
+    if (el === ref || el.__daySlopEl === ref || (el.parentNode === target && el.nextSibling === ref)) return;
     target.insertBefore(el, ref);
+    placeSlopSibling(el);
     // A cover's strip travels with it (each present re-homes the cover at the end of the root),
     // so it stays the next sibling: painted over the cover, and hidden with it when it closes.
     const strip = coverStrips.get(el);
     if (strip && strip.bar) el.after(strip.bar);
   },
-  day_dom_remove: (child) => { const el = E(child); dropCoverStrip(el); el?.remove(); },
+  day_dom_remove: (child) => { const el = E(child); dropCoverStrip(el); el?.__daySlopEl?.remove(); el?.remove(); },
   day_dom_release(id) {
     E(id)?.__datalist?.remove();
     const callbacks = releaseHooks.get(id);
@@ -831,16 +861,19 @@ const env = {
     for (const dispose of callbacks ?? []) {
       try { dispose(); } catch (error) { console.error("day: extension cleanup", error); }
     }
+    if (E(id)) dropSlopSibling(E(id));
     E(id)?.remove();
     els[id] = null;
   },
 
   day_dom_set_frame(id, x, y, w, h) {
-    const s = E(id).style;
+    const el = E(id);
+    const s = el.style;
     s.position = 'absolute';
-    s.left = x + 'px'; s.top = y + 'px';
-    s.width = w + 'px'; s.height = h + 'px';
+    if (el.__dayRuns?.[3]) animateProp(el, 3, [x, y, w, h], null);
+    else { s.left = x + 'px'; s.top = y + 'px'; s.width = w + 'px'; s.height = h + 'px'; }
     followSheetCard(E(id));
+    placeSlopSibling(E(id));
   },
   // Options and selection for a picker, a segmented control or a radio group: one verb over
   // three shapes, because each is "a list of choices with one active" and the element decides
@@ -903,7 +936,9 @@ const env = {
     const el = V(id); const name = str(a, al); const val = str(v, vl);
     if (name === 'data-day-presented') {
       el.style.visibility = val === 'true' ? 'visible' : 'hidden';
-      el.inert = val !== 'true';
+      el.__dayHidden = val !== 'true';
+      syncInert(el);
+      placeSlopSibling(E(id));
       return;
     }
     if (name === 'data-day-animating') {
@@ -922,6 +957,13 @@ const env = {
       return;
     }
     if (name === 'value') { el.value = val; return; }
+    // Attributes whose empty value means "none" rather than an empty string: an empty
+    // `aria-label` would name the element with nothing, and `dir=""` is not the inherited one.
+    if (val === '' && (name === 'aria-label' || name === 'dir' || name === 'role' || name === 'aria-selected'
+      || name === 'aria-level' || name.startsWith('data-day-'))) {
+      el.removeAttribute(name);
+      return;
+    }
     // Boolean attrs use a marker convention from the Rust side: "" removes, "-" sets.
     if (name === 'disabled' || name === 'readonly') {
       val === '' ? el.removeAttribute(name) : el.setAttribute(name, '');
@@ -1004,6 +1046,60 @@ const env = {
   },
 
   day_dom_listen: (id, mask) => listen(id, mask),
+  // Animation (docs/tween.md): `prop` and the target numbers as in `animateProp`; `samples`
+  // `[offset, progress]` pairs of one forward cycle; `duration` 0 for a plain set; `iterations`
+  // -1 for ever.
+  day_dom_animate(id, prop, to, toLen, samples, samplesLen, duration, delay, iterations, alternate) {
+    const el = E(id);
+    const target = Array.from(f64(to, toLen));
+    let spec = duration > 0 ? {
+      duration, delay, iterations, alternate: !!alternate, samples: Array.from(f64(samples, samplesLen)),
+    } : null;
+    // A fill appearing applies at once (rule 8): there is no color to pass from.
+    if (prop === 2 && !ownFill(el)) spec = null;
+    if (prop === 3) el.style.position = 'absolute';
+    animateProp(el, prop, target, spec);
+    if (prop === 3) placeSlopSibling(el);
+  },
+  // What an element displays right now (docs/tween.md "Mid-flight read-back"): `out` gets
+  // [opacity, x, y, w, h, tx, ty, r, g, b, a]; the frame in the root's space, before the
+  // element's own transform. Returns 1 when the element shows a background color of its own.
+  day_dom_displayed(id, out) {
+    const el = E(id);
+    if (!el || !el.isConnected) return 0;
+    const cs = getComputedStyle(el);
+    const o = root().getBoundingClientRect();
+    const pr = (el.offsetParent || el.parentElement)?.getBoundingClientRect() ?? o;
+    const t = parseTransform(cs.transform);
+    const bg = parseColor(cs.backgroundColor) ?? [0, 0, 0, 0];
+    f64(out, 11).set([
+      parseFloat(cs.opacity),
+      pr.left - o.left + (parseFloat(cs.left) || 0), pr.top - o.top + (parseFloat(cs.top) || 0),
+      parseFloat(cs.width) || 0, parseFloat(cs.height) || 0,
+      t[0], t[1], ...bg,
+    ]);
+    return ownFill(el) || el.__dayRuns?.[2] ? 1 : 0;
+  },
+  // Input (docs/gestures.md): the grown hit area, the drag's axis (0 any, 1 horizontal,
+  // 2 vertical), a disabled subtree, the kind of pointer in use, and the pass-through switch.
+  day_dom_hit_slop: (id, t, l, b, r) => setHitSlop(id, t, l, b, r),
+  day_dom_drag_axis(id, axis) {
+    const el = E(id);
+    el.__dayAxis = axis;
+    applyTouchAction(el);
+  },
+  // `inert` takes input, focus and the accessibility tree in one; a count, since a view can sit
+  // under two disabled groups that day-core reports separately. A press under way ends.
+  day_dom_subtree_enabled(id, on) {
+    const el = E(id);
+    el.__dayDisabled = Math.max(0, (el.__dayDisabled || 0) + (on ? -1 : 1));
+    if (el.__dayDisabled) el.setAttribute('aria-disabled', 'true');
+    else el.removeAttribute('aria-disabled');
+    if (el.__dayDisabled && el.contains(document.activeElement)) document.activeElement.blur();
+    syncInert(el);
+  },
+  day_dom_pointer_kind: () => pointerKind,
+  day_dom_takes_pointer: (id) => takesPointer(E(id)),
 
   day_dom_measure_text(t, tl, f, fl, maxW, out) {
     let text2, font, numeric = 'normal';
@@ -1042,17 +1138,43 @@ const env = {
     const padB = parseFloat(cs.paddingBottom) || 0;
     const borderB = parseFloat(cs.borderBottomWidth) || 0;
     const inner = Math.max(0, boxH - top - padT - padB - borderB);
+    // A label's first line is its own line box (`line-height`, docs/text.md "Line height"):
+    // the glyphs sit centered in it however many lines follow.
+    const lh = parseFloat(cs.lineHeight);
+    if (el.classList.contains('day-label') && Number.isFinite(lh) && lh > 0) {
+      return top + padT + (lh - m.line) / 2 + m.ascent;
+    }
     // One line, centered in the content box: the same model every control uses for its text.
     return top + padT + Math.max(0, (inner - m.line) / 2) + m.ascent;
   },
   day_dom_width: (id) => E(id).clientWidth,
+  // A label in its own computed style (docs/text.md): font, letter spacing, line height, line
+  // clamp, wrapping and features all copied to a measuring twin, so the size is the one the
+  // element will draw. `t`/`tl` stand in for the element's content when `tl` is nonzero (an
+  // elided label measures the text it stands for).
+  day_dom_measure_label(id, t, tl, maxW, out) {
+    const el = E(id);
+    const twin = labelTwin(el, maxW);
+    if (tl) twin.textContent = str(t, tl) || ' ';
+    else if (el.firstElementChild) twin.replaceChildren(...Array.from(el.childNodes, (n) => n.cloneNode(true)));
+    else twin.textContent = el.textContent || ' ';
+    const r = twin.getBoundingClientRect();
+    twin.textContent = '';
+    f64(out, 2).set([r.width, r.height]);
+  },
+  // The browser's text size against the one Day's ramp assumes: 16 px, or 17 px where the root
+  // follows iOS Dynamic Type (day.css anchors a coarse-pointer page to -apple-system-body).
+  day_dom_text_scale: () => textScale(),
 
   day_dom_scroll_to(id, x, y, animated) {
-    E(id).scrollTo({ left: x, top: y, behavior: animated ? 'smooth' : 'instant' });
+    const el = E(id);
+    glide(el, animated ? y : null);
+    el.scrollTo({ left: x, top: y, behavior: animated ? 'smooth' : 'instant' });
   },
   day_dom_scroll_edge(id, edge, animated) {
     const el = E(id);
     const top = edge === 0 ? 0 : el.scrollHeight;
+    glide(el, animated ? top : null);
     el.scrollTo({ top, behavior: animated ? 'smooth' : 'instant' });
   },
   day_dom_scroll_offset(id, out) { const el = E(id); f64(out, 2).set([el.scrollLeft, el.scrollTop]); },
@@ -1064,7 +1186,11 @@ const env = {
   // this never calls preventDefault, and saying so keeps the scroll off the main thread's
   // critical path.
   day_dom_list_on_scroll(id) {
-    E(id).addEventListener('scroll', () => wasm.day_dom_list_scrolled(id), { passive: true });
+    const el = E(id);
+    // The reader's scrolls first: Day hears that the reader took the list before the viewport
+    // report this scroll leads to (each listener's turn ends in a microtask checkpoint).
+    trackListReader(id, el);
+    el.addEventListener('scroll', () => wasm.day_dom_list_scrolled(id), { passive: true });
   },
   // Keyboard selection for the emulated list (docs/list.md). Every native list gives its rows
   // arrow keys; a scrolled <div> of cells gives them nothing, so the tab stop, the listbox role
@@ -1092,6 +1218,11 @@ const env = {
     let host = null;
     let lastKey = null;
     let reported = false;
+    // Phases (docs/menus.md "Keys"): bit 8 of the modifier word marks a repeat, bit 9 a
+    // release. A release goes only to the element whose press it claimed, keyed by the physical
+    // key (a held Shift changes what the key names), and none after the focus has gone.
+    const REPEAT = 256, UP = 512;
+    const claimed = new Map();
     const takesKeyboard = () => !!wasm.day_dom_canvas_text(id);
     const send = (key, text, mods) => {
       const [kp, kl] = intoWasm(key);
@@ -1121,7 +1252,14 @@ const env = {
         pointerEvents: 'none', zIndex: '-1' });
       document.body.appendChild(host);
       host.addEventListener('focus', reportFocus);
-      host.addEventListener('blur', () => { host.value = ''; lastKey = null; reportFocus(); });
+      host.addEventListener('blur', () => { host.value = ''; lastKey = null; claimed.clear(); reportFocus(); });
+      host.addEventListener('keyup', (e) => {
+        const key = claimed.get(e.code);
+        if (key === undefined) return;
+        claimed.delete(e.code);
+        const mods = (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 | 8 : 0) | (e.altKey ? 4 : 0);
+        if (send(key, null, mods | UP)) e.preventDefault();
+      });
       host.addEventListener('keydown', (e) => {
         // Mid-composition the input method owns the keys; a lone modifier is not a key; a
         // ⌘ chord is the browser's, and so is its paste, which types into the host below.
@@ -1133,12 +1271,16 @@ const env = {
         // A chord types nothing: Ctrl anywhere, Alt where Alt does not type (on a Mac ⌥ does,
         // and its glyph arrives through `input` with the Alt bit kept).
         const chord = e.ctrlKey || (e.altKey && !isMac);
+        const phase = e.repeat ? REPEAT : 0;
         if (NAMED.includes(e.key) || chord) {
-          if (send(e.key, null, mods)) e.preventDefault();
+          if (send(e.key, null, mods | phase)) {
+            e.preventDefault();
+            if (!e.repeat) claimed.set(e.code, e.key);
+          }
           return;
         }
         // What types reaches `input`, named by this key.
-        lastKey = { key: e.key.length === 1 ? e.key : '', mods };
+        lastKey = { key: e.key.length === 1 ? e.key : '', mods, phase, code: e.code };
       });
       host.addEventListener('input', (e) => {
         // A composition's text comes once, from compositionend; a paste comes as the
@@ -1148,7 +1290,10 @@ const env = {
         host.value = '';
         if (!text) return;
         const byKey = lastKey && lastKey.key && [...text].length === 1 && e.inputType === 'insertText';
-        send(byKey ? lastKey.key : '', text, byKey ? lastKey.mods : 0);
+        // A held key that types repeats as text too, and its release is the key's.
+        if (send(byKey ? lastKey.key : '', text, byKey ? lastKey.mods | lastKey.phase : 0) && byKey && !lastKey.phase) {
+          claimed.set(lastKey.code, lastKey.key);
+        }
         lastKey = null;
       });
       host.addEventListener('compositionend', (e) => {
@@ -1170,7 +1315,9 @@ const env = {
       if (takesKeyboard()) { focusHost(); return; }
       reportFocus();
     });
-    el.addEventListener('blur', reportFocus);
+    el.addEventListener('blur', () => { claimed.clear(); reportFocus(); });
+    // Capture phase: a press focuses the element before its own recognizers hear the press
+    // (docs/focus.md), and takes nothing from them.
     el.addEventListener('pointerdown', e => {
       if (e.target.closest('button,input,select,textarea,a,[contenteditable]')) return;
       if (takesKeyboard()) {
@@ -1178,7 +1325,7 @@ const env = {
         return;
       }
       if (document.activeElement !== el) el.focus({ preventScroll: true });
-    });
+    }, { capture: true, passive: true });
     el.addEventListener('keydown', (e) => {
       if (e.target !== el) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1190,7 +1337,17 @@ const env = {
       // Claimed only if the app actually took it: an unclaimed key stays the browser's, so a
       // page with a canvas on it still scrolls with the keyboard (and Backspace still means
       // whatever the browser wants it to mean).
-      if (wasm.day_dom_canvas_key(id, code, e.shiftKey ? 1 : 0)) e.preventDefault();
+      if (wasm.day_dom_canvas_key(id, code, (e.shiftKey ? 1 : 0) | (e.repeat ? REPEAT : 0))) {
+        e.preventDefault();
+        if (!e.repeat) claimed.set(e.code, code);
+      }
+    });
+    el.addEventListener('keyup', (e) => {
+      if (e.target !== el) return;
+      const code = claimed.get(e.code);
+      if (code === undefined) return;
+      claimed.delete(e.code);
+      if (wasm.day_dom_canvas_key(id, code, (e.shiftKey ? 1 : 0) | UP)) e.preventDefault();
     });
   },
   day_dom_list_keynav(id, multi) {
@@ -1311,7 +1468,26 @@ const env = {
     const c = E(id).__content; if (!c) return;
     c.style.position = 'relative';
     c.style.width = w + 'px'; c.style.height = h + 'px';
+    layoutSnap(E(id));
   },
+  // A scroll view's realize-time preferences (docs/scroll.md): `flags` bit 0 hides the
+  // indicators, bit 1 stops the content dead at its edges, bit 2 reports the user's scroll
+  // phases; `snap` 0 none, 1 page, 2 every `interval` points.
+  day_dom_scroll_setup(id, flags, snap, interval) {
+    const el = E(id);
+    el.classList.toggle('day-no-indicators', !!(flags & 1));
+    if (flags & 2) el.style.overscrollBehavior = 'none';
+    if (flags & 4) trackScrollPhase(id, el);
+    if (snap) {
+      el.__daySnap = { page: snap === 1, interval, markers: [] };
+      el.style.scrollSnapType = `${el.classList.contains('horizontal') ? 'x' : 'y'} mandatory`;
+      new ResizeObserver(() => layoutSnap(el)).observe(el);
+      layoutSnap(el);
+    }
+  },
+  // Touch screens raise a software keyboard that a scroll view's drag can dismiss
+  // (docs/scroll.md "Keyboard").
+  day_dom_touch_points: () => navigator.maxTouchPoints || 0,
   day_dom_focus(id, focused) { const el = V(id); focused ? el.focus() : el.blur(); },
 
   day_dom_canvas_replay: (id, ops, opsLen, strs, strsLen, w, h) =>
@@ -1424,13 +1600,12 @@ const env = {
   day_dom_image_set_bitmap: (el, id) => {
     const b = bitmaps.get(id);
     if (!b) return;
-    if (b.url) { E(el).src = b.url; return; }
+    if (b.url) { showImageUrl(E(el), b.url); return; }
     if (!b.canvas) return;
     b.canvas.toBlob((png) => {
       if (!png || bitmaps.get(id) !== b) return;
       b.url = URL.createObjectURL(png);
-      const node = E(el);
-      if (node) node.src = b.url;
+      showImageUrl(E(el), b.url);
     }, 'image/png');
   },
   // An `<img>` showing raw encoded bytes the app holds, with no staged resource behind them;
@@ -1449,8 +1624,16 @@ const env = {
     // URL per change, and nothing else is holding them.
     if (node.__dayBlob) URL.revokeObjectURL(node.__dayBlob);
     node.__dayBlob = url;
-    if (node.tagName === 'IMG') node.src = url;
-    else { node.style.maskImage = `url("${url}")`; node.style.webkitMaskImage = `url("${url}")`; }
+    showImageUrl(node, url);
+  },
+  // A tint over a source whose URL lives here (docs/images.md "Tinting"): on, the element's
+  // mask is cut from the URL it shows, now and at every later swap (`showImageUrl`); off, the
+  // swaps stop following. The mask's paint and scaling are day-toolkit-dom's (`apply_image_tint`).
+  day_dom_image_mask: (el, on) => {
+    const node = E(el);
+    if (!node) return;
+    node.__dayMasked = !!on;
+    if (on && node.__dayUrl) showImageUrl(node, node.__dayUrl);
   },
   // Release an element's own blob URL when the element goes (day-toolkit-dom's `release`).
   day_dom_image_revoke: (el) => {
@@ -2066,27 +2249,19 @@ const env = {
       case 'tz': v = q.get('tz') ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || ''); break;
       // The offset that zone is running at, in minutes east of UTC, for the current instant.
       case 'tzoffset': v = String(tzOffsetMinutes(Date.now())); break;
-      case 'system_color_0': case 'system_color_1': case 'system_color_2':
-      case 'system_color_3': case 'system_color_4': {
-        const variable = ['--day-accent', '--day-fg', '--day-fg-dim', '--day-bg', '--day-card-bg'][Number(key.at(-1))];
-        // Resolve any CSS color syntax to sRGB through the browser's own color parser.
-        const probe = document.createElement('span');
-        probe.style.color = `var(${variable})`;
-        probe.hidden = true;
-        document.documentElement.append(probe);
-        const color = getComputedStyle(probe).color;
-        probe.remove();
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = 1;
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        if (context) {
-          context.fillStyle = color;
-          context.fillRect(0, 0, 1, 1);
-          v = Array.from(context.getImageData(0, 0, 1, 1).data, n => n / 255).join(',');
-        }
+      // Which color functions the engine parses, for day-toolkit-dom's `ink_css`: `d` for
+      // `light-dark()`, `r` for relative color syntax.
+      case 'css_colors':
+        v = (CSS.supports('color', 'light-dark(#000, #fff)') ? 'd' : '')
+          + (CSS.supports('color', 'rgb(from #000 r g b / 0.5)') ? 'r' : '');
         break;
-      }
       default:
+        if (key.startsWith('system_color_')) {
+          // The sixteen roles in wire order (`SystemColor::ALL`), as day.css defines them.
+          const variable = SYSTEM_COLOR_VARS[Number(key.slice(13))];
+          if (variable) v = cssColorParts(`var(${variable})`);
+          break;
+        }
         // Reserved `vector:` keys answer "is `<name>` a bundled vector glyph?" from the list
         // the assemble step injects into the page (docs/vectors.md): '1' or empty.
         // `tzoffset:<epoch-ms>` answers for a given moment rather than for now: daylight saving
@@ -2127,7 +2302,9 @@ const env = {
       const a = (n) => el.getAttribute(n) ?? '';
       const tag = el.tagName;
       let text = null;
-      if (box.classList.contains('day-label')) text = box.textContent;
+      // An elided label (head or middle truncation, docs/text.md) shows a shorter copy and keeps
+      // the text it stands for in `data-day-text`.
+      if (box.classList.contains('day-label')) text = box.dataset.dayText ?? box.textContent;
       else if (tag === 'BUTTON' && el.classList.contains('day-btn')) {
         // An icon button (apply_button_content) holds a hidden glyph span, then the title in a
         // span of its own; icon-only shows no title at all.
@@ -2225,11 +2402,8 @@ const env = {
   // Appearance override (Toolkit::set_appearance): 0 light, 1 dark, 2 follow the browser.
   // Returns the effective mode so the wasm side's dark_mode cache stays truthful.
   day_dom_set_dark(mode) {
-    const dark = mode === 2 ? matchMedia('(prefers-color-scheme: dark)').matches : mode === 1;
-    document.documentElement.classList.toggle('dark', dark);
-    // The browser's own parts (scrollbars, form-control internals, the caret) follow too.
-    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-    return dark ? 1 : 0;
+    appearanceMode = mode;
+    return showAppearance(mode === 2 ? prefersDark().matches : mode === 1);
   },
   // Window frame and screen (docs/windows.md "Monitors"), in CSS px on the desktop.
   day_dom_window_frame(out) {
@@ -2752,6 +2926,548 @@ function twoFingerListen(id, host, mask) {
   }, {passive: false});
 }
 
+// ---------------------------------------------------------------------------
+// Pointer recognizers beyond tap and drag (docs/gestures.md "Recognizers"), hit slop, the drag
+// axis, pass-through and the input kind. Event kinds mirror `ev::` in lib.rs: 27 long press,
+// 28 double tap, 29 press (c = 1 in, 0 out); touches ride `day_dom_event_text` kind 18.
+// ---------------------------------------------------------------------------
+
+// Pass-through (docs/gestures.md "Pass-through"): lib.rs realizes containers and passive leaves
+// with `day-passive-host` / `day-passive-leaf` (`pointer-events: none` in day.css), and the
+// first listener, menu, drag source or drop target, focus stop or selectable text turns the
+// element into a pointer target for good, as on the native toolkits.
+function takesPointer(el) {
+  el.classList.remove('day-passive-host', 'day-passive-leaf');
+}
+
+// Point in the element's own coordinates.
+function localPoint(el, e) {
+  const r = el.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+
+// Whether a local point lies outside the element's hit area: its bounds grown by its hit slop.
+function outsideHit(el, x, y) {
+  const [t, l, b, r] = el.__daySlop ?? [0, 0, 0, 0];
+  return x < -l || y < -t || x > el.offsetWidth + r || y > el.offsetHeight + b;
+}
+
+// The `touch-action` an element's recognizers need: none while it drags in every direction or
+// tracks raw contacts or two fingers, `pan-y` / `pan-x` for a horizontal / vertical drag, so
+// the browser scrolls the other axis natively (and cancels the pointer to the element).
+function applyTouchAction(el) {
+  if (el.__dayTouches || el.__dayTwoFinger) { el.style.touchAction = 'none'; return; }
+  if (!el.__dayDrag) return;
+  el.style.touchAction = el.__dayAxis === 1 ? 'pan-y' : el.__dayAxis === 2 ? 'pan-x' : 'none';
+}
+
+// Long press: a timer from the primary press, cancelled by a release, a cancel, or movement
+// beyond 10 px; it fires at the press point while the pointer is still down, and the release
+// that follows is no tap (`__dayLongPressed`, read by the tap recognizer) and no click. A touch
+// long press on an element with a context menu is the menu's.
+function longPressListen(id, host) {
+  let lp = null;
+  const cancel = () => { if (lp) { clearTimeout(lp.timer); lp = null; } };
+  host.addEventListener('pointerdown', (e) => {
+    cancel();
+    host.__dayLongPressed = undefined;
+    if (!e.isPrimary || e.button !== 0) return;
+    if (e.pointerType === 'touch' && host.__dayMenu) return;
+    const [x, y] = localPoint(host, e);
+    const pointer = e.pointerId;
+    lp = { pointer, cx: e.clientX, cy: e.clientY, timer: setTimeout(() => {
+      lp = null;
+      host.__dayLongPressed = pointer;
+      wasm.day_dom_event(id, 27, x, y, 0, 0);
+    }, 500) };
+  });
+  host.addEventListener('pointermove', (e) => {
+    if (lp && e.pointerId === lp.pointer && Math.hypot(e.clientX - lp.cx, e.clientY - lp.cy) > 10) cancel();
+  });
+  for (const name of ['pointerup', 'pointercancel', 'pointerleave']) {
+    host.addEventListener(name, (e) => { if (lp && e.pointerId === lp.pointer) cancel(); });
+  }
+  host.addEventListener('click', (e) => {
+    if (host.__dayLongPressed === undefined) return;
+    host.__dayLongPressed = undefined;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+}
+
+// Double tap: the browser's own `dblclick`, at the second tap. With a tap recognizer on the same
+// element the single taps it holds are cancelled; a `dblclick` whose first tap already went out
+// as a single (two slow taps the platform still counts as one double click) is not a double here.
+function doubleTapListen(id, host) {
+  host.__dayDouble = true;
+  host.__dayPendingTaps ||= new Set();
+  host.addEventListener('dblclick', (e) => {
+    const pending = host.__dayPendingTaps;
+    if (host.__dayTap && pending.size < 2) return;
+    for (const t of pending) clearTimeout(t);
+    pending.clear();
+    const [x, y] = localPoint(host, e);
+    wasm.day_dom_event(id, 28, x, y, 0, 0);
+  });
+}
+
+// Pointers pressed on some element right now, so a window that loses focus ends them.
+const livePresses = new Set();
+// Guarded: the shim also loads in tests with no window, where nothing is ever pressed.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('blur', () => { for (const end of [...livePresses]) end(); });
+
+// Press: in at the primary pointer-down itself, out exactly once, at the release, a cancel, the
+// pointer leaving the hit area while down, or the window losing focus. An observer: passive,
+// nothing prevented, nothing captured.
+function pressListen(id, host) {
+  let press = null;
+  const out = () => {
+    if (!press) return;
+    const p = press;
+    press = null;
+    livePresses.delete(out);
+    wasm.day_dom_event(id, 29, p.x, p.y, 0, 0);
+  };
+  host.__dayPressOut = out;
+  host.addEventListener('pointerdown', (e) => {
+    if (press || !e.isPrimary || e.button !== 0) return;
+    const [x, y] = localPoint(host, e);
+    press = { pointer: e.pointerId, x, y };
+    livePresses.add(out);
+    wasm.day_dom_event(id, 29, x, y, 1, 0);
+  }, { passive: true });
+  host.addEventListener('pointermove', (e) => {
+    if (!press || e.pointerId !== press.pointer) return;
+    const [x, y] = localPoint(host, e);
+    if (outsideHit(host, x, y)) { out(); return; }
+    press.x = x; press.y = y;
+  }, { passive: true });
+  for (const name of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) {
+    host.addEventListener(name, (e) => {
+      if (!press || e.pointerId !== press.pointer) return;
+      // A captured pointer reports its leave only at the release, and an uncaptured one leaves
+      // into the slop area, which is a descendant, without a `pointerleave`: both arrive here.
+      if (name !== 'pointerleave' && name !== 'lostpointercapture') {
+        const [x, y] = localPoint(host, e);
+        if (!outsideHit(host, x, y)) { press.x = x; press.y = y; }
+      }
+      out();
+    }, { passive: true });
+  }
+}
+
+// Touches: every contact that went down on the element, captured so a finger sliding off keeps
+// reporting, one event per pointer callback listing them all ("id,phase,x,y,pressure,kind;…",
+// phase 0 began 1 moved 2 stationary 3 ended 4 cancelled, kind 0 touch 1 mouse 2 stylus). A
+// mouse is one contact, id 0, while its primary button is down.
+function touchesListen(id, host) {
+  host.__dayTouches = true;
+  applyTouchAction(host);
+  const contacts = new Map();
+  const kindOf = (e) => (e.pointerType === 'mouse' ? 1 : e.pointerType === 'pen' ? 2 : 0);
+  const track = (e) => {
+    const [x, y] = localPoint(host, e);
+    // A mouse has no force, and a pen or finger that reports none says 0; a lifted contact
+    // (pressure 0 at its `pointerup`) keeps the force it last had.
+    const had = contacts.get(e.pointerId);
+    const pressure = e.pointerType === 'mouse' ? 1 : e.pressure > 0 ? e.pressure : had ? had.pressure : 1;
+    contacts.set(e.pointerId, { id: e.pointerType === 'mouse' ? 0 : e.pointerId, x, y, pressure, kind: kindOf(e) });
+  };
+  const send = (pointer, phase) => {
+    const parts = [];
+    for (const [p, c] of contacts) {
+      parts.push(`${c.id},${p === pointer ? phase : 2},${c.x},${c.y},${c.pressure},${c.kind}`);
+    }
+    if (phase >= 3) contacts.delete(pointer);
+    const [ptr, len] = intoWasm(parts.join(';'));
+    wasm.day_dom_event_text(id, 18, ptr, len);
+  };
+  host.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    try { host.setPointerCapture(e.pointerId); } catch { /* an inactive pointer: report anyway */ }
+    track(e);
+    send(e.pointerId, 0);
+  });
+  host.addEventListener('pointermove', (e) => {
+    if (!contacts.has(e.pointerId)) return;
+    track(e);
+    send(e.pointerId, 1);
+  });
+  host.addEventListener('pointerup', (e) => {
+    if (!contacts.has(e.pointerId)) return;
+    track(e);
+    send(e.pointerId, 3);
+  });
+  for (const name of ['pointercancel', 'lostpointercapture']) {
+    host.addEventListener(name, (e) => { if (contacts.has(e.pointerId)) send(e.pointerId, 4); });
+  }
+}
+
+// Hit slop (docs/gestures.md "Hit slop"), in physical sides (lib.rs resolves leading and
+// trailing). Where the element can carry it, the grown area is its own `::before` (day.css
+// `.day-hit-slop`): a pseudo-element is the element for hit testing, so every recognizer and a
+// control's own press answer there, in the element's coordinates, and nothing is added to the
+// tree. A <canvas>, an <img> or a form control has no `::before`, and an element that clips its
+// overflow would clip the area: there the area is a transparent sibling just behind the element
+// (`.day-slop`), kept on its frame and its visibility, that hands its pointer events on.
+let slopSiblings = 0;
+const SLOP_SIBLING_EVENTS = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'click', 'dblclick', 'contextmenu'];
+function setHitSlop(id, t, l, b, r) {
+  const host = E(id);
+  const any = t > 0 || l > 0 || b > 0 || r > 0;
+  host.__daySlop = any ? [t, l, b, r] : null;
+  for (const [k, v] of [['top', t], ['left', l], ['bottom', b], ['right', r]]) host.style.setProperty(`--day-slop-${k}`, `${-v}px`);
+  const pseudo = !(host.tagName === 'CANVAS' || host.tagName === 'IMG' || host.matches(NATIVE_CONTROLS)
+    || host.classList.contains('day-cover') || getComputedStyle(host).overflow !== 'visible');
+  host.classList.toggle('day-hit-slop', any && pseudo);
+  if (!any || pseudo) { dropSlopSibling(host); return; }
+  let s = host.__daySlopEl;
+  if (!s) {
+    s = div('day-slop');
+    s.__daySlopFor = host;
+    host.__daySlopEl = s;
+    slopSiblings += 1;
+    for (const name of SLOP_SIBLING_EVENTS) {
+      s.addEventListener(name, (e) => {
+        e.stopPropagation();
+        const Kind = name.startsWith('pointer') ? PointerEvent : MouseEvent;
+        if (!host.dispatchEvent(new Kind(name, e))) e.preventDefault();
+      });
+    }
+  }
+  placeSlopSibling(host);
+}
+function dropSlopSibling(host) {
+  if (!host.__daySlopEl) return;
+  host.__daySlopEl.remove();
+  host.__daySlopEl = null;
+  slopSiblings -= 1;
+}
+// Keep a slop sibling just behind its element, on the element's frame grown by the slop, and
+// hidden with it.
+function placeSlopSibling(host) {
+  const s = host.__daySlopEl;
+  if (!s || !host.__daySlop) return;
+  if (!host.parentNode) { s.remove(); return; }
+  if (s.nextSibling !== host) host.before(s);
+  const [t, l, b, r] = host.__daySlop;
+  const st = host.style;
+  Object.assign(s.style, {
+    left: `${parseFloat(st.left || '0') - l}px`, top: `${parseFloat(st.top || '0') - t}px`,
+    width: `${host.offsetWidth + l + r}px`, height: `${host.offsetHeight + t + b}px`,
+    visibility: st.visibility, display: st.display,
+  });
+}
+// The `index`-th child Day placed in `target`, skipping slop siblings, which Day never counts:
+// the node to insert before (an element's own slop sibling stands in for it).
+function dayChildAt(target, index) {
+  if (!slopSiblings) return target.children[index] ?? null;
+  let i = 0;
+  for (const c of target.children) {
+    if (c.__daySlopFor) continue;
+    if (i++ === index) return c.__daySlopEl && c.__daySlopEl.nextSibling === c ? c.__daySlopEl : c;
+  }
+  return null;
+}
+
+// An element is inert while it is not presented or sits in a disabled subtree.
+function syncInert(el) {
+  el.inert = !!el.__dayHidden || (el.__dayDisabled || 0) > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Animation (docs/tween.md "The animation contract"): the Web Animations API, one run per
+// (element, property). The target goes into the inline style at once, so it is the resting
+// value when the run ends (rule 5) and the model value throughout; the run plays from the value
+// displayed when the call arrives (rule 7), holding it through the delay (`fill: backwards`),
+// for every cycle (`iterations`), backwards on alternate ones (`direction: alternate`). The
+// curve is Day's own samples as keyframes with offsets, so springs overshoot exactly and the
+// eases match every other toolkit; no `linear()` easing is needed, whatever the engine.
+// Properties: 0 opacity [o], 1 transform [tx, ty, deg, sx, sy], 2 background [r, g, b, a] in
+// 0..1, 3 frame [x, y, w, h].
+// ---------------------------------------------------------------------------
+
+const ANIM_PROPS = ['opacity', 'transform', 'background', 'frame'];
+
+function transformCss(v) {
+  return `translate(${v[0]}px,${v[1]}px) rotate(${v[2]}deg) scale(${v[3]},${v[4]})`;
+}
+function colorCss(v) {
+  const c = (x) => Math.round(Math.min(1, Math.max(0, x)) * 255);
+  return `rgba(${c(v[0])},${c(v[1])},${c(v[2])},${Math.min(1, Math.max(0, v[3]))})`;
+}
+// A computed color as [r, g, b, a] in 0..1: the legacy `rgb()`/`rgba()` form, or the
+// `color(srgb …)` form engines give a color made with relative color syntax or `color-mix`.
+function parseColor(text) {
+  const t = text || '';
+  const srgb = /color\(srgb\s+([^)]+)\)/.exec(t);
+  if (srgb) {
+    const p = srgb[1].split(/[\s/]+/).filter(Boolean).map(Number);
+    return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
+  }
+  const m = /rgba?\(([^)]+)\)/.exec(t);
+  if (!m) return null;
+  const p = m[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+  return [p[0] / 255, p[1] / 255, p[2] / 255, p.length > 3 ? p[3] : 1];
+}
+// Whether an element paints a background color of its own: an inline one (a fixed color or a
+// dynamic ink's `light-dark()`/`var()`) that resolves to something visible.
+function ownFill(el) {
+  return !!el.style.backgroundColor && (parseColor(getComputedStyle(el).backgroundColor)?.[3] ?? 0) > 0;
+}
+// The custom property day.css defines for each `SystemColor`, in wire order.
+const SYSTEM_COLOR_VARS = [
+  '--day-accent', '--day-fg', '--day-fg-2', '--day-bg', '--day-surface', '--day-fg-3',
+  '--day-placeholder', '--day-link', '--day-separator', '--day-control', '--day-grouped',
+  '--day-elevated', '--day-selection', '--day-destructive', '--day-success', '--day-warning',
+];
+// Any CSS color as "r,g,b,a" in 0..1, as it resolves on the page now: the computed value
+// where the engine reports it numerically, else through a canvas, which parses any syntax.
+function cssColorParts(css) {
+  const probe = document.createElement('span');
+  probe.style.color = css;
+  probe.hidden = true;
+  document.documentElement.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  const parsed = parseColor(color);
+  if (parsed) return parsed.join(',');
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return '';
+  context.fillStyle = color;
+  context.fillRect(0, 0, 1, 1);
+  return Array.from(context.getImageData(0, 0, 1, 1).data, n => n / 255).join(',');
+}
+// A computed transform's translation, rotation and scale (Day's transforms carry no skew).
+function parseTransform(text) {
+  if (!text || text === 'none') return [0, 0, 0, 1, 1];
+  const m = /matrix(3d)?\(([^)]+)\)/.exec(text);
+  if (!m) return [0, 0, 0, 1, 1];
+  const v = m[2].split(',').map(Number);
+  const [a, b, c, d, e, f] = m[1] ? [v[0], v[1], v[4], v[5], v[12], v[13]] : v;
+  const sx = Math.hypot(a, b);
+  const sy = sx ? (a * d - b * c) / sx : Math.hypot(c, d);
+  return [e, f, Math.atan2(b, a) * 180 / Math.PI, sx, sy];
+}
+// What the element displays now, mid-run included, as the property's numbers.
+function shownValue(el, prop) {
+  const cs = getComputedStyle(el);
+  switch (prop) {
+    case 0: return [parseFloat(cs.opacity)];
+    case 1: return parseTransform(cs.transform);
+    case 2: return parseColor(cs.backgroundColor);
+    default: return [parseFloat(cs.left) || 0, parseFloat(cs.top) || 0, parseFloat(cs.width) || 0, parseFloat(cs.height) || 0];
+  }
+}
+// The property's numbers as style declarations.
+function styleOf(prop, v) {
+  switch (prop) {
+    case 0: return { opacity: String(v[0]) };
+    case 1: return { transform: transformCss(v) };
+    case 2: return { backgroundColor: colorCss(v) };
+    default: return { left: `${v[0]}px`, top: `${v[1]}px`, width: `${v[2]}px`, height: `${v[3]}px` };
+  }
+}
+function sameValue(a, b) {
+  return !!a && !!b && a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) < 1e-6);
+}
+// Set a property, animated when `spec` is given ({ duration, delay, iterations, alternate,
+// samples: [offset, progress, …] }); a plain set cancels a run on that property (rule 7). A
+// plain set that names the value a run is already heading for leaves the run alone: layout
+// re-sends an unchanged frame.
+function animateProp(el, prop, to, spec) {
+  const runs = el.__dayRuns || (el.__dayRuns = {});
+  const run = runs[prop];
+  if (!spec && run && sameValue(run.to, to)) return;
+  const from = spec ? shownValue(el, prop) : null;
+  if (run) { run.anim.cancel(); delete runs[prop]; }
+  Object.assign(el.style, styleOf(prop, to));
+  if (!spec || !from || spec.duration <= 0) return;
+  const frames = [];
+  for (let i = 0; i < spec.samples.length; i += 2) {
+    const k = spec.samples[i + 1];
+    frames.push({ offset: spec.samples[i], ...styleOf(prop, from.map((f, j) => f + (to[j] - f) * k)) });
+  }
+  const anim = el.animate(frames, {
+    duration: spec.duration, delay: spec.delay, easing: 'linear', fill: 'backwards',
+    iterations: spec.iterations < 0 ? Infinity : spec.iterations,
+    direction: spec.alternate ? 'alternate' : 'normal',
+  });
+  runs[prop] = { anim, to };
+  anim.onfinish = () => { if (runs[prop]?.anim === anim) delete runs[prop]; };
+  anim.oncancel = anim.onfinish;
+}
+
+// ---------------------------------------------------------------------------
+// Scroll views (docs/scroll.md): indicators, bounce, snapping and the user's scroll phases.
+// ---------------------------------------------------------------------------
+
+const HAS_SCROLLEND = typeof window !== 'undefined' && 'onscrollend' in window;
+
+// Snap stops (docs/scroll.md "Snapping"): the content is placed by Day, so the snap areas are
+// markers of the scroller's own, one per stop along the scroll axis plus one at the very end,
+// so the last, shorter stretch stays reachable. `Page` stops on every viewport extent and moves
+// one page per swipe (`scroll-snap-stop: always`).
+function layoutSnap(el) {
+  const snap = el.__daySnap;
+  if (!snap) return;
+  const horizontal = el.classList.contains('horizontal');
+  const view = horizontal ? el.clientWidth : el.clientHeight;
+  const content = el.__content;
+  const extent = content ? (horizontal ? content.offsetWidth : content.offsetHeight) : 0;
+  const step = snap.page ? view : snap.interval;
+  const markers = snap.markers;
+  if (!(step > 0) || !(view > 0)) { for (const m of markers.splice(0)) m.remove(); return; }
+  const end = Math.max(0, extent - view);
+  const stops = [];
+  for (let at = 0; at < end - 0.5 && stops.length < 4096; at += step) stops.push(at);
+  stops.push(end);
+  while (markers.length > stops.length) markers.pop().remove();
+  while (markers.length < stops.length) {
+    const m = div('day-snap');
+    if (snap.page) m.style.scrollSnapStop = 'always';
+    el.append(m);
+    markers.push(m);
+  }
+  stops.forEach((at, i) => {
+    const m = markers[i];
+    m.style.left = horizontal ? `${at}px` : '0px';
+    m.style.top = horizontal ? '0px' : `${at}px`;
+  });
+}
+
+// The user's scroll phases (docs/scroll.md "Phases"; event 30: 0 idle, 1 dragging, 2 coasting):
+// a scroll that a finger, a wheel or trackpad, the keyboard or the scroll bar drives is
+// dragging; after the finger lifts the content coasts until it stops; a programmatic scroll
+// has no phase.
+function trackScrollPhase(id, el) {
+  let phase = 0, touching = false, held = false, input = -1e9, quiet = 0;
+  const set = (p) => { if (p !== phase) { phase = p; wasm.day_dom_event(id, 30, p, 0, 0, 0); } };
+  const rest = () => { clearTimeout(quiet); if (!touching && !held) set(0); };
+  const user = () => { input = performance.now(); };
+  el.addEventListener('touchstart', () => { touching = true; user(); }, { passive: true });
+  el.addEventListener('touchmove', user, { passive: true });
+  const lift = () => {
+    if (!touching) return;
+    touching = false;
+    if (phase === 1) set(2);
+    // No momentum: nothing more scrolls, and the content is at rest already.
+    clearTimeout(quiet);
+    quiet = setTimeout(rest, 120);
+  };
+  el.addEventListener('touchend', lift, { passive: true });
+  el.addEventListener('touchcancel', lift, { passive: true });
+  el.addEventListener('wheel', user, { passive: true });
+  el.addEventListener('keydown', user, { passive: true });
+  // A press on the scroll bar lands on the scroller itself; the content covers the rest.
+  el.addEventListener('pointerdown', (e) => { if (e.target === el) { held = true; user(); } }, { passive: true });
+  addEventListener('pointerup', () => { if (held) { held = false; clearTimeout(quiet); quiet = setTimeout(rest, 120); } }, { passive: true });
+  el.addEventListener('scroll', () => {
+    // Moving under the input is dragging; moving on after it, with nothing held, is the
+    // content coasting (momentum, a smooth wheel step, the snap to a stop).
+    const driven = touching || held || performance.now() - input < 100;
+    if (phase === 0 && driven) set(1);
+    else if (phase === 1 && !driven) set(2);
+    if (phase !== 0) {
+      clearTimeout(quiet);
+      // Where `scrollend` exists it says when the content stopped; a quiet timer elsewhere.
+      quiet = setTimeout(rest, HAS_SCROLLEND ? 400 : 150);
+    }
+  }, { passive: true });
+  // A snap can start right after the scroll that ended: a short grace keeps it one gesture.
+  if (HAS_SCROLLEND) el.addEventListener('scrollend', () => { clearTimeout(quiet); quiet = setTimeout(rest, 80); });
+}
+
+// The reader's own scrolls of a list (docs/list.md "Following the end", Cap::ListReaderScroll):
+// a scroll that moves under a finger, while the scroll bar is held, or within a moment of a
+// wheel or a key that scrolls, and any of those landing on the list's own smooth scroll. Day's
+// own `scrollTo` fires `scroll` with none of those before it, and an input that moves nothing
+// (a wheel at the end) reports nothing. Each input reports once.
+const LIST_SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+// The scrolling keys (docs/list.md "Following the end"): pressed in a list, or on the page with
+// nothing focused, where the browser scrolls the scroller the reader last pressed. A field keeps
+// its keys, and a control's Space presses it. Each list hears its own through `__dayReaderKey`.
+let listPressed = null;
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', (e) => { listPressed = e.target; }, { capture: true, passive: true });
+  document.addEventListener('keydown', (e) => {
+    if (!LIST_SCROLL_KEYS.has(e.key) || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    const page = t === document.body || t === document.documentElement;
+    if (!page && t.closest?.(e.key === ' ' ? 'input,textarea,select,[contenteditable],button,a' : 'input,textarea,select,[contenteditable]')) return;
+    const list = (page ? listPressed : t)?.closest?.('.day-list');
+    list?.__dayReaderKey?.(performance.now());
+  }, { capture: true, passive: true });
+}
+// The smooth scroll Day asked of a scroller, while it runs: where it is going, or null. A browser
+// carries such a scroll on to its target even as the reader wheels or drags against it.
+function glide(el, top) {
+  el.__dayGlide = top === null ? null : Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+}
+function trackListReader(id, el) {
+  let touchAt = 0, heldAt = 0, wheelAt = -1e9, keyAt = -1e9, told = 0;
+  const report = (stamp) => {
+    if (stamp === told) return;
+    told = stamp;
+    wasm.day_dom_list_reader(id);
+  };
+  // Input that lands on the list's own smooth scroll stops it where it is: that is the reader
+  // taking the list, reported at once. The browsers drop the input's own scroll then (it was
+  // fighting the running one), so the wheel's step is applied here.
+  const halt = (stamp) => {
+    if (el.__dayGlide == null) return false;
+    el.__dayGlide = null;
+    el.scrollTo({ top: el.scrollTop, behavior: 'instant' });
+    report(stamp);
+    return true;
+  };
+  el.addEventListener('touchstart', () => { touchAt = performance.now(); halt(touchAt); }, { passive: true });
+  const lift = () => { touchAt = 0; };
+  el.addEventListener('touchend', lift, { passive: true });
+  el.addEventListener('touchcancel', lift, { passive: true });
+  el.addEventListener('wheel', (e) => {
+    if (!e.deltaY || e.ctrlKey) return;
+    wheelAt = performance.now();
+    const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? el.clientHeight : 1;
+    if (halt(wheelAt)) el.scrollBy({ top: e.deltaY * unit, behavior: 'instant' });
+  }, { passive: true });
+  // A press on the scroll bar lands on the scroller itself; the rows cover the rest.
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target !== el || e.pointerType === 'touch') return;
+    heldAt = performance.now();
+    halt(heldAt);
+    const release = () => {
+      heldAt = 0;
+      removeEventListener('pointerup', release, true);
+      removeEventListener('pointercancel', release, true);
+    };
+    addEventListener('pointerup', release, { capture: true, passive: true });
+    addEventListener('pointercancel', release, { capture: true, passive: true });
+  }, { passive: true });
+  el.__dayReaderKey = (stamp) => { keyAt = stamp; halt(stamp); };
+  el.addEventListener('scroll', () => {
+    if (el.__dayGlide != null && Math.abs(el.scrollTop - el.__dayGlide) < 1) el.__dayGlide = null;
+    const now = performance.now();
+    const stamp = touchAt || heldAt || (now - wheelAt < 100 ? wheelAt : 0) || (now - keyAt < 100 ? keyAt : 0);
+    if (stamp) report(stamp);
+  }, { passive: true });
+  if (HAS_SCROLLEND) el.addEventListener('scrollend', () => { el.__dayGlide = null; }, { passive: true });
+}
+
+// The input kind (docs/gestures.md "Input kind"): the device behind the latest pointer down or
+// hover, reported on a change only. Starts from the primary pointer the media query names.
+let pointerKind = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 0 : 1;
+function notePointerKind(e) {
+  const kind = e.pointerType === 'touch' ? 0 : e.pointerType === 'pen' ? 2 : 1;
+  if (kind === pointerKind || !wasm) return;
+  pointerKind = kind;
+  wasm.day_dom_pointer_kind_changed(kind);
+}
+document.addEventListener('pointerdown', notePointerKind, { capture: true, passive: true });
+document.addEventListener('pointermove', notePointerKind, { capture: true, passive: true });
+
 function listen(id, mask) {
   const host = E(id); const el = V(id);
   if (mask & 1) {
@@ -2786,18 +3502,48 @@ function listen(id, mask) {
     el.addEventListener('focus', () => wasm.day_dom_event(id, 7, 1, 0, 0, 0));
     el.addEventListener('blur', () => wasm.day_dom_event(id, 7, 0, 0, 0, 0));
   }
-  if (mask & 16) el.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') wasm.day_dom_event(id, 3, 0, 0, 0, 0);
-    // The keys a field with a key handler claims (docs/textfield.md "Keys"), never in the
-    // middle of a composition, whose candidate list owns them.
-    const field = { ArrowUp: 0, ArrowDown: 1, Escape: 2 }[e.key];
-    if (field === undefined || e.isComposing || e.keyCode === 229) return;
-    const mods = (e.shiftKey ? 1 : 0) | (e.metaKey || e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
-    if (wasm.day_dom_field_key(id, field, mods)) e.preventDefault();
-  });
+  if (mask & 16) {
+    // A field's claimed keys report their repeats (bit 8) and their release (bit 9) too.
+    const claimed = new Set();
+    const fieldMods = (e) => (e.shiftKey ? 1 : 0) | (e.metaKey || e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') wasm.day_dom_event(id, 3, 0, 0, 0, 0);
+      // The keys a field with a key handler claims (docs/textfield.md "Keys"), never in the
+      // middle of a composition, whose candidate list owns them.
+      const field = { ArrowUp: 0, ArrowDown: 1, Escape: 2 }[e.key];
+      if (field === undefined || e.isComposing || e.keyCode === 229) return;
+      if (wasm.day_dom_field_key(id, field, fieldMods(e) | (e.repeat ? 256 : 0))) {
+        e.preventDefault();
+        claimed.add(field);
+      }
+    });
+    el.addEventListener('keyup', (e) => {
+      const field = { ArrowUp: 0, ArrowDown: 1, Escape: 2 }[e.key];
+      if (field === undefined || !claimed.delete(field)) return;
+      if (wasm.day_dom_field_key(id, field, fieldMods(e) | 512)) e.preventDefault();
+    });
+    el.addEventListener('blur', () => claimed.clear());
+  }
   if (mask & 512) dayEditorListen(id, el);
+  // Any listener at all makes the element a pointer target (docs/gestures.md "Pass-through").
+  if (mask & ~(8 | 32 | 64)) takesPointer(host);
   if (mask & 32) resizeObserver.observe(host);
-  if (mask & 64) host.addEventListener('scroll', () => wasm.day_dom_event(id, 12, host.scrollLeft, host.scrollTop, 0, 0));
+  if (mask & 64) {
+    // The offset (docs/scroll.md "Offset"): at most once per frame while it moves, and always
+    // the value it comes to rest at, from `scrollend` where the engine has it and a quiet
+    // timer where it does not.
+    let raf = 0, quiet = 0;
+    const report = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      wasm.day_dom_event(id, 12, host.scrollLeft, host.scrollTop, 0, 0);
+    };
+    host.addEventListener('scroll', () => {
+      if (!raf) raf = requestAnimationFrame(report);
+      if (!HAS_SCROLLEND) { clearTimeout(quiet); quiet = setTimeout(report, 100); }
+    }, { passive: true });
+    if (HAS_SCROLLEND) host.addEventListener('scrollend', report);
+  }
   if (mask & 128) {
     // A tap is a press released without meaningful movement, decided at pointerup the way
     // every native recognizer does it, and reported at the press point. Firing on pointerdown
@@ -2806,6 +3552,7 @@ function listen(id, mask) {
     // outside a shape's geometry, on web only).
     let tap = null;
     host.__dayTap = true; // the keyboard route above sends this host a center tap
+    host.__dayPendingTaps ||= new Set();
     host.addEventListener('pointerdown', (e) => {
       // Primary button only: a right-click is a summon (the contextmenu listener above), and
       // the pointerup it also produces must not come out as a tap; on Day-Sketch the phantom
@@ -2820,10 +3567,25 @@ function listen(id, mask) {
     });
     host.addEventListener('pointerup', (e) => {
       if (!tap || e.pointerId !== tap[4]) return;
-      wasm.day_dom_event(id, 8, tap[0], tap[1], 0, 0);
+      const [x, y] = tap;
       tap = null;
+      // A press that already came out as a long press is not also a tap.
+      if (host.__dayLongPressed === e.pointerId) return;
+      // With a double tap on the same element, a single tap waits out the interval and a
+      // double tap cancels it (the `dblclick` listener below); the web exposes no system
+      // interval, so it is the common 300 ms.
+      if (host.__dayDouble) {
+        const pending = host.__dayPendingTaps;
+        const t = setTimeout(() => { pending.delete(t); wasm.day_dom_event(id, 8, x, y, 0, 0); }, 300);
+        pending.add(t);
+        return;
+      }
+      wasm.day_dom_event(id, 8, x, y, 0, 0);
     });
     host.addEventListener('pointercancel', () => { tap = null; });
+    // Leaving the element ends the tap: an uncaptured pointer reports no moves outside, so a
+    // press dragged off and back would otherwise still come out as one.
+    host.addEventListener('pointerleave', (e) => { if (tap && e.pointerId === tap[4]) tap = null; });
   }
   if (mask & 2048) {
     el.dataset.dayPan = 'true';
@@ -2837,6 +3599,9 @@ function listen(id, mask) {
     }, {passive:false});
   }
   if (mask & 1024) {
+    // A touch long press on this element is its context menu's (the long-press recognizer
+    // below stands down for touch).
+    host.__dayMenu = true;
     // The browser's own context menu yields to the app's: Day presents a composed menu from
     // the same model every other backend shows natively (event 16, ev::CONTEXT in lib.rs).
     el.addEventListener('contextmenu', (e) => {
@@ -2853,6 +3618,12 @@ function listen(id, mask) {
     // One pointer drags, the one that pressed first: a second finger ends the drag where it
     // was and no drag starts again until every finger has lifted, so the two fingers of a
     // pinch never come out as drags (docs/canvas.md "Zoom and pan").
+    // The sequence is the element's from Began to Ended (docs/gestures.md "Gestures inside a
+    // scroll view"): `touch-action: none` keeps an enclosing scroller from taking a touch drag,
+    // unless the drag follows one axis (`day_dom_drag_axis`), which leaves the other to the
+    // browser's own scrolling.
+    host.__dayDrag = true;
+    applyTouchAction(host);
     let start = null, dragging = false, pointer = null, last = null;
     const down = new Set();
     const finish = (e) => {
@@ -2876,7 +3647,17 @@ function listen(id, mask) {
       if (!start || e.pointerId !== pointer) return;
       last = e;
       if (!dragging) {
-        if (Math.hypot(e.clientX - start[0], e.clientY - start[1]) < 4) return;
+        const dx = e.clientX - start[0], dy = e.clientY - start[1];
+        if (Math.hypot(dx, dy) < 4) return;
+        // An axis drag decides at the slop: across its axis, the sequence is not this drag's at
+        // all (a touch has already gone to the scroller through touch-action; a mouse sends
+        // nothing until it is released).
+        const axis = host.__dayAxis;
+        if ((axis === 1 && Math.abs(dx) < Math.abs(dy)) || (axis === 2 && Math.abs(dy) < Math.abs(dx))) {
+          if (host.hasPointerCapture?.(e.pointerId)) host.releasePointerCapture(e.pointerId);
+          start = null;
+          return;
+        }
         dragging = true;
         wasm.day_dom_event(id, 9, start[0] - start[2], start[1] - start[3], 0, 0);
       }
@@ -2890,7 +3671,13 @@ function listen(id, mask) {
     host.addEventListener('pointercancel', lift);
   }
   if (mask & (4096 | 8192)) twoFingerListen(id, host, mask);
-  if (mask & 512) {
+  if (mask & 16384) longPressListen(id, host);
+  if (mask & 32768) doubleTapListen(id, host);
+  if (mask & 65536) pressListen(id, host);
+  if (mask & 131072) touchesListen(id, host);
+  // Its own bit, not the editor's 512: an element that hovers is not a text editor, and the
+  // editor's `input` listener on a hover host would report every field typed into inside it.
+  if (mask & 262144) {
     // Hover: pointer entry, motion and exit. `pointerType` gates it to a real pointer: a touch
     // produces a pointerdown/up pair with an enter and a leave around it, and reporting those as
     // hovers would make every tap look like a hover on a phone (docs/canvas.md "Interaction").
@@ -2969,6 +3756,76 @@ function prepareMeasurer(font, maxW, numeric) {
   measurer.style.fontVariantNumeric = numeric || 'normal';
   measurer.style.maxWidth = (maxW < 1e5 ? maxW : 100000) + 'px';
 }
+
+// The measuring twin of a label: every property that shapes its lines, copied from the element.
+const TWIN_PROPS = ['font-family', 'font-size', 'font-weight', 'font-style', 'font-stretch',
+  'font-variant-caps', 'font-variant-numeric', 'font-feature-settings', 'font-kerning',
+  'letter-spacing', 'word-spacing', 'line-height', 'text-transform', 'white-space',
+  '-webkit-box-orient', '-webkit-line-clamp', 'overflow-wrap', 'word-break', 'direction',
+  'padding-top', 'padding-bottom', 'padding-left', 'padding-right'];
+let twin = null;
+function labelTwin(el, maxW) {
+  if (!twin) {
+    twin = div('');
+    twin.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;overflow:hidden;box-sizing:content-box;';
+    document.body.append(twin);
+  }
+  const cs = getComputedStyle(el);
+  for (const p of TWIN_PROPS) twin.style.setProperty(p, cs.getPropertyValue(p));
+  // Not the computed `display`: Chromium computes a clamped `-webkit-box` as `flow-root`, and
+  // copying that would drop the clamp.
+  const clamp = cs.getPropertyValue('-webkit-line-clamp');
+  twin.style.display = clamp && clamp !== 'none' ? '-webkit-box' : 'block';
+  twin.style.maxWidth = (maxW < 1e5 ? maxW : 100000) + 'px';
+  return twin;
+}
+
+// The browser's text size factor (docs/text.md "Text size"), and the change watch: no event
+// exists, so a resize and a return to the page re-read it.
+function textScale() {
+  const base = matchMedia('(pointer: coarse)').matches && CSS.supports('font', '-apple-system-body') ? 17 : 16;
+  const px = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  return px > 0 ? px / base : 1;
+}
+let lastTextScale = null;
+function watchTextScale() {
+  const now = textScale();
+  if (lastTextScale !== null && Math.abs(now - lastTextScale) > 1e-6 && wasm) wasm.day_dom_text_scale_changed();
+  lastTextScale = now;
+}
+if (typeof addEventListener === 'function') addEventListener('resize', watchTextScale);
+document.addEventListener('visibilitychange', watchTextScale);
+
+// Selection reports (docs/text.md "Selection"): a range inside a label flagged
+// `data-day-reports-selection`, as UTF-16 offsets from the label's start; leaving a label (or
+// collapsing) reports it cleared, once.
+let selectedLabel = null;
+let selectedRange = '';
+document.addEventListener('selectionchange', () => {
+  if (!wasm) return;
+  const sel = document.getSelection();
+  let label = null, start = 0, end = 0;
+  if (sel && sel.rangeCount) {
+    const r = sel.getRangeAt(0);
+    const at = (n) => (n.nodeType === 1 ? n : n.parentElement)?.closest('[data-day-reports-selection]');
+    const a = at(r.startContainer), b = at(r.endContainer);
+    if (a && a === b && !r.collapsed) {
+      label = a;
+      const pre = document.createRange();
+      pre.setStart(a, 0);
+      pre.setEnd(r.startContainer, r.startOffset);
+      start = pre.toString().length;
+      end = start + r.toString().length;
+    }
+  }
+  if (selectedLabel && selectedLabel !== label && selectedLabel.__id) {
+    wasm.day_dom_label_selected(selectedLabel.__id, 0, 0);
+  }
+  const key = label ? `${start},${end}` : '';
+  if (label && (label !== selectedLabel || key !== selectedRange)) wasm.day_dom_label_selected(label.__id, start, end);
+  selectedLabel = label;
+  selectedRange = key;
+});
 
 function measure(text, font, maxW, numeric) {
   prepareMeasurer(font, maxW, numeric);
@@ -3086,6 +3943,14 @@ const debugLog = new URLSearchParams(location.search).get('DAY_LOG') === 'debug'
 function paint(ctx, ops, strs) {
   let i = 0;
   const next = () => ops[i++];
+  // Backing-store pixels per canvas point. A context's shadow offset and blur are in those
+  // pixels and ignore the transform (docs/canvas.md "Shadows"), so points are scaled by this.
+  const entry = ctx.getTransform();
+  const unit = Math.hypot(entry.a, entry.b) || 1;
+  // Whether a shadow is set, tracked beside the context's own save/restore stack: the
+  // gradients painted through a clip need to know (`shadowed`).
+  let shadowOn = false;
+  const shadowStack = [];
   const readPaint = () => {
     const kind = next();
     if (kind === 0) return rgba(next());
@@ -3093,6 +3958,18 @@ function paint(ctx, ops, strs) {
       const g = ctx.createLinearGradient(next(), next(), next(), next());
       const n = next();
       for (let k = 0; k < n; k++) g.addColorStop(Math.min(1, Math.max(0, next())), rgba(next()));
+      return g;
+    }
+    if (kind === 3) {
+      // conic: center, start angle in degrees, stops. The context's own conic gradient has the
+      // spec's geometry (0 = +x, clockwise, offsets as fractions of a turn). An engine without
+      // it (Safari before 16.1) gets a fan of wedges, made at the draw (`solve`).
+      const cx = next(), cy = next(), start = next(), n = next();
+      const stops = [];
+      for (let k = 0; k < n; k++) stops.push([Math.min(1, Math.max(0, next())), next()]);
+      if (!ctx.createConicGradient) return { __conic: [cx, cy, start, stops] };
+      const g = ctx.createConicGradient((start * Math.PI) / 180, cx, cy);
+      for (const [at, color] of stops) g.addColorStop(at, rgba(color));
       return g;
     }
     // radial (elliptical): unit-circle gradient scaled to (rx, ry) about the center.
@@ -3141,15 +4018,49 @@ function paint(ctx, ops, strs) {
     }
     return p;
   };
+  // A paint as something a context takes for a style, under the transform it will draw in.
+  const solve = (paint) => (paint.__conic ? conicPattern(ctx, ...paint.__conic) : paint);
+  // A radial gradient is painted THROUGH A CLIP, and a clip cuts the shadow as well as the
+  // paint. So under a shadow the drawing goes to a layer the size of the backing store first,
+  // and the layer is drawn back as one image: the context then shadows (and blends) the
+  // layer's own silhouette. `draw` gets the context to paint into.
+  const shadowed = (draw) => {
+    if (!shadowOn) { draw(ctx); return; }
+    const layer = Object.assign(document.createElement('canvas'),
+      { width: ctx.canvas.width, height: ctx.canvas.height });
+    const l = layer.getContext('2d');
+    if (!l) { draw(ctx); return; }
+    l.setTransform(ctx.getTransform());
+    draw(l);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(layer, 0, 0); ctx.restore();
+  };
+  const fillWith = (paint, p) => {
+    if (paint.__radial) {
+      const [cx, cy, rx, ry] = paint.__radial;
+      shadowed((c) => {
+        c.save(); c.clip(p); c.translate(cx, cy); c.scale(rx, ry);
+        c.fillStyle = paint.g; c.fillRect(-1, -1, 2, 2); c.restore();
+      });
+    } else { ctx.fillStyle = solve(paint); ctx.fill(p, p.__rule || 'nonzero'); }
+  };
+  // The stroke style (width, cap, join, dash) is already on `ctx`.
+  const strokeWith = (paint, p) => {
+    if (paint.__radial) {
+      // No gradient-stroke primitive: clip to the stroked region, then paint the gradient
+      // through it. Canvas2D has no "stroke to path", so the clip is the stroke geometry.
+      const [cx, cy, rx, ry] = paint.__radial;
+      shadowed((c) => {
+        c.save(); c.strokeStyle = '#000'; c.clip(strokeRegion(c, p));
+        c.translate(cx, cy); c.scale(rx, ry);
+        c.fillStyle = paint.g; c.fillRect(-1, -1, 2, 2); c.restore();
+      });
+    } else { ctx.strokeStyle = solve(paint); ctx.stroke(p); }
+  };
   while (i < ops.length) {
     const op = next();
     if (op === 0) { // fill
       const paint = readPaint(); const p = path();
-      if (paint.__radial) {
-        const [cx, cy, rx, ry] = paint.__radial;
-        ctx.save(); ctx.clip(p); ctx.translate(cx, cy); ctx.scale(rx, ry);
-        ctx.fillStyle = paint.g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
-      } else { ctx.fillStyle = paint; ctx.fill(p, p.__rule || 'nonzero'); }
+      fillWith(paint, p);
     } else if (op === 7) { // stamp: strokeFlag, (style)?, count, xy…, paint, template shape
       const stroked = next();
       if (stroked) {
@@ -3166,16 +4077,27 @@ function paint(ctx, ops, strs) {
       const at = new Float64Array(n * 2);
       for (let k = 0; k < n * 2; k++) at[k] = next();
       const paint = readPaint(); const p = path();
-      // One Path2D holding every copy, then one fill or stroke: the whole batch enters the
-      // rasterizer once, however many positions it has (docs/canvas.md "Stamping").
-      const batch = new Path2D();
-      const m = new DOMMatrix();
-      for (let k = 0; k < n; k++) {
-        m.e = at[k * 2]; m.f = at[k * 2 + 1];
-        batch.addPath(p, m);
+      if (typeof paint === 'string') {
+        // One Path2D holding every copy, then one fill or stroke: the whole batch enters the
+        // rasterizer once, however many positions it has (docs/canvas.md "Stamping").
+        const batch = new Path2D();
+        const m = new DOMMatrix();
+        for (let k = 0; k < n; k++) {
+          m.e = at[k * 2]; m.f = at[k * 2 + 1];
+          batch.addPath(p, m);
+        }
+        if (stroked) { ctx.strokeStyle = paint; ctx.stroke(batch); }
+        else { ctx.fillStyle = paint; ctx.fill(batch, p.__rule || 'nonzero'); }
+      } else {
+        // A gradient is placed against the template's own bounds, so each copy is drawn where
+        // the template is, moved: every copy is shaded alike.
+        for (let k = 0; k < n; k++) {
+          ctx.save(); ctx.translate(at[k * 2], at[k * 2 + 1]);
+          if (stroked) strokeWith(paint, p); else fillWith(paint, p);
+          ctx.restore();
+        }
       }
-      if (stroked) { ctx.strokeStyle = paint.__radial ? '#000' : paint; ctx.stroke(batch); ctx.setLineDash([]); }
-      else { ctx.fillStyle = paint.__radial ? '#000' : paint; ctx.fill(batch, p.__rule || 'nonzero'); }
+      if (stroked) ctx.setLineDash([]);
     } else if (op === 1) { // stroke: width, cap, join, miter, dash phase + pattern, paint, shape
       ctx.lineWidth = next();
       ctx.lineCap = ['butt', 'round', 'square'][next()] || 'butt';
@@ -3186,14 +4108,7 @@ function paint(ctx, ops, strs) {
       for (let k = 0; k < nd; k++) dash.push(next());
       ctx.setLineDash(dash);
       const paint = readPaint(); const p = path();
-      if (paint.__radial) {
-        // No gradient-stroke primitive: clip to the stroked region, then paint the gradient
-        // through it. Canvas2D has no "stroke to path", so the clip is the stroke geometry.
-        const [cx, cy, rx, ry] = paint.__radial;
-        ctx.save(); ctx.strokeStyle = '#000'; ctx.clip(strokeRegion(ctx, p));
-        ctx.translate(cx, cy); ctx.scale(rx, ry);
-        ctx.fillStyle = paint.g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
-      } else { ctx.strokeStyle = paint; ctx.stroke(p); }
+      strokeWith(paint, p);
       ctx.setLineDash([]);
     } else if (op === 6) { // clip
       const p = path();
@@ -3216,8 +4131,21 @@ function paint(ctx, ops, strs) {
       ctx.textAlign = h === 1 ? 'center' : h === 2 ? 'right' : 'left';
       const dy = v === 1 ? -(asc + desc) / 2 : v === 2 ? -asc : v === 3 ? -(asc + desc) : 0;
       ctx.fillText(text, x, y + dy + asc);
-    } else if (op === 3) ctx.save();
-    else if (op === 4) ctx.restore();
+    } else if (op === 3) { ctx.save(); shadowStack.push(shadowOn); }
+    else if (op === 4) { ctx.restore(); if (shadowStack.length) shadowOn = shadowStack.pop(); }
+    else if (op === 10) { // shadow: dx, dy, blur in points, color (clear = none)
+      // The context's shadow is the spec's: cast by every fill, stroke, text and image, outside
+      // the transform, part of save/restore, and `shadowBlur` is twice the Gaussian's sigma.
+      const dx = next(), dy = next(), blur = next(), color = next();
+      shadowOn = ((color >>> 0) & 255) !== 0;
+      ctx.shadowColor = shadowOn ? rgba(color) : 'transparent';
+      ctx.shadowOffsetX = dx * unit; ctx.shadowOffsetY = dy * unit;
+      ctx.shadowBlur = Math.max(0, blur) * unit;
+    } else if (op === 11) { // blend: the mode's number (day_spec::BlendMode::wire)
+      // The backdrop is this canvas's own pixels, and `destination-out` leaves them clear, so
+      // the element behind shows through an erased hole. Part of save/restore.
+      ctx.globalCompositeOperation = BLEND_MODES[next()] || 'source-over';
+    }
     else if (op === 5) { const a = next(), b = next(), c = next(), d = next(), e = next(), f = next(); ctx.transform(a, b, c, d, e, f); }
     else if (op === 8 || op === 9) { // image: id, x, y, w, h, opacity (docs/images.md)
       // Every slot is read before the bitmap is looked up: this stream is variable-length, so a
@@ -3250,6 +4178,68 @@ function paint(ctx, ops, strs) {
       }
     }
   }
+}
+
+// `globalCompositeOperation` for each day_spec::BlendMode, in wire order; a number past the end
+// draws as Normal.
+const BLEND_MODES = ['source-over', 'multiply', 'screen', 'overlay', 'darken', 'lighten', 'lighter', 'destination-out'];
+
+// The color of a conic gradient `t` of a turn past its start (day_spec::ConicGradient::color_at):
+// linear between stops, channel by channel, flat before the first and after the last. `stops`
+// is [[offset, packed rgba], …]; the answer is [r, g, b, a] with a in 0..1.
+function conicColorAt(stops, t) {
+  const un = (v) => [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, (v & 255) / 255];
+  if (!stops.length) return [0, 0, 0, 0];
+  if (t <= stops[0][0]) return un(stops[0][1] >>> 0);
+  for (let k = 1; k < stops.length; k++) {
+    const [a0, ca] = stops[k - 1], [a1, cb] = stops[k];
+    if (t <= a1) {
+      const f = a1 > a0 ? (t - a0) / (a1 - a0) : 1;
+      const a = un(ca >>> 0), b = un(cb >>> 0);
+      return a.map((v, n) => v + (b[n] - v) * f);
+    }
+  }
+  return un(stops[stops.length - 1][1] >>> 0);
+}
+
+// A conic gradient for an engine with no `createConicGradient`, as a pattern `ctx` can fill or
+// stroke with under its current transform: a fan of half-degree wedges about (cx, cy), each in
+// the color at its middle, painted into a canvas the size of the backing store. The wedges
+// share edges exactly and are summed (`lighter`), so the antialiased halves of a shared edge
+// add up to full coverage: no seam, no doubled alpha. The pattern is pinned to the backing
+// store's pixels, so it lines up whatever the transform.
+function conicPattern(ctx, cx, cy, startDeg, stops) {
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  const fan = Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const f = fan.getContext('2d');
+  const m = ctx.getTransform();
+  if (!f || !(Math.abs(m.a * m.d - m.b * m.c) > 1e-12)) return 'rgba(0,0,0,0)';
+  const inv = m.inverse();
+  // Far enough to cover the whole store from the center, in canvas points.
+  let reach = 1;
+  for (const [px, py] of [[0, 0], [w, 0], [0, h], [w, h]]) {
+    const q = inv.transformPoint({ x: px, y: py });
+    reach = Math.max(reach, Math.hypot(q.x - cx, q.y - cy));
+  }
+  const WEDGES = 720, step = (Math.PI * 2) / WEDGES;
+  reach = (reach + 2) / Math.cos(step / 2);
+  f.setTransform(m);
+  f.globalCompositeOperation = 'lighter';
+  const start = (startDeg * Math.PI) / 180;
+  for (let k = 0; k < WEDGES; k++) {
+    const a0 = start + k * step, a1 = a0 + step;
+    const [r, g, b, a] = conicColorAt(stops, (k + 0.5) / WEDGES);
+    f.fillStyle = `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${a})`;
+    f.beginPath();
+    f.moveTo(cx, cy);
+    f.lineTo(cx + reach * Math.cos(a0), cy + reach * Math.sin(a0));
+    f.lineTo(cx + reach * Math.cos(a1), cy + reach * Math.sin(a1));
+    f.closePath();
+    f.fill();
+  }
+  const pattern = ctx.createPattern(fan, 'no-repeat');
+  pattern.setTransform(inv);
+  return pattern;
 }
 
 // Owned byte transport for day-part-clipboard; callbacks consume day_dom_alloc buffers.
@@ -3547,9 +4537,10 @@ export async function start(wasmUrl) {
 }
 
 async function boot(wasmUrl) {
-  const dark = (new URLSearchParams(location.search).get('theme')
-    ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
-  document.documentElement.classList.toggle('dark', dark);
+  // `?theme=` pins the appearance at boot; without it the page follows the browser, live.
+  const theme = new URLSearchParams(location.search).get('theme');
+  if (theme) appearanceMode = theme === 'dark' ? 1 : 0;
+  showAppearance((theme ?? (prefersDark().matches ? 'dark' : 'light')) === 'dark');
 
   const r = root();
   r.__id = 1; els[1] = r;
@@ -3683,6 +4674,14 @@ async function boot(wasmUrl) {
   // The reduce-motion setting flipped under the app: day-core re-reads it through
   // `day_dom_env('reduce_motion')` and re-gates its transitions.
   reduceMotion().addEventListener('change', () => wasm.day_dom_motion_changed());
+  // The browser's appearance changed (the system's, or a devtools emulation): a page following
+  // it switches, and every ink follows in CSS (day-toolkit-dom `ink_css`); Day re-reads its
+  // palette and redraws its canvases.
+  prefersDark().addEventListener('change', (e) => {
+    if (appearanceMode !== 2) return;
+    showAppearance(e.matches);
+    wasm.day_dom_appearance_changed(e.matches ? 1 : 0);
+  });
   // Hash changes we did not write ourselves (back/forward, a hand-edited URL) are route
   // requests for the app.
   window.addEventListener('hashchange', () => {
@@ -3792,7 +4791,7 @@ function dragBase64(bytes) {
   return btoa(s);
 }
 function installDragSource(id) {
-  const el=E(id); el.draggable=true;
+  const el=E(id); el.draggable=true; takesPointer(el);
   el.addEventListener('dragstart',e=>{
     // Nested registered sources own their own gesture.
     if(e.target.closest('[draggable="true"]')!==el) return;
@@ -3814,8 +4813,21 @@ function installDragSource(id) {
   el.addEventListener('dragend',()=>{ localDrag=null; });
   const hooks=releaseHooks.get(id)??[]; hooks.push(()=>{if(localDrag?.id===id)localDrag=null;}); releaseHooks.set(id,hooks);
 }
+// Drop targets with a hover under way, so the end of a drag session anywhere ends them.
+const dropHovers=new Set();
+document.addEventListener('dragend',()=>{ for(const end of [...dropHovers]) end(); },true);
+document.addEventListener('drop',()=>{ queueMicrotask(()=>{ for(const end of [...dropHovers]) end(); }); },true);
 function installDropTarget(id) {
   const el=E(id);
+  takesPointer(el);
+  // Enter/leave pairing (docs/drag-and-drop.md "Accepting drops"): the browser sends a
+  // dragenter and a dragleave for every child the drag crosses, the new one's enter before the
+  // old one's leave, so the hover ends when the count of entered elements falls back to zero.
+  // Counted in the capture phase, ahead of any nested target that stops the event.
+  let depth=0;
+  const end=()=>{ if(!depth) return; depth=0; dropHovers.delete(end); wasm.day_dom_drag_leave(id); };
+  el.addEventListener('dragenter',()=>{ depth+=1; dropHovers.add(end); },true);
+  el.addEventListener('dragleave',()=>{ if(depth && --depth===0) { depth=1; end(); } },true);
   const proposal=e=>{
     const r=el.getBoundingClientRect(), dt=e.dataTransfer;
     if(!dt) return false;
@@ -3827,13 +4839,18 @@ function installDropTarget(id) {
     if(proposal(e)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect='copy'; }
   });
   el.addEventListener('drop',e=>{
-    if(!proposal(e)) return;
+    // The drop ends the hover (the target's own `deliver` does that for an accepted one).
+    depth=0; dropHovers.delete(end);
+    if(!proposal(e)) { wasm.day_dom_drag_leave(id); return; }
     e.preventDefault(); e.stopPropagation();
     const r=el.getBoundingClientRect(), x=e.clientX-r.left,y=e.clientY-r.top, local=!!localDrag;
     // Capture every File and initiate every string read before returning from drop.
     const dt=e.dataTransfer, encoded=dt.getData(dragBundle);
     const files=Array.from(dt.files);
-    const strings=Array.from(dt.items).filter(i=>i.kind==='string').map(i=>new Promise(resolve=>i.getAsString(s=>resolve({mime:i.type,bytes:utf8enc.encode(s)}))));
+    // Read synchronously while the drop is live: `getAsString`'s callback is not delivered at
+    // all for some drag sessions (Chromium under an automation driver), and the data store is
+    // readable only during this handler anyway.
+    const strings=Array.from(dt.items).filter(i=>i.kind==='string').map(i=>({mime:i.type,bytes:utf8enc.encode(dt.getData(i.type))}));
     const expires=performance.now()+30000;
     (async()=>{
       let packet;
@@ -3850,7 +4867,7 @@ function installDropTarget(id) {
         if(files.length>256 || files.reduce((n,f)=>n+f.size,0)>dragLimit) return;
         packet=dragPacket(await Promise.all(files.map(async f=>[{mime:f.type||'application/octet-stream',bytes:new Uint8Array(await f.arrayBuffer())}])));
       } else if(!packet) {
-        const reps=(await Promise.all(strings)).filter(r=>r.mime.includes('/')&&r.mime!==dragBundle);
+        const reps=strings.filter(r=>r.mime.includes('/')&&r.mime!==dragBundle);
         if(!reps.length||reps.length>32) return;
         packet=dragPacket([reps]);
       }

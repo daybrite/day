@@ -732,9 +732,16 @@ jobs:
       # backend's feature and the tweaks as members of this workspace, under its lint policy.
       - name: Clippy (${{ matrix.toolkit }} backend crates)
         run: scripts/ci/toolkit-clippy.sh ${{ matrix.toolkit }}
-      - name: Native AppKit links, menus, scrolling and document layout
+      - name: Native AppKit links, menus, lists, scrolling, text, colour, hit testing and motion
         if: matrix.toolkit == 'appkit'
-        run: cargo test --locked -p day-toolkit-appkit --test native_links --test native_main_menu --test native_list_scroll --test native_document_layout --test native_palette
+        run: >-
+          cargo test --locked -p day-toolkit-appkit
+          --test native_links --test native_main_menu --test native_list_scroll
+          --test native_list_reader_scroll --test native_list_splice_in_layout
+          --test native_tree_reload_in_layout
+          --test native_scroll_views --test native_document_layout --test native_palette
+          --test native_label_text --test native_color --test native_hit_testing
+          --test native_motion
       - name: Native Qt resize delivery, menu lifetime, tree and list hosts
         if: matrix.toolkit == 'qt'
         run: |
@@ -1429,7 +1436,7 @@ jobs:
         with:
           node-version: 24
       - name: Web shim regressions
-        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs scripts/ci/webdom-sensor-events-test.mjs scripts/ci/webdom-resources-test.mjs
+        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs scripts/ci/webdom-sensor-events-test.mjs scripts/ci/webdom-resources-test.mjs scripts/ci/webdom-list-reader-test.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

@@ -54,6 +54,12 @@ fn button_press() -> Case {
 Each awaited [`Drive`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html) operation
 lets the app process events. Use `tap`, `input`, and `toggle` to interact with controls, and
 assertions such as `assert_text`, `assert_value`, and `assert_focused` to check the result.
+Gestures have their own operations: `drag`, `fling` (a drag released at a velocity), `press`,
+`long_press`, `double_tap`, `touches`, `hover`, `pan`, `pinch` and `rotate`; `key` and
+`key_phase` send keys; `drag_enter`, `drag_leave`, `drop_text` and `drop_files` drive a drop
+target; `pointer` changes the input kind ([gestures](gestures.md)). `scroll_to` scrolls a
+scroll view or a list to an edge, and `reveal` scrolls an element into view, a list row
+included ([scroll views](scroll.md)).
 Pass [`id!(...).as_str()`](https://docs.rs/day-core/latest/day_core/element_id/struct.ElementId.html#method.as_str) where a drive operation accepts a string ID.
 
 Keep each case focused on one behavior. Declare tests in a module included by the app's test
@@ -136,6 +142,17 @@ to check properties read from the native widget. Fields a toolkit cannot read ap
 `native_unread` in the report. Treat those as unverified native properties.
 Visibility assertions check hidden flags and window membership; a clipped or transparent view
 can still report visible.
+
+Use [`assert_displayed`](https://docs.rs/day-core/latest/day_core/conformance/struct.Drive.html#method.assert_displayed)
+to check what an element shows at this moment, an animation's in-between state included: its
+opacity, translation, frame size and background color, as the toolkit's animator presents them.
+The opacity is the element's own times its ancestors', and the translation the element's plus
+its ancestors', because a modifier's layer sits above the piece it wraps. The step is read once
+and never retried, since a value in flight is only right at the moment it is asked for. To test
+an animation, measure how long it has run on the window's [frame clock](frames.md) and compare
+with [`AnimSpec::sample`](https://docs.rs/day-spec/latest/day_spec/struct.AnimSpec.html#method.sample)
+for that time, as the built-in `animation-*` cases do ([the animation contract](tween.md#the-animation-contract)).
+Fields a toolkit cannot observe mid-flight are recorded as `native_unread`.
 
 A case can declare a required capability with
 [`.requires`](https://docs.rs/day-core/latest/day_core/conformance/struct.Case.html#method.requires).

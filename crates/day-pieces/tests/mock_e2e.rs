@@ -3944,37 +3944,6 @@ fn list_scroll_to_end_is_a_noop_when_empty() {
     );
 }
 
-#[test]
-fn list_stick_to_bottom_scrolls_on_data_change() {
-    let items = Signal::new(vec!["a".to_string(), "b".into()]);
-    let probe = boot(move || {
-        list(
-            day_pieces::items(move || items.get(), |s: &String| s.clone()),
-            |row: ItemSlot<String, String>| label(move || row.get()),
-        )
-        .row_height(RowHeight::Uniform(20.0))
-        .stick_to_bottom()
-        .any()
-    });
-    let host = probe.find_by_kind("day.list")[0].0;
-    assert!(
-        !probe.widget(host).flag,
-        "initial build does not auto-scroll"
-    );
-
-    // A data change (a new message arriving) sticks to the bottom.
-    probe.clear_log();
-    batch(|| items.update(|v| v.push("c".into())));
-    flush_sync();
-    assert!(probe.widget(host).flag);
-    assert!(
-        probe
-            .mutations()
-            .iter()
-            .any(|m| m.contains("scroll-to-end"))
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Surface + grow decorators (background / corner_radius / grow*).
 // ---------------------------------------------------------------------------
@@ -4085,7 +4054,7 @@ fn shape_rotate_wraps_geometry_in_a_transform() {
     let probe = boot(|| {
         rectangle()
             .fill(Color::hex(0x0000_ff00))
-            .rotate(45.0)
+            .rotation(day_spec::Angle::deg(45.0))
             .frame(80.0, 80.0)
             .any()
     });
@@ -4143,7 +4112,7 @@ fn shape_fill_rebinds_reactively() {
     let node = probe.find_by_kind("day.canvas")[0].0;
     let red = |p: &MockProbe| {
         matches!(p.widget(node).ops.first(),
-        Some(DrawOp::Fill(_, Paint::Solid(c))) if c.r > 0.5)
+        Some(DrawOp::Fill(_, Paint::Solid(c))) if c.resolved().r > 0.5)
     };
     assert!(!red(&probe));
     batch(|| on.set(true));
@@ -4159,7 +4128,7 @@ fn shape_fill_linear_records_gradient_paint() {
     let night = Signal::new(false);
     let probe = boot(move || {
         rectangle()
-            .fill_linear(move || {
+            .fill(move || {
                 if night.get() {
                     LinearGradient::vertical(Color::hex(0x000e_1430), Color::hex(0x002c_3a66))
                 } else {
@@ -4175,7 +4144,7 @@ fn shape_fill_linear_records_gradient_paint() {
             assert_eq!(g.start, UnitPoint::TOP);
             assert_eq!(g.end, UnitPoint::BOTTOM);
             assert_eq!(g.stops.len(), 2);
-            g.stops[0].1.r
+            g.stops[0].1.resolved().r
         }
         other => panic!("expected a gradient fill, got {other:?}"),
     };
@@ -4332,7 +4301,7 @@ fn text_field_on_submit_fires() {
 fn shape_fill_radial_records_gradient_paint() {
     let probe = boot(move || {
         circle()
-            .fill_radial(RadialGradient::centered(
+            .fill(RadialGradient::centered(
                 Color::hex(0x00ff_f2b0),
                 Color::hex(0x003e_86c9),
             ))
@@ -4380,7 +4349,7 @@ fn line_records_stroke_only_at_unit_points() {
         ops[0],
         DrawOp::Stroke(
             Shape::Line(Point::new(16.0, 72.0), Point::new(84.0, 72.0)),
-            day_spec::Paint::Solid(Color::hex(0x00ff_ffff)),
+            day_spec::Paint::Solid(Color::hex(0x00ff_ffff).into()),
             day_spec::StrokeStyle::width(2.0)
         ),
         "{ops:?}"
@@ -4420,7 +4389,7 @@ fn shape_at_places_fractional_subrect() {
         ops[0],
         DrawOp::Fill(
             Shape::Ellipse(Rect::new(25.0, 25.0, 50.0, 50.0)),
-            Paint::Solid(Color::WHITE)
+            Paint::Solid(Color::WHITE.into())
         ),
         "{ops:?}"
     );
@@ -4466,7 +4435,7 @@ fn shape_group_reactive_fill_rerecords() {
     let node = probe.find_by_kind("day.canvas")[0].0;
     let red = |p: &MockProbe| {
         matches!(p.widget(node).ops.get(1),
-        Some(DrawOp::Fill(_, Paint::Solid(c))) if c.r > 0.5)
+        Some(DrawOp::Fill(_, Paint::Solid(c))) if c.resolved().r > 0.5)
     };
     assert!(!red(&probe));
     batch(|| on.set(true));
@@ -7872,7 +7841,10 @@ fn list_swipe_offer_is_pulled_live_and_activation_defers_the_handler() {
     assert_eq!(offer.len(), 1);
     assert_eq!(offer[0].label, "Mark as Read");
     assert!(!offer[0].destructive);
-    assert_eq!(offer[0].tint, Some(day_spec::Color::rgb(0.0, 0.0, 1.0)));
+    assert_eq!(
+        offer[0].tint,
+        Some(day_spec::Color::rgb(0.0, 0.0, 1.0).into())
+    );
     assert_eq!(offer[0].symbol, Some(day_spec::Symbol::Circle));
 
     // Activation commits through the probe's swipe call; the handler rides the event queue
@@ -9735,7 +9707,7 @@ fn a_stamp_encodes_as_one_prefix_its_points_and_one_template() {
     let ops = vec![DrawOp::Stamp(Box::new(Stamp {
         shape: Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0)),
         at: at.clone(),
-        paint: Paint::Solid(Color::BLACK),
+        paint: Paint::Solid(Color::BLACK.into()),
         stroke: None,
     }))];
     let (nums, texts) = day_spec::encode_ops(&ops);
@@ -9765,7 +9737,7 @@ fn a_stamp_encodes_as_one_prefix_its_points_and_one_template() {
     let big = vec![DrawOp::Stamp(Box::new(Stamp {
         shape: Shape::Rect(Rect::new(-1.0, -1.0, 2.0, 2.0)),
         at: (0..50_000).map(|i| Point::new(f64::from(i), 0.0)).collect(),
-        paint: Paint::Solid(Color::BLACK),
+        paint: Paint::Solid(Color::BLACK.into()),
         stroke: None,
     }))];
     assert_eq!(big.len(), 1);
@@ -10828,20 +10800,21 @@ fn nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering(
 
 #[test]
 fn list_viewport_reports_update_the_bound_signal() {
-    let first = Signal::new(0usize);
+    let visible = Signal::new(0..0);
     let probe = boot(move || {
         list(items(|| vec![1, 2, 3], |n| *n), |slot| {
             label(move || slot.get().to_string())
         })
-        .first_visible_row(first)
+        .visible_rows(visible)
     });
     let (host, _) = probe.find_by_kind("day.list").into_iter().next().unwrap();
+    // A host that reports only its first visible row: the range holds that row.
     probe.list_first_visible(host, 2);
     day_core::pump_events();
-    assert_eq!(first.get_untracked(), 2);
+    assert_eq!(visible.get_untracked(), 2..3);
     probe.list_first_visible(host, 2);
     day_core::pump_events();
-    assert_eq!(first.get_untracked(), 2);
+    assert_eq!(visible.get_untracked(), 2..3);
 }
 
 #[test]
@@ -12447,7 +12420,7 @@ fn sectioned_rows() -> Vec<(char, String)> {
 fn sectioned_list_inserts_header_rows_and_maps_selection_to_items() {
     let picks = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
     let sink = picks.clone();
-    let first = Signal::new(0usize);
+    let visible = Signal::new(0..0);
     let probe = boot(move || {
         let rows = Signal::new(sectioned_rows());
         list(
@@ -12461,7 +12434,7 @@ fn sectioned_list_inserts_header_rows_and_maps_selection_to_items() {
             },
         )
         .on_select(move |k| sink.borrow_mut().push(k))
-        .first_visible_row(first)
+        .visible_rows(visible)
         .any()
     });
     let host = probe.find_by_kind("day.list")[0].0;
@@ -12512,10 +12485,21 @@ fn sectioned_list_inserts_header_rows_and_maps_selection_to_items() {
     // The first visible display row reports as an item; a header stands for its first item.
     probe.list_first_visible(host, 5);
     day_core::pump_events();
-    assert_eq!(first.get_untracked(), 3);
+    assert_eq!(visible.get_untracked().start, 3);
     probe.list_first_visible(host, 7);
     day_core::pump_events();
-    assert_eq!(first.get_untracked(), 4);
+    assert_eq!(visible.get_untracked().start, 4);
+    // A full report spans display rows 2..=6 (a2, header, b1, header, c1): items 1 to 3.
+    probe.list_viewport(
+        host,
+        day_spec::ListViewport {
+            first: 2,
+            last: 6,
+            end_distance: 20.0,
+        },
+    );
+    day_core::pump_events();
+    assert_eq!(visible.get_untracked(), 1..4);
 }
 
 #[test]
@@ -12947,15 +12931,18 @@ fn system_palette_updates_without_a_dark_mode_change_and_survives_remount() {
         probe.state.borrow_mut().system_colors = Some(palette);
         day_core::launch_with(mock, WindowOptions::default(), || {
             label("fixture")
-                .background(|| system_color(SystemColor::Accent))
+                .background(|| day_core::resolve(SystemColor::Accent))
                 .any()
         });
-        assert_eq!(system_color(SystemColor::Accent), Color::hex(seed));
+        assert_eq!(day_core::resolve(SystemColor::Accent), Color::hex(seed));
         palette[SystemColor::Accent as usize] = Color::hex(0x0033_6699);
         probe.state.borrow_mut().system_colors = Some(palette);
         day_core::note_appearance_changed();
         flush_sync();
-        assert_eq!(system_color(SystemColor::Accent), Color::hex(0x0033_6699));
+        assert_eq!(
+            day_core::resolve(SystemColor::Accent),
+            Color::hex(0x0033_6699)
+        );
         assert!(
             probe
                 .state
@@ -12965,4 +12952,206 @@ fn system_palette_updates_without_a_dark_mode_change_and_survives_remount() {
                 .any(|w| w.background == Some(Color::hex(0x0033_6699)))
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Inks, reactive surfaces and frame-relative corners (docs/color.md, docs/surfaces.md)
+// ---------------------------------------------------------------------------
+
+const RED: Color = Color::rgb(1.0, 0.0, 0.0);
+const BLUE: Color = Color::rgb(0.0, 0.0, 1.0);
+const PAIR: Ink = Ink::adaptive(RED, BLUE);
+
+/// The container a surface modifier realized: the one with a fill, a radius or a border.
+fn surface_of(probe: &MockProbe) -> (MockHandle, day_mock::MockWidget) {
+    probe
+        .find_by_kind(day_spec::kinds::CONTAINER)
+        .into_iter()
+        .find(|(_, w)| w.fill.is_some() || w.corner_radius > 0.0 || w.border.is_some())
+        .expect("a surface container")
+}
+
+#[test]
+fn an_ink_reaches_the_toolkit_unresolved_and_follows_the_appearance() {
+    let probe = boot(|| label("inked").background(PAIR));
+    let (h, w) = surface_of(&probe);
+    assert_eq!(
+        w.fill,
+        Some(Paint::Solid(PAIR)),
+        "the toolkit gets the pair, not a color"
+    );
+    day_core::set_appearance(Some(false));
+    flush_sync();
+    assert_eq!(probe.widget(h).background, Some(RED));
+    let patches = probe.state.borrow().log.len();
+    day_core::set_appearance(Some(true));
+    flush_sync();
+    assert_eq!(probe.widget(h).background, Some(BLUE));
+    // Nothing was patched: the switch is the toolkit's to follow.
+    assert!(
+        probe.state.borrow().log[patches..]
+            .iter()
+            .all(|l| !l.contains("bg=")),
+        "{:?}",
+        &probe.state.borrow().log[patches..]
+    );
+    day_core::set_appearance(None);
+}
+
+#[test]
+fn a_canvas_records_the_ink_of_the_current_appearance() {
+    let probe = boot(|| {
+        canvas(|d, size| d.fill(Shape::Rect(Rect::from_size(size)), PAIR)).frame(40.0, 40.0)
+    });
+    day_core::set_appearance(Some(false));
+    flush_sync();
+    let (h, _) = probe.find_by_kind("day.canvas")[0];
+    let first = |p: &MockProbe| match p.widget(h).ops.first() {
+        Some(DrawOp::Fill(_, Paint::Solid(ink))) => *ink,
+        other => panic!("expected a solid fill, got {other:?}"),
+    };
+    assert_eq!(
+        first(&probe),
+        Ink::Fixed(RED),
+        "resolved before it reaches the toolkit"
+    );
+    day_core::set_appearance(Some(true));
+    flush_sync();
+    assert_eq!(
+        first(&probe),
+        Ink::Fixed(BLUE),
+        "re-recorded for the new appearance"
+    );
+    day_core::set_appearance(None);
+}
+
+#[test]
+fn reactive_radius_border_and_shadow_patch_the_surface_in_place() {
+    let on = Signal::new(false);
+    let probe = boot(move || {
+        label("x")
+            .corner_radius(move || if on.get() { 9.0 } else { 4.0 })
+            .border(
+                SystemColor::Separator,
+                move || if on.get() { 2.0 } else { 0.0 },
+            )
+    });
+    let radius = |p: &MockProbe| {
+        p.find_by_kind(day_spec::kinds::CONTAINER)
+            .into_iter()
+            .map(|(_, w)| w.corner_radius)
+            .fold(0.0, f64::max)
+    };
+    let border = |p: &MockProbe| {
+        p.find_by_kind(day_spec::kinds::CONTAINER)
+            .into_iter()
+            .find_map(|(_, w)| w.border)
+    };
+    let handles = probe.find_by_kind(day_spec::kinds::CONTAINER).len();
+    assert_eq!(radius(&probe), 4.0);
+    assert!(border(&probe).is_none(), "a zero-width border is no border");
+    on.set(true);
+    flush_sync();
+    assert_eq!(radius(&probe), 9.0);
+    assert_eq!(
+        border(&probe),
+        Some(Border::new(SystemColor::Separator, 2.0)),
+        "the role travels unresolved"
+    );
+    assert_eq!(
+        probe.find_by_kind(day_spec::kinds::CONTAINER).len(),
+        handles,
+        "patched, not rebuilt"
+    );
+}
+
+#[test]
+fn a_capsule_radius_follows_the_frame() {
+    let width = Signal::new(100.0);
+    let probe = boot(move || {
+        label("pill")
+            .frame(width, 30.0)
+            .corner_radius(Corner::CAPSULE)
+    });
+    flush_sync();
+    assert_eq!(surface_of(&probe).1.corner_radius, 15.0);
+    let probe2 = boot(move || {
+        label("short")
+            .frame(100.0, 12.0)
+            .corner_radius(Corner::Fraction(0.5))
+    });
+    flush_sync();
+    assert_eq!(surface_of(&probe2).1.corner_radius, 3.0);
+}
+
+#[test]
+fn a_capsule_is_round_in_the_layout_that_first_sizes_it() {
+    // No event is pumped: the radius goes with the first frame, in the same layout pass, so
+    // nothing ever shows the surface square.
+    let probe = boot(move || {
+        label("pill")
+            .frame(120.0, 40.0)
+            .corner_radius(Corner::CAPSULE)
+    });
+    assert_eq!(surface_of(&probe).1.corner_radius, 20.0);
+}
+
+#[test]
+fn reactive_padding_relays_out_in_place() {
+    let inset = Signal::new(4.0);
+    let probe = boot(move || label("padded").padding(move || Insets::all(inset.get())));
+    let x = |p: &MockProbe| {
+        p.find_by_kind("day.label")
+            .into_iter()
+            .find(|(_, w)| w.text == "padded")
+            .map(|(_, w)| w.frame.origin.x)
+    };
+    flush_sync();
+    assert_eq!(x(&probe), Some(4.0));
+    inset.set(20.0);
+    flush_sync();
+    assert_eq!(x(&probe), Some(20.0));
+}
+
+#[test]
+fn inks_blend_per_appearance_and_land_exactly() {
+    use day_core::tween::Lerp;
+    let from = Ink::adaptive(Color::WHITE, Color::BLACK);
+    let to = Ink::Fixed(RED);
+    assert_eq!(from.lerp(&to, 0.0), from);
+    assert_eq!(
+        to.lerp(&from, 1.0),
+        from,
+        "the end is the ink itself, role and all"
+    );
+    let Ink::Adaptive { light, dark } = from.lerp(&to, 0.5) else {
+        panic!("a pair stays a pair mid-flight")
+    };
+    assert!(
+        light.r > 0.9 && light.g < 0.9,
+        "white toward red: {light:?}"
+    );
+    assert!(dark.r > 0.1 && dark.g < 0.1, "black toward red: {dark:?}");
+    let role = Ink::system(SystemColor::Text).lerp(&to, 1.0);
+    assert_eq!(role, to);
+}
+
+#[test]
+fn a_bool_cover_opens_and_closes_from_its_signal() {
+    let open = Signal::new(false);
+    let probe = boot(move || column((label("page"), cover(open, |_| label("editor")).sheet())));
+    let shown = |p: &MockProbe| {
+        p.find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "editor")
+    };
+    assert!(!shown(&probe));
+    open.set(true);
+    flush_sync();
+    assert!(shown(&probe));
+    open.set(false);
+    flush_sync();
+    // Content stays until the backend reports the cover hidden; the cover itself is dismissed.
+    let cover = probe.find_by_kind(day_spec::kinds::COVER);
+    assert!(cover.iter().all(|(_, w)| !w.flag), "dismissed");
 }

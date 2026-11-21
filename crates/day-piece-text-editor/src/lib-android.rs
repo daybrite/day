@@ -18,8 +18,9 @@ use super::*;
 
 use day_toolkit_material::jni::objects::JString;
 use day_toolkit_material::{AHandle, Material, java};
+use day_spec::props::TextAlign;
 use day_spec::sidetable::SideTable;
-use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size};
+use day_spec::{ListStyle, NodeId, Proposal, Size};
 
 // This piece's Java class (src/DayTextEditor.java, on the app classpath at build).
 day_toolkit_material::java_class! {
@@ -83,7 +84,7 @@ fn style_flags(s: &RunStyle) -> i32 {
     if s.font.monospace {
         f |= 4;
     }
-    if s.strikethrough {
+    if s.strikethrough.is_some() {
         f |= 8;
     }
     if s.color.is_some() {
@@ -92,7 +93,7 @@ fn style_flags(s: &RunStyle) -> i32 {
     if s.background.is_some() {
         f |= 32;
     }
-    if s.underline.is_on() {
+    if s.underline.is_some() {
         f |= 64;
     }
     f
@@ -115,8 +116,8 @@ fn apply_attributes(h: &AHandle, text: &str, runs: &[TextRun], paragraphs: &[Par
             starts.push(start as i32);
             ends.push((start + len) as i32);
             flags.push(style_flags(&r.style()));
-            colors.push(r.color.map(argb).unwrap_or(0));
-            backgrounds.push(r.background.map(argb).unwrap_or(0));
+            colors.push(r.color.map_or(0, |c| argb(c.resolved())));
+            backgrounds.push(r.background.map_or(0, |c| argb(c.resolved())));
             scales.push((r.font.scale * 1000.0).round() as i32);
         }
         let [sa, se, sf, sc, sb, sz] =
@@ -136,10 +137,10 @@ fn apply_attributes(h: &AHandle, text: &str, runs: &[TextRun], paragraphs: &[Par
             pstarts.push(start as i32);
             pends.push((start + len) as i32);
             aligns.push(match s.align {
-                ParagraphAlign::Natural => 0,
-                ParagraphAlign::Center => 1,
-                ParagraphAlign::Trailing => 2,
-                ParagraphAlign::Justified => 3,
+                TextAlign::Leading => 0,
+                TextAlign::Center => 1,
+                TextAlign::Trailing => 2,
+                TextAlign::Justified => 3,
             });
             indents.push((s.indent + f64::from(s.list_level) * LEVEL_INDENT).round() as i32);
             markers.push(if s.list == ListStyle::None {
@@ -171,7 +172,7 @@ fn int_arrays<'a, const N: usize>(
 }
 
 fn make(_backend: &mut Material, p: &EditorProps, id: NodeId) -> AHandle {
-    let base_points = day_toolkit_material::font_style(p.base).0 as f64;
+    let base_points = f64::from(day_toolkit_material::font_style(p.base).0);
     let h = day_toolkit_material::realize("text_editor", |env| {
         let text = JString::from_str(env, &p.doc.text)?;
         let placeholder = JString::from_str(env, &p.placeholder)?;
@@ -213,13 +214,13 @@ fn update(_backend: &mut Material, h: &AHandle, patch: &EditorPatch) {
                 let text = JString::from_str(env, &doc.text)?;
                 DayTextEditor::setDocumentText(env, h.0.as_obj(), &text)
             });
-            STATE.with(|t| t.with(key(h), |st| st.text = doc.text.clone()));
+            STATE.with(|t| t.with(key(h), |st| st.text.clone_from(&doc.text)));
             apply_attributes(h, &doc.text, &doc.runs, &doc.paragraphs);
         }
         EditorPatch::SetAttributes(attrs) => {
             // The patch carries the text too, so the cached copy never goes a keystroke stale
             // under a live highlighter, which would style the wrong characters.
-            STATE.with(|t| t.with(key(h), |st| st.text = attrs.text.clone()));
+            STATE.with(|t| t.with(key(h), |st| st.text.clone_from(&attrs.text)));
             apply_attributes(h, &attrs.text, &attrs.runs, &attrs.paragraphs);
         }
         EditorPatch::SetSelection(r) => {
@@ -244,8 +245,8 @@ fn update(_backend: &mut Material, h: &AHandle, patch: &EditorPatch) {
                     env,
                     h.0.as_obj(),
                     style_flags(s),
-                    s.color.map(argb).unwrap_or(0),
-                    s.background.map(argb).unwrap_or(0),
+                    s.color.map_or(0, argb),
+                    s.background.map_or(0, argb),
                     (s.font.scale * 1000.0).round() as i32,
                 )
             });
@@ -267,7 +268,7 @@ fn update(_backend: &mut Material, h: &AHandle, patch: &EditorPatch) {
 
 /// A growing leaf: fill the proposed width, and take a height from the line band. Android measures
 /// its own content, but a JNI measure per layout pass is the expensive way to ask; the band is
-/// what the piece promises, and the EditText scrolls inside it.
+/// what the piece promises, and the `EditText` scrolls inside it.
 fn measure(_backend: &mut Material, h: &AHandle, p: Proposal) -> Size {
     let wanted_w = p.width.unwrap_or(320.0);
     let avail_w = wanted_w.max(width_floor(0));
@@ -291,7 +292,7 @@ fn measure(_backend: &mut Material, h: &AHandle, p: Proposal) -> Size {
 
 fn release(_backend: &mut Material, h: &AHandle) {
     STATE.with(|t| {
-        t.remove(key(h));
+        let _ = t.remove(key(h));
     });
 }
 

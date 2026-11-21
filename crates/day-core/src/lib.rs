@@ -14,6 +14,7 @@ day_reactive::tls_root! {
     anim: crate::anim::TlsGroupSlots,
     conformance: crate::conformance::TlsGroupSlots,
     frame: crate::frame::TlsGroupSlots,
+    gesture: crate::gesture::TlsGroupSlots,
     image: crate::image::TlsGroupSlots,
     list: crate::list::TlsGroupSlots,
     lifecycle: crate::lifecycle::TlsGroupSlots,
@@ -54,7 +55,9 @@ mod build;
 pub mod conformance;
 pub mod element_id;
 pub mod frame;
+pub mod gesture;
 pub use element_id::{ElementId, IntoElementKey};
+pub use gesture::{gesture_support, primary_pointer};
 mod frames;
 pub mod image;
 mod layout;
@@ -64,6 +67,7 @@ mod memory_profile;
 mod modal_sheet;
 pub use modal_sheet::ComposedSheet;
 pub mod menu;
+pub mod motion;
 mod nav;
 mod present;
 pub mod shield;
@@ -84,10 +88,7 @@ pub use ambient::{
 };
 pub use anim::{current_anim, with_animation};
 pub use build::*;
-pub use frame::{
-    FrameConsumer, add_frame_consumer, frame_consumer_count, install_frame_requester,
-    remove_frame_consumer,
-};
+pub use frame::{frame_consumer_count, install_frame_requester};
 pub use image::{
     Bitmap, CanvasExports, RenderBitmap, RenderPdf, canvas_exports, decode as decode_image,
     decode_async as decode_image_async, image_decode_support, image_encode_formats,
@@ -97,10 +98,11 @@ pub use image::{
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{
-    BuiltRow, ListDeleteDriver, ListDriver, ListReorderDriver, ListSectionsDriver, ListSwipeDriver,
-    install_list, list_reload, list_scroll_to_end, list_scroll_to_row, list_set_editing,
-    list_set_selected, list_splice, list_try_delete, list_try_reorder, list_try_swipe,
-    set_scripted_reorder,
+    BuiltRow, CellKind, ListDeleteDriver, ListDriver, ListReorderDriver, ListRows,
+    ListSectionsDriver, ListSupplements, ListSwipeDriver, ListSync, SPLICE_MAX_DELTAS, Supplement,
+    SupplementBuild, diff_rows, install_list, list_refresh_rows, list_reload, list_scroll_to_end,
+    list_scroll_to_row, list_set_editing, list_set_selected, list_splice, list_sync,
+    list_try_delete, list_try_reorder, list_try_swipe, set_scripted_reorder,
 };
 pub use menu::{
     dispatch_menu_action, has_app_menu, register_menu_action, register_scoped_menu_action,
@@ -217,7 +219,7 @@ day_reactive::tls_slots! {
     static EDIT_ACTION_IDS: std::cell::Cell<(u64, u64, u64, u64)> =
         const { std::cell::Cell::new((0, 0, 0, 0)) };
 
-    static PALETTE_SIGNAL: std::cell::OnceCell<day_reactive::Signal<[day_spec::Color; 5]>> =
+    static PALETTE_SIGNAL: std::cell::OnceCell<day_reactive::Signal<day_spec::Palette>> =
         const { std::cell::OnceCell::new() };
 
     static DARK_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
@@ -228,6 +230,10 @@ day_reactive::tls_slots! {
     /// inside the tree.
     static REDUCE_MOTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static REDUCE_MOTION_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
+        const { std::cell::OnceCell::new() };
+
+    /// Bumped by [`note_text_size_changed`], so [`text_scale`] readers run again.
+    static TEXT_SCALE_EPOCH: std::cell::OnceCell<day_reactive::Signal<u64>> =
         const { std::cell::OnceCell::new() };
 
     static FONT_FAMILIES: std::cell::OnceCell<std::rc::Rc<[day_spec::FontFamilyInfo]>> =
@@ -1036,23 +1042,47 @@ pub fn dark_mode() -> bool {
     dark_signal().get()
 }
 
-/// Resolve an app-wide semantic color, tracking appearance changes. Pass a closure to a
-/// reactive modifier: `.fill(|| day::system_color(SystemColor::Accent))`.
-/// A direct call returns a snapshot. Per-window overrides and local control tints are not
-/// represented. See the styling guide for native mappings and fallback toolkits.
-pub fn system_color(role: day_spec::SystemColor) -> day_spec::Color {
+/// The color `ink` is in the app's current appearance (docs/color.md "Resolving an ink"): a
+/// tracked read, so a canvas draw closure, a reactive modifier or an effect that calls it runs
+/// again when the appearance, the accent or the contrast setting changes.
+///
+/// A view never needs this: every color parameter takes the [`Ink`](day_spec::Ink) itself and
+/// the toolkit follows the appearance. It is for code that needs the numbers: a canvas, a
+/// contrast computation, a color mixed from a role. Per-window appearance overrides are not
+/// represented: the answer is the app's appearance.
+pub fn resolve(ink: impl Into<day_spec::Ink>) -> day_spec::Color {
+    ink.into().resolve(&palette())
+}
+
+/// The color of every [`SystemColor`](day_spec::SystemColor) role in the app's current
+/// appearance, as the toolkit answers them. Tracked, like [`resolve`].
+pub fn palette() -> day_spec::Palette {
+    palette_signal().get()
+}
+
+/// The reactive backing for [`palette`], seeded from the toolkit when first read.
+fn palette_signal() -> day_reactive::Signal<day_spec::Palette> {
     PALETTE_SIGNAL.with(|cell| {
-        let signal = cell.get_or_init(|| {
-            let colors = read_system_palette();
-            day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(colors))
-        });
-        signal.get()[role as usize]
+        *cell.get_or_init(|| {
+            let palette = read_system_palette();
+            day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(palette))
+        })
     })
 }
 
-fn read_system_palette() -> [day_spec::Color; 5] {
-    tree::try_with_tree(|t| day_spec::SystemColor::ALL.map(|role| t.system_color(role)))
-        .unwrap_or_else(|| day_spec::SystemColor::ALL.map(|role| role.fallback(false)))
+/// Ask the toolkit for every role and make the answer [`day_spec::Palette::current`], the
+/// palette a toolkit resolves inks against when it applies them itself.
+fn read_system_palette() -> day_spec::Palette {
+    let palette = tree::try_with_tree(|t| {
+        let dark = t.dark_mode();
+        day_spec::Palette {
+            dark,
+            colors: day_spec::SystemColor::ALL.map(|role| t.system_color(role)),
+        }
+    })
+    .unwrap_or_else(day_spec::Palette::current);
+    day_spec::Palette::set_current(palette);
+    palette
 }
 
 /// The platform's font families with their faces (docs/fonts.md), enumerated once per
@@ -1321,10 +1351,13 @@ pub fn note_appearance_changed() {
     // use; skip rather than panic inside a native callback.
     if let Some(d) = tree::try_with_tree(|t| t.dark_mode()) {
         dark_signal().set(d);
-        // A system accent can change without a light/dark transition.
+        // A system accent can change without a light/dark transition. The current palette is
+        // refreshed even before anything has read the signal: a toolkit resolving an ink as it
+        // applies it reads `Palette::current`.
+        let palette = read_system_palette();
         PALETTE_SIGNAL.with(|cell| {
             if let Some(signal) = cell.get() {
-                signal.set(read_system_palette());
+                signal.set(palette);
             }
         });
     }
@@ -1337,10 +1370,46 @@ pub fn note_appearance_changed() {
 /// new height through `ListPatch::RowSizeInvalidated`. Skipped when the tree is busy or not
 /// installed yet: a tree built after the change measures at the new size anyway.
 pub fn note_text_size_changed() {
+    // Readers of `text_scale` first: a label under a `max_text_scale` cap patches its font
+    // here, and the measurements forgotten below are then taken at the capped size.
+    TEXT_SCALE_EPOCH.with(|c| {
+        if let Some(epoch) = c.get() {
+            epoch.update(|n| *n = n.wrapping_add(1));
+        }
+    });
     let _ = tree::try_with_tree(|t| {
         t.invalidate_all_measurements();
         t.layout_if_needed();
     });
+}
+
+/// How much larger (or smaller) than the platform's default the reader's text-size setting
+/// draws body text right now: `1.0` at the default, `1.5` when text is half again as large
+/// (docs/text.md "Text scale"). Tracked: a closure reading it runs again when the setting
+/// changes under a running app.
+///
+/// Semantic fonts follow the setting on their own. Read this for the things that do not: an
+/// icon that should grow with the text beside it, a row that switches to a stacked layout at
+/// large sizes, a canvas that draws its own type. `1.0` on a platform with no text-size
+/// setting and when no app is running.
+#[must_use]
+pub fn text_scale() -> f64 {
+    text_scale_of(day_spec::Font::Body)
+}
+
+/// [`text_scale`] for one semantic style. On most platforms every style scales by the same
+/// factor; iOS Dynamic Type grows small styles more than large ones, so a per-label
+/// computation (a `max_text_scale` cap) asks for its own style.
+#[must_use]
+pub fn text_scale_of(style: day_spec::Font) -> f64 {
+    if !tree::has_tree() {
+        return 1.0;
+    }
+    let epoch = TEXT_SCALE_EPOCH.with(|c| {
+        *c.get_or_init(|| day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(0)))
+    });
+    let _ = epoch.get();
+    tree::try_with_tree(|t| t.text_scale(style)).unwrap_or(1.0)
 }
 
 // The `.searchable()` hosts whose field is INLINE (docs/search.md), newest last: each has no

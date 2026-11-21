@@ -22,6 +22,17 @@ static std::map<void*, winrt::weak_ref<WUXC::Panel>> g_field_parents;
 static int (*g_field_key_cb)(unsigned long long, const char*, int) = nullptr;
 void day_xaml_set_field_keys(int (*cb)(unsigned long long, const char*, int)) { g_field_key_cb = cb; }
 
+// The keys a text field reports (docs/textfield.md "Keys"), by their day names; null for the rest.
+static const char* day_field_key_name(winrt::Windows::System::VirtualKey k) {
+    using VK = winrt::Windows::System::VirtualKey;
+    switch (k) {
+    case VK::Up: return "ArrowUp";
+    case VK::Down: return "ArrowDown";
+    case VK::Escape: return "Escape";
+    default: return nullptr;
+    }
+}
+
 // ---- focus (docs/focus.md) ----
 // Observe: kind 1 = gained, 0 = lost, 2 = submitted (Enter in a TextBox or a PasswordBox). System
 // XAML has no global focus event, so each control reports its own GotFocus/LostFocus.
@@ -53,22 +64,37 @@ void day_xaml_enable_focus(void* h, unsigned long long id,
         // The claimed keys are heard in the tunneling phase: a TextBox marks the arrows handled
         // itself, so they never bubble out as KeyDown, and a claimed Escape must not go on to
         // close a dialog around the field.
-        e.PreviewKeyDown([id, live](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
+        // A claimed key's repeats (`KeyStatus.WasKeyDown`) are claimed with it, and its release
+        // reports an up (phase bits 8 and 9 beside the modifier mask) without asking again: a
+        // claimed down's up is claimed too. Keys that went down before the field had focus, or
+        // that are released after it lost it, report nothing.
+        auto claimed = std::make_shared<std::set<int>>();
+        e.PreviewKeyDown([id, live, claimed](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
             if (live && !*live) return;
             if (!g_field_key_cb) return;
-            using VK = winrt::Windows::System::VirtualKey;
-            const char* name = nullptr;
-            switch (a.Key()) {
-            case VK::Up: name = "ArrowUp"; break;
-            case VK::Down: name = "ArrowDown"; break;
-            case VK::Escape: name = "Escape"; break;
-            default: return;
-            }
+            const char* name = day_field_key_name(a.Key());
+            if (!name) return;
             const int mods = (GetKeyState(VK_SHIFT) & 0x8000 ? 1 : 0) |
                              (GetKeyState(VK_CONTROL) & 0x8000 ? 2 : 0) |
                              (GetKeyState(VK_MENU) & 0x8000 ? 4 : 0);
-            if (g_field_key_cb(id, name, mods)) a.Handled(true);
+            const int phase = a.KeyStatus().WasKeyDown ? (1 << 8) : 0;
+            if (g_field_key_cb(id, name, mods | phase)) {
+                claimed->insert(static_cast<int>(a.Key()));
+                a.Handled(true);
+            }
         });
+        e.PreviewKeyUp([id, live, claimed](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
+            if (live && !*live) return;
+            if (!g_field_key_cb || !claimed->erase(static_cast<int>(a.Key()))) return;
+            const char* name = day_field_key_name(a.Key());
+            if (!name) return;
+            const int mods = (GetKeyState(VK_SHIFT) & 0x8000 ? 1 : 0) |
+                             (GetKeyState(VK_CONTROL) & 0x8000 ? 2 : 0) |
+                             (GetKeyState(VK_MENU) & 0x8000 ? 4 : 0);
+            g_field_key_cb(id, name, mods | (1 << 9));
+            a.Handled(true);
+        });
+        e.LostFocus([claimed](WF::IInspectable const&, WUX::RoutedEventArgs const&) { claimed->clear(); });
     }
 } catch (...) {}
 
@@ -83,6 +109,10 @@ void day_xaml_control_focus(void* h, int focused) try {
         // not here). The canvas is not the exception it looks like: it is handed out as a
         // focusable ContentControl host (day_xaml_canvas_new), so this one call serves both.
         if (auto c = e.try_as<WUXC::Control>()) c.Focus(WUX::FocusState::Programmatic);
+#ifdef DAY_WINUI
+        // A focusable container (`day_xaml_set_focusable`) is a plain panel tab stop.
+        else if (e.IsTabStop()) e.Focus(WUX::FocusState::Programmatic);
+#endif
         return;
     }
     if (!g_app || !g_app->focus_sink) return;
@@ -92,6 +122,10 @@ void day_xaml_control_focus(void* h, int focused) try {
     bool owns = false;
     if (auto c = e.try_as<WUXC::Control>()) {
         owns = c.FocusState() != WUX::FocusState::Unfocused;
+#ifdef DAY_WINUI
+    } else if (e.IsTabStop()) {
+        owns = e.FocusState() != WUX::FocusState::Unfocused;
+#endif
     } else if (auto focusedNow = WUXIn::FocusManager::GetFocusedElement()) {
         auto other = focusedNow.try_as<UIElement>();
         owns = other && winrt::get_abi(other) == winrt::get_abi(e);

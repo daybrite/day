@@ -68,7 +68,7 @@ fn opacity_applies_and_animates_only_under_with_animation() {
     assert!(w.last_anim.is_none(), "plain set stays instant");
 
     // Inside with_animation the change carries the intent.
-    with_animation(Animation::ease_in_out(200), || op.set(0.0));
+    with_animation(AnimSpec::ease_in_out(200), || op.set(0.0));
     flush_sync();
     let w = probe.widget(h);
     assert_eq!(w.opacity, Some(0.0));
@@ -88,7 +88,7 @@ fn with_animation_threads_into_background_color_patch() {
     let (h, _) = layer(&probe, |w| w.background.is_some());
     assert!(probe.widget(h).last_anim.is_none());
 
-    with_animation(Animation::spring(0.4, 0.9), || {
+    with_animation(AnimSpec::spring(0.4, 0.9), || {
         c.set(Color::rgb(0.0, 0.0, 1.0));
     });
     flush_sync();
@@ -106,7 +106,7 @@ fn implicit_animation_propagates_to_descendant_without_with_animation() {
     let probe = boot(move || {
         label("hi")
             .background(c)
-            .animation(Animation::linear(150))
+            .animation(AnimSpec::linear(150))
             .any()
     });
     flush_sync();
@@ -131,7 +131,7 @@ fn transform_channel_records_scale_and_rotation() {
     let (h, w) = layer(&probe, |w| w.transform.is_some());
     assert_eq!(w.transform.map(|t| (t.sx, t.sy)), Some((1.0, 1.0)));
 
-    with_animation(Animation::spring(0.3, 0.7), || s.set(1.5));
+    with_animation(AnimSpec::spring(0.3, 0.7), || s.set(1.5));
     flush_sync();
     let w = probe.widget(h);
     assert_eq!(w.transform.map(|t| t.sx), Some(1.5));
@@ -148,7 +148,7 @@ fn with_animation_from_a_button_action_threads_intent() {
         column((
             label("box").opacity(op),
             button("go").action(move || {
-                with_animation(Animation::ease_in_out(250), move || op.set(0.2));
+                with_animation(AnimSpec::ease_in_out(250), move || op.set(0.2));
             }),
         ))
         .any()
@@ -213,7 +213,7 @@ fn reduced_motion_lands_transitions_and_follows_the_setting() {
     day_core::note_motion_changed();
     flush_sync();
     assert!(day_core::reduce_motion());
-    with_animation(Animation::ease_in_out(200), || op.set(0.0));
+    with_animation(AnimSpec::ease_in_out(200), || op.set(0.0));
     flush_sync();
     let w = probe.widget(h);
     assert_eq!(w.opacity, Some(0.0), "the destination is applied");
@@ -227,7 +227,7 @@ fn reduced_motion_lands_transitions_and_follows_the_setting() {
     day_core::note_motion_changed();
     flush_sync();
     assert!(!day_core::reduce_motion());
-    with_animation(Animation::ease_in_out(200), || op.set(0.5));
+    with_animation(AnimSpec::ease_in_out(200), || op.set(0.5));
     flush_sync();
     assert!(probe.widget(h).last_anim.is_some());
 }

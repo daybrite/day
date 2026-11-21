@@ -98,6 +98,8 @@ pub fn annotate_yaml(steps: &[Step], labels: &[Option<String>]) -> String {
 /// - an id-less `Tap`, and `LongPress`/`ContextMenu`: a bare coordinate is not portable;
 /// - `Drag`/`ScrollChanged`/`Pointer`/`Key`/`WindowResized`/`FrameChanged`/`Submitted`/
 ///   `FocusChanged`: gesture and low-level input, no id-addressed step;
+/// - `ScrollPhase`/`ScrollZoomed`/`ListViewport`: where a scroll view or a list stands, a
+///   consequence of scrolling and never something a script replays;
 /// - `ValueChanged` (a slider mid-drag): the settled value arrives separately as
 ///   `ValueCommitted`, which is recorded (recording both would write a step per tick);
 /// - `SelectionSet` (multi-select): no single-index step covers it;

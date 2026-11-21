@@ -71,9 +71,10 @@ pub enum Step {
         interval_ms: u64,
     },
     /// Programmatic scroll (docs/scroll.md §dayscript). With `edge`/`x`+`y`, `id` must name a
-    /// `scroll` piece; with neither, `id` names any element and its nearest enclosing scroll
-    /// reveals it. Unanimated, so the next step sees the settled position.
-    /// Native navigation menus also accept `top`/`bottom` on UIKit and Material.
+    /// `scroll` piece; a `list` takes `top` and `bottom`, which it scrolls by rows. With
+    /// neither, `id` names any element and its nearest enclosing scroll reveals it; an element
+    /// inside a list row reveals that row. Unanimated, so the next step sees the settled
+    /// position. Native navigation menus also accept `top`/`bottom` on UIKit and Material.
     ScrollTo {
         id: String,
         /// `"top"` | `"bottom"` | `"leading"` | `"trailing"`.
@@ -118,6 +119,67 @@ pub enum Step {
         id: Option<String>,
         #[serde(default)]
         modifiers: Vec<String>,
+        /// Where the key is in its press: `down` (the default), `repeat` for the platform's
+        /// auto-repeat of a held key, or `up` for the release (`- key: { key: ArrowRight,
+        /// phase: up }` reaches `.on_key_up`).
+        #[serde(default)]
+        phase: Option<String>,
+    },
+    /// A synthetic press on one element (`.on_pressed`, `.interaction`, docs/shapes.md
+    /// "Press"): the pointer going down at `at` (element coordinates; the center when
+    /// omitted), or, with `release: true`, the press ending. Injected, like [`Step::Drag`].
+    Press {
+        id: String,
+        #[serde(default)]
+        at: Option<[f64; 2]>,
+        #[serde(default)]
+        release: bool,
+    },
+    /// A synthetic long press on one element (`.on_long_press`), at `at` or its center.
+    /// Injected, like [`Step::Drag`].
+    LongPress {
+        id: String,
+        #[serde(default)]
+        at: Option<[f64; 2]>,
+    },
+    /// A synthetic double tap on one element (`.on_double_tap`, `.on_double_tap_at`), at `at` or
+    /// its center.
+    /// Injected, like [`Step::Drag`].
+    DoubleTap {
+        id: String,
+        #[serde(default)]
+        at: Option<[f64; 2]>,
+    },
+    /// Synthetic contacts on one element (`.on_touches`, docs/gestures.md "Touches"): one
+    /// event carrying a contact per point, ids counting from 0, all in `phase` (`began`, the
+    /// default, `moved`, `ended` or `cancelled`). Injected, like [`Step::Drag`].
+    Touches {
+        id: String,
+        points: Vec<[f64; 2]>,
+        #[serde(default)]
+        phase: Option<String>,
+    },
+    /// Tell the app which kind of pointer is in use (`touch`, `mouse` or `stylus`), as the
+    /// platform does when the input device changes (`day::primary_pointer()`).
+    Pointer {
+        kind: String,
+    },
+    /// A synthetic drag session over one element's drop target (`.drop_target`,
+    /// `.on_files_dropped`, docs/drag-and-drop.md), carrying `files` (local paths, offered as
+    /// `text/uri-list`) and/or `text` (`text/plain`). `phase` is `drop` (the default: hover,
+    /// then deliver), `enter` (hover only) or `leave` (the session leaves without dropping).
+    /// Injected: it calls the target the app declared and proves nothing about the
+    /// platform's own drag session.
+    Drop {
+        id: String,
+        #[serde(default)]
+        files: Vec<String>,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        at: Option<[f64; 2]>,
+        #[serde(default)]
+        phase: Option<String>,
     },
     /// A synthetic pointer drag over one element, in its own coordinate space: `Began` at
     /// `from`, a few `Changed` samples along the segment, `Ended` at `to`, the same
@@ -138,6 +200,11 @@ pub enum Step {
         /// is how a real drag reads them: once, when it starts.
         #[serde(default)]
         modifiers: Vec<String>,
+        /// The release velocity in points per second, sent before `Ended` the way a platform
+        /// recognizer that measures its own reports it. Omitted, the velocity is whatever the
+        /// samples measure, which for an injected drag is zero: its samples arrive at once.
+        #[serde(default)]
+        velocity: Option<[f64; 2]>,
     },
     /// A synthetic pointer hover over one element (`.on_hover`, docs/canvas.md "Interaction"):
     /// the pointer enters at `at` (element coordinates; the center when omitted), or, with
@@ -436,6 +503,31 @@ pub enum Step {
         #[serde(default)]
         tolerance: Option<f64>,
     },
+    /// Check what an element shows at this moment, an animation's in-between state included
+    /// (docs/testing.md): the opacity (the element's times its ancestors'), the translation
+    /// (`tx`/`ty`, the element's plus its ancestors'), the size of its frame, and the background
+    /// color (`#rrggbb`) of the element or the nearest surface around it, as
+    /// `Toolkit::read_displayed` reports them. Only the fields given are checked, each within
+    /// `tolerance` in its own unit: opacity and color channels in `0..=1` (default 0.05),
+    /// lengths in points (default 1). The step is read once and never retried. A field the
+    /// toolkit cannot observe passes and is listed as unread in the reply's `data`.
+    AssertDisplayed {
+        id: String,
+        #[serde(default)]
+        opacity: Option<f64>,
+        #[serde(default)]
+        tx: Option<f64>,
+        #[serde(default)]
+        ty: Option<f64>,
+        #[serde(default)]
+        width: Option<f64>,
+        #[serde(default)]
+        height: Option<f64>,
+        #[serde(default)]
+        background: Option<String>,
+        #[serde(default)]
+        tolerance: Option<f64>,
+    },
     /// Check the color of one point of an element in an in-process capture (docs/testing.md).
     /// `x` and `y` are fractions of the element's frame (0.5, 0.5 is its center); `color` is
     /// `#rrggbb`, matched per channel within `tolerance` (default 64 of 255, which absorbs color
@@ -710,6 +802,12 @@ impl Step {
             Self::ScrollTo { .. } => "scroll_to",
             Self::Tap { .. } => "tap",
             Self::Key { .. } => "key",
+            Self::Press { .. } => "press",
+            Self::LongPress { .. } => "long_press",
+            Self::DoubleTap { .. } => "double_tap",
+            Self::Touches { .. } => "touches",
+            Self::Pointer { .. } => "pointer",
+            Self::Drop { .. } => "drop",
             Self::Drag { .. } => "drag",
             Self::Hover { .. } => "hover",
             Self::Pan { .. } => "pan",
@@ -738,6 +836,7 @@ impl Step {
             Self::AssertText { .. } => "assert_text",
             Self::AssertValue { .. } => "assert_value",
             Self::AssertFrame { .. } => "assert_frame",
+            Self::AssertDisplayed { .. } => "assert_displayed",
             Self::SamplePixel { .. } => "sample_pixel",
             Self::AssertOpenedUrl { .. } => "assert_opened_url",
             Self::AssertAnnounced { .. } => "assert_announced",

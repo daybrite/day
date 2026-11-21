@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Small compositor-driven nav icon overlays. No timer, canvas loop, or table reload.
-use objc2::Message;
+//!
+//! The ring's stroke and disc are layer colors, which hold one appearance, so the overlay is a
+//! view class of its own that sets them again when its effective appearance changes.
+use day_spec::{Ink, SystemColor, ffi_guard};
+use objc2::runtime::NSObjectProtocol;
+use objc2::{Message, define_class, msg_send};
 
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_core_graphics::{CGColor, CGPath};
@@ -12,6 +17,41 @@ use objc2_quartz_core::{
 };
 
 const NAME: &str = "day.nav.icon-progress";
+/// The ring's stroke.
+const INK: Ink = Ink::system(SystemColor::Text);
+/// The disc under the ring, which keeps it readable over any icon.
+const BACKGROUND: Ink = Ink::system(SystemColor::Background).with_alpha(0.82);
+
+define_class!(
+    /// The view that hosts a ring over a nav icon, apart from AppKit's managed image layer.
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayNavProgressOverlay"]
+    struct Overlay;
+
+    unsafe impl NSObjectProtocol for Overlay {}
+
+    impl Overlay {
+        /// A light/dark switch (the app's, the window's or the system's) while the ring shows.
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            let _: () = unsafe { msg_send![super(self), viewDidChangeEffectiveAppearance] };
+            ffi_guard::contain((), || recolor(self));
+        }
+    }
+);
+
+/// Set the ring's colors for the appearance `overlay` is shown in.
+fn recolor(overlay: &NSView) {
+    let Some(ring) = overlay.layer().and_then(|l| ring_of(&l)) else {
+        return;
+    };
+    CATransaction::begin();
+    CATransaction::setDisableActions(true);
+    ring.setStrokeColor(Some(&crate::color::cg_for(overlay, INK)));
+    ring.setFillColor(Some(&crate::color::cg_for(overlay, BACKGROUND)));
+    CATransaction::commit();
+}
 
 /// Size `ring` to the icon it covers, `w` × `h`: the largest circle that fits, centered. Bounds
 /// and position rather than a frame, since the ring carries a rotation.
@@ -68,14 +108,14 @@ fn paint(
         ring.setName(Some(&NSString::from_str(NAME)));
         shape(&ring, w, h);
         ring.setLineWidth(2.0);
-        ring.setFillColor(Some(background));
-        ring.setStrokeColor(Some(ink));
         ring.setTransform(unsafe {
             CATransform3D::new_rotation(-std::f64::consts::FRAC_PI_2, 0.0, 0.0, 1.0)
         });
         parent.addSublayer(&ring);
         ring
     });
+    ring.setFillColor(Some(background));
+    ring.setStrokeColor(Some(ink));
     let key = NSString::from_str("spin");
     if let Some(value) = fraction {
         ring.removeAnimationForKey(&key);
@@ -104,7 +144,7 @@ fn paint(
 
 use objc2::{MainThreadOnly, rc::Retained};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSColor, NSImageView, NSUserInterfaceItemIdentification, NSView,
+    NSAutoresizingMaskOptions, NSImageView, NSUserInterfaceItemIdentification, NSView,
 };
 #[expect(
     clippy::option_option,
@@ -129,7 +169,8 @@ pub(crate) fn update(icon: &NSImageView, state: Option<Option<f64>>) {
             return;
         }
         let overlay: Retained<NSView> = existing.unwrap_or_else(|| {
-            let view = NSView::initWithFrame(NSView::alloc(icon.mtm()), icon.bounds());
+            let view: Retained<Overlay> =
+                msg_send![Overlay::alloc(icon.mtm()), initWithFrame: icon.bounds()];
             view.setIdentifier(Some(&NSString::from_str(NAME)));
             // The icon takes the size the sidebar's row size style gives it (the system's
             // Sidebar icon size), so the overlay follows it and `fit` reshapes the ring.
@@ -140,13 +181,11 @@ pub(crate) fn update(icon: &NSImageView, state: Option<Option<f64>>) {
             view.setLayer(Some(&CALayer::new()));
             view.setWantsLayer(true);
             icon.addSubview(&view);
-            view
+            view.into_super()
         });
         if let Some(layer) = overlay.layer() {
-            let ink = NSColor::labelColor().CGColor();
-            let background = NSColor::windowBackgroundColor()
-                .colorWithAlphaComponent(0.82)
-                .CGColor();
+            let ink = crate::color::cg_for(&overlay, INK);
+            let background = crate::color::cg_for(&overlay, BACKGROUND);
             let b = icon.bounds();
             paint(
                 &layer,

@@ -82,6 +82,26 @@ pub enum DriveOp {
     TapAt(String, f64, f64),
     /// A key press, to an element or (for `None`) to whatever holds focus.
     Key(Option<String>, String),
+    /// A key in a given phase (`"down"`, `"repeat"`, `"up"`), to an element or to focus.
+    KeyPhase(Option<String>, String, String),
+    /// A press going down on an element (`true`) or ending (`false`).
+    Press(String, bool),
+    /// A long press on an element.
+    LongPress(String),
+    /// A double tap on an element.
+    DoubleTap(String),
+    /// Contacts on an element, one per point, all in one phase (`"began"`, `"moved"`,
+    /// `"ended"`, `"cancelled"`).
+    Touches(String, Vec<(f64, f64)>, String),
+    /// A drag over an element that the platform's recognizer released at this velocity.
+    Fling(String, (f64, f64), (f64, f64), (f64, f64)),
+    /// The kind of pointer in use changing (`"touch"`, `"mouse"`, `"stylus"`).
+    Pointer(String),
+    /// A drag session over an element's drop target carrying text, in one phase (`"enter"`,
+    /// `"leave"`, `"drop"`).
+    DropText(String, String, String),
+    /// Files dropped on an element's drop target.
+    DropFiles(String, Vec<String>),
     /// That the app announced this text to the screen reader during the run.
     AssertAnnounced(String),
     AssertValue(String, f64),
@@ -94,6 +114,8 @@ pub enum DriveOp {
     AssertNative(String, NativeExpect),
     /// An element's frame, in Day's layout and natively.
     AssertFrame(String, FrameExpect),
+    /// What an element shows at this moment, mid-animation included.
+    AssertDisplayed(String, DisplayedExpect),
     /// The color at a point of an element (fractions of its frame), `#rrggbb`.
     SamplePixel(String, f64, f64, String),
     /// A URL the app asked to open during the run.
@@ -161,6 +183,26 @@ pub struct NativeExpect {
     pub enabled: Option<bool>,
     /// Whether the widget is shown.
     pub visible: Option<bool>,
+}
+
+/// What [`Drive::assert_displayed`] expects an element to show at this moment; only the fields
+/// set are checked (docs/testing.md). Unlike the other assertions this one is read once and
+/// not retried: a value in flight is only right at the moment it is asked for.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DisplayedExpect {
+    /// The opacity shown, the element's own times its ancestors'.
+    pub opacity: Option<f64>,
+    /// The translation shown, in points: the element's own plus its ancestors'.
+    pub translation: Option<day_spec::Point>,
+    /// The width of the frame shown, in points.
+    pub width: Option<f64>,
+    /// The height of the frame shown, in points.
+    pub height: Option<f64>,
+    /// The background color shown by the element or the nearest surface around it.
+    pub background: Option<day_spec::Color>,
+    /// How far each value may be off, in its own unit: opacity and color channels in `0..=1`
+    /// (default 0.05), lengths in points (default 1).
+    pub tolerance: Option<f64>,
 }
 
 /// The future one drive op resolves to.
@@ -268,6 +310,81 @@ impl Drive {
     pub fn key(&self, id: Option<&str>, key: &str) -> OpFuture {
         self.op(DriveOp::Key(id.map(str::to_owned), key.into()))
     }
+    /// A key in one phase of its press (`KeyPhase::Repeat` for auto-repeat, `KeyPhase::Up`
+    /// for the release) to `id`, or to whatever holds focus for `None`.
+    pub fn key_phase(&self, id: Option<&str>, key: &str, phase: day_spec::KeyPhase) -> OpFuture {
+        let phase = match phase {
+            day_spec::KeyPhase::Down => "down",
+            day_spec::KeyPhase::Repeat => "repeat",
+            day_spec::KeyPhase::Up => "up",
+        };
+        self.op(DriveOp::KeyPhase(
+            id.map(str::to_owned),
+            key.into(),
+            phase.into(),
+        ))
+    }
+    /// The pointer going down on `id` (`pressed: true`) or the press ending.
+    pub fn press(&self, id: &str, pressed: bool) -> OpFuture {
+        self.op(DriveOp::Press(id.into(), pressed))
+    }
+    /// A long press on `id`, at its center.
+    pub fn long_press(&self, id: &str) -> OpFuture {
+        self.op(DriveOp::LongPress(id.into()))
+    }
+    /// A double tap on `id`, at its center.
+    pub fn double_tap(&self, id: &str) -> OpFuture {
+        self.op(DriveOp::DoubleTap(id.into()))
+    }
+    /// Contacts on `id`, one per point (ids count from 0), all in `phase`.
+    pub fn touches(
+        &self,
+        id: &str,
+        points: &[(f64, f64)],
+        phase: day_spec::TouchPhase,
+    ) -> OpFuture {
+        let phase = match phase {
+            day_spec::TouchPhase::Began => "began",
+            day_spec::TouchPhase::Moved | day_spec::TouchPhase::Stationary => "moved",
+            day_spec::TouchPhase::Ended => "ended",
+            day_spec::TouchPhase::Cancelled => "cancelled",
+        };
+        self.op(DriveOp::Touches(id.into(), points.to_vec(), phase.into()))
+    }
+    /// A drag over `id` from `from` to `to` that the platform's recognizer released at
+    /// `velocity` points per second.
+    pub fn fling(
+        &self,
+        id: &str,
+        from: (f64, f64),
+        to: (f64, f64),
+        velocity: (f64, f64),
+    ) -> OpFuture {
+        self.op(DriveOp::Fling(id.into(), from, to, velocity))
+    }
+    /// The kind of pointer in use changing, as the platform reports it.
+    pub fn pointer(&self, kind: day_spec::PointerKind) -> OpFuture {
+        self.op(DriveOp::Pointer(kind.name().into()))
+    }
+    /// A drag carrying `text` coming over `id`'s drop target.
+    pub fn drag_enter(&self, id: &str, text: &str) -> OpFuture {
+        self.op(DriveOp::DropText(id.into(), text.into(), "enter".into()))
+    }
+    /// The drag leaving `id`'s drop target without dropping.
+    pub fn drag_leave(&self, id: &str) -> OpFuture {
+        self.op(DriveOp::DropText(id.into(), String::new(), "leave".into()))
+    }
+    /// `text` dropped on `id`'s drop target.
+    pub fn drop_text(&self, id: &str, text: &str) -> OpFuture {
+        self.op(DriveOp::DropText(id.into(), text.into(), "drop".into()))
+    }
+    /// Files (local paths) dropped on `id`'s drop target.
+    pub fn drop_files(&self, id: &str, paths: &[&str]) -> OpFuture {
+        self.op(DriveOp::DropFiles(
+            id.into(),
+            paths.iter().map(|p| (*p).to_owned()).collect(),
+        ))
+    }
     /// That the app announced `text` to the screen reader during the run.
     pub fn assert_announced(&self, text: &str) -> OpFuture {
         self.op(DriveOp::AssertAnnounced(text.into()))
@@ -306,6 +423,13 @@ impl Drive {
     /// The element's frame in Day's layout and, where the toolkit reads it back, natively.
     pub fn assert_frame(&self, id: &str, expect: FrameExpect) -> OpFuture {
         self.op(DriveOp::AssertFrame(id.into(), expect))
+    }
+    /// What the element shows at this moment, an animation's in-between state included
+    /// (`Toolkit::read_displayed`, docs/testing.md). Read once, with no retry. A field the
+    /// toolkit cannot observe mid-flight is recorded in the report as unread rather than
+    /// failed.
+    pub fn assert_displayed(&self, id: &str, expect: DisplayedExpect) -> OpFuture {
+        self.op(DriveOp::AssertDisplayed(id.into(), expect))
     }
     /// The element's size, the common case of [`Drive::assert_frame`].
     pub fn assert_size(&self, id: &str, width: f64, height: f64) -> OpFuture {
@@ -358,6 +482,11 @@ impl Drive {
     /// Scroll a scroll view or list to an edge: `"top"`, `"bottom"`, `"leading"`, `"trailing"`.
     pub fn scroll_to(&self, id: &str, edge: &str) -> OpFuture {
         self.op(DriveOp::ScrollTo(id.into(), edge.into()))
+    }
+    /// Reveal element `id` in its nearest scroll, or the list row it sits in: the dayscript
+    /// `scroll_to` step with no edge.
+    pub fn reveal(&self, id: &str) -> OpFuture {
+        self.op(DriveOp::ScrollTo(id.into(), String::new()))
     }
     /// Expand or collapse a tree's row, named by its row id.
     pub fn expand(&self, id: &str, row: &str, expanded: bool) -> OpFuture {

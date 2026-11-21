@@ -31,6 +31,159 @@ impl Rgba {
     }
 }
 
+/// A PNG read as far as its header: the size is known, the pixels are not decoded yet.
+///
+/// `sample_pixel` wants one point of a window capture. Decoding the whole capture for it held
+/// three full copies of a 2560×1600 window (the inflated stream, the unfiltered rows and the
+/// RGBA expansion) and took about a second and a half per step in a debug build; a
+/// [`pixel`](Png::pixel) read stops inflating at the pixel's row and keeps two rows.
+pub struct Png {
+    pub width: usize,
+    pub height: usize,
+    channels: usize,
+    bytes_per_sample: usize,
+    /// The zlib stream: every IDAT body, joined.
+    data: Vec<u8>,
+}
+
+impl Png {
+    /// Read `bytes`'s header and gather its image data, without inflating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `bytes` is not a PNG, is truncated, or uses a color type, bit
+    /// depth or interlacing this reader does not support.
+    pub fn read(bytes: &[u8]) -> Result<Png, String> {
+        const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        if bytes.len() < 8 || bytes[..8] != SIGNATURE {
+            return Err("not a PNG".into());
+        }
+        let mut pos = 8;
+        let mut header: Option<(usize, usize, u8, u8, u8)> = None;
+        let mut data = Vec::new();
+        while pos + 8 <= bytes.len() {
+            let len =
+                u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+                    as usize;
+            let kind = &bytes[pos + 4..pos + 8];
+            let body = bytes
+                .get(pos + 8..pos + 8 + len)
+                .ok_or("truncated PNG chunk")?;
+            match kind {
+                b"IHDR" => {
+                    if body.len() < 13 {
+                        return Err("short IHDR".into());
+                    }
+                    let be = |i: usize| {
+                        u32::from_be_bytes([body[i], body[i + 1], body[i + 2], body[i + 3]])
+                            as usize
+                    };
+                    header = Some((be(0), be(4), body[8], body[9], body[12]));
+                }
+                b"IDAT" => data.extend_from_slice(body),
+                b"IEND" => break,
+                _ => {}
+            }
+            // Length, type, body and CRC.
+            pos += 12 + len;
+        }
+        let (width, height, depth, color, interlace) = header.ok_or("no IHDR")?;
+        if interlace != 0 {
+            return Err("interlaced PNG".into());
+        }
+        let channels = match color {
+            0 => 1,
+            2 => 3,
+            4 => 2,
+            6 => 4,
+            _ => return Err(format!("PNG color type {color}")),
+        };
+        if depth != 8 && depth != 16 {
+            return Err(format!("PNG bit depth {depth}"));
+        }
+        Ok(Png {
+            width,
+            height,
+            channels,
+            bytes_per_sample: usize::from(depth / 8),
+            data,
+        })
+    }
+
+    /// The pixel at (`x`, `y`) as `[r, g, b, a]`, or `None` outside the image. Only the rows
+    /// down to `y` are inflated and unfiltered.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the image data is truncated or corrupt.
+    pub fn pixel(&self, x: usize, y: usize) -> Result<Option<[u8; 4]>, String> {
+        if x >= self.width || y >= self.height {
+            return Ok(None);
+        }
+        let bpp = self.bpp();
+        let mut found = None;
+        self.rows(y + 1, |row, line| {
+            if row == y {
+                found = Some(self.rgba_of(&line[x * bpp..(x + 1) * bpp]));
+            }
+        })?;
+        Ok(found)
+    }
+
+    /// Bytes per pixel.
+    fn bpp(&self) -> usize {
+        self.channels * self.bytes_per_sample
+    }
+
+    /// One pixel's samples as RGBA8.
+    fn rgba_of(&self, px: &[u8]) -> [u8; 4] {
+        // The high byte of a 16-bit sample is its 8-bit value.
+        let s = |i: usize| px[i * self.bytes_per_sample];
+        match self.channels {
+            1 => [s(0), s(0), s(0), 255],
+            2 => [s(0), s(0), s(0), s(1)],
+            3 => [s(0), s(1), s(2), 255],
+            _ => [s(0), s(1), s(2), s(3)],
+        }
+    }
+
+    /// Inflate and unfilter the first `rows` rows, handing each to `row` in order. Only the
+    /// row being built and the one above it, which the filters read, are kept.
+    fn rows(&self, rows: usize, mut row: impl FnMut(usize, &[u8])) -> Result<(), String> {
+        let bpp = self.bpp();
+        let stride = self.width * bpp;
+        // Each row is a filter byte, then its samples.
+        let need = rows * (stride + 1);
+        // A zlib stream: a two-byte header, the deflate data, then a checksum this ignores.
+        let raw = inflate_up_to(self.data.get(2..).ok_or("empty IDAT")?, need)?;
+        if raw.len() < need {
+            return Err("short image data".into());
+        }
+        let mut above = vec![0u8; stride];
+        let mut line = vec![0u8; stride];
+        for (y, filtered) in raw[..need].chunks_exact(stride + 1).enumerate() {
+            let (filter, samples) = (filtered[0], &filtered[1..]);
+            for x in 0..stride {
+                let a = if x >= bpp { line[x - bpp] } else { 0 };
+                let b = above[x];
+                let c = if x >= bpp { above[x - bpp] } else { 0 };
+                let v = samples[x];
+                line[x] = match filter {
+                    0 => v,
+                    1 => v.wrapping_add(a),
+                    2 => v.wrapping_add(b),
+                    3 => v.wrapping_add(u16::midpoint(u16::from(a), u16::from(b)) as u8),
+                    4 => v.wrapping_add(paeth(a, b, c)),
+                    f => return Err(format!("PNG filter {f}")),
+                };
+            }
+            row(y, &line);
+            std::mem::swap(&mut above, &mut line);
+        }
+        Ok(())
+    }
+}
+
 /// Decode `bytes` as a PNG.
 ///
 /// # Errors
@@ -38,104 +191,17 @@ impl Rgba {
 /// Returns an error when `bytes` is not a PNG, is truncated or corrupt, or uses a color type, bit
 /// depth or interlacing this decoder does not support.
 pub fn decode(bytes: &[u8]) -> Result<Rgba, String> {
-    const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
-    if bytes.len() < 8 || bytes[..8] != SIGNATURE {
-        return Err("not a PNG".into());
-    }
-    let mut pos = 8;
-    let mut header: Option<(usize, usize, u8, u8, u8)> = None;
-    let mut data = Vec::new();
-    while pos + 8 <= bytes.len() {
-        let len = u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
-            as usize;
-        let kind = &bytes[pos + 4..pos + 8];
-        let body = bytes
-            .get(pos + 8..pos + 8 + len)
-            .ok_or("truncated PNG chunk")?;
-        match kind {
-            b"IHDR" => {
-                if body.len() < 13 {
-                    return Err("short IHDR".into());
-                }
-                let be = |i: usize| {
-                    u32::from_be_bytes([body[i], body[i + 1], body[i + 2], body[i + 3]]) as usize
-                };
-                header = Some((be(0), be(4), body[8], body[9], body[12]));
-            }
-            b"IDAT" => data.extend_from_slice(body),
-            b"IEND" => break,
-            _ => {}
+    let png = Png::read(bytes)?;
+    let bpp = png.bpp();
+    let mut rgba = Vec::with_capacity(png.width * png.height * 4);
+    png.rows(png.height, |_, line| {
+        for px in line.chunks_exact(bpp) {
+            rgba.extend_from_slice(&png.rgba_of(px));
         }
-        // Length, type, body and CRC.
-        pos += 12 + len;
-    }
-    let (width, height, depth, color, interlace) = header.ok_or("no IHDR")?;
-    if interlace != 0 {
-        return Err("interlaced PNG".into());
-    }
-    let channels = match color {
-        0 => 1,
-        2 => 3,
-        4 => 2,
-        6 => 4,
-        _ => return Err(format!("PNG color type {color}")),
-    };
-    if depth != 8 && depth != 16 {
-        return Err(format!("PNG bit depth {depth}"));
-    }
-    let bytes_per_sample = usize::from(depth / 8);
-    let bpp = channels * bytes_per_sample;
-    let stride = width * bpp;
-    // A zlib stream: a two-byte header, the deflate data, then a checksum this ignores.
-    let raw = inflate(data.get(2..).ok_or("empty IDAT")?)?;
-    if raw.len() < height * (stride + 1) {
-        return Err("short image data".into());
-    }
-    let mut pixels = vec![0u8; height * stride];
-    for y in 0..height {
-        let filter = raw[y * (stride + 1)];
-        let line = &raw[y * (stride + 1) + 1..(y + 1) * (stride + 1)];
-        for x in 0..stride {
-            let a = if x >= bpp {
-                pixels[y * stride + x - bpp]
-            } else {
-                0
-            };
-            let b = if y > 0 {
-                pixels[(y - 1) * stride + x]
-            } else {
-                0
-            };
-            let c = if x >= bpp && y > 0 {
-                pixels[(y - 1) * stride + x - bpp]
-            } else {
-                0
-            };
-            let v = line[x];
-            pixels[y * stride + x] = match filter {
-                0 => v,
-                1 => v.wrapping_add(a),
-                2 => v.wrapping_add(b),
-                3 => v.wrapping_add(u16::midpoint(u16::from(a), u16::from(b)) as u8),
-                4 => v.wrapping_add(paeth(a, b, c)),
-                f => return Err(format!("PNG filter {f}")),
-            };
-        }
-    }
-    let mut rgba = Vec::with_capacity(width * height * 4);
-    for px in pixels.chunks_exact(bpp) {
-        // The high byte of a 16-bit sample is its 8-bit value.
-        let s = |i: usize| px[i * bytes_per_sample];
-        match channels {
-            1 => rgba.extend_from_slice(&[s(0), s(0), s(0), 255]),
-            2 => rgba.extend_from_slice(&[s(0), s(0), s(0), s(1)]),
-            3 => rgba.extend_from_slice(&[s(0), s(1), s(2), 255]),
-            _ => rgba.extend_from_slice(&[s(0), s(1), s(2), s(3)]),
-        }
-    }
+    })?;
     Ok(Rgba {
-        width,
-        height,
+        width: png.width,
+        height: png.height,
         rgba,
     })
 }
@@ -252,14 +318,26 @@ const DIST_EXTRA: [u8; 30] = [
 ///
 /// Returns an error when the stream is truncated or is not valid deflate data.
 pub fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
+    inflate_up_to(data, usize::MAX)
+}
+
+/// The most [`inflate_up_to`] reserves ahead: a header's claim, not yet borne out by data.
+const MAX_RESERVE: usize = 64 << 20;
+
+/// Inflate a raw deflate stream until at least `limit` bytes are out (or the stream ends),
+/// into a buffer reserved for `limit` up front rather than grown by doubling.
+fn inflate_up_to(data: &[u8], limit: usize) -> Result<Vec<u8>, String> {
     let mut bits = Bits {
         data,
         pos: 0,
         bit: 0,
         count: 0,
     };
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(limit.min(MAX_RESERVE));
     loop {
+        if out.len() >= limit {
+            return Ok(out);
+        }
         let last = bits.need(1)?;
         match bits.need(2)? {
             0 => {
@@ -281,7 +359,7 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
                 lengths[280..].fill(8);
                 let lit = Huffman::new(&lengths);
                 let dist = Huffman::new(&[5u8; 30]);
-                codes(&mut bits, &mut out, &lit, &dist)?;
+                codes(&mut bits, &mut out, &lit, &dist, limit)?;
             }
             2 => {
                 const ORDER: [usize; 19] = [
@@ -317,7 +395,7 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
                 }
                 let lit = Huffman::new(&lengths[..nlen]);
                 let dist = Huffman::new(&lengths[nlen..]);
-                codes(&mut bits, &mut out, &lit, &dist)?;
+                codes(&mut bits, &mut out, &lit, &dist, limit)?;
             }
             _ => return Err("bad deflate block type".into()),
         }
@@ -327,8 +405,18 @@ pub fn inflate(data: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-fn codes(bits: &mut Bits, out: &mut Vec<u8>, lit: &Huffman, dist: &Huffman) -> Result<(), String> {
+/// Decode one block's codes into `out`, stopping early once `out` holds `limit` bytes.
+fn codes(
+    bits: &mut Bits,
+    out: &mut Vec<u8>,
+    lit: &Huffman,
+    dist: &Huffman,
+    limit: usize,
+) -> Result<(), String> {
     loop {
+        if out.len() >= limit {
+            return Ok(());
+        }
         let sym = lit.decode(bits)?;
         match sym {
             0..=255 => out.push(sym as u8),
@@ -344,9 +432,14 @@ fn codes(bits: &mut Bits, out: &mut Vec<u8>, lit: &Huffman, dist: &Huffman) -> R
                     return Err("distance before the start".into());
                 }
                 let from = out.len() - back;
-                for k in 0..len {
-                    let b = out[from + k];
-                    out.push(b);
+                if back >= len {
+                    out.extend_from_within(from..from + len);
+                } else {
+                    // An overlapping copy repeats the bytes it has just written.
+                    for k in 0..len {
+                        let b = out[from + k];
+                        out.push(b);
+                    }
                 }
             }
         }
@@ -355,7 +448,7 @@ fn codes(bits: &mut Bits, out: &mut Vec<u8>, lit: &Huffman, dist: &Huffman) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::decode;
+    use super::{Png, decode};
 
     /// Encode with the `png` crate (a dev-dependency only), decode with this reader.
     fn roundtrip(
@@ -415,6 +508,34 @@ mod tests {
         assert_eq!(img.pixel(0, 0), Some([1, 2, 3, 255]));
         assert!(img.pixel(1, 0).is_none());
         assert!(decode(b"not a png").is_err());
+    }
+
+    #[test]
+    fn one_pixel_reads_the_same_as_a_whole_decode() {
+        let (w, h) = (41u32, 29u32);
+        let mut data = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                data.extend_from_slice(&[(x * 13) as u8, (y * 7) as u8, ((x * y) % 251) as u8, 99]);
+            }
+        }
+        let mut buf = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut buf, w, h);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            enc.set_compression(png::Compression::Balanced);
+            let mut writer = enc.write_header().expect("header");
+            writer.write_image_data(&data).expect("data");
+        }
+        let whole = decode(&buf).expect("decodes");
+        let png = Png::read(&buf).expect("reads");
+        assert_eq!((png.width, png.height), (41, 29));
+        for (x, y) in [(0, 0), (40, 0), (17, 11), (0, 28), (40, 28)] {
+            assert_eq!(png.pixel(x, y).expect("inflates"), whole.pixel(x, y));
+        }
+        assert_eq!(png.pixel(41, 0).expect("in range check"), None);
+        assert_eq!(png.pixel(0, 29).expect("in range check"), None);
     }
 
     #[test]
