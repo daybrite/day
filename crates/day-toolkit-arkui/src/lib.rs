@@ -4152,7 +4152,9 @@ mod imp {
                             _ => None,
                         };
                         if let Some(owner) = owner {
+                            crate::list::scroll_posted();
                             crate::main_thread::post_local(Box::new(move || {
+                                crate::list::scroll_taken();
                                 if LIST_NODE.with(|m| m.borrow().get(&n).copied()) != Some(owner) {
                                     return;
                                 }
@@ -4718,7 +4720,9 @@ mod imp {
             let Some(owner) = LIST_NODE.with(|m| m.borrow().get(&n).copied()) else {
                 return false;
             };
+            crate::list::scroll_posted();
             crate::main_thread::post_local(Box::new(move || {
+                crate::list::scroll_taken();
                 if LIST_NODE.with(|m| m.borrow().get(&n).copied()) == Some(owner) {
                     crate::list::scroll_aligned(n as Handle, to.row, to.align, to.animated);
                 }
@@ -5165,9 +5169,16 @@ mod imp {
             app_back_requested()
         }
 
+        /// Settled once no nav push or pop is still landing, no list reload is still posted, and
+        /// every list has settled (`list::settled`): no programmatic scroll waits to be applied
+        /// or is still moving, and no list owes the viewport report of a change ArkUI has not
+        /// laid out yet. A scripted step after "scroll to row" or a row change then sees the
+        /// rows the list shows now (docs/list.md "Visible rows").
         fn ui_idle(&mut self) -> bool {
             NAV_PENDING_PUSH.with(|s| s.borrow().is_empty())
                 && NAV_PENDING_POP.with(|p| p.borrow().is_empty())
+                && LIST_RELOAD_PENDING.with(|p| p.borrow().is_empty())
+                && crate::list::settled()
         }
 
         /// Native file open/save via the ArkTS `@kit.CoreFileKit` `DocumentViewPicker` (docs/files.md).

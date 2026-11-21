@@ -319,8 +319,10 @@ a move it has not reported yet. The web backend reports busy while a shown list'
 scroll is still moving and while a shown list has not yet reported the offset, height or row
 count it has now. WinUI reports busy while a list's row jump has not reached its row or its
 animated scroll is still moving, and while a list still has a pass of row binds and its viewport
-report posted. Each wait is bounded, so a scroll that cannot finish never holds a script for
-good. A list that has never reported counts as at its end for
+report posted. ArkUI reports busy while a list's programmatic scroll waits to be applied or,
+animated, has not stopped, and while a list has a reload posted or a scroll or reload that
+ArkUI has not laid out yet. Each wait is bounded, so a scroll that cannot finish never holds a
+script for good. A list that has never reported counts as at its end for
 `follow_end`, so a script that adds rows right after the list appears waits for that first
 report too.
 

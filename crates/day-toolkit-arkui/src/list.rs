@@ -19,10 +19,11 @@
 // Node handles are opaque runtime tokens (see node.rs), never dereferenced here.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::ptr;
+use std::time::{Duration, Instant};
 
 use ohos_sys::arkui::drag_and_drop::{
     ArkUI_DragResult, OH_ArkUI_AllowNodeAllDropDataTypes,
@@ -39,7 +40,8 @@ use ohos_sys::arkui::native_node::{
     OH_ArkUI_NodeAdapterEvent_GetRemovedNode, OH_ArkUI_NodeAdapterEvent_GetType,
     OH_ArkUI_NodeAdapterEvent_GetUserData, OH_ArkUI_NodeAdapterEvent_SetItem,
     OH_ArkUI_NodeAdapterEvent_SetNodeId, OH_ArkUI_NodeEvent_GetNodeHandle,
-    OH_ArkUI_NodeUtils_GetLayoutPositionInWindow,
+    OH_ArkUI_NodeUtils_GetLayoutPositionInWindow, OH_ArkUI_RegisterLayoutCallbackOnNodeHandle,
+    OH_ArkUI_UnregisterLayoutCallbackOnNodeHandle,
 };
 use ohos_sys::arkui::native_type::{
     ArkUI_IntOffset, ArkUI_ListItemSwipeActionOption, ArkUI_ScrollAlignment, ArkUI_TextAlignment,
@@ -102,6 +104,20 @@ struct List {
     reader_moved: bool,
     /// The last viewport report: whether the next one moved.
     reported: Option<(usize, usize, u64, i32)>,
+    /// Since when the list has owed the app a viewport report (`settled`, docs/list.md "Visible
+    /// rows"): a programmatic scroll or a reload was applied and ArkUI has not laid the list out
+    /// since. Kept across later changes, so [`OWED_FOR`] counts from the first; cleared by the
+    /// next layout after the last change (`laid_out`), or for an animated scroll by its stop.
+    owed: Option<Instant>,
+    /// Bumped by every change that owes a report, so a layout of an older one clears nothing.
+    owed_seq: u32,
+    /// The owed report waits for an animated scroll's stop rather than the next layout.
+    gliding: bool,
+    /// An owed report outlived [`OWED_FOR`] with no layout: the list is not on screen, and
+    /// owes hold `ui_idle` again only once ArkUI lays it out.
+    dormant: bool,
+    /// `NODE_SCROLL_EVENT_ON_SCROLL_STOP` is registered on the LIST node.
+    hears_stop: bool,
     /// Supplementary rows' cells (a header, footer, empty state or padding row, docs/list.md):
     /// sized to their content in any list, with no tap, drag, swipe or focus stop, pooled apart.
     supplement_cells: HashSet<usize>,
@@ -150,6 +166,8 @@ day_reactive::tls_slots! {
     static LISTS: RefCell<HashMap<usize, Box<List>>> = RefCell::new(HashMap::new());
     /// The in-flight reorder drag (one at a time; Day lists accept only their OWN rows).
     static DRAG: RefCell<Option<(*mut List, i32)>> = const { RefCell::new(None) };
+    /// Programmatic scrolls posted and not yet applied (`settled`).
+    static POSTED_SCROLLS: Cell<u32> = const { Cell::new(0) };
 }
 
 /// A list's binding as a raw pointer, for the callbacks that hold no map borrow.
@@ -522,6 +540,11 @@ pub fn init(n: Handle, host_id: u64, row_h_vp: f64, p: &day_spec::props::ListPro
         reader: false,
         reader_moved: false,
         reported: None,
+        owed: None,
+        owed_seq: 0,
+        gliding: false,
+        dormant: false,
+        hears_stop: false,
         supplement_cells: HashSet::new(),
         supplement_pool: Vec::new(),
     });
@@ -563,6 +586,10 @@ pub fn forget(n: Handle) {
     // No adapter callbacks may fire into the half-dead binding while it is dismantled.
     // SAFETY: the adapter this list created.
     unsafe { OH_ArkUI_NodeAdapter_UnregisterEventReceiver(dl.adapter) };
+    if dl.viewport {
+        // SAFETY: the LIST node `observe_viewport` registered the callback on.
+        unsafe { OH_ArkUI_UnregisterLayoutCallbackOnNodeHandle(dl.node) };
+    }
     // `rows` holds every cell ever created (pooled and live): dispose each cell's inner Stack
     // and the cell itself. Day's own row-content nodes are disposed individually by day-core's
     // release queue; ArkUI's disposeNode is per-node, so the orders compose.
@@ -792,6 +819,7 @@ pub fn reload(n: Handle) {
         let index = row.map_or(last, |row| (row as i32).min(last));
         scroll_list(dl.node, index, align, animated);
     }
+    owe(dl, false);
     if dl.viewport {
         // Once the reloaded rows are laid out: now, and again a little later.
         let n = n as usize;
@@ -838,6 +866,8 @@ pub fn scroll_to_end(n: Handle) {
                 node::i32v(ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_END.0 as i32),
             ],
         );
+        // SAFETY: a live list; no map borrow is held.
+        owe(unsafe { &mut *dl }, false);
     }
 }
 
@@ -859,6 +889,8 @@ pub fn scroll_to_row(n: Handle, index: u32) {
     };
     if count > 0 {
         reveal_row(list, (index as i32).min(count - 1));
+        // SAFETY: a live list; no map borrow is held.
+        owe(unsafe { &mut *dl }, false);
     } else {
         // No rows yet: the jump waits for the reload that brings them (`reload`).
         // SAFETY: a live list (checked non-null above).
@@ -930,6 +962,8 @@ pub fn scroll_aligned(n: Handle, row: Option<usize>, align: day_spec::RowAlign, 
     let span = (last - first + 1).max(1);
     let far = index < first - 3 * span || index > last + 3 * span;
     scroll_list(list, index, align, animated && !far);
+    // SAFETY: as above.
+    owe(unsafe { &mut *dl }, animated && !far);
 }
 
 /// `NODE_LIST_SCROLL_TO_INDEX`: `[index, animated, alignment]`.
@@ -957,6 +991,25 @@ pub fn observe_viewport(n: Handle) {
     if !dl.viewport {
         dl.viewport = true;
         node::register_event(dl.node, Ev::NODE_LIST_ON_DID_SCROLL, dl.host_id);
+        // Every layout of the LIST settles the report a change owes (`settled`); the stop ends
+        // an animated scroll's.
+        // SAFETY: a live LIST node; the user data is the host's address, looked up afresh.
+        unsafe {
+            OH_ArkUI_RegisterLayoutCallbackOnNodeHandle(
+                dl.node,
+                n.cast::<c_void>(),
+                Some(laid_out),
+            );
+        }
+        hear_stop(dl);
+    }
+}
+
+/// Register the LIST node's scroll stop once (`on_scroll_stop`).
+fn hear_stop(dl: &mut List) {
+    if !dl.hears_stop {
+        dl.hears_stop = true;
+        node::register_event(dl.node, Ev::NODE_SCROLL_EVENT_ON_SCROLL_STOP, dl.host_id);
     }
 }
 
@@ -972,7 +1025,7 @@ pub fn observe_reader(n: Handle) {
     if !dl.reader {
         dl.reader = true;
         node::register_event(dl.node, Ev::NODE_LIST_ON_WILL_SCROLL, dl.host_id);
-        node::register_event(dl.node, Ev::NODE_SCROLL_EVENT_ON_SCROLL_STOP, dl.host_id);
+        hear_stop(dl);
     }
 }
 
@@ -995,13 +1048,130 @@ pub fn on_will_scroll(list: Handle, offset: f32, source: i32) {
 }
 
 /// `NODE_SCROLL_EVENT_ON_SCROLL_STOP` on a LIST node: a reader frame that moved nothing is not
-/// carried into the next scroll.
+/// carried into the next scroll, and an animated scroll's owed report is settled with a report
+/// of where it stopped (`settled`).
 pub fn on_scroll_stop(list: Handle) {
     let dl = list_by_node(list);
-    if !dl.is_null() {
-        // SAFETY: a live list; no map borrow is held.
-        unsafe { (*dl).reader_moved = false };
+    if dl.is_null() {
+        return;
     }
+    // SAFETY: a live list; no map borrow is held.
+    let (host, gliding) = unsafe {
+        let dl = &mut *dl;
+        dl.reader_moved = false;
+        let gliding = std::mem::take(&mut dl.gliding);
+        if gliding {
+            dl.owed = None;
+        }
+        (dl.host, gliding)
+    };
+    if gliding {
+        report_viewport(host);
+    }
+}
+
+/// How long a list's owed viewport report may hold `ui_idle` (`settled`): a list ArkUI never
+/// lays out (one on a page out of view) or an animated scroll that never reports its stop must
+/// never hold a script for good.
+const OWED_FOR: Duration = Duration::from_secs(1);
+
+/// A programmatic scroll or a reload was just applied to `dl`: where the app observes the
+/// viewport, it owes a report until ArkUI has laid the list out (`settled`). `animated` waits
+/// for the scroll's stop instead, since its first layout is only its first frame.
+fn owe(dl: &mut List, animated: bool) {
+    if !dl.viewport {
+        return;
+    }
+    // A dormant list's earlier owe never counted: this one counts from now, once laid out.
+    if dl.dormant {
+        dl.owed = Some(Instant::now());
+    } else {
+        dl.owed.get_or_insert_with(Instant::now);
+    }
+    dl.owed_seq = dl.owed_seq.wrapping_add(1);
+    dl.gliding |= animated;
+}
+
+/// ArkUI laid out a viewport-observing LIST (`OH_ArkUI_RegisterLayoutCallbackOnNodeHandle`;
+/// the user data is the list's host): the events of that layout have reported its rows, so the
+/// report a change owed is settled, once out of the layout pass, with one more report of the
+/// rows laid now. A layout also shows the list is on screen, so it is no longer dormant.
+unsafe extern "C" fn laid_out(user: *mut c_void) {
+    day_spec::ffi_guard::contain((), || {
+        let n = user as usize;
+        let seq = LISTS.with(|l| {
+            let mut l = l.try_borrow_mut().ok()?;
+            let dl = l.get_mut(&n)?;
+            dl.dormant = false;
+            (dl.owed.is_some() && !dl.gliding).then_some(dl.owed_seq)
+        });
+        if let Some(seq) = seq {
+            crate::main_thread::post_local(Box::new(move || settle(n as Handle, seq)));
+        }
+    });
+}
+
+/// Settle list host `n`'s owed report after a layout (`laid_out`), unless a later change owes
+/// another or an animated scroll is still moving.
+fn settle(n: Handle, seq: u32) {
+    let dl = list_ptr(n);
+    if dl.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let settled = unsafe {
+        let dl = &mut *dl;
+        let settled = dl.owed.is_some() && dl.owed_seq == seq && !dl.gliding;
+        if settled {
+            dl.owed = None;
+        }
+        settled
+    };
+    if settled {
+        report_viewport(n);
+    }
+}
+
+/// A programmatic scroll was posted to run out of the day-core borrow: `ui_idle` waits for it
+/// (`settled`) until [`scroll_taken`].
+pub fn scroll_posted() {
+    POSTED_SCROLLS.with(|c| c.set(c.get().saturating_add(1)));
+}
+
+/// A posted programmatic scroll ran (or found its list gone).
+pub fn scroll_taken() {
+    POSTED_SCROLLS.with(|c| c.set(c.get().saturating_sub(1)));
+}
+
+/// Whether every list has settled (`Toolkit::ui_idle`, docs/list.md "Visible rows"): no
+/// programmatic scroll waits to be applied, and no list owes the app the viewport report of a
+/// scroll or a reload ArkUI has not laid out yet (or, animated, a scroll still moving). Until
+/// then the app reads the rows a list showed before. An owed report holds for at most
+/// [`OWED_FOR`]; one that outlives it leaves its list dormant, holding nothing until ArkUI
+/// lays it out again.
+pub fn settled() -> bool {
+    if POSTED_SCROLLS.with(Cell::get) > 0 {
+        return false;
+    }
+    LISTS.with(|l| {
+        let Ok(mut l) = l.try_borrow_mut() else {
+            return true;
+        };
+        let mut settled = true;
+        for dl in l.values_mut() {
+            let Some(since) = dl.owed.filter(|_| !dl.dormant) else {
+                continue;
+            };
+            if since.elapsed() < OWED_FOR {
+                settled = false;
+            } else {
+                dl.owed = None;
+                dl.gliding = false;
+                dl.dormant = true;
+            }
+        }
+        settled
+    })
 }
 
 /// The list whose LIST node is `list` (an event's node), as a raw pointer.
