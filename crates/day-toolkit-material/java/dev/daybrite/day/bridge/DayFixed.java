@@ -14,6 +14,8 @@ import java.util.HashMap;
 public class DayFixed extends ViewGroup {
     private final HashMap<View, int[]> frames = new HashMap<>();
     long panNode = 0;
+    /** Navigation-page presentation, read by the host before the root is shown. */
+    boolean immersivePage = false;
     @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent e) {
         if (panNode != 0 && DayBridge.horizontalPan(this, panNode, e)) return true;
         return super.dispatchGenericMotionEvent(e);

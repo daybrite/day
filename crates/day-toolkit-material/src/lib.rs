@@ -2311,7 +2311,7 @@ mod imp {
         static fn makeList(host_id: jlong, row_height_px: jint, selectable: jboolean, reorderable: jboolean, deletable: jboolean, delete_label: JString) -> android.view.View,
         static fn makeNavHost(id: jlong, title: JString, adaptive: jboolean, tile_min_dp: jfloat) -> android.view.View,
         static fn makeNavMenu(id: jlong, joined_items: JString, joined_icons: JString, joined_sections: JString) -> android.view.View,
-        static fn makeNavPage(id: jlong) -> android.view.View,
+        static fn makeNavPage(id: jlong, immersive: jboolean) -> android.view.View,
         static fn makeNavSuite(id: jlong, initial: jint) -> android.view.View,
         static fn makeProgress(determinate: jboolean, fraction: jdouble) -> android.view.View,
         static fn makeScroll(horizontal: jboolean, flags: jint, snap_px: jfloat, node: jlong) -> android.view.View,
@@ -5044,7 +5044,12 @@ mod imp {
                 }
                 Some(Builtin::NavPage) => with_env(|env| {
                     let h = AHandle(bridge_view(env, "makeNavPage", |env| {
-                        DayBridge::makeNavPage(env, idj)
+                        DayBridge::makeNavPage(
+                            env,
+                            idj,
+                            day_spec::props_of::<NavPageProps>(kind, "android", props)
+                                .is_some_and(|p| p.immersive),
+                        )
                     }));
                     // A sidebar page inside a navigation suite is the page whose rows BECAME the
                     // chrome, so the suite keeps it attached but never shows it (drawing the rows

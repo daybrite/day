@@ -13207,3 +13207,35 @@ fn a_bool_cover_opens_and_closes_from_its_signal() {
     let cover = probe.find_by_kind(day_spec::kinds::COVER);
     assert!(cover.iter().all(|(_, w)| !w.flag), "dismissed");
 }
+
+/// Fixture photos opt into top-edge drawing while ordinary pages and a merged root
+/// retain their own presentation. A pop/re-push must re-evaluate the new page's key.
+#[test]
+fn stack_immersive_is_per_page_and_survives_path_replacement() {
+    let path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || {
+        nav_stack(path, label("Fixture home"))
+            .title("Fixture home")
+            .immersive(|key| key.is_none_or(|k| k == "photo"))
+            .destination(|key| label(key.clone()))
+    });
+    let page_created = |title: &str, immersive: bool| {
+        probe.log().iter().any(|line| {
+            line.contains("day.nav_page")
+                && line.contains(&format!("title={title:?}"))
+                && line.contains(&format!("immersive={immersive}"))
+        })
+    };
+    assert!(page_created("Fixture home", true), "{:?}", probe.log());
+    path.set(vec!["photo".into(), "settings".into()]);
+    flush_sync();
+    assert!(page_created("photo", true));
+    assert!(page_created("settings", false));
+    assert!(nav_back());
+    flush_sync();
+    assert_eq!(path.get_untracked(), vec!["photo"]);
+    probe.clear_log();
+    path.set(vec!["settings".into()]);
+    flush_sync();
+    assert!(page_created("settings", false));
+}

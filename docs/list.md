@@ -314,8 +314,15 @@ The report follows the layout, so it can arrive a frame after a programmatic scr
 A dayscript step that reads the range after a scroll button waits for the scroll to settle
 first: `wait_idle` and `tap` wait on
 [`Toolkit::ui_idle`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.ui_idle), and GTK reports busy while a
-programmatic scroll is still gliding on a shown list. The report for where the glide ends has
-gone out by then.
+programmatic scroll is still gliding on a shown list, and while a shown list has row changes or
+a move it has not reported yet. The web backend reports busy while a shown list's own smooth
+scroll is still moving and while a shown list has not yet reported the offset, height or row
+count it has now. WinUI reports busy while a list's row jump has not reached its row or its
+animated scroll is still moving, and while a list still has a pass of row binds and its viewport
+report posted. Each wait is bounded, so a scroll that cannot finish never holds a script for
+good. A list that has never reported counts as at its end for
+`follow_end`, so a script that adds rows right after the list appears waits for that first
+report too.
 
 ## Row lifetime
 

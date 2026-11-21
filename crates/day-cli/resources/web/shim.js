@@ -1182,6 +1182,13 @@ const env = {
   // visible height. The list positions every row itself, so this is the only way it can know
   // which handful of a ten-thousand-row source needs building.
   day_dom_list_viewport(id, out) { const el = E(id); f64(out, 2).set([el.scrollTop, el.clientHeight]); },
+  // Whether the list's own smooth scroll is still on its way (Toolkit::ui_idle, docs/list.md
+  // "Visible rows"). One that has not moved for half a second no longer counts, so a glide the
+  // engine dropped without a `scrollend` can never hold a script.
+  day_dom_list_gliding(id) {
+    const el = E(id);
+    return el.__dayGlide != null && performance.now() - (el.__dayGlideAt || 0) < 500 ? 1 : 0;
+  },
   // Report scrolling, so rows coming into view get built before they are looked at. Passive:
   // this never calls preventDefault, and saying so keeps the scroll off the main thread's
   // critical path.
@@ -3402,9 +3409,13 @@ if (typeof document !== 'undefined') {
   }, { capture: true, passive: true });
 }
 // The smooth scroll Day asked of a scroller, while it runs: where it is going, or null. A browser
-// carries such a scroll on to its target even as the reader wheels or drags against it.
+// carries such a scroll on to its target even as the reader wheels or drags against it. A
+// scroll to where the scroller already is moves nothing and fires no events, so it is no glide.
+// `__dayGlideAt` is when the glide last moved (`day_dom_list_gliding`).
 function glide(el, top) {
-  el.__dayGlide = top === null ? null : Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+  const to = top === null ? null : Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+  el.__dayGlide = to !== null && Math.abs(el.scrollTop - to) >= 1 ? to : null;
+  el.__dayGlideAt = performance.now();
 }
 function trackListReader(id, el) {
   let touchAt = 0, heldAt = 0, wheelAt = -1e9, keyAt = -1e9, told = 0;
@@ -3450,6 +3461,7 @@ function trackListReader(id, el) {
   el.addEventListener('scroll', () => {
     if (el.__dayGlide != null && Math.abs(el.scrollTop - el.__dayGlide) < 1) el.__dayGlide = null;
     const now = performance.now();
+    el.__dayGlideAt = now;
     const stamp = touchAt || heldAt || (now - wheelAt < 100 ? wheelAt : 0) || (now - keyAt < 100 ? keyAt : 0);
     if (stamp) report(stamp);
   }, { passive: true });

@@ -8542,7 +8542,7 @@ pub mod props {
     pub enum NavPatch {
         /// The just-attached last page child became the top of the stack. `immersive` marks a
         /// page that keeps the floating transparent chrome on backends with an immersive nav
-        /// mode (day-toolkit-material edge-to-edge today; ignored elsewhere). Unmarked pages get the
+        /// mode (UIKit and edge-to-edge Material). Unmarked pages get the
         /// standard opaque bar.
         Pushed { title: String, immersive: bool },
         /// The top page is about to be removed; present its predecessor.
@@ -8625,6 +8625,9 @@ pub mod props {
     pub struct NavPageProps {
         pub title: String,
         pub pane: Pane,
+        /// Paint behind the top system/navigation bars on UIKit and edge-to-edge Android.
+        /// Desktop toolkits retain their usual page chrome.
+        pub immersive: bool,
     }
 
     /// The largest a modal sheet grows on a desktop, in points: the window less a margin up to

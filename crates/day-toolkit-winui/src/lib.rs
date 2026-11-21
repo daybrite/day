@@ -1804,6 +1804,14 @@ impl Toolkit for Xaml {
         true
     }
 
+    /// Settled once no list's own scroll is still on its way and no list owes its pass of row
+    /// binds and viewport report (`list::settled`): a scripted step after "scroll to row" or a
+    /// row change then sees the rows the list shows now (docs/list.md "Visible rows").
+    #[cfg(feature = "winui")]
+    fn ui_idle(&mut self) -> bool {
+        list::settled()
+    }
+
     // Holding plus a timed mouse hold, DoubleTapped, the observed pointer down, and the
     // contacts by pointer id: every kind is the platform's own (docs/gestures.md).
     fn gesture_support(&self, _kind: day_spec::GestureKind) -> Support {

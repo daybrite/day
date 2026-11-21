@@ -1026,6 +1026,10 @@ unsafe extern "C" {
     /// Scroll row `row` (-1: the end of the content) into view with an alignment (0 nearest,
     /// 1 start, 2 center, 3 end), animated or not (docs/list.md).
     pub fn day_winui_list_scroll_to(host: *mut c_void, row: i32, align: c_int, animated: c_int);
+    /// 1 while the list's own scroll is still on its way: a row jump that has not reached its
+    /// row, or an animated one still moving, on a shown list; each for a bounded time only
+    /// (`Toolkit::ui_idle`, docs/list.md "Visible rows").
+    pub fn day_winui_list_settling(host: *mut c_void) -> c_int;
     /// The scroll extent, offset and viewport height, in DIPs.
     pub fn day_winui_list_metrics(
         host: *mut c_void,

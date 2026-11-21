@@ -824,6 +824,12 @@ jobs:
       # Setting the hook also marks the project generated, which skips the preflight checks
       # and the pristine assertion: right for a tree this step writes into.
       setup-command: bash apps/conformance/generate.sh
+      # The emulator renders through swangle here rather than the legacy GLES translator
+      # `swiftshader_indirect` selects on Linux: on that translator the pixel_5 emulator process
+      # exits while the surface cases draw (runs 44922159705 and 44942300802), and the suite
+      # passes on swangle. See `spawn_emulator` in crates/day-cli/src/devices.rs.
+      target-setup: |
+        android-material: echo "DAY_EMULATOR_GPU=swangle_indirect" >> "$GITHUB_ENV"
       artifact-prefix: conformance-
       app-id: dev.daybrite.conformance
       scripts: dayscript/conformance.yaml

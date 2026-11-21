@@ -862,7 +862,7 @@ fn mesh_rasterizes() -> bool {
 /// ([`mesh_rasterizes`]). Each wedge is a sector from the center out to `radius`, filled with
 /// its two colors as a linear gradient across its rim: exact on the rim, and nowhere further
 /// from [`day_spec::ConicGradient::color_at`] than half the change across one wedge. The
-/// wedges are drawn without antialiasing and with the SOURCE operator, so neighbours tile on
+/// wedges are drawn without antialiasing and with the SOURCE operator, so neighbors tile on
 /// their shared edges ([`conic_wedges`] makes them bit-identical) with no seam of partial
 /// coverage and no translucent wedge laid over another; the shape painted with the fan keeps
 /// its own antialiased outline. The current path, the shape about to be painted, is kept.
@@ -899,7 +899,7 @@ fn set_conic_fan(
             let _ = cr.set_source(&rim);
         }
         // Both straight sides run between the center and points computed here, never
-        // through the arc's own end, so a wedge's side is exactly its neighbour's.
+        // through the arc's own end, so a wedge's side is exactly its neighbor's.
         cr.move_to(cx, cy);
         cr.line_to(p0x, p0y);
         cr.arc(cx, cy, radius, a0, a1);
@@ -4560,6 +4560,9 @@ struct ListEntry {
     /// The viewport may have changed: report it after the next frame (docs/list.md "Visible
     /// rows").
     viewport_due: std::cell::Cell<bool>,
+    /// Frames in a row at which a due report found nothing to read: past
+    /// [`ListEntry::MISSED_FRAMES`] the report stops counting as owed (`viewport_owed`).
+    missed: std::cell::Cell<u32>,
     /// The frame clock's `after-paint` handler, while the view is realized.
     frame_hook: RefCell<Option<(gtk4::gdk::FrameClock, gtk4::glib::SignalHandlerId)>>,
 }
@@ -4724,9 +4727,45 @@ impl ListEntry {
             return;
         }
         self.laid.set(self.generation.get());
-        if self.viewport_due.get() && self.report_viewport() {
-            self.viewport_due.set(false);
+        if self.viewport_due.get() {
+            if self.report_viewport() {
+                self.viewport_due.set(false);
+                self.missed.set(0);
+            } else {
+                self.missed.set(self.missed.get().saturating_add(1));
+            }
         }
+    }
+
+    /// How many frames a due report may find nothing to read before it stops holding up
+    /// `ui_idle`: about half a second.
+    const MISSED_FRAMES: u32 = 30;
+
+    /// Whether this list still owes the app its viewport report (`Toolkit::ui_idle`, docs/list.md
+    /// "Visible rows"): it is shown, and row changes wait for their flush or a move waits for the
+    /// frame that lays it out. Until then the app reads the rows the list showed before, and a
+    /// list that never reported counts as at its end (`follow_end`). A frame is asked for, so
+    /// the report goes out at the next one.
+    fn viewport_owed(&self) -> bool {
+        let reports = self
+            .source
+            .borrow()
+            .as_ref()
+            .is_some_and(|s| s.viewport.is_some());
+        if !reports || !self.listview.is_mapped() {
+            return false;
+        }
+        if self.pending.borrow().posted {
+            return true;
+        }
+        let owed = self.viewport_due.get()
+            && self.missed.get() < Self::MISSED_FRAMES
+            && self.model.n_items() > 0
+            && self.sw.vadjustment().page_size() > 0.0;
+        if owed {
+            self.listview.queue_draw();
+        }
+        owed
     }
 
     /// Report the viewport through `ListSource::viewport` (docs/list.md "Visible rows"): the
@@ -7406,10 +7445,15 @@ impl Toolkit for Gtk {
         handle.set_visible(visible);
     }
 
-    /// Settled once no programmatic scroll is still gliding (`scroll::settled`): a scripted step
-    /// after "scroll to row" then sees the list's viewport report for where the scroll ended.
+    /// Settled once no programmatic scroll is still gliding (`scroll::settled`) and every shown
+    /// list has reported its viewport (`ListEntry::viewport_owed`): a scripted step after
+    /// "scroll to row" or a row change then sees the rows the list shows now.
     fn ui_idle(&mut self) -> bool {
         scroll::settled()
+            && LIST_STATE.with(|m| {
+                let lists: Vec<Rc<ListEntry>> = m.borrow().values().cloned().collect();
+                !lists.iter().any(|e| e.viewport_owed())
+            })
     }
 
     #[expect(
@@ -9183,6 +9227,7 @@ impl Toolkit for Gtk {
                     generation: std::cell::Cell::new(0),
                     laid: std::cell::Cell::new(0),
                     viewport_due: std::cell::Cell::new(false),
+                    missed: std::cell::Cell::new(0),
                     frame_hook: RefCell::new(None),
                 });
                 // The viewport report (docs/list.md "Visible rows") is due whenever the offset,

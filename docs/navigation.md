@@ -251,11 +251,22 @@ would answer one arrow and then go quiet.
 ### Immersive items ([`.immersive()`](https://docs.rs/day-pieces/latest/day_pieces/struct.NavItem.html#method.immersive))
 
 [`item`](https://docs.rs/day-pieces/latest/day_pieces/fn.item.html)`(key, title)`[`.immersive`](https://docs.rs/day-pieces/latest/day_pieces/struct.NavItem.html#method.immersive)`()` marks that destination as an immersive-chrome page: on
-toolkits with an immersive nav mode (day-toolkit-material's edge-to-edge opt-in today) its pushed page
-keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
-get the standard opaque bar. Every other toolkit ignores the flag. Pair it with
-[`day::safe_area()`](https://docs.rs/day-app/latest/day/fn.safe_area.html) ([docs/layout](/docs/explanation/layout)): the immersive page paints its background unpadded and pads
-its content by the reported insets.
+UIKit and edge-to-edge Android, its pushed page paints behind the status and navigation
+bars. The native navigation controls remain over the content. Desktop toolkits keep their
+usual chrome. Android requires `[android] edge-to-edge = true` in `Day.toml`.
+
+A [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html) chooses this per page with
+[`.immersive(predicate)`](https://docs.rs/day-pieces/latest/day_pieces/struct.NavStack.html#method.immersive).
+The predicate receives `None` for its root and `Some(&key)` for a destination. It runs once
+when that native page is created; an existing page keeps its choice through pushes and pops.
+A merged stack's root inherits its enclosing page's presentation.
+
+Use this for a photo or other decorative content at the top of a page. Keep controls and
+text below the overlaid navigation bar. UIKit suppresses the top content inset for the page's
+root scroll view while preserving bottom clearance for the home indicator and keyboard.
+Android reports its top chrome through
+[`day::safe_area()`](https://docs.rs/day-app/latest/day/fn.safe_area.html); ordinary pages in an
+edge-to-edge Android app still need that top padding. UIKit handles ordinary page insets itself.
 
 ## [`nav_stack`](https://docs.rs/day-pieces/latest/day_pieces/fn.nav_stack.html): push/pop with a value path
 

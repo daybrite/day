@@ -145,8 +145,13 @@ public class DayNavHost extends LinearLayout {
     private final String prefix;
     private final ArrayList<PageFragment> frags = new ArrayList<>();
     private final ArrayList<String> titles = new ArrayList<>();
-    /** Per-pushed-page immersive-chrome flags, parallel to `titles` (the root is standard). */
+    /** Per-pushed-page immersive-chrome flags, parallel to `titles`; root policy is separate. */
     private final ArrayList<Boolean> immersives = new ArrayList<>();
+    private boolean rootImmersive = false;
+
+    private boolean topImmersive() {
+        return immersives.isEmpty() ? rootImmersive : immersives.get(immersives.size() - 1);
+    }
     /** Back-stack entries of ours the listener has already accounted for. */
     private int knownEntries;
     /** Pops the native side already performed — absorb the answering Popped patch. */
@@ -1690,10 +1695,11 @@ public class DayNavHost extends LinearLayout {
      *  Driven from {@link #syncChrome}, which already runs on every push, pop and re-present —
      *  the three moments that change what is behind these glyphs or which page they are on. */
     private void syncBarActions() {
-        if (windowBar.glyphs.isEmpty()) {
-            return;
-        }
-        windowBar.tint(barGlyphColor());
+        int color = barGlyphColor();
+        toolbar.setNavigationIconTint(color);
+        toolbar.setTitleTextColor(color);
+        toolbar.setSubtitleTextColor(color);
+        windowBar.tint(color);
     }
 
     /** The color the bar's own glyphs take, derived from what is actually behind them.
@@ -1711,7 +1717,7 @@ public class DayNavHost extends LinearLayout {
      *  {@link #syncChrome} paints, read back rather than re-derived. */
     private int barBackgroundColor() {
         if (DayActivity.edgeToEdge) {
-            boolean topImmersive = !immersives.isEmpty() && immersives.get(immersives.size() - 1);
+            boolean topImmersive = topImmersive();
             // The immersive chrome is a black scrim gradient; the ordinary bar is the M3
             // surface tone, which is what lets it lift rather than stand apart.
             return topImmersive
@@ -1771,13 +1777,14 @@ public class DayNavHost extends LinearLayout {
         // to return to that section; compact pages always need it to reach the root.
         showUpArrow(!titles.isEmpty() && (stacked() || titles.size() > 1));
         // Edge-to-edge mode: per-page chrome (docs/navigation.md). An immersive page keeps the
-        // floating scrim bar over full-bleed content; the root and unmarked pages get a solid
-        // colorPrimary bar, which also backs the status-bar area (the app bar carries the
-        // status inset as padding), keeping white chrome legible over light pages.
+        // floating scrim bar over full-bleed content; unmarked pages get a solid surface bar,
+        // which also backs the status-bar area (the app bar carries the status inset as padding).
         if (DayActivity.edgeToEdge) {
             boolean topImmersive =
-                    !immersives.isEmpty() && immersives.get(immersives.size() - 1);
+                    topImmersive();
             if (topImmersive) {
+                appBar.setLiftOnScroll(false);
+                appBar.setLifted(false);
                 appBar.setBackground(new android.graphics.drawable.GradientDrawable(
                         android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
                         new int[] { 0x66000000, 0x00000000 }));
@@ -1813,6 +1820,8 @@ public class DayNavHost extends LinearLayout {
         frags.add(f);
         pageHosts.put(page, this);
         if (frags.size() == 1) {
+            rootImmersive = page instanceof DayFixed && ((DayFixed) page).immersivePage;
+            syncChrome();
             // The first page. Adaptive host: the Pane::Sidebar page, the list pane's permanent
             // occupant in both presentations. Plain stack host: its root page, which lives in
             // the pages container — there is no list pane at all.

@@ -1800,6 +1800,16 @@ fn missing_avd_image(avd: &str) -> Option<String> {
     Some(sysdir.replace(['/', '\\'], ";"))
 }
 
+/// The `-gpu` mode a headless emulator starts with: `DAY_EMULATOR_GPU` when it is set (one of
+/// the emulator's own `-gpu` values, such as `swangle_indirect`), else `swiftshader_indirect`.
+fn headless_gpu() -> String {
+    std::env::var("DAY_EMULATOR_GPU")
+        .ok()
+        .map(|mode| mode.trim().to_owned())
+        .filter(|mode| !mode.is_empty())
+        .unwrap_or_else(|| "swiftshader_indirect".to_owned())
+}
+
 /// A `restart` appends to the log rather than replacing it: the first boot's record is the only
 /// account of the run that froze, and a CI job uploads the one file.
 fn spawn_emulator(
@@ -1883,10 +1893,22 @@ fn spawn_emulator(
         // failed", then "[h264] no frame!"), twice in a row on the same page. Off, the guest
         // keeps its own software codecs and the host never sees a frame; a headless screenshot
         // run plays no video it needs decoded fast.
+        //
+        // `DAY_EMULATOR_GPU` picks another mode for one job, and the conformance leg uses it to
+        // take `swangle_indirect`. That suite hit another failure in the legacy translator
+        // (day CI runs 44922159705 and 44942300802, 2026-11-21): the pixel_5 leg's
+        // emulator process exited, with nothing in its log and nothing in the guest's crash
+        // buffer, at the same point of both runs, while the surface cases drew their gradient,
+        // named-corner and shadow fills. The same suite passes on swangle, and it is short
+        // enough that swangle's cost does not matter there; the walkthrough legs keep this one.
+        let gpu = headless_gpu();
+        if gpu != "swiftshader_indirect" {
+            crate::ops::status("Rendering", &format!("with -gpu {gpu} (DAY_EMULATOR_GPU)"));
+        }
         cmd.args([
             "-no-window",
             "-gpu",
-            "swiftshader_indirect",
+            gpu.as_str(),
             "-feature",
             "-Vulkan",
             "-feature",

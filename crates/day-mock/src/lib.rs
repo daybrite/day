@@ -2085,7 +2085,10 @@ impl Toolkit for MockToolkit {
             // The page's pane, not the presentation drawing it: a nav host's list page reads
             // `sidebar` whether the host is split or stacked (docs/size-classes.md).
             w.flag = p.pane == day_spec::props::Pane::Sidebar;
-            detail = format!(" title={:?} pane={:?}", p.title, p.pane);
+            detail = format!(
+                " title={:?} pane={:?} immersive={}",
+                p.title, p.pane, p.immersive
+            );
         } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
             w.text = p.items.join("|");
             w.value = p.selected.map_or(-1.0, |i| i as f64);

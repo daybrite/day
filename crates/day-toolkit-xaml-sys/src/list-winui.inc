@@ -79,6 +79,9 @@ struct WinuiList {
     // settles). A key the reader presses meanwhile stops it before revealing its row: the
     // running animation would otherwise carry on over the key's jump.
     bool gliding = false;
+    // When the running glide last moved (or started), and when the pending row jump was asked
+    // for: `day_winui_list_settling` stops counting either once it has gone quiet too long.
+    ULONGLONG glide_at = 0, pending_at = 0;
     void notify() { if (host) changed(host); }
     void stop_glide() {
         if (!gliding) return;
@@ -163,6 +166,7 @@ static void winui_list_reveal(WinuiList& list) {
         // The platform's own scroll animation runs from here; asking again every frame would
         // restart it. Its ViewChanged frames report the viewport as it goes.
         list.gliding = true;
+        list.glide_at = GetTickCount64();
         list.pending = -2;
         list.pending_animated = false;
         list.notify();
@@ -508,6 +512,7 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
                 l->reader_scroll();
             }
             if (!a.IsIntermediate()) l->gliding = false;
+            else if (l->gliding) l->glide_at = GetTickCount64();
             winui_list_pin(*l);
             l->notify();
         }
@@ -574,7 +579,7 @@ void* day_winui_list_new(double pitch, int selectable, int activatable, int reor
             // A key that brings a row out of view into it scrolls for the reader.
             l->stop_glide();
             l->arm();
-            l->focus = target; l->pending = target;
+            l->focus = target; l->pending = target; l->pending_at = GetTickCount64();
             l->pending_nearest = true;
             l->pending_animated = false;
             winui_list_reveal(*l);
@@ -655,6 +660,7 @@ void day_winui_list_scroll(void* host, int row) {
     guard([&] {
         if (auto l = winui_list(host)) {
             l->pending = row;
+            l->pending_at = GetTickCount64();
             l->pending_nearest = false;
             l->pending_align = 1;
             l->pending_animated = false;
@@ -668,12 +674,29 @@ void day_winui_list_scroll_to(void* host, int row, int align, int animated) {
     guard([&] {
         if (auto l = winui_list(host)) {
             l->pending = row;
+            l->pending_at = GetTickCount64();
             l->pending_nearest = row >= 0 && align == 0;
             l->pending_align = align;
             l->pending_animated = animated != 0;
             winui_list_reveal(*l);
         }
     });
+}
+// Whether the list's own scroll is still on its way (Toolkit::ui_idle, docs/list.md "Visible
+// rows"): a row jump that has not reached its row, or an animated one still moving, on a list
+// that is shown. Each counts for a bounded time only: a jump that has not landed within a
+// second, or a glide whose view has not changed for half a second, no longer holds a script, so
+// a scroll that cannot move can never wedge one.
+int day_winui_list_settling(void* host) {
+    int busy = 0;
+    guard([&] {
+        auto l = winui_list(host);
+        if (!l || l->count == 0 || !l->scroll.IsLoaded() || l->scroll.ViewportHeight() <= 0) return;
+        ULONGLONG now = GetTickCount64();
+        if ((l->gliding && now - l->glide_at < 500) || (l->pending != -2 && now - l->pending_at < 1000))
+            busy = 1;
+    });
+    return busy;
 }
 // The scroll extent, offset and viewport height in DIPs (the extent is the repeater's estimate
 // for rows it has not realized), for the viewport report.

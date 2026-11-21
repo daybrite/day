@@ -876,7 +876,7 @@ impl<K> NavItem<K> {
         self
     }
     /// Mark this item's pushed page immersive-chrome (docs/navigation.md): on backends with an
-    /// immersive nav mode (android edge-to-edge today) its pushed page keeps the floating
+    /// immersive nav mode (UIKit and edge-to-edge Android) its pushed page keeps the floating
     /// transparent bar over full-bleed content; unmarked pages get the standard opaque bar. A
     /// no-op on every other backend.
     pub fn immersive(mut self) -> Self {
@@ -3111,6 +3111,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
             &NavPageProps {
                 title: cfg.title.clone(),
                 pane: Pane::Detail,
+                immersive: false,
             },
             &sizes,
         );
@@ -3232,11 +3233,13 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: &NavHostCx) {
             let title = detail_src
                 .as_ref()
                 .map_or_else(|| root_title.clone(), TextSource::initial);
+            let immersive = items.immersive_of(&key.key());
             let page = nav_page(
                 target.host,
                 &NavPageProps {
                     title: title.clone(),
                     pane: Pane::Detail,
+                    immersive,
                 },
                 &target.sizes,
             );
@@ -3258,9 +3261,6 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: &NavHostCx) {
                     });
                 });
             });
-            // Out here for the usual reason: `immersive_of` can run app code, which must not
-            // happen inside `with_tree`.
-            let immersive = items.immersive_of(&key.key());
             with_tree(|t| {
                 t.patch(
                     target.host,
@@ -3661,6 +3661,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         &NavPageProps {
             title: title_s.clone(),
             pane: Pane::Sidebar,
+            immersive: false,
         },
         &sizes,
     );
@@ -4026,6 +4027,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             &NavPageProps {
                 title: title_s.clone(),
                 pane: Pane::List,
+                immersive: false,
             },
             &sizes,
         );
@@ -4338,6 +4340,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 &NavPageProps {
                     title: page_title.clone(),
                     pane: Pane::Detail,
+                    immersive: items.immersive_of(&typed_key.key()),
                 },
                 &sizes,
             );
@@ -5149,6 +5152,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
 // to the path; the back button writes the pop back into the path.
 // ===========================================================================
 
+type StackImmersive<K> = dyn Fn(Option<&K>) -> bool;
+
 struct StackEntry<K> {
     key: K,
     scope: Scope,
@@ -5204,6 +5209,7 @@ pub struct NavStack<S: Binding<Vec<K>>, K: Route = String> {
     title: TextSource,
     root: AnyPiece,
     destination: Rc<dyn Fn(&K) -> AnyPiece>,
+    immersive: Rc<StackImmersive<K>>,
     on_back: Option<Rc<dyn Fn(BackRequest) -> BackResponse>>,
     /// The persistence key set by [`NavStack::restore`]: the path is saved here (its keys `/`-joined)
     /// on every change and restored at build. `None` = not persisted.
@@ -5220,6 +5226,7 @@ pub fn nav_stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Nav
         destination: Rc::new(|_| {
             piece_fn(|cx| cx.layout_only(Rc::new(PassThrough), Flex::default(), Boundary::No)).any()
         }),
+        immersive: Rc::new(|_| false),
         on_back: None,
         restore: None,
         toolbar: Vec::new(),
@@ -5247,6 +5254,17 @@ impl<K: Route, S: Binding<Vec<K>>> NavStack<S, K> {
         self.destination = Rc::new(move |k| AnyPiece::new(build(k)));
         self
     }
+    /// Choose pages whose content extends behind the top system and navigation bars.
+    /// The predicate receives `None` for the root and `Some(key)` for a destination, once
+    /// when that page is created. UIKit keeps native navigation controls over the content;
+    /// Android requires `[android] edge-to-edge = true` in `Day.toml`. Other toolkits ignore
+    /// this presentation hint. Keep text and controls below the overlaid chrome.
+    /// A merged stack's root inherits its enclosing page's presentation.
+    pub fn immersive(mut self, page: impl Fn(Option<&K>) -> bool + 'static) -> Self {
+        self.immersive = Rc::new(page);
+        self
+    }
+
     /// Intercept the back affordance (docs/navigation.md). The guard runs for every native back
     /// gesture/button and [`nav_back`] while the stack is above its root; it returns
     /// [`BackResponse::Proceed`] to pop now or [`BackResponse::Handled`] to consume the back
@@ -5277,6 +5295,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
             title,
             root,
             destination: dest,
+            immersive,
             on_back,
             restore,
             toolbar,
@@ -5390,6 +5409,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                 &NavPageProps {
                     title: title_s,
                     pane: Pane::Detail,
+                    immersive: immersive(None),
                 },
                 &sizes,
             );
@@ -5512,11 +5532,13 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                 }
                 for (at, key) in want.iter().enumerate().skip(common) {
                     let title = key.title();
+                    let immersive = immersive(Some(key));
                     let page = nav_page(
                         host,
                         &NavPageProps {
                             title: title.clone(),
                             pane: Pane::Detail,
+                            immersive,
                         },
                         &sizes,
                     );
@@ -5538,16 +5560,8 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                         });
                     });
                     with_tree(|t| {
-                        // NavStack destinations are standard chrome in v1; the immersive flag is a
-                        // nav-item concept today (docs/navigation.md).
-                        t.patch(
-                            host,
-                            Box::new(NavPatch::Pushed {
-                                title,
-                                immersive: false,
-                            }),
-                            false,
-                        );
+                        // The page props and push patch carry the same presentation choice.
+                        t.patch(host, Box::new(NavPatch::Pushed { title, immersive }), false);
                     });
                     owners.borrow_mut().push(stack_owner.clone());
                     entries.borrow_mut().push(StackEntry {

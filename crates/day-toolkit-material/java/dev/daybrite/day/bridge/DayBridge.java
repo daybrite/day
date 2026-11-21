@@ -4426,8 +4426,9 @@ public final class DayBridge extends DayRuntime {
         }
     }
 
-    public static View makeNavPage(final long id) {
+    public static View makeNavPage(final long id, boolean immersive) {
         DayFixed page = new DayFixed(ctx);
+        page.immersivePage = immersive;
         page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override public void onLayoutChange(View v, int l, int t, int r, int b,
                     int ol, int ot, int or2, int ob) {

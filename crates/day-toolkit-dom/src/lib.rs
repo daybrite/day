@@ -167,6 +167,9 @@ unsafe extern "C" {
     fn day_dom_scroll_offset(el: u32, out: *mut f64);
     /// The emulated list's scrolled offset and visible height — which rows have to exist.
     fn day_dom_list_viewport(el: u32, out: *mut f64);
+    /// 1 while the list's own smooth scroll is still moving toward where Day sent it; one that
+    /// has not moved for half a second no longer counts (`Toolkit::ui_idle`).
+    fn day_dom_list_gliding(el: u32) -> u32;
     /// Report this list's scrolling into `day_dom_list_scrolled`, so rows coming into view build,
     /// and the scrolls the reader starts into `day_dom_list_reader`.
     fn day_dom_list_on_scroll(el: u32);
@@ -956,6 +959,12 @@ struct ListEntry {
     /// A row jump (`ListPatch::ScrollToRow`) for the next fill to repeat once the content has
     /// its full height.
     pending_scroll: Option<f64>,
+    /// The offset, visible height and row count the last fill read: the viewport its report
+    /// describes. A list that now reads otherwise owes a report (`list_settled`).
+    seen: Option<(f64, f64, usize)>,
+    /// `ui_idle` polls in a row that found a report owed (`list_settled`): past
+    /// [`LIST_OWED_POLLS`] the report stops counting as owed.
+    owed_polls: u32,
     last_width: f64,
     selectable: bool,
     /// Host-drawn row separators (docs/list.md): a bottom border on each cell, so the line
@@ -2997,6 +3006,8 @@ impl Toolkit for Dom {
                             bound: Vec::new(),
                             fill_pending: false,
                             pending_scroll: None,
+                            seen: None,
+                            owed_polls: 0,
                             last_width: -1.0,
                             activatable: p.activatable,
                             selectable: p.selectable,
@@ -3826,6 +3837,11 @@ impl Toolkit for Dom {
                         });
                     }
                     unsafe { day_dom_scroll_to(el, 0.0, y, u32::from(to.animated)) };
+                    // An instant jump has moved the offset already, but its `scroll` event
+                    // waits for the next frame: build and report the rows it shows now.
+                    if !to.animated && view[1] > 0.0 {
+                        list_fill_window(el);
+                    }
                 }
                 // Nothing moves: the report still follows the request.
                 None => list_fill_window(el),
@@ -4487,8 +4503,11 @@ impl Toolkit for Dom {
         )
     }
 
+    /// Settled once no shown list is still gliding to where Day scrolled it and every shown list
+    /// has reported the viewport it shows (`list_settled`): a scripted step after "scroll to
+    /// row" or a row change then sees the rows the list shows now.
     fn ui_idle(&mut self) -> bool {
-        true
+        list_settled()
     }
 
     fn modifiers(&mut self) -> day_spec::Modifiers {
@@ -5285,6 +5304,9 @@ fn list_fill_window(host: u32) {
                 (end + LIST_OVERSCAN).min(n),
             );
             let extent = tops.as_ref().map_or(n as f64 * rowh, |t| t[n]);
+            if laid_out {
+                st.seen = Some((offset, vh, n));
+            }
             // What the viewport report says (docs/list.md "Viewport"), for a laid-out list
             // with rows: the visible range and how far the content runs past the bottom edge.
             let seen = (laid_out && n > 0).then(|| day_spec::ListViewport {
@@ -5570,6 +5592,56 @@ fn list_restack(host: u32) {
         }
         s(st.content, "height", &format!("{}px", tops[n]));
     });
+}
+
+/// How many `ui_idle` polls in a row a list may find its viewport report owed before it stops
+/// holding scripts up: a fill that cannot catch up must never wedge one.
+const LIST_OWED_POLLS: u32 = 30;
+
+/// Whether every shown list has settled (`Toolkit::ui_idle`, docs/list.md "Visible rows"): its
+/// own smooth scroll has arrived, and its last viewport report describes the offset, height and
+/// rows it has now. A browser delivers `scroll` events with the next frame, so an offset that
+/// moved this frame (a row jump, a reload that clamped it) is reported only then; until it is,
+/// the app reads the rows the list showed before. A fill is posted for a list found behind, so
+/// the next poll finds it reported.
+fn list_settled() -> bool {
+    let (settled, behind) = LISTS.with(|m| {
+        let mut m = m.borrow_mut();
+        let (mut settled, mut behind) = (true, Vec::new());
+        for (&host, st) in m.iter_mut() {
+            let Some(source) = &st.source else { continue };
+            if source.viewport.is_none() && source.first_visible.is_none() {
+                continue;
+            }
+            let mut view = [0.0_f64; 2];
+            unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
+            let n = (source.len)();
+            // A list that is not shown reports nothing, so it owes nothing.
+            let late = view[1] > 0.0
+                && n > 0
+                && (st.fill_pending
+                    || st.seen.is_none_or(|(offset, height, rows)| {
+                        (offset - view[0]).abs() > 0.5
+                            || (height - view[1]).abs() > 0.5
+                            || rows != n
+                    }));
+            let gliding = view[1] > 0.0 && unsafe { day_dom_list_gliding(host) } != 0;
+            if !(late || gliding) {
+                st.owed_polls = 0;
+            } else if st.owed_polls < LIST_OWED_POLLS {
+                st.owed_polls += 1;
+                settled = false;
+                if late {
+                    behind.push(host);
+                }
+            }
+        }
+        (settled, behind)
+    });
+    for host in behind {
+        day_dom_list_scrolled(host);
+    }
+    settled
 }
 
 /// A list scrolled (the shim's `scroll` listener): build whatever rows just came into view, on

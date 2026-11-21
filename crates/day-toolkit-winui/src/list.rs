@@ -33,10 +33,18 @@ struct Entry {
     selected: BTreeSet<usize>,
     anchor: Option<usize>,
     posted: bool,
+    /// Since when a pass has been owed without a break (`settled`): set when one is posted
+    /// and cleared when a pass ends with none posted after it.
+    owed_since: Option<std::time::Instant>,
+    /// Row scrolls posted and not yet handed to the shim (`settled`).
+    scrolls: u32,
     reload: bool,
     frame: Size,
     pinned: Option<Pinned>,
 }
+
+/// How long a list that keeps asking for another pass holds `ui_idle` (`settled`).
+const OWED_FOR: std::time::Duration = std::time::Duration::from_secs(1);
 
 thread_local! {
     static LISTS: RefCell<HashMap<usize, Entry>> = RefCell::new(HashMap::new());
@@ -107,6 +115,8 @@ pub(super) fn new(node: NodeId, props: &ListProps) -> *mut c_void {
                 selected: BTreeSet::new(),
                 anchor: None,
                 posted: false,
+                owed_since: None,
+                scrolls: 0,
                 reload: false,
                 frame: Size::default(),
                 pinned: None,
@@ -188,8 +198,19 @@ fn scroll(host: usize, row: Option<usize>, align: RowAlign, animated: bool) {
         RowAlign::Center => 2,
         RowAlign::End => 3,
     };
+    LISTS.with(|m| {
+        if let Some(e) = m.borrow_mut().get_mut(&host) {
+            e.scrolls += 1;
+        }
+    });
     Xaml::post(Box::new(move || {
-        if LISTS.with(|m| m.borrow().get(&host).map(|e| e.node)) != node || node.is_none() {
+        let current = LISTS.with(|m| {
+            let mut m = m.borrow_mut();
+            let e = m.get_mut(&host)?;
+            e.scrolls = e.scrolls.saturating_sub(1);
+            Some(e.node)
+        });
+        if current != node || node.is_none() {
             return;
         }
         unsafe {
@@ -213,6 +234,7 @@ fn schedule(host: usize, reload: bool) {
             return None;
         }
         e.posted = true;
+        e.owed_since.get_or_insert_with(std::time::Instant::now);
         Some(e.node)
     });
     if let Some(node) = node {
@@ -228,6 +250,9 @@ fn fill(host: usize, node: NodeId) {
             return None;
         }
         e.posted = false;
+        if e.source.is_none() {
+            e.owed_since = None;
+        }
         Some((
             e.source.clone()?,
             std::mem::take(&mut e.reload),
@@ -276,18 +301,19 @@ fn fill(host: usize, node: NodeId) {
         .filter(|c| c.row >= 0)
         .map(|c| (c.cell as usize, c))
         .collect();
+    let len = (source.len)();
+    // A cell still placed at a row past a shrunk source is no row of the list's any more: its
+    // row is released here, or it would answer for that row until the cell is reused.
     for (&cell, old) in &previous {
-        if live
-            .get(&cell)
-            .is_none_or(|c| c.generation != old.generation || c.row as usize != old.row)
-        {
+        if live.get(&cell).is_none_or(|c| {
+            c.generation != old.generation || c.row as usize != old.row || old.row >= len
+        }) {
             (source.recycle)(cell as *mut c_void);
         }
     }
     let mut active = HashMap::new();
     let mut first = None;
     let mut last = None;
-    let len = (source.len)();
     for c in cells.into_iter().filter(|c| c.row >= 0 && c.width > 0.0) {
         let row = c.row as usize;
         if row >= len {
@@ -357,6 +383,32 @@ fn fill(host: usize, node: NodeId) {
     } else if let (Some(report), Some(first)) = (&source.first_visible, first) {
         report(first);
     }
+    // Settled, unless this pass asked for another (a bind that changed a row's height).
+    LISTS.with(|m| {
+        if let Some(e) = m.borrow_mut().get_mut(&host).filter(|e| !e.posted) {
+            e.owed_since = None;
+        }
+    });
+}
+
+/// Whether every list has settled (`Toolkit::ui_idle`, docs/list.md "Visible rows"): no row
+/// scroll waiting for its turn or still on its way to its row, and no pass of row binds and
+/// viewport report still posted. Until then the app reads the rows a list showed before. A list
+/// that keeps asking for another pass stops counting after [`OWED_FOR`], and the shim bounds
+/// its scrolls the same way, so nothing here can hold a script for good.
+pub(super) fn settled() -> bool {
+    let Some(hosts) = LISTS.with(|m| {
+        let m = m.borrow();
+        let owed = m.values().any(|e| {
+            e.scrolls > 0 || (e.posted && e.owed_since.is_some_and(|t| t.elapsed() < OWED_FOR))
+        });
+        (!owed).then(|| m.keys().copied().collect::<Vec<_>>())
+    }) else {
+        return false;
+    };
+    hosts
+        .into_iter()
+        .all(|host| unsafe { ffi::day_winui_list_settling(host as *mut c_void) } == 0)
 }
 
 /// Bind the shim's pinned header cell to the header it asks for, and keep its height current.

@@ -219,6 +219,10 @@ fn start(filter: Vec<String>, policy: ShotPolicy, case_timeout_secs: Option<f64>
                 o
             } else {
                 gui |= case.kind() == TestKind::Gui;
+                // Named as it starts, in the app's own log: the report arrives only when the
+                // whole run ends, so a case that takes the app (or the device) down with it
+                // would otherwise leave nothing that says which one it was.
+                log::info!("conformance: {} ({}/{})", case.name(), i + 1, cases.len());
                 run_case(case, policy, case_timeout_secs, &mut shots).await
             };
             let mut run = run.borrow_mut();

@@ -6042,6 +6042,7 @@ mod imp {
 
     struct NavPageIvars {
         node: NodeId,
+        immersive: bool,
     }
 
     thread_local! {
@@ -6163,7 +6164,32 @@ mod imp {
                     let subs = unsafe { self.subviews() };
                     let content = subs.firstObject();
                     let full_bleed = content.as_ref().is_some_and(|c| scroll_leaf(c));
-                    let frame = content_frame(bounds, insets, full_bleed);
+                    // Immersive pages opt out of the TOP inset only. The bottom
+                    // remains scrollable above the home indicator and keyboard.
+                    let mut layout_insets = insets;
+                    if self.ivars().immersive {
+                        layout_insets.top = 0.0;
+                        if full_bleed
+                            && let Some(scroll) = content.as_ref().and_then(|c| first_content_scroll(c, 12))
+                        {
+                            unsafe {
+                                scroll.setContentInsetAdjustmentBehavior(
+                                    objc2_ui_kit::UIScrollViewContentInsetAdjustmentBehavior::Never,
+                                );
+                                let bottom = UIEdgeInsets { top: 0.0, left: 0.0, bottom: insets.bottom, right: 0.0 };
+                                if scroll.contentInset() != bottom {
+                                    scroll.setContentInset(bottom);
+                                }
+                                scroll.setVerticalScrollIndicatorInsets(insets);
+                                // iOS 26 adds a frosted scroll-edge band independently of
+                                // navigation-bar appearance. Immersive artwork stays clear.
+                                if os_at_least(26) {
+                                    scroll.topEdgeEffect().setHidden(true);
+                                }
+                            }
+                        }
+                    }
+                    let frame = content_frame(bounds, layout_insets, full_bleed);
                     if let Some(content) = content {
                         unsafe { content.setFrame(frame) };
                         if *DIAG_NAV {
@@ -6200,8 +6226,8 @@ mod imp {
     );
 
     impl DayNavPageView {
-        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
+        fn new(mtm: MainThreadMarker, node: NodeId, immersive: bool) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavPageIvars { node, immersive });
             let v: Retained<Self> = unsafe { msg_send![super(this), init] };
             // GROUPED, not plain. iOS gives content two grounds and they are a matched pair:
             // `systemGroupedBackground` behind, `secondarySystemGroupedBackground` for the cards
@@ -6424,6 +6450,11 @@ mod imp {
         // with the flag clear IS the user's, and `observe_user_pop` reports it once its
         // transition has actually happened.
         impl DayNavController {
+            #[unsafe(method_id(childViewControllerForStatusBarStyle))]
+            fn status_bar_style_child(&self) -> Option<Retained<UIViewController>> {
+                unsafe { self.topViewController() }
+            }
+
             #[unsafe(method_id(popViewControllerAnimated:))]
             fn pop_view_controller(&self, animated: bool) -> Option<Retained<UIViewController>> {
                 let popped: Option<Retained<UIViewController>> =
@@ -8276,6 +8307,13 @@ mod imp {
             RefCell::new(std::collections::HashSet::new());
     }
 
+    fn immersive_page(vc: &UIViewController) -> bool {
+        vc.viewIfLoaded().is_some_and(|v| {
+            v.downcast_ref::<DayNavPageView>()
+                .is_some_and(|page| page.ivars().immersive)
+        })
+    }
+
     // Navigation pages end editing on departure (push, pop and tab selection). Keep the
     // request scoped to the outgoing view, so an incoming page's first responder survives.
     define_class!(
@@ -8287,6 +8325,15 @@ mod imp {
         unsafe impl NSObjectProtocol for DayPageVC {}
 
         impl DayPageVC {
+            #[unsafe(method(preferredStatusBarStyle))]
+            fn preferred_status_bar_style(&self) -> objc2_ui_kit::UIStatusBarStyle {
+                if immersive_page(self) {
+                    objc2_ui_kit::UIStatusBarStyle::LightContent
+                } else {
+                    objc2_ui_kit::UIStatusBarStyle::Default
+                }
+            }
+
             /// What `UITableViewController` does for its table: a page whose list rested at its
             /// top when it left the screen comes back at its top, whatever the bar above it has
             /// grown or shrunk to meanwhile. A list left mid-inset reads to UIKit as scrolled,
@@ -8295,6 +8342,29 @@ mod imp {
             fn view_will_appear(&self, animated: bool) {
                 unsafe {
                     let _: () = msg_send![super(self), viewWillAppear: animated];
+                }
+                if let Some(nav) = unsafe { self.navigationController() } {
+                    let bar = unsafe { nav.navigationBar() };
+                    if immersive_page(self) {
+                        let appearance = UINavigationBarAppearance::new(self.mtm());
+                        appearance.configureWithTransparentBackground();
+                        bar.setStandardAppearance(&appearance);
+                        bar.setCompactAppearance(Some(&appearance));
+                        bar.setScrollEdgeAppearance(Some(&appearance));
+                        bar.setCompactScrollEdgeAppearance(Some(&appearance));
+                        unsafe {
+                            bar.setTranslucent(true);
+                            bar.setBarStyle(objc2_ui_kit::UIBarStyle::Black);
+                            bar.setTintColor(Some(&UIColor::whiteColor()));
+                        }
+                    } else {
+                        configure_navigation_bar(&bar, self.mtm());
+                        unsafe {
+                            bar.setBarStyle(objc2_ui_kit::UIBarStyle::Default);
+                            bar.setTintColor(None);
+                        }
+                    }
+                    unsafe { nav.setNeedsStatusBarAppearanceUpdate() };
                 }
                 // Name the list before UIKit decides the bar's state for this appearance
                 // (`viewDidLayoutSubviews` is after that decision). Headers and a pinned
@@ -8574,6 +8644,12 @@ mod imp {
 
         /// Same override on the window root, so the modifier also works outside a cover.
         impl DayRootVC {
+            /// Forward color to the visible content while keeping visibility window-owned.
+            #[unsafe(method_id(childViewControllerForStatusBarStyle))]
+            fn status_bar_style_child(&self) -> Option<Retained<UIViewController>> {
+                unsafe { self.childViewControllers().lastObject() }
+            }
+
             #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
             fn preferred_edges(&self) -> UIRectEdge {
                 rect_edges()
@@ -16320,7 +16396,7 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavPageProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
                     };
-                    let outer = DayNavPageView::new(mtm, id);
+                    let outer = DayNavPageView::new(mtm, id, p.immersive);
                     let content = unsafe { UIView::new(mtm) };
                     unsafe { outer.addSubview(&content) };
                     let vc: Retained<UIViewController> =
@@ -16339,7 +16415,7 @@ mod imp {
                 // area pinning + FrameChanged reports, like a nav page), created detached;
                 // CoverPatch::Present shows it modally over the whole window.
                 Some(Builtin::Cover) => {
-                    let outer = DayNavPageView::new(mtm, id);
+                    let outer = DayNavPageView::new(mtm, id, false);
                     let content = unsafe { UIView::new(mtm) };
                     unsafe { outer.addSubview(&content) };
                     let cover_props = props.downcast_ref::<CoverProps>();
