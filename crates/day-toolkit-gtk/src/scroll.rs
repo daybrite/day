@@ -260,6 +260,9 @@ thread_local! {
     /// Scrolled window key → the serial of the glide that owns it. A glide whose serial is no
     /// longer here stops at its next frame.
     static GLIDES: SideTable<u64> = SideTable::new();
+    /// Scrolled window key → the scrolled window, for [`settled`]. Kept past the glide's end;
+    /// only a key that [`GLIDES`] still holds counts.
+    static GLIDE_VIEWS: SideTable<glib::WeakRef<gtk4::ScrolledWindow>> = SideTable::new();
     /// Scrolled windows that carry the input watcher that cancels a glide.
     static GLIDE_WATCHED: SideTable<()> = SideTable::new();
     static GLIDE_SERIAL: Cell<u64> = const { Cell::new(0) };
@@ -280,6 +283,7 @@ pub(crate) fn glide(
         s.get()
     });
     GLIDES.with(|t| t.insert(key, serial));
+    GLIDE_VIEWS.with(|t| t.insert(key, sw.downgrade()));
     watch_user_input(sw, key);
     // `(frame time, v, h)` at the first frame with a target: where the ease starts.
     let start: Cell<Option<(i64, f64, f64)>> = Cell::new(None);
@@ -338,6 +342,24 @@ pub(crate) fn glide(
 /// Whether a glide is running on `sw`.
 pub(crate) fn gliding(sw: &gtk4::ScrolledWindow) -> bool {
     GLIDES.with(|t| t.contains(sw.as_ptr() as usize))
+}
+
+/// Whether every programmatic scroll has come to rest (`Toolkit::ui_idle`): no glide is still
+/// running on a shown scrolled window. A list reports its viewport after the frame that lays
+/// out a move (docs/list.md "Visible rows"), and a glide rests one frame after that, so a step
+/// that waits for this reads the rows the scroll brought into view rather than the ones it left.
+/// A scrolled window that is not mapped gets no frames, so its glide never ends and is not
+/// counted.
+pub(crate) fn settled() -> bool {
+    let mut moving = false;
+    GLIDE_VIEWS.with(|views| {
+        views.for_each(|key, view| {
+            moving = moving
+                || (GLIDES.with(|t| t.contains(key))
+                    && view.upgrade().is_some_and(|sw| sw.is_mapped()));
+        });
+    });
+    !moving
 }
 
 /// Whether `adj` rests at `target` as far as its range allows.

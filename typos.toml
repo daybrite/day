@@ -19,6 +19,8 @@ locale = "en-us"
 [default.extend-words]
 # The PNG filter type named after Alan W. Paeth (crates/day-script/src/png.rs).
 paeth = "paeth"
+# The project's handle on X (@day_brite, website/src/lib/site.ts).
+brite = "brite"
 
 # --- the one deliberate departure from STYLE_GUIDE.md's American rule -----------------------
 # `cancelled` stays double-l. day-part-http's public `HttpError::Cancelled` and GitHub Actions'

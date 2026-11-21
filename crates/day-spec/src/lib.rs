@@ -989,7 +989,7 @@ pub enum Event {
         phase: DragPhase,
         location: Point,
     },
-    /// A scroll view's content offset changed, in points from the content's top-leading corner
+    /// A scroll view's content offset changed, in points from the content's top-left corner
     /// (docs/scroll.md "Offset and phase"). Sent only by a scroll realized with
     /// [`props::ScrollProps::track_offset`], whatever moved it (a finger, a wheel, momentum, a
     /// programmatic scroll), at most once per display frame, and always once more with the

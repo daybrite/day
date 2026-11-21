@@ -53,7 +53,8 @@ pub trait LayoutOps {
     /// the toolkit answers for a native leaf, the child's own [`Layout::baseline`] for a
     /// container. `None` ⇒ no baseline to align to.
     fn baseline_of(&mut self, child: RNode, size: Size) -> Option<f64>;
-    /// Report scroll content size for the current node (§7.6).
+    /// Report scroll content size for the current node (§7.6). Children placed after the
+    /// report are mirrored for RTL around the content box rather than the node's bounds.
     fn set_scroll_content(&mut self, content: Size);
     /// The room the current scroll node's scroll bar takes from its content area while the
     /// content overflows (`Toolkit::scroll_bar_inset`); 0 where bars overlay the content.
@@ -126,14 +127,30 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         baseline_node(self.tree, child, size)
     }
     fn set_scroll_content(&mut self, content: Size) {
+        // The content is placed inside the scrolling area, so an RTL placement after this
+        // mirrors around the content box, not the viewport.
+        self.parent_size = content;
         let current = self.current;
         let Some(n) = self.tree.node_mut(current) else {
             return;
         };
+        // Under RTL the content's leading edge is the right end of this physical space, so a
+        // scroll opens there the first time its content runs past the viewport (docs/scroll.md
+        // "Offset and phase"). A toolkit whose own scroll view already opens there no-ops.
+        let viewport = n.last_native_frame.map_or(Size::ZERO, |f| f.size);
+        let overflows = |c: Size| c.width > viewport.width + 0.5;
+        let to_leading = self.direction == day_geometry::LayoutDirection::Rtl
+            && viewport.width > 0.0
+            && overflows(content)
+            && !n.scroll_content.is_some_and(overflows);
         // Cache for scroll_to_target (§7.6): edge targets need content-minus-viewport math.
         n.scroll_content = Some(content);
         let Some(h) = n.handle.clone() else { return };
         self.tree.toolkit.set_scroll_content(&h, content);
+        if to_leading {
+            let edge = Rect::new((content.width - 1.0).max(0.0), 0.0, 1.0, 1.0);
+            self.tree.toolkit.scroll_to(&h, edge, false);
+        }
     }
     fn scroll_bar_inset(&mut self, vertical: bool) -> f64 {
         let Some(h) = self.tree.node(self.current).and_then(|n| n.handle.clone()) else {
@@ -2217,6 +2234,10 @@ impl Layout for ScrollLayout {
                     )
                 }
             };
+            // Reported first: it is the box an RTL placement mirrors the child in. Mirrored
+            // around the viewport instead, a horizontal strip wider than its viewport began
+            // that much left of the content's origin, out of reach of the scroll range.
+            cx.set_scroll_content(content);
             cx.place_child(
                 c,
                 Rect::new(
@@ -2226,7 +2247,6 @@ impl Layout for ScrollLayout {
                     child.height,
                 ),
             );
-            cx.set_scroll_content(content);
         }
     }
 }

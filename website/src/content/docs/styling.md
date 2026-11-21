@@ -144,19 +144,23 @@ and patterns.
 
 ## Platform colors for custom artwork
 
-Use [`system_color(role)`](https://docs.rs/day-app/latest/day/fn.system_color.html) when a shape or
-canvas should follow the platform's appearance. `SystemColor` provides `Accent`, `Text`,
-`SecondaryText`, `Background`, and `Surface`:
+Pass a [`SystemColor`](https://docs.rs/day-spec/latest/day_spec/ink/enum.SystemColor.html) role
+where a shape or canvas should follow the platform's appearance. `SystemColor` provides
+`Accent`, `Text`, `SecondaryText`, `Background`, `Surface`, `Separator` and the other roles
+listed in [Color](/docs/reference/color):
 
 ```rust
 rounded_rectangle(8.0)
     .height(32.0)
-    .fill(|| system_color(SystemColor::Accent))
+    .fill(SystemColor::Accent)
 ```
 
-A closure tracks palette changes. Calling [`system_color(...)`](https://docs.rs/day-app/latest/day/fn.system_color.html) once and storing its returned
-`Color` captures a snapshot. Native controls keep their existing styling; semantic text and
-surface roles remain preferable when drawing a custom shape is unnecessary.
+The role follows light and dark mode and accent changes natively, with no closure and no
+rebuild. Canvas code that needs the numbers asks
+[`day::resolve(role)`](https://docs.rs/day-app/latest/day/fn.resolve.html), which returns a
+`Color` for the current appearance; a value kept from it is a snapshot. Native controls keep
+their existing styling; semantic text and surface roles remain preferable when drawing a
+custom shape is unnecessary.
 
 | Toolkit | Color source |
 | --- | --- |

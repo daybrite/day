@@ -53,6 +53,17 @@ class DayEditorParams {
   controller: RichEditorController = new RichEditorController();
   // Set while Day itself writes, so its own edits never report back as user input.
   suppress: boolean = false;
+  // Whether `onReady` has run. The text goes in there, so until then the component holds no
+  // characters and a style, selection or typing style has nothing to land on: those commands
+  // are kept below and applied after the text, rather than sent to an empty editor and lost.
+  ready: boolean = false;
+  runs: string = '';
+  paragraphs: string = '';
+  selection: string = '';
+  typing: string = '';
+  // An insertion arrived before `onReady`: the text it changed is reported once it is shown,
+  // the way `onDidChange` reports one into a live editor.
+  reportText: boolean = false;
 }
 
 // The component. `onDidChange` fires after every committed edit (typing, delete, paste, IME
@@ -62,9 +73,19 @@ class DayEditorParams {
 function dayEditorBuilder(params: DayEditorParams) {
   RichEditor({ controller: params.controller })
     .onReady(() => {
+      params.suppress = true;
       if (params.text !== '') {
         params.controller.addTextSpan(params.text);
       }
+      params.suppress = false;
+      params.ready = true;
+      if (params.reportText) {
+        params.reportText = false;
+        nativeEntry.pieceEvent(params.id, 'txt ' + params.text);
+      }
+      // Whatever Day sent while the component was being built, in the order a live editor
+      // applies it: the styles over the text, then the typing style and the caret.
+      applyHeld(params);
     })
     .onDidChange(() => {
       if (params.suppress) {
@@ -163,20 +184,40 @@ function colorOf(argb: number): string {
   return '#' + hex;
 }
 
+// The commands `update` held while the component was not ready yet (see `ready`).
+function applyHeld(params: DayEditorParams): void {
+  if (params.runs !== '') {
+    applyRuns(params, params.runs);
+  }
+  if (params.paragraphs !== '') {
+    applyParagraphs(params, params.paragraphs);
+  }
+  if (params.typing !== '') {
+    applyTyping(params, params.typing);
+  }
+  if (params.selection !== '') {
+    applySelection(params, params.selection);
+  }
+  params.runs = '';
+  params.paragraphs = '';
+  params.typing = '';
+  params.selection = '';
+}
+
 // One run: `start,end,flags,color,background,scale`. All numbers, so nothing here needs escaping.
 // The flag bits are the ones the whole piece shares: 1 bold, 2 italic, 4 monospace,
 // 8 strikethrough, 16 color, 32 background, 64 underline.
-function applyRuns(live: DayEditorInstance, arg: string): void {
-  const c: RichEditorController = live.params.controller;
-  const len: number = live.params.text.length;
-  live.params.suppress = true;
+function applyRuns(params: DayEditorParams, arg: string): void {
+  const c: RichEditorController = params.controller;
+  const len: number = params.text.length;
+  params.suppress = true;
   // Reset first: a run that stopped being bold has to lose the attribute, and updateSpanStyle
   // only ever adds. `undefined` restores the component's own default for a property.
   c.updateSpanStyle({
     start: 0,
     end: len,
     textStyle: {
-      fontSize: live.params.basePt,
+      fontSize: params.basePt,
       fontWeight: FontWeight.Normal,
       fontStyle: FontStyle.Normal,
       decoration: { type: TextDecorationType.None }
@@ -193,7 +234,7 @@ function applyRuns(live: DayEditorInstance, arg: string): void {
     const flags: number = Number(f[2]);
     const scale: number = Number(f[5]) / 1000;
     const style: RichEditorTextStyle = {
-      fontSize: live.params.basePt * (scale > 0 ? scale : 1),
+      fontSize: params.basePt * (scale > 0 ? scale : 1),
       fontWeight: (flags & 1) !== 0 ? FontWeight.Bold : FontWeight.Normal,
       fontStyle: (flags & 2) !== 0 ? FontStyle.Italic : FontStyle.Normal
     };
@@ -215,14 +256,14 @@ function applyRuns(live: DayEditorInstance, arg: string): void {
     }
     c.updateSpanStyle({ start: start, end: end, textStyle: style });
   }
-  live.params.suppress = false;
+  params.suppress = false;
 }
 
 // One paragraph: `start,end,align,indent,marker`.
-function applyParagraphs(live: DayEditorInstance, arg: string): void {
-  const c: RichEditorController = live.params.controller;
+function applyParagraphs(params: DayEditorParams, arg: string): void {
+  const c: RichEditorController = params.controller;
   const rows: string[] = arg === '' ? [] : arg.split(RUN_SEP);
-  live.params.suppress = true;
+  params.suppress = true;
   for (let i = 0; i < rows.length; i++) {
     const f: string[] = rows[i].split(',');
     if (f.length < 5) {
@@ -240,26 +281,65 @@ function applyParagraphs(live: DayEditorInstance, arg: string): void {
       }
     });
   }
-  live.params.suppress = false;
+  params.suppress = false;
 }
 
 // Replace the characters, keeping the caret as close to where it was as the new text allows.
-function setDocumentText(live: DayEditorInstance, text: string): void {
-  if (live.params.text === text) {
+// Before `onReady` the new text simply replaces the one `onReady` will put in.
+function setDocumentText(params: DayEditorParams, text: string): void {
+  if (params.text === text) {
     return;
   }
-  const c: RichEditorController = live.params.controller;
+  if (!params.ready) {
+    params.text = text;
+    return;
+  }
+  const c: RichEditorController = params.controller;
   const caret: RichEditorSelection = c.getSelection();
   const at: number = caret.selection.length > 0 ? caret.selection[0] : 0;
-  live.params.suppress = true;
+  params.suppress = true;
   c.deleteSpans({ start: 0, end: -1 });
   if (text !== '') {
     c.addTextSpan(text);
   }
-  live.params.text = text;
+  params.text = text;
   const to: number = Math.min(at, text.length);
   c.setSelection(to, to);
-  live.params.suppress = false;
+  params.suppress = false;
+}
+
+// `start,end`: not suppressed, so the onSelectionChange report that follows tells the piece
+// where the caret now is, after a report the component sent before this write (an insertion's
+// own caret move) that would otherwise stand; the piece's echo guard keeps it from being
+// patched back.
+function applySelection(params: DayEditorParams, arg: string): void {
+  const f: string[] = arg.split(',');
+  params.controller.setSelection(Number(f[0]), Number(f[1]));
+}
+
+// `flags,color,background,scale`: native typing style, one of only three backends that has
+// the concept.
+function applyTyping(params: DayEditorParams, arg: string): void {
+  const f: string[] = arg.split(',');
+  const flags: number = Number(f[0]);
+  const scale: number = Number(f[3]) / 1000;
+  const style: RichEditorTextStyle = {
+    fontSize: params.basePt * (scale > 0 ? scale : 1),
+    fontWeight: (flags & 1) !== 0 ? FontWeight.Bold : FontWeight.Normal,
+    fontStyle: (flags & 2) !== 0 ? FontStyle.Italic : FontStyle.Normal
+  };
+  if ((flags & 16) !== 0) {
+    style.fontColor = colorOf(Number(f[1]));
+  }
+  if ((flags & 32) !== 0) {
+    style.textBackgroundStyle = { color: colorOf(Number(f[2])) };
+  }
+  if ((flags & 8) !== 0) {
+    style.decoration = { type: TextDecorationType.LineThrough };
+  } else if ((flags & 64) !== 0) {
+    style.decoration = { type: TextDecorationType.Underline };
+  }
+  params.controller.setTypingStyle(style);
 }
 
 function update(id: number, cmd: string, arg: string): void {
@@ -267,43 +347,40 @@ function update(id: number, cmd: string, arg: string): void {
   if (live === undefined) {
     return;
   }
+  const params: DayEditorParams = live.params;
   if (cmd === 'text') {
-    setDocumentText(live, arg);
-  } else if (cmd === 'runs') {
-    applyRuns(live, arg);
-  } else if (cmd === 'paragraphs') {
-    applyParagraphs(live, arg);
-  } else if (cmd === 'selection') {
-    // Not suppressed: the onSelectionChange report that follows tells the piece where the
-    // caret now is, after a report the component sent before this write (an insertion's own
-    // caret move) that would otherwise stand; the piece's echo guard keeps it from being
-    // patched back.
-    const f: string[] = arg.split(',');
-    live.params.controller.setSelection(Number(f[0]), Number(f[1]));
-  } else if (cmd === 'typing') {
-    // Native typing style: one of only three backends that has the concept.
-    const f: string[] = arg.split(',');
-    const flags: number = Number(f[0]);
-    const scale: number = Number(f[3]) / 1000;
-    const style: RichEditorTextStyle = {
-      fontSize: live.params.basePt * (scale > 0 ? scale : 1),
-      fontWeight: (flags & 1) !== 0 ? FontWeight.Bold : FontWeight.Normal,
-      fontStyle: (flags & 2) !== 0 ? FontStyle.Italic : FontStyle.Normal
-    };
-    if ((flags & 16) !== 0) {
-      style.fontColor = colorOf(Number(f[1]));
-    }
-    if ((flags & 32) !== 0) {
-      style.textBackgroundStyle = { color: colorOf(Number(f[2])) };
-    }
-    if ((flags & 8) !== 0) {
-      style.decoration = { type: TextDecorationType.LineThrough };
-    } else if ((flags & 64) !== 0) {
-      style.decoration = { type: TextDecorationType.Underline };
-    }
-    live.params.controller.setTypingStyle(style);
+    setDocumentText(params, arg);
   } else if (cmd === 'editable') {
-    live.params.editable = arg === '1';
+    params.editable = arg === '1';
+  } else if (!params.ready) {
+    // Held for `onReady` (see `ready`); a later command of the same kind replaces the held one,
+    // as it would have replaced its effect. An insertion goes into the held text.
+    if (cmd === 'runs') {
+      params.runs = arg;
+    } else if (cmd === 'paragraphs') {
+      params.paragraphs = arg;
+    } else if (cmd === 'selection') {
+      params.selection = arg;
+    } else if (cmd === 'typing') {
+      params.typing = arg;
+    } else if (cmd === 'insert') {
+      const sep: number = arg.indexOf(SEP);
+      if (sep >= 0) {
+        const at: number = indexOfByte(params.text, Number(arg.substring(0, sep)));
+        const text: string = arg.substring(sep + 1);
+        params.text = params.text.substring(0, at) + text + params.text.substring(at);
+        params.selection = (at + text.length) + ',' + (at + text.length);
+        params.reportText = true;
+      }
+    }
+  } else if (cmd === 'runs') {
+    applyRuns(params, arg);
+  } else if (cmd === 'paragraphs') {
+    applyParagraphs(params, arg);
+  } else if (cmd === 'selection') {
+    applySelection(params, arg);
+  } else if (cmd === 'typing') {
+    applyTyping(params, arg);
   } else if (cmd === 'insert') {
     // `at<US>text`: insert through the controller with the caret after it. Not suppressed, since
     // the `onDidChange` report is how the piece learns of the text.
@@ -313,10 +390,10 @@ function update(id: number, cmd: string, arg: string): void {
     }
     // A BYTE offset of the UTF-8 text, converted against the text held now (the Rust arm's copy
     // is as old as the last patch, and an insertion follows a keystroke reported since).
-    const at: number = indexOfByte(live.params.text, Number(arg.substring(0, sep)));
+    const at: number = indexOfByte(params.text, Number(arg.substring(0, sep)));
     const text: string = arg.substring(sep + 1);
-    live.params.controller.addTextSpan(text, { offset: at });
-    live.params.controller.setSelection(at + text.length, at + text.length);
+    params.controller.addTextSpan(text, { offset: at });
+    params.controller.setSelection(at + text.length, at + text.length);
   }
 }
 

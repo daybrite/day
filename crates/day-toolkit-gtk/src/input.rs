@@ -1013,6 +1013,10 @@ mod hit {
         /// The surface border this container draws after its children
         /// ([`super::set_border_over`]), with the corner radii it follows.
         pub(crate) border: std::cell::Cell<Option<(day_spec::Border, day_spec::CornerRadii)>>,
+        /// The conic fill this container draws under its children instead of its CSS
+        /// ([`super::set_fill_under`]), with the corner radii that clip it.
+        pub(crate) fill:
+            std::cell::RefCell<Option<(day_spec::ConicGradient, day_spec::CornerRadii)>>,
     }
 
     #[glib::object_subclass]
@@ -1030,6 +1034,12 @@ mod hit {
         }
 
         fn snapshot(&self, snapshot: &gtk4::Snapshot) {
+            // A fill drawn here goes where the CSS background would be: after GTK's own CSS
+            // background and shadows, before the children.
+            let fill = self.fill.borrow().clone();
+            if let Some((gradient, radii)) = fill {
+                super::snapshot_conic_fill(self.obj().upcast_ref(), snapshot, &gradient, radii);
+            }
             // The children first, then the border over them (docs/surfaces.md): GTK's own
             // CSS border and box shadows are drawn before the children.
             self.parent_snapshot(snapshot);
@@ -1113,6 +1123,61 @@ pub(crate) fn set_border_over(
     true
 }
 
+/// Have `w` draw `fill` itself, under its children and clipped to its rounded frame, or stop
+/// drawing one for `None`. The stand-in for a CSS `conic-gradient()` where GSK's cairo renderer
+/// would not draw it (`SurfaceStyle::draws_conic`). Only a Day container ([`DayFixed`]) can:
+/// `false` for any other widget, whose surface keeps the fill in its CSS.
+pub(crate) fn set_fill_under(
+    w: &gtk4::Widget,
+    fill: Option<(day_spec::ConicGradient, day_spec::CornerRadii)>,
+) -> bool {
+    let Some(f) = w.downcast_ref::<DayFixed>() else {
+        return false;
+    };
+    let fills = fill.is_some();
+    let was = f.imp().fill.replace(fill);
+    // Drawn again even when unchanged: a restyle for a new appearance resolves its inks anew.
+    if was.is_some() || fills {
+        f.queue_draw();
+    }
+    true
+}
+
+/// `w`'s bounds as a rounded rectangle with `radii`, scaled down together where they do not
+/// fit (a capsule's), as CSS's are.
+fn rounded_outline(w: &gtk4::Widget, radii: day_spec::CornerRadii) -> gtk4::gsk::RoundedRect {
+    let corner = |r: f64| gtk4::graphene::Size::new(r.max(0.0) as f32, r.max(0.0) as f32);
+    let mut outline = gtk4::gsk::RoundedRect::new(
+        gtk4::graphene::Rect::new(0.0, 0.0, w.width() as f32, w.height() as f32),
+        corner(radii.top_left),
+        corner(radii.top_right),
+        corner(radii.bottom_right),
+        corner(radii.bottom_left),
+    );
+    outline.normalize();
+    outline
+}
+
+/// Append `gradient` over `w`'s bounds, clipped to them rounded by `radii`, its inks resolved
+/// for the appearance drawn now.
+fn snapshot_conic_fill(
+    w: &gtk4::Widget,
+    snapshot: &gtk4::Snapshot,
+    gradient: &day_spec::ConicGradient,
+    radii: day_spec::CornerRadii,
+) {
+    let (width, height) = (w.width() as f32, w.height() as f32);
+    if width <= 0.0 || height <= 0.0 {
+        return;
+    }
+    snapshot.push_rounded_clip(&rounded_outline(w, radii));
+    {
+        let cr = snapshot.append_cairo(&gtk4::graphene::Rect::new(0.0, 0.0, width, height));
+        crate::paint_conic_fill(&cr, f64::from(width), f64::from(height), gradient);
+    }
+    snapshot.pop();
+}
+
 /// Append `border` along `w`'s bounds rounded by `radii`, its ink resolved for the appearance
 /// drawn now: a border band GTK renders the way it renders a CSS border.
 fn snapshot_border(
@@ -1125,16 +1190,7 @@ fn snapshot_border(
     if width <= 0.0 || height <= 0.0 || border.width <= 0.0 {
         return;
     }
-    let corner = |r: f64| gtk4::graphene::Size::new(r.max(0.0) as f32, r.max(0.0) as f32);
-    let mut outline = gtk4::gsk::RoundedRect::new(
-        gtk4::graphene::Rect::new(0.0, 0.0, width, height),
-        corner(radii.top_left),
-        corner(radii.top_right),
-        corner(radii.bottom_right),
-        corner(radii.bottom_left),
-    );
-    // Radii larger than the box (a capsule's) scale down together, as CSS's do.
-    outline.normalize();
+    let outline = rounded_outline(w, radii);
     let band = (border.width as f32).min(width.min(height) / 2.0);
     let c = border.color.resolved();
     let rgba = gtk4::gdk::RGBA::new(c.r as f32, c.g as f32, c.b as f32, c.a as f32);

@@ -262,7 +262,7 @@ Each frame dimension can use a different source:
 let compact = Signal::new(false);
 let width = Signal::new(200.0);
 rectangle()
-    .fill(|| system_color(SystemColor::Accent))
+    .fill(SystemColor::Accent)
     .frame(width, move || if compact.get() { 80.0 } else { 160.0 })
 ```
 

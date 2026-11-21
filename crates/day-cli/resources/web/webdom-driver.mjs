@@ -84,6 +84,9 @@ const page = context.pages()[0] ?? (await context.newPage());
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.error(`page ${m.type()}: ${m.text()}`);
 });
+// An exception nothing caught never reaches the console listener: one thrown by a shim import
+// unwinds through the wasm frames of whatever called it, and only this event reports it.
+page.on('pageerror', (e) => console.error(`page exception: ${e.stack || e}`));
 await page.goto(url, { waitUntil: 'load' });
 
 const server = http.createServer(async (req, res) => {

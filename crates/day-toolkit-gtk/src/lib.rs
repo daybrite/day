@@ -634,8 +634,8 @@ impl PendingGradient {
                     .iter()
                     .map(|(px, py)| (px - cx).hypot(py - cy))
                     .fold(0.0, f64::max);
-                let mesh = conic_mesh(cx, cy, far + reach.max(0.0) + 2.0, self.c, &self.stops);
-                let _ = cr.set_source(&mesh);
+                let radius = far + reach.max(0.0) + 2.0;
+                set_conic_source(cr, cx, cy, radius, self.c, &self.stops);
             }
             _ => {
                 let lg = gtk4::cairo::LinearGradient::new(
@@ -705,11 +705,21 @@ fn conic_wedges(start_deg: f64, stops: &[(f64, u32)]) -> Vec<ConicWedge> {
         let sweep = (to - from) * 360.0;
         let step = if a == b { CONIC_FLAT_STEP } else { CONIC_STEP };
         let n = (sweep / step).ceil().max(1.0) as u32;
+        // A span's last edge is its `to` exactly, the next span's first edge, so two wedges
+        // that meet share their edge to the bit ([`set_conic_fan`] tiles on that).
+        let edge = |i: u32| {
+            let at = if i == n {
+                to
+            } else {
+                from + (to - from) * f64::from(i) / f64::from(n)
+            };
+            start_deg + at * 360.0
+        };
         for i in 0..n {
             let (k0, k1) = (f64::from(i) / f64::from(n), f64::from(i + 1) / f64::from(n));
             out.push(ConicWedge {
-                from: start_deg + from * 360.0 + sweep * k0,
-                to: start_deg + from * 360.0 + sweep * k1,
+                from: edge(i),
+                to: edge(i + 1),
                 start: lerp(a, b, k0),
                 end: lerp(a, b, k1),
             });
@@ -761,6 +771,176 @@ fn conic_mesh(
         mesh.end_patch();
     }
     mesh
+}
+
+/// Install a conic gradient about (`cx`, `cy`), reaching `radius`, as the cairo source: the
+/// mesh of [`conic_mesh`] wherever cairo paints one, else the fan of [`set_conic_fan`]. A PDF,
+/// PostScript or SVG target always takes the mesh, which it writes out as a shading without
+/// rasterizing it. Any other target (an image, or the recording GSK replays onto one) takes
+/// the fan only where this process's cairo cannot rasterize a mesh ([`mesh_rasterizes`]).
+/// The current path, the shape about to be painted, is kept.
+fn set_conic_source(
+    cr: &gtk4::cairo::Context,
+    cx: f64,
+    cy: f64,
+    radius: f64,
+    start_deg: f64,
+    stops: &[(f64, u32)],
+) {
+    use gtk4::cairo::SurfaceType;
+    let vector = matches!(
+        cr.target().type_(),
+        SurfaceType::Pdf | SurfaceType::Ps | SurfaceType::Svg
+    );
+    if vector || mesh_rasterizes() {
+        let _ = cr.set_source(conic_mesh(cx, cy, radius, start_deg, stops));
+    } else {
+        set_conic_fan(cr, cx, cy, radius, start_deg, stops);
+    }
+}
+
+/// Whether this process's cairo paints a mesh pattern onto an image. Every build should.
+/// Ubuntu 26.04's x86-64-v3 build of cairo 1.18.4 (`libcairo2` 1.18.4-3 `amd64v3`, the one
+/// GitHub's `ubuntu-latest` runners install) does not: it paints a patch's first side and
+/// its diagonal and leaves the rest clear, while the baseline `amd64` build of the same
+/// package paints the whole patch. That breaks [`conic_mesh`] on every GSK renderer, since a
+/// canvas is drawn by cairo whatever renders the window, and GSK's own cairo renderer, which
+/// draws a CSS `conic-gradient()` as a mesh too ([`SurfaceStyle::draws_conic`]).
+///
+/// Asked once per process: one opaque square patch is painted and two of its pixels, one on
+/// each side of that diagonal and clear of every side, must come back opaque. A probe that
+/// cannot run answers `true`, which keeps the mesh.
+fn mesh_rasterizes() -> bool {
+    static PAINTS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *PAINTS.get_or_init(|| {
+        use gtk4::cairo::{self, MeshCorner};
+        const SIDE: i32 = 16;
+        let Ok(mut surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, SIDE, SIDE) else {
+            return true;
+        };
+        {
+            let Ok(cr) = cairo::Context::new(&surface) else {
+                return true;
+            };
+            let side = f64::from(SIDE);
+            let mesh = cairo::Mesh::new();
+            mesh.begin_patch();
+            mesh.move_to(0.0, 0.0);
+            mesh.line_to(side, 0.0);
+            mesh.line_to(side, side);
+            mesh.line_to(0.0, side);
+            for corner in [
+                MeshCorner::MeshCorner0,
+                MeshCorner::MeshCorner1,
+                MeshCorner::MeshCorner2,
+                MeshCorner::MeshCorner3,
+            ] {
+                mesh.set_corner_color_rgba(corner, 1.0, 0.0, 0.0, 1.0);
+            }
+            mesh.end_patch();
+            if cr.set_source(&mesh).is_err() || cr.paint().is_err() {
+                return true;
+            }
+        }
+        surface.flush();
+        let stride = surface.stride() as usize;
+        let Ok(data) = surface.data() else {
+            return true;
+        };
+        // ARGB32 pixels are native-endian words with alpha in the top byte.
+        [(12usize, 3usize), (3, 12)].iter().all(|&(x, y)| {
+            let at = y * stride + x * 4;
+            data.get(at..at + 4)
+                .and_then(|px| <[u8; 4]>::try_from(px).ok())
+                .is_some_and(|px| u32::from_ne_bytes(px) >> 24 == 0xff)
+        })
+    })
+}
+
+/// A conic gradient as a fan of [`ConicWedge`]s painted into a group that becomes the cairo
+/// source: the stand-in for [`conic_mesh`] where cairo cannot rasterize a mesh
+/// ([`mesh_rasterizes`]). Each wedge is a sector from the center out to `radius`, filled with
+/// its two colors as a linear gradient across its rim: exact on the rim, and nowhere further
+/// from [`day_spec::ConicGradient::color_at`] than half the change across one wedge. The
+/// wedges are drawn without antialiasing and with the SOURCE operator, so neighbours tile on
+/// their shared edges ([`conic_wedges`] makes them bit-identical) with no seam of partial
+/// coverage and no translucent wedge laid over another; the shape painted with the fan keeps
+/// its own antialiased outline. The current path, the shape about to be painted, is kept.
+fn set_conic_fan(
+    cr: &gtk4::cairo::Context,
+    cx: f64,
+    cy: f64,
+    radius: f64,
+    start_deg: f64,
+    stops: &[(f64, u32)],
+) {
+    use gtk4::cairo;
+    let shape = cr.copy_path();
+    cr.new_path();
+    // The group needs no more surface than the fan's square.
+    let _ = cr.save();
+    cr.rectangle(cx - radius, cy - radius, 2.0 * radius, 2.0 * radius);
+    cr.clip();
+    cr.push_group();
+    cr.set_operator(cairo::Operator::Source);
+    cr.set_antialias(cairo::Antialias::None);
+    for wedge in conic_wedges(start_deg, stops) {
+        let (a0, a1) = (wedge.from.to_radians(), wedge.to.to_radians());
+        let (p0x, p0y) = (cx + radius * a0.cos(), cy + radius * a0.sin());
+        let (p1x, p1y) = (cx + radius * a1.cos(), cy + radius * a1.sin());
+        let (r, g, b, a) = cairo_rgba(wedge.start);
+        if wedge.start == wedge.end {
+            cr.set_source_rgba(r, g, b, a);
+        } else {
+            let rim = cairo::LinearGradient::new(p0x, p0y, p1x, p1y);
+            rim.add_color_stop_rgba(0.0, r, g, b, a);
+            let (r, g, b, a) = cairo_rgba(wedge.end);
+            rim.add_color_stop_rgba(1.0, r, g, b, a);
+            let _ = cr.set_source(&rim);
+        }
+        // Both straight sides run between the center and points computed here, never
+        // through the arc's own end, so a wedge's side is exactly its neighbour's.
+        cr.move_to(cx, cy);
+        cr.line_to(p0x, p0y);
+        cr.arc(cx, cy, radius, a0, a1);
+        cr.line_to(p1x, p1y);
+        cr.close_path();
+        let _ = cr.fill();
+    }
+    let fan = cr.pop_group();
+    let _ = cr.restore();
+    if let Ok(fan) = fan {
+        let _ = cr.set_source(&fan);
+    }
+    if let Ok(shape) = shape {
+        cr.append_path(&shape);
+    }
+}
+
+/// A color as the wire's `0xAARRGGBB`.
+fn color_bits(c: day_spec::Color) -> u32 {
+    let ch = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
+    (ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)
+}
+
+/// Fill a `w` × `h` box with a surface's conic gradient in the current appearance, the way a
+/// canvas paints one ([`set_conic_source`]): what a Day container draws itself where GSK's
+/// cairo renderer would not draw the CSS gradient ([`SurfaceStyle::draws_conic`]).
+fn paint_conic_fill(cr: &gtk4::cairo::Context, w: f64, h: f64, g: &day_spec::ConicGradient) {
+    let stops: Vec<(f64, u32)> = g
+        .stops
+        .iter()
+        .map(|(offset, ink)| (*offset, color_bits(ink.resolved())))
+        .collect();
+    let (cx, cy) = (g.center.x * w, g.center.y * h);
+    let far = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
+        .iter()
+        .map(|(px, py)| (px - cx).hypot(py - cy))
+        .fold(0.0, f64::max);
+    cr.new_path();
+    set_conic_source(cr, cx, cy, far + 2.0, g.start.degrees(), &stops);
+    cr.rectangle(0.0, 0.0, w, h);
+    let _ = cr.fill();
 }
 
 /// Trace an encoded path ("M x y L x y Q .. C .. Z", see `day_spec::encode_path`) into the
@@ -3550,6 +3730,18 @@ impl SurfaceStyle {
         }
     }
 
+    /// The conic fill a Day container draws itself rather than as a CSS `conic-gradient()`:
+    /// GSK's cairo renderer (the one `day launch` runs GTK apps on) draws that gradient as a
+    /// cairo mesh, which some cairo builds paint as a few lines ([`mesh_rasterizes`]). So
+    /// there, and only there, the container paints the fill the way a canvas does
+    /// ([`input::set_fill_under`]). `None` for any other fill, and wherever meshes paint.
+    fn draws_conic(&self) -> Option<&day_spec::ConicGradient> {
+        match &self.fill {
+            Some(day_spec::Paint::Conic(g)) if !mesh_rasterizes() => Some(g),
+            _ => None,
+        }
+    }
+
     /// Whether there is anything for a CSS provider to say.
     fn is_styled(&self) -> bool {
         self.fill.is_some()
@@ -3878,6 +4070,8 @@ fn apply_surface_style(w: &Handle, style: &SurfaceStyle) {
         .filter(|b| b.width > 0.0)
         .map(|b| (b, style.radii()));
     let over = input::set_border_over(w, border);
+    let drawn = input::set_fill_under(w, style.draws_conic().map(|g| (g.clone(), style.radii())))
+        && style.draws_conic().is_some();
     let known = SURFACE.with(|t| {
         t.with(key, |e| {
             e.style = style.clone();
@@ -3912,7 +4106,17 @@ fn apply_surface_style(w: &Handle, style: &SurfaceStyle) {
         });
         (p, size)
     };
-    provider.load_from_data(&format!(".{class} {{ {} }}", style.css(size, !over)));
+    // A fill the container draws itself is left out of the CSS.
+    let css = if drawn {
+        SurfaceStyle {
+            fill: None,
+            ..style.clone()
+        }
+        .css(size, !over)
+    } else {
+        style.css(size, !over)
+    };
+    provider.load_from_data(&format!(".{class} {{ {css} }}"));
     if style.clips || (style.corner_radius > 0.0 && style.shadow.is_none()) {
         w.set_overflow(gtk4::Overflow::Hidden);
     } else if style.shadow.is_some() {
@@ -7200,6 +7404,12 @@ impl Toolkit for Gtk {
 
     fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
         handle.set_visible(visible);
+    }
+
+    /// Settled once no programmatic scroll is still gliding (`scroll::settled`): a scripted step
+    /// after "scroll to row" then sees the list's viewport report for where the scroll ended.
+    fn ui_idle(&mut self) -> bool {
+        scroll::settled()
     }
 
     #[expect(
@@ -13024,6 +13234,86 @@ mod surface_canvas_tests {
         assert_eq!(px[25 * w + 75], 0xffff_ff00);
         // The fan reaches the corners and leaves no clear seam along its spokes.
         assert!(px.iter().all(|p| p >> 24 == 0xff));
+    }
+
+    /// `stops` painted over a `w` × `h` rect as the fan that stands in for the mesh where
+    /// cairo cannot rasterize one ([`set_conic_fan`]), at `scale` device pixels per point.
+    fn fan_painted(w: i32, h: i32, scale: i32, stops: &[(f64, u32)]) -> (Vec<u32>, usize) {
+        use gtk4::cairo;
+        let mut surface =
+            cairo::ImageSurface::create(cairo::Format::ARgb32, w * scale, h * scale).unwrap();
+        {
+            let cr = cairo::Context::new(&surface).unwrap();
+            cr.scale(f64::from(scale), f64::from(scale));
+            let (w, h) = (f64::from(w), f64::from(h));
+            // The shape is traced first, as the canvas does: the fan must keep it.
+            cr.rectangle(0.0, 0.0, w, h);
+            set_conic_fan(&cr, w / 2.0, h / 2.0, w.hypot(h) / 2.0 + 2.0, 0.0, stops);
+            cr.fill().unwrap();
+        }
+        surface.flush();
+        let stride = surface.stride() as usize;
+        let width = (w * scale) as usize;
+        let data = surface.data().unwrap();
+        let mut out = Vec::with_capacity(width * (h * scale) as usize);
+        for row in data.chunks_exact(stride) {
+            for px in row[..width * 4].as_chunks::<4>().0 {
+                out.push(u32::from_ne_bytes(*px));
+            }
+        }
+        (out, width)
+    }
+
+    #[test]
+    fn conic_fan_paints_its_quarters_clockwise_without_seams() {
+        let quarter = |at: f64, c: u32| [(at, c), (at + 0.25, c)];
+        let stops = [
+            quarter(0.0, 0xffff_0000),
+            quarter(0.25, 0xff00_ff00),
+            quarter(0.5, 0xff00_00ff),
+            quarter(0.75, 0xffff_ff00),
+        ]
+        .concat();
+        for scale in [1, 2] {
+            let (px, w) = fan_painted(100, 100, scale, &stops);
+            let at = |x: usize, y: usize| px[y * scale as usize * w + x * scale as usize];
+            assert_eq!(at(75, 75), 0xffff_0000, "scale {scale}");
+            assert_eq!(at(25, 75), 0xff00_ff00, "scale {scale}");
+            assert_eq!(at(25, 25), 0xff00_00ff, "scale {scale}");
+            assert_eq!(at(75, 25), 0xffff_ff00, "scale {scale}");
+            // Every pixel is one wedge's, opaque: no clear seam along a spoke, none at the
+            // center, and the fan reaches the corners.
+            assert!(px.iter().all(|p| p >> 24 == 0xff), "scale {scale}");
+        }
+    }
+
+    #[test]
+    fn conic_fan_follows_color_at_around_the_turn() {
+        let stops = [(0.0, 0xffff_0000), (1.0, 0xff00_00ff)];
+        let (px, w) = fan_painted(100, 100, 1, &stops);
+        let spec = day_spec::ConicGradient::centered(
+            day_spec::Angle::deg(0.0),
+            [(0.0, Color::hex(0xff_0000)), (1.0, Color::hex(0x00_00ff))],
+        );
+        // A ring of pixels away from the center and from the seam where the turn ends.
+        for step in 1..36 {
+            let a = f64::from(step) * 10.0;
+            let (x, y) = (
+                (50.0 + 40.0 * a.to_radians().cos()) as usize,
+                (50.0 + 40.0 * a.to_radians().sin()) as usize,
+            );
+            // The angle of the pixel's center, which is what the fan's color stands for.
+            let at = (y as f64 + 0.5 - 50.0)
+                .atan2(x as f64 + 0.5 - 50.0)
+                .to_degrees();
+            let want = spec.color_at(day_spec::Angle::deg(at));
+            let p = px[y * w + x];
+            let (r, b) = (f64::from((p >> 16) & 0xff), f64::from(p & 0xff));
+            assert!(
+                (r - want.r * 255.0).abs() <= 3.0 && (b - want.b * 255.0).abs() <= 3.0,
+                "{a}°: {p:08x} vs {want:?}"
+            );
+        }
     }
 
     #[test]

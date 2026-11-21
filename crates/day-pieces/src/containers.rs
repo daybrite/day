@@ -487,7 +487,7 @@ impl<P: Piece> Scroll<P> {
     }
 
     /// Follow the content offset (docs/scroll.md "Offset and phase"): `offset` is written as
-    /// the view scrolls, in points from the content's top-leading corner, at most once per
+    /// the view scrolls, in points from the content's top-left corner, at most once per
     /// display frame, and once more with the offset the view comes to rest at. Whatever moves
     /// the content counts: a finger, a wheel, momentum, [`Self::scroll_target`]. Drive a
     /// collapsing header or a parallax layer from it. Probe `Cap::ScrollOffset`; where it is

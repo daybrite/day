@@ -5412,6 +5412,58 @@ fn scroll_target_signal_drives_offset() {
 }
 
 #[test]
+fn rtl_horizontal_scroll_mirrors_within_its_content() {
+    use day_geometry::LayoutDirection;
+    day_core::set_layout_direction(LayoutDirection::Rtl);
+    let jump: Signal<Option<ScrollTarget>> = Signal::new(None);
+    let probe = boot(move || {
+        let cards: Vec<AnyPiece> = (0..8)
+            .map(|_| rectangle().fill(Color::WHITE).frame(140.0, 88.0).any())
+            .collect();
+        scroll(row(cards).spacing(12.0))
+            .horizontal()
+            .scroll_target(jump)
+            .any()
+    });
+    let strip = probe.find_by_kind("day.scroll")[0].1.clone();
+    let content = strip.scroll_content.width;
+    let viewport = strip.frame.size.width;
+    assert_eq!(content, 8.0 * 140.0 + 7.0 * 12.0);
+    assert!(
+        viewport < content,
+        "the strip overflows: {viewport} < {content}"
+    );
+    // The content is mirrored inside its own box, not around the viewport (which put the row
+    // at x = 400 - 1204, out of the scroll range): the row starts at the content's origin,
+    // and the first card sits at its right (leading) end.
+    let row = probe.widget(day_mock::MockHandle(strip.children[0]));
+    assert_eq!(row.frame, Rect::new(0.0, 0.0, content, 600.0));
+    let cards = probe.find_by_kind("day.canvas");
+    assert_eq!(cards.len(), 8);
+    assert_eq!(
+        cards[0].1.frame.origin.x,
+        content - 140.0,
+        "{:?}",
+        cards[0].1.frame
+    );
+    assert_eq!(cards[7].1.frame.origin.x, 0.0, "{:?}", cards[7].1.frame);
+
+    // It opens on that leading end, and leading and trailing follow the layout direction in
+    // the same physical content space.
+    assert_eq!(strip.scroll_offset.x, content - viewport);
+    jump.set(Some(ScrollTarget::Trailing));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.scroll")[0].1.scroll_offset.x, 0.0);
+    jump.set(Some(ScrollTarget::Leading));
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.scroll")[0].1.scroll_offset.x,
+        content - viewport
+    );
+    day_core::set_layout_direction(LayoutDirection::Ltr);
+}
+
+#[test]
 fn picker_and_text_area_are_built_in() {
     // Both moved from satellite crates into core (2026-07): they realize as first-class
     // widgets on the mock backend, with probe-visible selection/text and no registry fallback.

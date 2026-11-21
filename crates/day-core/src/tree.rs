@@ -2324,10 +2324,28 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let content = n.scroll_content.unwrap_or(viewport);
         // Compose a content-space rect whose minimal reveal lands on the target
         // (`Toolkit::scroll_to` is scrollRectToVisible semantics on every backend).
+        // Content space is physical: an RTL layout mirrors the content, so its leading edge
+        // is the right one.
+        let rtl = self.direction_of(node) == day_spec::LayoutDirection::Rtl;
+        let left = Rect::new(0.0, 0.0, 1.0, 1.0);
+        let right = Rect::new((content.width - 1.0).max(0.0), 0.0, 1.0, 1.0);
         let rect = match target {
-            ScrollTarget::Top | ScrollTarget::Leading => Rect::new(0.0, 0.0, 1.0, 1.0),
+            ScrollTarget::Top => left,
+            ScrollTarget::Leading => {
+                if rtl {
+                    right
+                } else {
+                    left
+                }
+            }
+            ScrollTarget::Trailing => {
+                if rtl {
+                    left
+                } else {
+                    right
+                }
+            }
             ScrollTarget::Bottom => Rect::new(0.0, (content.height - 1.0).max(0.0), 1.0, 1.0),
-            ScrollTarget::Trailing => Rect::new((content.width - 1.0).max(0.0), 0.0, 1.0, 1.0),
             // A viewport-sized rect: minimal reveal pins the viewport origin to the point
             // (exactly, when the point is within the scrollable range).
             ScrollTarget::Offset(p) => Rect::new(p.x, p.y, viewport.width, viewport.height),

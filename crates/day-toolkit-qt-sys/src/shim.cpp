@@ -6859,8 +6859,13 @@ public:
     // A row scrolled to the top of a sectioned list lands under the pinned header of its
     // section: scroll on until it clears the pin (docs/list.md "Sections"). The covered height
     // is the header row's own, which the pin copies. Every reveal comes through here: the
-    // keyboard walker's, `day_qt_list_scroll_to_row`'s, a click's.
+    // keyboard walker's, `day_qt_list_scroll_to_row`'s, a click's. And so does Qt's own reveal of
+    // a new current row (`QAbstractItemView::currentChanged` under `autoScroll`), which a model
+    // delta or the app's selection sync (`syncing`) causes without the reader asking to see that
+    // row: an insert above a selected row, or a selection re-applied at its row's new index, would
+    // otherwise scroll the list to the selection (docs/list.md "Selection").
     void scrollTo(const QModelIndex &ix, ScrollHint hint = EnsureVisible) override {
+        if (syncing) return;
         QListView::scrollTo(ix, hint);
         if (m->headers.empty() || !ix.isValid() || hint == PositionAtBottom) return;
         const int h = m->headerFor(ix.row());

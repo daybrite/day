@@ -97,8 +97,11 @@ zstack((
 ```
 
 [`.scroll_offset(binding)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ScrollBuilder.html#tymethod.scroll_offset) follows the content offset, in points from the
-content's top-leading corner. The view writes it as it scrolls, at most once per display
-frame, and once more with the offset it comes to rest at. Whatever moves the content counts:
+content's top-left corner. That is the content space `ScrollTarget::Offset` and dayscript's
+`scroll_to` `x`/`y` take, so a value read back can be written again. Under a right-to-left
+layout the content is mirrored inside that space, so a horizontal scroll opens on its leading
+(right) edge and reads its full range there; its offset still counts from the left. The view
+writes it as it scrolls, at most once per display frame, and once more with the offset it comes to rest at. Whatever moves the content counts:
 a finger, a wheel, momentum, or `scroll_target`. A collapsing header, a parallax layer and a
 "jump to top" button that appears after the first screen are all functions of this value.
 Without the binding the view installs no scroll observer. Probe `Cap::ScrollOffset`; where it

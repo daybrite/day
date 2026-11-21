@@ -28,7 +28,7 @@ mod controls;
 mod transfer;
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use day_spec::props::*;
 use day_spec::{
@@ -1120,7 +1120,7 @@ thread_local! {
     static CELL_ROWS: RefCell<HashMap<u32, (u32, usize)>> = RefCell::new(HashMap::new());
     /// Spinner-vs-bar per PROGRESS element (progress with `None` renders as a spinner).
     static SPINNERS: RefCell<std::collections::HashMap<u32, f64>> = RefCell::new(HashMap::default());
-    static POSTED: RefCell<Vec<Box<dyn FnOnce() + Send>>> = RefCell::new(Vec::new());
+    static POSTED: RefCell<VecDeque<Box<dyn FnOnce() + Send>>> = RefCell::new(VecDeque::new());
     static DELAYED: RefCell<HashMap<u32, Box<dyn FnOnce() + Send>>> = RefCell::new(HashMap::new());
     static NEXT_DELAY: Cell<u32> = const { Cell::new(1) };
 
@@ -3785,6 +3785,12 @@ impl Toolkit for Dom {
             return false;
         }
         post_local(move || {
+            // The list can be released before its turn comes: a page swapped out in the same
+            // task (a test run moving to its next case) takes the element with it, and the
+            // shim would throw reading a viewport it no longer has.
+            if !LISTS.with(|m| m.borrow().contains_key(&el)) {
+                return;
+            }
             let mut view = [0.0_f64; 2];
             unsafe { day_dom_list_viewport(el, view.as_mut_ptr()) };
             let target = LISTS.with(|m| {
@@ -4624,7 +4630,7 @@ impl Platform for Dom {
     }
 
     fn post(f: Box<dyn FnOnce() + Send>) {
-        POSTED.with(|q| q.borrow_mut().push(f));
+        POSTED.with(|q| q.borrow_mut().push_back(f));
         unsafe { day_dom_schedule_post() };
     }
 
@@ -7046,9 +7052,19 @@ pub extern "C" fn day_dom_toolbar_submit(action: f64, ptr: *mut u8, len: usize) 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_posted() {
-    let q: Vec<_> = POSTED.with(|q| q.borrow_mut().drain(..).collect());
-    // Contained per closure, so one panicking post cannot drop the ones queued behind it.
-    for f in q {
+    // The closures queued when this turn began, taken one at a time and each contained, so one
+    // that fails cannot drop the ones queued behind it. A panic is caught here. A JavaScript
+    // exception from an import is not: it unwinds through every wasm frame up to the shim's
+    // microtask without running a destructor. The closures behind it must then still be in
+    // the queue, where the turns already scheduled for them (one per post) run them. Drained
+    // up front, they would be lost, and with them day-reactive's coalesced drain, whose
+    // "posted" flag then stays set: no later signal write would reach its effects. Closures
+    // posted from here wait for their own turn.
+    let queued = POSTED.with(|q| q.borrow().len());
+    for _ in 0..queued {
+        let Some(f) = POSTED.with(|q| q.borrow_mut().pop_front()) else {
+            break;
+        };
         day_spec::ffi_guard::contain((), f);
     }
 }

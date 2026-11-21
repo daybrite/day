@@ -1197,7 +1197,14 @@ impl<S: Binding<bool>> Piece for Toggle<S> {
         }
         let v = self.value;
         cx.on(node, move |ev| {
-            if let Event::ToggleChanged(on) = ev {
+            // A report of the value the binding already holds changes nothing: it is the
+            // control echoing the app's own write (GTK's `notify::active`, Qt's `toggled` and
+            // Android's checked listener all fire for a programmatic set), the second layer of
+            // echo suppression (DESIGN.md §4.4). Written anyway, it would notify every watcher
+            // of the binding a second time for one change.
+            if let Event::ToggleChanged(on) = ev
+                && v.peek() != *on
+            {
                 v.write(*on);
             }
         });
@@ -1895,6 +1902,44 @@ pub(crate) mod conformance {
                 d.assert_text("tgl_state", "off").await?;
                 d.tap("tgl_set").await?;
                 d.assert_on("tgl_switch", true).await
+            })
+    }
+
+    /// One flip is one change (DESIGN.md §4.4): the control echoing a value written to it, by
+    /// the flip itself or by the app, does not notify the binding's watchers a second time. A
+    /// watcher that toggles something on each change (reverse a list) would undo its own work.
+    #[day_macros::test(day_core)]
+    fn toggle_flip_is_one_change() -> Case {
+        let on = Signal::new(false);
+        let changes = Signal::new(0u32);
+        Case::new()
+            .proves(kinds::TOGGLE)
+            .page(move || {
+                day_reactive::watch(move || on.get(), move |_, _| changes.update(|n| *n += 1));
+                column((
+                    toggle(on).id(day_core::id!(tgl_once)),
+                    button("Set on")
+                        .action(move || on.set(true))
+                        .id(day_core::id!(tgl_once_set)),
+                    label(move || format!("changes {}", changes.get()))
+                        .id(day_core::id!(tgl_once_changes)),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.toggle("tgl_once", true).await?;
+                d.wait_idle().await?;
+                d.pause(0.3).await?;
+                d.assert_text("tgl_once_changes", "changes 1").await?;
+                d.toggle("tgl_once", false).await?;
+                d.wait_idle().await?;
+                d.pause(0.3).await?;
+                d.assert_text("tgl_once_changes", "changes 2").await?;
+                d.tap("tgl_once_set").await?;
+                d.wait_idle().await?;
+                d.pause(0.3).await?;
+                d.assert_on("tgl_once", true).await?;
+                d.assert_text("tgl_once_changes", "changes 3").await
             })
     }
 

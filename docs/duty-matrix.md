@@ -83,7 +83,7 @@ implement them, and this table proves it.
 | [`toggle_sidebar`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.toggle_sidebar) | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
 | [`native_back`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.native_back) | · | · | ✓ | · | · | · | ✓ | ✓ | · | ✓ |
 | [`set_system_back`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_system_back) | · | · | · | · | · | · | ✓ | ✓ | · | ✓ |
-| [`ui_idle`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.ui_idle) | · | ✓ | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
+| [`ui_idle`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.ui_idle) | · | ✓ | ✓ | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
 | [`present`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.present) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`dismiss`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.dismiss) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`open_url`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.open_url) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

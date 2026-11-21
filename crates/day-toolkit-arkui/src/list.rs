@@ -381,16 +381,31 @@ fn new_supplement_cell(dl: &mut List) -> Handle {
     cell
 }
 
+/// A row height in vp as a whole number of device pixels, at least one, in vp again.
+///
+/// ArkUI stacks a LIST's items at the sum of the heights above them and snaps what it draws,
+/// and every position it reports (`ArkUI_IntOffset`), to whole pixels. A row a fractional
+/// number of pixels tall therefore leaves the rows after it on fractional positions that snap
+/// up or down by where they fall: at density 0.9375 a 17.87 vp header is 16.75 px, and the
+/// rows under two such headers started 47 and 46 px below the row before. Rows that are whole
+/// pixels keep every edge on the grid, so equal rows stay equal wherever they land.
+fn whole_px_vp(height_vp: f64) -> f64 {
+    let density = node::density();
+    (height_vp * density).round().max(1.0) / density
+}
+
 /// Give a content-sized list's cell (the `LIST_ITEM` and the Stack the row mounts in) the row's
-/// height in vp. A zero height (a bind that skipped under a day-core borrow) leaves it as is.
+/// height in vp, rounded to whole device pixels ([`whole_px_vp`]). A zero height (a bind that
+/// skipped under a day-core borrow) leaves it as is.
 fn size_row(dl: &mut List, cell: Handle, inner: Handle, height_vp: f64) {
     if height_vp <= 0.0 || cell.is_null() || inner.is_null() {
         return;
     }
+    let height_vp = whole_px_vp(height_vp);
     node::set_f32(cell, Attr::NODE_HEIGHT, height_vp as f32);
     node::set_f32(inner, Attr::NODE_HEIGHT, height_vp as f32);
     dl.heights
-        .insert(cell as usize, (height_vp * node::density()) as f32);
+        .insert(cell as usize, (height_vp * node::density()).round() as f32);
 }
 
 /// `ListPatch::RowSizeInvalidated`: the row mounted in `inner` (a cell's Stack) was re-laid at
@@ -407,8 +422,9 @@ pub fn resize_row(n: Handle, inner: Handle, height_vp: f64) {
         && pin.cell == inner
     {
         if height_vp > 0.0 {
-            pin.height = height_vp;
-            node::set_f32(pin.cell, Attr::NODE_HEIGHT, height_vp as f32);
+            // The header row's own height (`size_row`), so the copy covers it exactly.
+            pin.height = whole_px_vp(height_vp);
+            node::set_f32(pin.cell, Attr::NODE_HEIGHT, pin.height as f32);
             place_pin(dl);
         }
         return;
@@ -480,7 +496,12 @@ pub fn init(n: Handle, host_id: u64, row_h_vp: f64, p: &day_spec::props::ListPro
         adapter,
         host_id,
         host: n,
-        row_h: (row_h_vp * node::density()) as f32,
+        // Whole pixels, as every content-sized row is (`whole_px_vp`).
+        row_h: if row_h_vp > 0.0 {
+            (whole_px_vp(row_h_vp) * node::density()).round() as f32
+        } else {
+            0.0
+        },
         heights: HashMap::new(),
         selectable: p.selectable,
         generation: 0,
@@ -1188,6 +1209,7 @@ fn place_pin(dl: &mut List) {
         if height <= 0.0 {
             return hide(dl);
         }
+        let height = whole_px_vp(height);
         node::set_f32(cell, Attr::NODE_HEIGHT, height as f32);
         if let Some(pin) = dl.pin.as_mut() {
             pin.bound = Some(header);

@@ -310,6 +310,13 @@ the viewport to the end of the content. A host calls it after a scroll, after a 
 after a reload or splice has been laid out; day-core translates its rows to items and drops
 repeats. Where `Cap::ListViewport` is unsupported the range holds the first visible row only.
 
+The report follows the layout, so it can arrive a frame after a programmatic scroll starts.
+A dayscript step that reads the range after a scroll button waits for the scroll to settle
+first: `wait_idle` and `tap` wait on
+[`Toolkit::ui_idle`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.ui_idle), and GTK reports busy while a
+programmatic scroll is still gliding on a shown list. The report for where the glide ends has
+gone out by then.
+
 ## Row lifetime
 
 A physical cell keeps its row subtree while the toolkit reuses it for different items. Read
@@ -448,7 +455,7 @@ anything synchronously.
 | [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | `DayCell` measures from `cell_height`; a change queues a resize of the bound list item |
 | [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") | the model answers each row's `SizeHintRole`: the height Day laid it at, or for a row not measured yet the running average of the measured ones; heights are remembered per row token across reloads, and the changes of one turn land as one relayout that keeps the top row where it was |
 | [web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") | rows stack by their measured heights; rows not built yet stand at the average |
-| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `NODE_HEIGHT` on the row's list item |
+| [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | `NODE_HEIGHT` on the row's list item, rounded to whole device pixels: ArkUI snaps each row's edges to the pixel grid, so a row a fraction of a pixel tall would leave equal rows below it one pixel apart |
 
 ArkUI's automatic row heights are covered by `list-rows-size-to-content`, verified on the
 OpenHarmony 7.0 phone emulator.
@@ -494,7 +501,9 @@ honor `ListPatch::Selected`: the sync paints the visible cells (the theme accent
 alpha as the cell background) and newly bound cells inherit their row's state, which is what
 lets the composed tree's selection follow the canvas ([docs/tree](tree.md)). **[GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk")** uses native [`GtkSingleSelection`](https://docs.gtk.org/gtk4/class.SingleSelection.html) for programmatic sync,
 reapplying the requested row after model reloads without an event echo. Empty sync clears
-selection, and out-of-range rows remain unselected. The sync does not take keyboard focus.
+selection, and out-of-range rows remain unselected. The sync does not take keyboard focus, and
+it does not scroll: a selected row that a keyed insert or removal moves stays where the reader
+left it, and a row comes into view only through a scroll the app asks for.
 The remaining toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
 programmatic sync; the one-element [`on_selection`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.on_selection) contract still holds there.
 

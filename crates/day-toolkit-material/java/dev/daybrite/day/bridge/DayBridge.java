@@ -1814,7 +1814,7 @@ public final class DayBridge extends DayRuntime {
     /** What a Day scroll view adds to ScrollView / HorizontalScrollView (docs/scroll.md), one
      *  per view, fed by both subclasses' overrides:
      *  - the offset, sent at most once per frame on the custom channel and always once more
-     *    after the last change ("day:scroll:x,y", px from the leading edge);
+     *    after the last change ("day:scroll:x,y", content px from the top-left corner);
      *  - the phase, which ScrollView has no callback for: Dragging when the content moves under
      *    a finger (or a wheel turns), Coasting when the finger lifts into a fling or a snap,
      *    Idle when the content has held still for a few frames or the finger lifted with no
@@ -1839,9 +1839,12 @@ public final class DayBridge extends DayRuntime {
         final Runnable sendOffset = new Runnable() {
             public void run() {
                 offsetPosted = false;
-                int lead = lead(raw());
+                // Content space, as every toolkit reports it and as Toolkit::scroll_to takes
+                // it: an RTL horizontal view still counts from its left edge. Only the
+                // snapping below measures from the leading edge.
+                int at = raw();
                 nativeOnEvent(node, K_CUSTOM, 0, "day:scroll:"
-                        + (horizontal ? lead + ",0" : "0," + lead));
+                        + (horizontal ? at + ",0" : "0," + at));
             }
         };
         final Runnable watch = new Runnable() {
