@@ -2630,6 +2630,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             run_spec.envs.push(("DAY_THEME".into(), t.clone()));
                         }
                         let mut attempt = 0u32;
+                        // Set once this variant has been relaunched after the device image's
+                        // own crash (`script::EngineLossVerdict::Relaunch`): what it was, and
+                        // the crashed attempt's report ids, for the relaunch's reports.
+                        let mut relaunched: Option<(crate::diagnose::KnownCrash, Vec<String>)> =
+                            None;
                         loop {
                             if ri > 0 || attempt > 0 {
                                 // The previous run's app still holds the engine port; stop it the
@@ -2710,6 +2715,26 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     Err(why) => eprintln!("warning: --video: {why}"),
                                 }
                             }
+                            // The relaunch's reports name the attempt they replace, whatever
+                            // their outcome, so the JSON shows one variant run twice.
+                            if let Some((known, after)) = &relaunched {
+                                let reports = match &result {
+                                    Ok(run) => run.reports.clone(),
+                                    Err(_) => crate::script_report::reports_since(
+                                        project,
+                                        target.name,
+                                        unix_ms(launched_at),
+                                    ),
+                                };
+                                crate::script_report::mark_relaunch(
+                                    &reports,
+                                    &serde_json::json!({
+                                        "attempt": 2, "superseded": false,
+                                        "signature": known.signature, "reason": known.summary,
+                                        "after": after,
+                                    }),
+                                );
+                            }
                             match result {
                                 // A single retryable failure and nothing else: the shape a race
                                 // leaves behind (an element not realized yet, an assert that lost
@@ -2742,10 +2767,13 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                         .variant
                                         .as_deref()
                                         .map_or_default(|v| format!(" [{v}]"));
+                                    let again = relaunched.as_ref().map_or_default(|(known, _)| {
+                                        format!(" · relaunched once after {}", known.signature)
+                                    });
                                     ops::status(
                                         "Script",
                                         &format!(
-                                            "{}{tag}: {}/{} steps passed · {} skipped · {} aborted · {} screenshot(s)",
+                                            "{}{tag}: {}/{} steps passed · {} skipped · {} aborted · {} screenshot(s){again}",
                                             target.name,
                                             run.steps_total - run.steps_skipped - run.steps_failed,
                                             run.steps_total - run.steps_skipped,
@@ -2760,12 +2788,13 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 // no walkthrough action has been sent. Keep the existing iOS
                                 // simulator clean-run retry as well, and diagnose before either.
                                 Err(ref error) if error.retry_engine_loss(target.kind, attempt) => {
-                                    let crashed = crate::diagnose::after_app_death(
+                                    let death = crate::diagnose::after_app_death(
                                         project,
                                         target,
                                         launched_at,
                                     );
-                                    if crashed && target.kind == crate::targets::TargetKind::Android
+                                    if death.crashed
+                                        && target.kind == crate::targets::TargetKind::Android
                                     {
                                         crate::signals::kill_all();
                                         return Err(CliError::script(format!(
@@ -2792,10 +2821,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     ref detail,
                                     ..
                                 }) => {
-                                    eprintln!(
-                                        "error: engine connection lost ({detail}) — abandoning this variant"
-                                    );
-                                    let crashed = crate::diagnose::after_app_death(
+                                    eprintln!("error: engine connection lost ({detail})");
+                                    let death = crate::diagnose::after_app_death(
                                         project,
                                         target,
                                         launched_at,
@@ -2804,9 +2831,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     // with it: the next launch would install onto it, and `adb` and
                                     // `hdc` wait for a wedged device rather than failing. That wait
                                     // is what turned this arm's diagnosis into a six-hour job.
-                                    let device_lost = !crate::script::device_alive(target);
-                                    script_failures += steps_failed.max(1);
-                                    losses += 1;
+                                    let device_alive = crate::script::device_alive(target);
                                     // A crash ends the run. Every remaining variant would relaunch
                                     // a build that just died and fail the same way, minutes at a
                                     // time, which is how a crashed walkthrough used to run out the
@@ -2814,24 +2839,87 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     // found. A loss with no crash artifact stays per-variant (a
                                     // slow emulator drops the connection and the next variant often
                                     // passes), but not forever: two in a row is a pattern, not a
-                                    // hiccup.
-                                    if crashed || device_lost || losses >= 2 {
-                                        let why = if crashed {
-                                            "the app crashed"
-                                        } else if device_lost {
-                                            "the device stopped answering"
-                                        } else {
-                                            "the engine was lost twice"
-                                        };
-                                        crate::signals::kill_all();
-                                        return Err(CliError::script(format!(
-                                            "{why} — abandoning the remaining variants \
-                                         ({} of {} run)",
-                                            ri + 1,
-                                            matrix.len()
-                                        )));
+                                    // hiccup. The one exception is the device image's own known
+                                    // crash, which relaunches the variant once (§14.3).
+                                    match crate::script::engine_loss_verdict(
+                                        &death,
+                                        attempt,
+                                        steps_failed,
+                                        device_alive,
+                                        losses,
+                                    ) {
+                                        crate::script::EngineLossVerdict::Relaunch(known) => {
+                                            let why = format!(
+                                                "{} — relaunching this variant once",
+                                                known.summary
+                                            );
+                                            eprintln!("warning: {why}");
+                                            if ops::github_actions() {
+                                                println!("::warning::{}", ops::gha_escape(&why));
+                                            }
+                                            let after = crate::script_report::mark_relaunch(
+                                                &crate::script_report::reports_since(
+                                                    project,
+                                                    target.name,
+                                                    unix_ms(launched_at),
+                                                ),
+                                                &serde_json::json!({
+                                                    "attempt": 1, "superseded": true,
+                                                    "signature": known.signature,
+                                                    "reason": known.summary,
+                                                }),
+                                            );
+                                            relaunched = Some((known, after));
+                                            attempt += 1;
+                                        }
+                                        crate::script::EngineLossVerdict::NextVariant => {
+                                            eprintln!(
+                                                "error: abandoning this variant; the remaining \
+                                                 variants still run"
+                                            );
+                                            script_failures += steps_failed.max(1);
+                                            losses += 1;
+                                            break;
+                                        }
+                                        crate::script::EngineLossVerdict::AbandonRun(why) => {
+                                            // The image's known crash that is not relaunched:
+                                            // diagnosis annotated it as a warning, so say here
+                                            // that it is the run's failure, and why.
+                                            if let Some(known) = &death.known {
+                                                let how = if attempt > 0 {
+                                                    format!(
+                                                        "{} again after its relaunch",
+                                                        known.summary
+                                                    )
+                                                } else if steps_failed > 0 {
+                                                    format!(
+                                                        "{} after a failed step; not relaunched",
+                                                        known.summary
+                                                    )
+                                                } else {
+                                                    format!(
+                                                        "{} on a device that stopped answering; not relaunched",
+                                                        known.summary
+                                                    )
+                                                };
+                                                eprintln!("error: {how}");
+                                                if ops::github_actions() {
+                                                    println!(
+                                                        "::error title=day: {} crashed under a dayscript::{}",
+                                                        target.name,
+                                                        ops::gha_escape(&how)
+                                                    );
+                                                }
+                                            }
+                                            crate::signals::kill_all();
+                                            return Err(CliError::script(format!(
+                                                "{why} — abandoning the remaining variants \
+                                                 ({} of {} run)",
+                                                ri + 1,
+                                                matrix.len()
+                                            )));
+                                        }
                                     }
-                                    break;
                                 }
                                 // Anything else is a runner/config error (bad script, bad flags):
                                 // abort outright, as before.
@@ -3028,6 +3116,12 @@ pub(crate) fn split_list(raw: &[String]) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect()
+}
+
+/// `at` in Unix milliseconds, the clock the dayscript reports stamp their runs with.
+fn unix_ms(at: std::time::SystemTime) -> u64 {
+    at.duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Expand `--themes` × `--locales` into runs, preserving both existing artifact conventions

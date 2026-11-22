@@ -203,6 +203,14 @@ The report includes duration, passed/skipped/failed/aborted steps, individual st
 target/device/locale/variant, observed hardware and emulator details, and memory samples
 with min/max/average/end bytes. Retries receive separate report files.
 
+When the app crashes, `day` prints the crash report it finds and skips the remaining
+theme/locale variants. One crash on [`harmony-arkui`](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui")
+is the exception: the OpenHarmony emulator's software GL driver (`kms_swrast_dri.so`) aborts
+now and then on the web view's GPU thread. For that report, `day` prints
+`warning: known emulator GL driver crash (…) — relaunching this variant once` and runs the
+variant again from a fresh launch. The relaunch decides the result, and both attempts' reports
+carry a `relaunch` object. A second crash in that variant fails the run as any other crash does.
+
 Sampling runs every second throughout the script, including pauses and long steps. Set
 `DAY_SCRIPT_MEMORY_INTERVAL_MS` on the **host CLI** to choose 100–60000 milliseconds.
 These are sampled values: the maximum can miss peaks between samples, and the average is

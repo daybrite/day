@@ -466,6 +466,53 @@ impl ScriptError {
     }
 }
 
+/// What the launch loop does with a variant whose engine was lost, once the post-mortem has
+/// run and [`ScriptError::retry_engine_loss`] has declined it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EngineLossVerdict {
+    /// The device image's own known crash ended a run with no failed step: launch the same
+    /// variant again, once. The loss is not counted; the relaunch's result is the verdict.
+    Relaunch(crate::diagnose::KnownCrash),
+    /// Count the loss and go on to the next variant.
+    NextVariant,
+    /// Abandon this variant and every remaining one, for this reason.
+    AbandonRun(&'static str),
+}
+
+/// Decide what follows an engine loss. `attempt` is the variant's attempt (0 for its first
+/// launch), `steps_failed` the failures seen before the loss, and `losses` the engine losses
+/// counted earlier in this run.
+///
+/// Only a known device crash (`diagnose::known_emulator_crash`) on a variant's first attempt
+/// with no failed step relaunches: a failure before the crash is a verdict a passing relaunch
+/// would hide, and a second crash of any kind is the app's, as is every other crash. A crash
+/// ends the run; a device that stopped answering does too, since every later launch would wait
+/// on it; a loss with no crash artifact moves on to the next variant, but not twice.
+pub(crate) fn engine_loss_verdict(
+    death: &crate::diagnose::Death,
+    attempt: u32,
+    steps_failed: usize,
+    device_alive: bool,
+    losses: usize,
+) -> EngineLossVerdict {
+    if let Some(known) = &death.known
+        && attempt == 0
+        && steps_failed == 0
+        && device_alive
+    {
+        return EngineLossVerdict::Relaunch(known.clone());
+    }
+    if death.crashed {
+        EngineLossVerdict::AbandonRun("the app crashed")
+    } else if !device_alive {
+        EngineLossVerdict::AbandonRun("the device stopped answering")
+    } else if losses + 1 >= 2 {
+        EngineLossVerdict::AbandonRun("the engine was lost twice")
+    } else {
+        EngineLossVerdict::NextVariant
+    }
+}
+
 /// Where a run's screenshots land: `build/day/screenshots/<target>[/<device>]/<subdir>/`. The
 /// subdir is the `--variant` name when given (themed/localized capture sets: light / dark / fr),
 /// else the locale, else "default".
@@ -1879,28 +1926,50 @@ fn sample_stalled_app(project: &Project, target: &Target, dir: &Path) {
     }
 }
 
-/// The main thread's call graph from a `sample` report: the first thread block after
-/// "Call graph:", trimmed to the frames that say where it is (the report's own indentation
-/// kept), capped so the log shows the head of the stack and not every frame of a deep one.
+/// How many of the main thread's innermost frames [`main_thread_frames`] keeps for the log.
+const STALL_LOG_FRAMES: usize = 30;
+
+/// The main thread's call graph from a `sample` report, for the log: the first thread block
+/// after "Call graph:" (its header line, then its frames with the report's own indentation),
+/// cut to the [`STALL_LOG_FRAMES`] innermost frames when it is deeper than that.
+///
+/// The innermost frames are the ones that say where the thread is. The outer ones are the
+/// same for every stall of a desktop app (`main` → `NSApplication run` → the event wait), so a
+/// log that shows only those reads like an idle thread even when the thread is blocked deep
+/// inside a callout from that wait, as in a Core Animation commit waiting on the GPU (day CI
+/// runs 44957767438 and 44922159705). The full graph stays in `main-thread-stall.txt`.
+///
+/// `sample` puts no blank line between threads: the block ends at the next line that is a
+/// thread header at the same depth (a sample count, not a `+` continuation), or at a blank line.
 fn main_thread_frames(report: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut in_graph = false;
-    for line in report.lines() {
-        if !in_graph {
-            in_graph = line.starts_with("Call graph:");
-            continue;
-        }
-        if line.trim().is_empty() {
-            if !out.is_empty() {
-                break;
-            }
-            continue;
-        }
-        out.push(line.trim_end().to_string());
-        if out.len() >= 40 {
-            break;
-        }
+    fn indent(line: &str) -> usize {
+        line.len() - line.trim_start().len()
     }
+    let mut lines = report
+        .lines()
+        .skip_while(|l| !l.starts_with("Call graph:"))
+        .skip(1)
+        .skip_while(|l| l.trim().is_empty());
+    let Some(header) = lines.next() else {
+        return Vec::new();
+    };
+    let depth = indent(header);
+    let frames: Vec<&str> = lines
+        .take_while(|l| {
+            let next_thread =
+                indent(l) <= depth && l.trim_start().starts_with(|c: char| c.is_ascii_digit());
+            !l.trim().is_empty() && !next_thread
+        })
+        .collect();
+    let outer = frames.len().saturating_sub(STALL_LOG_FRAMES);
+    let mut out = vec![header.trim_end().to_string()];
+    if outer > 0 {
+        out.push(format!(
+            "{}… {outer} outer frames, in the file …",
+            " ".repeat(depth)
+        ));
+    }
+    out.extend(frames[outer..].iter().map(|l| l.trim_end().to_string()));
     out
 }
 
@@ -2276,6 +2345,68 @@ mod gate_tests {
         assert!(loss(0, false).retry_engine_loss(TargetKind::IosSim, 0));
         assert!(!loss(1, false).retry_engine_loss(TargetKind::IosSim, 0));
         assert!(!loss(0, false).retry_engine_loss(TargetKind::IosSim, 1));
+    }
+
+    /// The known emulator crash relaunches a clean first attempt once; every other death keeps
+    /// the verdict it had before the relaunch existed.
+    #[test]
+    fn only_a_known_device_crash_on_a_clean_first_attempt_relaunches() {
+        use super::{EngineLossVerdict, engine_loss_verdict};
+        use crate::diagnose::{Death, KnownCrash};
+        let known = KnownCrash {
+            signature: "ohos-emulator-mesa-kms-swrast-abort",
+            summary: "known emulator GL driver crash".into(),
+        };
+        let emulator = Death {
+            crashed: true,
+            known: Some(known.clone()),
+        };
+        let app = Death {
+            crashed: true,
+            known: None,
+        };
+        let nothing = Death::default();
+
+        assert_eq!(
+            engine_loss_verdict(&emulator, 0, 0, true, 0),
+            EngineLossVerdict::Relaunch(known)
+        );
+        // The relaunch crashed too, with this signature or any other: the run ends as before.
+        assert_eq!(
+            engine_loss_verdict(&emulator, 1, 0, true, 0),
+            EngineLossVerdict::AbandonRun("the app crashed")
+        );
+        assert_eq!(
+            engine_loss_verdict(&app, 1, 0, true, 0),
+            EngineLossVerdict::AbandonRun("the app crashed")
+        );
+        // A step had already failed: a passing relaunch would hide it.
+        assert_eq!(
+            engine_loss_verdict(&emulator, 0, 1, true, 0),
+            EngineLossVerdict::AbandonRun("the app crashed")
+        );
+        // A device that stopped answering cannot take a relaunch.
+        assert_eq!(
+            engine_loss_verdict(&emulator, 0, 0, false, 0),
+            EngineLossVerdict::AbandonRun("the app crashed")
+        );
+        // Unchanged: any other crash, a lost device, and the second artifact-free loss.
+        assert_eq!(
+            engine_loss_verdict(&app, 0, 0, true, 0),
+            EngineLossVerdict::AbandonRun("the app crashed")
+        );
+        assert_eq!(
+            engine_loss_verdict(&nothing, 0, 0, false, 0),
+            EngineLossVerdict::AbandonRun("the device stopped answering")
+        );
+        assert_eq!(
+            engine_loss_verdict(&nothing, 0, 0, true, 0),
+            EngineLossVerdict::NextVariant
+        );
+        assert_eq!(
+            engine_loss_verdict(&nothing, 0, 0, true, 1),
+            EngineLossVerdict::AbandonRun("the engine was lost twice")
+        );
     }
 
     /// Synthetic engine control plane: tests below focus on step transport, while still
@@ -2800,10 +2931,11 @@ mod gate_tests {
     }
 
     /// The excerpt the log gets from a `sample` report: the first thread after the call-graph
-    /// header, stopping at the blank line that separates it from the next thread.
+    /// header, ending where the next thread's header starts (`sample` puts no blank line
+    /// between threads) or at a blank line.
     #[test]
     fn the_main_thread_block_is_what_the_log_shows() {
-        let report = "Sampling process 42 for 2 seconds\nCall graph:\n    2 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 2 start  (in dyld)\n    +   2 main  (in Showcase)\n\n    2 Thread_2\n    + 2 thread_start\n\nTotal number in stack: 4\n";
+        let report = "Sampling process 42 for 2 seconds\nCall graph:\n    2 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 2 start  (in dyld)\n    +   2 main  (in Showcase)\n    2 Thread_2\n    + 2 thread_start\n    2 Thread_3\n      2 thread_start\n\nTotal number in stack: 4\n";
         assert_eq!(
             super::main_thread_frames(report),
             [
@@ -2812,10 +2944,62 @@ mod gate_tests {
                 "    +   2 main  (in Showcase)",
             ]
         );
+        let blank = report.replace("    2 Thread_2", "\n    2 Thread_2");
+        assert_eq!(super::main_thread_frames(&blank).len(), 3);
         assert_eq!(
             super::main_thread_frames("no graph here"),
             [] as [std::string::String; 0]
         );
+    }
+
+    /// A main thread blocked deep inside a callout from the event wait (day CI run 44922159705:
+    /// a Core Animation commit 27 layers down, waiting on the render server) shows its
+    /// innermost frames in the log, the ones that say where it is stuck, and not only the
+    /// `main` → `NSApplication run` → event-wait head that every stall shares with an idle app.
+    #[test]
+    fn a_deep_stall_logs_its_innermost_frames() {
+        let mut report = String::from(
+            "Call graph:\n    1260 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n",
+        );
+        let mut frames = vec![
+            "start  (in dyld)",
+            "main  (in Showcase)",
+            "-[NSApplication run]  (in AppKit)",
+            "_DPSBlockUntilNextEventMatchingListInMode  (in AppKit)",
+            "CA::Transaction::commit()  (in QuartzCore)",
+        ];
+        frames.extend(["CA::Layer::commit_if_needed(CA::Transaction*)  (in QuartzCore)"; 27]);
+        frames.extend([
+            "CAImageQueueCopyRenderValue  (in QuartzCore)",
+            "mach_msg  (in libsystem_kernel.dylib)",
+            "mach_msg2_trap  (in libsystem_kernel.dylib)",
+        ]);
+        for (depth, frame) in frames.iter().enumerate() {
+            report.push_str("    +");
+            report.push_str(&" ".repeat(1 + 2 * depth));
+            report.push_str("1260 ");
+            report.push_str(frame);
+            report.push('\n');
+        }
+        report.push_str("    1260 Thread_2\n    + 1260 thread_start\n");
+        let shown = super::main_thread_frames(&report);
+        assert!(shown[0].contains("com.apple.main-thread"), "{shown:#?}");
+        assert!(
+            shown.last().unwrap().contains("mach_msg2_trap"),
+            "the leaf frame is in the log: {shown:#?}"
+        );
+        assert!(
+            shown
+                .iter()
+                .any(|l| l.contains("CAImageQueueCopyRenderValue")),
+            "{shown:#?}"
+        );
+        assert!(
+            shown[1].contains("5 outer frames, in the file"),
+            "{shown:#?}"
+        );
+        assert_eq!(shown.len(), 2 + super::STALL_LOG_FRAMES, "{shown:#?}");
+        assert!(!shown.iter().any(|l| l.contains("Thread_2")), "{shown:#?}");
     }
 
     /// Coverage-enabled flows preserve the step failures that the launch retry policy consumes.

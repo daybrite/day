@@ -4202,9 +4202,37 @@ same 30 s wait — a 900-step walkthrough otherwise spends hours failing one ste
 is how the Day-Showcase macos-appkit leg ran into its job limit (2026-10-11, two apps in one
 sweep whose main threads stopped inside a window-server call). Before the run terminates the
 app, a desktop target on macOS is stack-sampled (`sample`) into `main-thread-stall.txt` beside
-the variant's captures, with the main thread's frames echoed into the log, so the stall's cause
-is on record once the process is gone. `a_stalled_main_thread_abandons_the_rest_of_the_flow`
-covers both the flag and the text path.
+the variant's captures, with the main thread's innermost 30 frames echoed into the log, so the
+stall's cause is on record once the process is gone. The log shows the innermost frames because
+the outer ones (`main` → `NSApplication run` → the event wait) are the same for every stall and
+read like an idle loop: the two 2026-11-21 stalls (day CI runs 44957767438 and 44922159705) were
+main threads blocked inside a Core Animation commit, on the runner VM's GPU and render server,
+below that wait. `a_stalled_main_thread_abandons_the_rest_of_the_flow` covers both the flag and
+the text path; `a_deep_stall_logs_its_innermost_frames` covers the excerpt.
+
+A crash ends the run (the remaining variants are abandoned), with one exception: on
+harmony-arkui, a crash the emulator image causes on its own relaunches that variant once. The
+OpenHarmony 7.0 `x86_64_virt` image CI boots draws through Mesa 21.3.3's software rasterizer,
+whose `kms_swrast_dri.so` asserts `!draw->flushing` in `draw_flush` on ArkWeb's in-process GPU
+thread (`Chrome_InProcGp` in the faultlogger report) at random points of a walkthrough
+(Day-Showcase CI, 2026-11-21: two runs, after 5 and 1 of 8 variants). Day makes no GL calls on
+ArkUI. `diagnose::known_emulator_crash` matches the report only when all four hold: the
+harmony-arkui target, a `SIGABRT` reason, that fault thread, and a `kms_swrast_dri.so` frame on
+it; every crash report found for the launch must match. `script::engine_loss_verdict` then
+relaunches only the variant's first attempt, only when no step failed before the crash, and
+only on a device that still answers. The CLI logs `warning: known emulator GL driver crash
+(Mesa kms_swrast_dri.so(draw_flush+54) aborted on ArkWeb's GPU thread Chrome_InProcGp) —
+relaunching this variant once`, annotates GitHub Actions with a `::warning` in place of the
+crash `::error`, and judges the variant by its relaunch: a passing relaunch counts as a pass in
+the exit code, with `· relaunched once after ohos-emulator-mesa-kms-swrast-abort` on its status
+line, and both attempts' reports say so (Appendix C). A second crash of any kind in that variant
+abandons the run as before. A variant gets at most one retry of any kind (this relaunch, the
+single-retryable-failure rerun, or the iOS/Android engine-loss relaunch), and the shell-level
+retry in `daybrite/actions`' `dayapp.yml` wraps only ios-uikit under released CLIs that predate
+`--locales`, so the two never stack. `diagnose`'s `the_emulator_mesa_abort_is_recognized` (the
+CI report's text) and `other_crashes_are_not_the_emulator_mesa_abort` cover the matcher,
+`script`'s `only_a_known_device_crash_on_a_clean_first_attempt_relaunches` the policy, and
+`script_report`'s `relaunch_marks_keep_the_report_and_name_its_run` the report marks.
 
 Harmony's CLI owns one `hilog -P <app-pid>` reader per device, resolving the pid after launch.
 Replacing or terminating the run kills and reaps that reader and unregisters its host pid.
@@ -8568,7 +8596,11 @@ reports finish as passed/failed; transport errors finish as interrupted, and uns
 remain not_run. A killed CLI leaves a running checkpoint and its current step; consumers must
 label it interrupted, never passed. End means the last observed reading, not a claim about
 memory at the instant of a crash; sampled maxima are not continuous peaks. Unsupported older
-engines still run scripts and report unavailable profiling explicitly.
+engines still run scripts and report unavailable profiling explicitly. A variant relaunched
+after the emulator image's known crash (§14.3) marks both attempts' reports with a top-level
+`relaunch` object: `{attempt: 1, superseded: true, signature, reason}` on the interrupted one
+and `{attempt: 2, superseded: false, signature, reason, after: [run_id…]}` on the relaunch,
+whatever its outcome. A report the crashed launch never started (`not_run`) carries no mark.
 
 `daybrite/actions` uploads these reports with `always()` independently of its default-true
 `dayscript_report_summary` input. A dependent summary job also uses `always()` and downloads

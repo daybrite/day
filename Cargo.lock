@@ -5238,3 +5238,91 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "alacritty_terminal"
+version = "0.26.0"
+
+[[patch.unused]]
+name = "day-console"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "day-part-auth"
+version = "0.1.2"
+
+[[patch.unused]]
+name = "day-part-speech"
+version = "0.5.1"
+
+[[patch.unused]]
+name = "day-part-zeroconf"
+version = "0.1.1"
+
+[[patch.unused]]
+name = "day-persistence"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "day-persistence-macros"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "day-piece-camera"
+version = "0.1.2"
+
+[[patch.unused]]
+name = "day-piece-charts"
+version = "0.5.1"
+
+[[patch.unused]]
+name = "day-piece-charts-gallery"
+version = "0.1.2"
+
+[[patch.unused]]
+name = "day-piece-crash-reporter"
+version = "0.2.1"
+
+[[patch.unused]]
+name = "day-piece-lottie"
+version = "0.5.4"
+
+[[patch.unused]]
+name = "day-piece-lottie-gallery"
+version = "0.1.2"
+
+[[patch.unused]]
+name = "day-piece-map"
+version = "0.3.1"
+
+[[patch.unused]]
+name = "day-piece-media"
+version = "0.4.6"
+
+[[patch.unused]]
+name = "day-piece-self-update"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "day-piece-webview"
+version = "0.5.2"
+
+[[patch.unused]]
+name = "day-piece-webview-servo"
+version = "0.4.3"
+
+[[patch.unused]]
+name = "day-self-update-core"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "day-selfupdate-tools"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "day-sqlite-worker"
+version = "0.4.1"
+
+[[patch.unused]]
+name = "day-webdav"
+version = "0.2.3"

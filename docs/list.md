@@ -212,7 +212,9 @@ list(rows, row_view)
   row and below the last. Both scroll with the rows.
 - [`.empty(build)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.empty) shows content in place of the rows while the list has none,
   centered in the viewport (between the header and the footer when the list has them). It goes
-  when the first row arrives and returns when the last one leaves.
+  when the first row arrives and returns when the last one leaves. When it returns, the list
+  scrolls it into view if it is not in view already, for example under a header as tall as
+  the viewport or in a list that was scrolled far down.
 - [`.content_padding(insets)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ListBuilder.html#tymethod.content_padding) adds space around the content, inside the
   scrolling area. The top and bottom scroll with the rows, so the last row can clear a
   floating composer or tab bar. The sides inset every row.

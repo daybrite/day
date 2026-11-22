@@ -374,6 +374,32 @@ impl<B: Toolkit> Tree<B> {
             .update(&handle, kinds::LIST, &patch as &dyn Any, None);
     }
 
+    /// Bring the empty state into view when the last item has just left a list that has one
+    /// (docs/list.md "Header, footer and empty state"). The host keeps its scroll position, or
+    /// goes back to the top on a reload, and binds only the rows it shows: where the header
+    /// above is as tall as the viewport, or the list was scrolled past where the empty state
+    /// now sits, the empty state was never bound and the list showed no sign of it. The least
+    /// movement that shows it: nothing when it is in view already. Called after every reload
+    /// and splice the host is sent, so the scroll lands among the new rows.
+    fn list_reveal_empty(&mut self, node: RNode) {
+        use crate::list::Supplement;
+        let Some(state) = self.lists.get_mut(&node) else {
+            return;
+        };
+        let empty = state.driver.supplements.empty.is_some() && (state.driver.len)() == 0;
+        if std::mem::replace(&mut state.showed_empty, empty) || !empty {
+            return;
+        }
+        let Some(row) = state
+            .sections
+            .as_ref()
+            .and_then(|map| map.supplement_row(Supplement::Empty))
+        else {
+            return;
+        };
+        self.list_scroll_display(node, Some(row), day_spec::RowAlign::Nearest, false);
+    }
+
     /// Reveal the row whose cell `anchor` is, when it is a cell of a recycling list: the
     /// list scrolls it into view with the least movement. `false` for any other node.
     fn reveal_list_row(&mut self, anchor: RNode, animated: bool) -> bool {
@@ -3152,6 +3178,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 driver: driver.clone(),
                 cells: HashMap::new(),
                 sections: sections.clone(),
+                showed_empty: true,
             },
         );
         let source = crate::list::make_source(node, &driver, sections.as_ref());
@@ -3317,6 +3344,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 None,
             );
         }
+        self.list_reveal_empty(node);
     }
 
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>) {
@@ -3363,6 +3391,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 None,
             );
         }
+        self.list_reveal_empty(node);
     }
 
     fn list_live_cells(&self, node: RNode) -> Vec<crate::list::LiveCell> {

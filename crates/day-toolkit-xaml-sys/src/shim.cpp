@@ -2747,6 +2747,12 @@ struct DayScrollState {
     int phase_now = 0;
     double last_zoom = 1, start = 0;
     bool snapping = false;
+    // A zoom `day_xaml_scroll_zoom` asked for and the view has not settled from yet.
+    bool zooming = false;
+    // A zoom waiting for the stop that cleared an earlier one to land (`day_xaml_scroll_zoom`):
+    // the view's offsets and scale to go to.
+    bool follow = false;
+    double follow_x = 0, follow_y = 0, follow_zoom = 1;
 };
 static std::map<void*, std::shared_ptr<DayScrollState>> g_scroll_states;
 
@@ -2793,6 +2799,20 @@ void day_xaml_scroll_configure(void* sv, unsigned long long id, int hide_bars, i
         auto st = weak.lock();
         if (!st) return;
         if (st->offset && st->cb) st->cb(st->id, 0, s.HorizontalOffset(), s.VerticalOffset());
+        if (st->follow) {
+            // The stop that cleared a replaced zoom is landing; it is not a scale the binding
+            // asked for, so it is not reported. Once it lands, go where the newer zoom said, at
+            // once: the stop is a hair away, and an animation that short settles a float's
+            // rounding off the scale asked for.
+            if (a.IsIntermediate()) return;
+            st->follow = false;
+            st->zooming = true;
+            const bool moved = s.ChangeView(WF::IReference<double>(st->follow_x), WF::IReference<double>(st->follow_y),
+                                            WF::IReference<float>(static_cast<float>(st->follow_zoom)), true);
+            if (moved) return;
+            st->zooming = false;
+        }
+        if (!a.IsIntermediate()) st->zooming = false;
         if (st->zoom && st->cb) {
             const double z = s.ZoomFactor();
             if (std::fabs(z - st->last_zoom) > 1e-6 || !a.IsIntermediate()) {
@@ -2855,16 +2875,42 @@ void day_xaml_scroll_configure(void* sv, unsigned long long id, int hide_bars, i
 }
 
 // Zoom to `scale` (clamped to the view's range) about the viewport's center (docs/scroll.md
-// "Zoom"), with the platform's zoom animation or none.
+// "Zoom"), with the platform's zoom animation or none. A zoom asked for while an earlier one is
+// still on its way replaces it: the view ends at the scale asked for last.
 void day_xaml_scroll_zoom(void* sv, double scale, int animated) try {
     auto s = elem(sv).as<WUXC::ScrollViewer>();
     if (s.ZoomMode() != WUXC::ZoomMode::Enabled) return;
+    const auto found = g_scroll_states.find(sv);
+    DayScrollState* st = found == g_scroll_states.end() ? nullptr : found->second.get();
+    const double lo = s.MinZoomFactor(), hi = s.MaxZoomFactor();
     const double z0 = s.ZoomFactor();
-    const double z1 = std::clamp(scale, static_cast<double>(s.MinZoomFactor()), static_cast<double>(s.MaxZoomFactor()));
-    const double cx = (s.HorizontalOffset() + s.ViewportWidth() / 2) / z0 * z1 - s.ViewportWidth() / 2;
-    const double cy = (s.VerticalOffset() + s.ViewportHeight() / 2) / z0 * z1 - s.ViewportHeight() / 2;
-    s.ChangeView(WF::IReference<double>((std::max)(0.0, cx)), WF::IReference<double>((std::max)(0.0, cy)),
-                 WF::IReference<float>(static_cast<float>(z1)), animated == 0);
+    const double z1 = std::clamp(scale, lo, hi);
+    const double cx = (std::max)(0.0, (s.HorizontalOffset() + s.ViewportWidth() / 2) / z0 * z1 - s.ViewportWidth() / 2);
+    const double cy = (std::max)(0.0, (s.VerticalOffset() + s.ViewportHeight() / 2) / z0 * z1 - s.ViewportHeight() / 2);
+    if (st) st->follow = false;
+    const bool pending = st && st->zooming;
+    if (st) st->zooming = true;
+    const bool moved = s.ChangeView(WF::IReference<double>(cx), WF::IReference<double>(cy),
+                                    WF::IReference<float>(static_cast<float>(z1)), animated == 0);
+    if (moved || !st) return;
+    st->zooming = false;
+    // ChangeView refuses a view equal to the one shown, and the refusal leaves a zoom still on
+    // its way running: a reset written straight after a zoom-in, before the view has left 1×,
+    // would end at the zoom-in's scale. With nothing on its way the view is already there.
+    if (!pending) return;
+    // Stop the earlier zoom with an immediate change a hair off the scale asked for (equal would
+    // be refused too), then go there once that lands (ViewChanged): ChangeView measures a request
+    // against the view as shown, and the stop shows only after it lands.
+    const double nudge = z1 + 0.001 <= hi ? z1 + 0.001 : z1 - 0.001;
+    st->follow = true;
+    st->follow_x = cx;
+    st->follow_y = cy;
+    st->follow_zoom = z1;
+    st->zooming = true;
+    if (!s.ChangeView(nullptr, nullptr, WF::IReference<float>(static_cast<float>(nudge)), true)) {
+        st->follow = false;
+        st->zooming = false;
+    }
 } catch (...) {
 }
 

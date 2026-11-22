@@ -5255,6 +5255,55 @@ pub(crate) mod conformance {
             })
     }
 
+    /// The empty state shows when the last row leaves a list scrolled far down, under a header
+    /// taller than the viewport (docs/list.md "Header, footer and empty state"). A host binds
+    /// only the rows it shows, and keeps its scroll position or goes back to the top, which
+    /// here shows the header alone: the list has to bring the empty state into view. Android
+    /// showed only the header (Day-Showcase's French walkthrough, run 44961147680).
+    #[day_macros::test(day_core)]
+    fn list_empty_state_shows_after_the_last_row_leaves() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..300).map(|n| format!("Row {n}")).collect());
+                let jump: Signal<Option<RowTarget>> = Signal::new(None);
+                column((
+                    row((
+                        button("Down")
+                            .action(move || jump.set(Some(RowTarget::new(200).instant())))
+                            .id(day_core::id!(down)),
+                        button("Clear")
+                            .action(move || rows.set(Vec::new()))
+                            .id(day_core::id!(clear)),
+                    )),
+                    names_list(rows)
+                        .header(|| {
+                            label("A header taller than the list")
+                                .id(day_core::id!(list_header))
+                                .padding(Insets::symmetric(12.0, 6.0))
+                                .height(160.0)
+                        })
+                        .empty(|| label("Nothing here").id(day_core::id!(list_empty)))
+                        .scroll_to_row(jump)
+                        .id(day_core::id!(list))
+                        .height(120.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("list_header", "A header taller than the list")
+                    .await?;
+                d.tap("down").await?;
+                d.wait_idle().await?;
+                d.assert_text("conformance_row:Row%20200", "Row 200")
+                    .await?;
+                d.tap("clear").await?;
+                d.wait_idle().await?;
+                d.assert_missing("conformance_row:Row%20200").await?;
+                d.assert_text("list_empty", "Nothing here").await
+            })
+    }
+
     /// Content padding insets every row from the side, beyond the platform's own margins,
     /// and puts its top inset above the first row.
     #[day_macros::test(day_core)]

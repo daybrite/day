@@ -48,14 +48,84 @@ struct Finding {
     body: String,
 }
 
+/// What [`after_app_death`] concluded about an app that died.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Death {
+    /// Whether it found evidence of a crash, which is a different question from "did the engine
+    /// connection drop": a dropped connection can be a slow emulator, and the caller keeps going
+    /// for that; a crash artifact means this build dies on this machine, and relaunching it for
+    /// every remaining variant only spends minutes to fail the same way.
+    pub crashed: bool,
+    /// Set when every crash report found is one [`known_emulator_crash`] recognizes: a fault in
+    /// the device image rather than in the app, which the launch loop relaunches once.
+    pub known: Option<KnownCrash>,
+}
+
+/// A crash the test device's own system image causes, recognized from its crash report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KnownCrash {
+    /// A stable name for the signature, recorded in the dayscript JSON reports.
+    pub signature: &'static str,
+    /// What the log says about it, naming the frame and thread the report showed.
+    pub summary: String,
+}
+
+/// The OpenHarmony web engine's (Chromium's) in-process GPU thread, `Chrome_InProcGpuThread`, as
+/// the kernel's 15-byte thread name truncates it in a faultlogger report.
+const ARKWEB_GPU_THREAD: &str = "Chrome_InProcGp";
+
+/// Recognize the OpenHarmony emulator image's Mesa abort in a faultlogger crash report.
+///
+/// The `x86_64_virt` image CI boots renders through Mesa 21.3.3's software rasterizer, and its
+/// `kms_swrast_dri.so` asserts (`!draw->flushing` in `draw_flush`) on the web engine's in-process
+/// GPU thread now and then while a web view draws. The process dies with `SIGABRT` partway
+/// through a walkthrough (Day-Showcase CI, 2026-11-21). Day makes no GL calls on ArkUI; the
+/// assert is the image's driver, so the same variant gets one fresh launch.
+///
+/// All four must hold: the `harmony-arkui` target, a `SIGABRT` reason, the fault thread named
+/// as the web engine's GPU thread, and a `kms_swrast_dri.so` frame on that thread. Anything else
+/// (another signal, another library, another thread, another target) is not this crash and
+/// returns `None`.
+pub fn known_emulator_crash(target: &str, report: &str) -> Option<KnownCrash> {
+    if target != "harmony-arkui" {
+        return None;
+    }
+    let mut lines = report.lines().map(str::trim);
+    if !lines
+        .clone()
+        .any(|l| l.starts_with("Reason:Signal:SIGABRT"))
+    {
+        return None;
+    }
+    // `Fault thread info:`, then `Tid:<n>, Name:<name>`, then that thread's `#nn pc …` frames,
+    // which end at `Registers:` or `Other thread info:`.
+    lines.find(|l| *l == "Fault thread info:")?;
+    let thread = lines.next()?;
+    let name = thread
+        .split(',')
+        .find_map(|field| field.trim().strip_prefix("Name:"))?;
+    if !name.starts_with(ARKWEB_GPU_THREAD) {
+        return None;
+    }
+    let frame = lines
+        .take_while(|l| l.starts_with('#'))
+        .find_map(|l| l.find("kms_swrast_dri.so").map(|at| &l[at..]))?;
+    // `kms_swrast_dri.so(draw_flush+54)(<build id>)`: keep the symbol, drop the build id.
+    let frame = match frame.split_once(')') {
+        Some((symbol, _)) if symbol.contains('+') => format!("{symbol})"),
+        _ => "kms_swrast_dri.so".to_string(),
+    };
+    Some(KnownCrash {
+        signature: "ohos-emulator-mesa-kms-swrast-abort",
+        summary: format!(
+            "known emulator GL driver crash (Mesa {frame} aborted on ArkWeb's GPU thread {name})"
+        ),
+    })
+}
+
 /// Print everything this host can say about an app that just died. `since` bounds the search to
 /// artifacts this run produced; an `.ips` from last week describes a different crash.
-///
-/// Returns whether it found evidence of a crash, which is a different question from "did the
-/// engine connection drop": a dropped connection can be a slow emulator, and the caller keeps
-/// going for that; a crash artifact means this build dies on this machine, and relaunching it for
-/// every remaining variant only spends minutes to fail the same way.
-pub fn after_app_death(project: &Project, target: &'static Target, since: SystemTime) -> bool {
+pub fn after_app_death(project: &Project, target: &'static Target, since: SystemTime) -> Death {
     let app_id = project.manifest.resolve(target.name).id;
     let mut findings = Vec::new();
     let mut looked: Vec<String> = Vec::new();
@@ -72,25 +142,44 @@ pub fn after_app_death(project: &Project, target: &'static Target, since: System
                 looked.join(", ")
             ),
         );
-        return false;
+        return Death::default();
     }
     for f in &findings {
         crate::ops::status("Diagnosis", &f.source);
         eprintln!("{DIM}{}{DIM:#}", indent(&f.body));
     }
-    // The job page should name the crash without anyone opening the log.
+    // Known only when every report found is the image's own crash: a second report of any other
+    // kind is a crash of its own and is treated as one.
+    let known = findings
+        .iter()
+        .map(|f| known_emulator_crash(target.name, &f.body))
+        .collect::<Option<Vec<_>>>()
+        .and_then(|all| all.into_iter().next());
+    // The job page should name the crash without anyone opening the log. The image's own crash
+    // is a warning: the launch loop relaunches the variant, and the run's verdict is the retry's.
     if crate::ops::github_actions() {
         let headline = findings
             .iter()
             .find_map(|f| headline_of(&f.body))
             .unwrap_or_else(|| findings[0].source.clone());
-        println!(
-            "::error title=day: {} crashed under a dayscript::{}",
-            target.name,
-            crate::ops::gha_escape(&headline)
-        );
+        match &known {
+            Some(known) => println!(
+                "::warning title=day: {} hit a {}::{}",
+                target.name,
+                known.signature,
+                crate::ops::gha_escape(&format!("{} — {headline}", known.summary))
+            ),
+            None => println!(
+                "::error title=day: {} crashed under a dayscript::{}",
+                target.name,
+                crate::ops::gha_escape(&headline)
+            ),
+        }
     }
-    true
+    Death {
+        crashed: true,
+        known,
+    }
 }
 
 /// The app's day-piece-crash-reporter store (docs/break.md). Richest when it is there: the panic message or
@@ -1008,6 +1097,88 @@ mod tests {
                 .unwrap(),
             "Reason:Signal:SIGABRT"
         );
+    }
+
+    /// The head of the faultlogger report from Day-Showcase's harmony-arkui CI leg (2026-11-21,
+    /// `cppcrash-dev.daybrite.showcase-20010041-20261122074019747.log`), as the CLI read it.
+    const MESA_ABORT: &str = "\
+Generated by HiviewDFX@OpenHarmony
+================================================================
+Device info:OpenHarmony 3.2
+Build info:OpenHarmony 7.0.0.39
+Module name:dev.daybrite.showcase
+CpuAbi:x86_64
+Pid:2000
+Uid:20010041
+Process name:dev.daybrite.showcase
+Reason:Signal:SIGABRT(SI_TKILL)@0x01315439000007d0 from:2000:20010041
+Fault thread info:
+Tid:2885, Name:Chrome_InProcGp
+#00 pc 000000000011288d /system/lib/ld-musl-x86_64.so.1(raise+173)(b82e67f67b332b41d72b7eff971ef15a)
+#01 pc 00000000000ba341 /system/lib/ld-musl-x86_64.so.1(abort+17)(b82e67f67b332b41d72b7eff971ef15a)
+#02 pc 00000000000ba5ee /system/lib/ld-musl-x86_64.so.1(__assert_fail+494)(b82e67f67b332b41d72b7eff971ef15a)
+#03 pc 0000000000914026 /system/lib64/kms_swrast_dri.so(draw_flush+54)(7837348533bfc67f2f3d8001f688eb90f24da965)
+Registers:
+  rax:0000000000000000 rdx:0000000000000000 rcx:00007f8f4c7c388d rbx:0000000000000000
+Other thread info:
+Tid:2000, Name:ybrite.showcase
+#00 pc 00000000000e7a0b /system/lib/ld-musl-x86_64.so.1(ioctl+187)(b82e67f67b332b41d72b7eff971ef15a)
+";
+
+    #[test]
+    fn the_emulator_mesa_abort_is_recognized() {
+        let known = known_emulator_crash("harmony-arkui", MESA_ABORT).unwrap();
+        assert_eq!(known.signature, "ohos-emulator-mesa-kms-swrast-abort");
+        assert_eq!(
+            known.summary,
+            "known emulator GL driver crash (Mesa kms_swrast_dri.so(draw_flush+54) aborted on \
+             ArkWeb's GPU thread Chrome_InProcGp)"
+        );
+        // As printed under a Diagnosis header (indented) and with CRLF line ends from hdc.
+        let indented = MESA_ABORT.replace('\n', "\r\n    ");
+        assert_eq!(
+            known_emulator_crash("harmony-arkui", &indented),
+            Some(known)
+        );
+    }
+
+    #[test]
+    fn other_crashes_are_not_the_emulator_mesa_abort() {
+        // Another target, even with the same report text.
+        assert_eq!(known_emulator_crash("android-material", MESA_ABORT), None);
+        assert_eq!(known_emulator_crash("macos-appkit", MESA_ABORT), None);
+        // Another signal: Oniro's llvmpipe SIGSEGV, or a segfault on the same thread.
+        let segv = MESA_ABORT.replace("Signal:SIGABRT(SI_TKILL)", "Signal:SIGSEGV(SEGV_MAPERR)");
+        assert_eq!(known_emulator_crash("harmony-arkui", &segv), None);
+        // Another library on the fault thread: an abort from the app's own code.
+        let app = MESA_ABORT.replace(
+            "/system/lib64/kms_swrast_dri.so(draw_flush+54)",
+            "/data/storage/el1/bundle/libs/x86_64/libentry.so(day_core::pump::run+42)",
+        );
+        assert_eq!(known_emulator_crash("harmony-arkui", &app), None);
+        // Another thread: the same driver frame on the app's main thread, or Mesa named only in
+        // another thread's frames (the TLS-key exhaustion abort is the main thread's).
+        let main = MESA_ABORT.replace("Name:Chrome_InProcGp", "Name:ybrite.showcase");
+        assert_eq!(known_emulator_crash("harmony-arkui", &main), None);
+        let elsewhere = MESA_ABORT
+            .replace(
+                "/system/lib64/kms_swrast_dri.so(draw_flush+54)",
+                "/system/lib/libc.so",
+            )
+            .replace(
+                "/system/lib/ld-musl-x86_64.so.1(ioctl+187)",
+                "/system/lib64/kms_swrast_dri.so(draw_flush+54)",
+            );
+        assert_eq!(known_emulator_crash("harmony-arkui", &elsewhere), None);
+        // No fault thread section at all (an appfreeze report), and an empty one.
+        assert_eq!(
+            known_emulator_crash(
+                "harmony-arkui",
+                "Reason:Signal:SIGABRT\nkms_swrast_dri.so Chrome_InProcGp"
+            ),
+            None
+        );
+        assert_eq!(known_emulator_crash("harmony-arkui", ""), None);
     }
 
     /// The store path day-piece-crash-reporter itself computes, for the two host layouts.

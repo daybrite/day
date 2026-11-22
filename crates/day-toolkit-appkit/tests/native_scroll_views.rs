@@ -104,14 +104,20 @@ mod native {
                     );
 
                     // An animated scroll passes between its ends and lands on the bottom.
+                    // Sampled until it lands rather than once at a fixed time: on a slow runner
+                    // the animation may not have started yet at any one instant.
                     jump.set(Some(ScrollTarget::Bottom));
-                    day_core::sleep(90).await;
-                    let mid = origin_y(&sv);
-                    check(
-                        mid > 0.0 && mid < 1080.0,
-                        "an animated scroll_to is in flight",
-                    );
-                    day_core::sleep(600).await;
+                    let mut between = false;
+                    for _ in 0..300 {
+                        day_core::sleep(5).await;
+                        let y = origin_y(&sv);
+                        between |= y > 0.5 && y < 1079.5;
+                        if (y - 1080.0).abs() < 0.5 {
+                            break;
+                        }
+                    }
+                    check(between, "an animated scroll_to passes between its ends");
+                    day_core::sleep(200).await;
                     check(
                         (origin_y(&sv) - 1080.0).abs() < 0.5
                             && (offset.get().y - 1080.0).abs() < 0.5,

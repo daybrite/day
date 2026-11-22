@@ -250,6 +250,9 @@ pub(crate) struct ListState {
     /// The display rows of a list with section headers or supplementary rows; `None` without
     /// either, where display row and item index coincide.
     pub sections: Option<Rc<SectionMap>>,
+    /// The host was last told the list has no items, so it shows the empty state (when the
+    /// list has one). Starts true: the host attaches against an empty snapshot.
+    pub showed_empty: bool,
 }
 
 /// One row as the native host sees it in a list with headers or supplementary rows.
@@ -527,6 +530,15 @@ impl SectionMap {
     /// Whether display row `display` is a supplementary row.
     pub(crate) fn is_supplement(&self, display: usize) -> bool {
         matches!(self.row(display), Some(DisplayRow::Extra(_)))
+    }
+
+    /// The display row of supplementary row `which`, when the list shows it.
+    pub(crate) fn supplement_row(&self, which: Supplement) -> Option<usize> {
+        self.ensure();
+        self.rows
+            .borrow()
+            .iter()
+            .position(|row| *row == DisplayRow::Extra(which))
     }
 
     /// How many display rows sit above the first item when no section header does: what

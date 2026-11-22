@@ -445,6 +445,70 @@ fn the_empty_state_stands_in_for_the_rows_and_fills_the_viewport() {
     assert!(probe.list_is_supplement(host, 0));
 }
 
+/// The row scrolls the host was asked for since the log was last cleared.
+fn row_scrolls(probe: &MockProbe) -> Vec<String> {
+    list_patches(probe)
+        .into_iter()
+        .filter(|patch| patch.starts_with("scroll-to-row"))
+        .collect()
+}
+
+#[test]
+fn the_empty_state_is_brought_into_view_when_the_last_row_leaves() {
+    // Scrolled far down a long list, under a header: when every row goes, the host binds only
+    // what it shows, so the empty state has to be scrolled to or it is never seen (a header
+    // as tall as the viewport hid it on Android, Showcase CI run 44961147680).
+    let rows = Signal::new(rows_of(&(0..300).collect::<Vec<_>>()));
+    let jump: Signal<Option<RowTarget>> = Signal::new(None);
+    let probe = boot(move || {
+        keyed_list(rows)
+            .header(|| label("Header"))
+            .footer(|| label("Footer"))
+            .empty(|| label("Nothing here"))
+            .scroll_to_row(jump)
+            .height(60.0)
+    });
+    let host = list_host(&probe);
+    // A list that starts with rows, or starts empty, is left where the host puts it.
+    assert!(row_scrolls(&probe).is_empty(), "{:?}", probe.mutations());
+    jump.set(Some(RowTarget::new(200).align(RowAlign::Start).instant()));
+    flush_sync();
+    day_core::pump_events();
+    probe.clear_log();
+
+    rows.set(Vec::new());
+    flush_sync();
+    // Header, empty state, footer: the empty state is display row 1.
+    assert_eq!(probe.list_len(host), 3);
+    assert!(probe.list_is_supplement(host, 1));
+    assert_eq!(
+        row_scrolls(&probe),
+        ["scroll-to-row 1 align=Nearest animated=false"]
+    );
+    // After the patch that removed the rows, so the host scrolls among the new ones.
+    assert_eq!(
+        list_patches(&probe).last().map(String::as_str),
+        Some("scroll-to-row 1 align=Nearest animated=false")
+    );
+
+    // Still empty: no new scroll for a change that leaves it so.
+    probe.clear_log();
+    rows.set(Vec::new());
+    flush_sync();
+    assert!(row_scrolls(&probe).is_empty(), "{:?}", probe.mutations());
+
+    // Rows come back, and go again: once per return of the empty state.
+    rows.set(rows_of(&[1, 2, 3]));
+    flush_sync();
+    assert!(row_scrolls(&probe).is_empty(), "{:?}", probe.mutations());
+    rows.set(Vec::new());
+    flush_sync();
+    assert_eq!(
+        row_scrolls(&probe),
+        ["scroll-to-row 1 align=Nearest animated=false"]
+    );
+}
+
 #[test]
 fn content_padding_adds_a_row_above_and_below_and_insets_the_rest() {
     let rows = Signal::new(rows_of(&[1]));

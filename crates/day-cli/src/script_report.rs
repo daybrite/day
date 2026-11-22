@@ -199,6 +199,34 @@ pub(crate) fn reports_since(
     found.into_iter().map(|(_, path)| path).collect()
 }
 
+/// Record a relaunch on finished reports, as a top-level `relaunch` object, and return their
+/// `run_id`s. The launch loop marks the attempt that hit a known device crash
+/// (`"superseded": true`) and the relaunch that replaced it, so a reader of the JSON sees one
+/// variant run twice rather than an interrupted run beside an unrelated pass. A report that
+/// cannot be read or rewritten is left as it is, with a warning.
+pub(crate) fn mark_relaunch(paths: &[PathBuf], relaunch: &Value) -> Vec<String> {
+    let mut run_ids = Vec::new();
+    for path in paths {
+        let Some(mut report) = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        else {
+            eprintln!("warning: dayscript report {}: unreadable", path.display());
+            continue;
+        };
+        report["relaunch"] = relaunch.clone();
+        // The same temporary-then-rename write the checkpoints use.
+        let tmp = path.with_extension("tmp");
+        let written =
+            std::fs::write(&tmp, format!("{report}\n")).and_then(|()| std::fs::rename(&tmp, path));
+        match written {
+            Ok(()) => run_ids.extend(report["run_id"].as_str().map(str::to_owned)),
+            Err(error) => eprintln!("warning: dayscript report {}: {error}", path.display()),
+        }
+    }
+    run_ids
+}
+
 pub(crate) struct Reports {
     records: Vec<Record>,
     pub active: Active,
@@ -837,6 +865,27 @@ mod tests {
         assert_eq!(data["memory"]["avg_bytes"], 200.0);
         assert_eq!(data["memory"]["end_bytes"], 200);
         assert_eq!(data["memory"]["samples"].as_array().unwrap().len(), 3);
+        assert!(!root.join("report.tmp").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A relaunched variant's two attempts both say so, and each keeps its own outcome.
+    #[test]
+    fn relaunch_marks_keep_the_report_and_name_its_run() {
+        let (reports, root) = fixture();
+        reports.finish(Some("engine connection lost: EOF"));
+        let path = root.join("report.json");
+        let mut report: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        report["run_id"] = json!("harmony-arkui-1-2-3-0");
+        std::fs::write(&path, report.to_string()).unwrap();
+
+        let mark = json!({"attempt":1,"superseded":true,"signature":"fixture"});
+        let ids = mark_relaunch(&[path.clone(), root.join("missing.json")], &mark);
+        assert_eq!(ids, ["harmony-arkui-1-2-3-0"]);
+        let data: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(data["relaunch"], mark);
+        assert_eq!(data["status"], "interrupted");
+        assert_eq!(data["error"], "engine connection lost: EOF");
         assert!(!root.join("report.tmp").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
