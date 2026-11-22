@@ -504,7 +504,7 @@ newly created app fails too; that helps distinguish machine setup from a project
 | Read of disposed signal | Move shared state above the page/window scope or cancel the callback that outlives it |
 | `Signal` fails a `Send` bound | Use `Setter` for worker delivery; [`on_main`](https://docs.rs/day-reactive/latest/day_reactive/fn.on_main.html) also requires a `Send` closure |
 | A request succeeds but returns an error page | Check `Response::status`; HTTP 4xx/5xx are responses, not transport failures |
-| Leaving a page does not stop work | [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) is not scope-owned; abort its handle or use a `Resource` |
+| Leaving a page does not stop work | [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) is not scope-owned; abort its handle or use `AsyncData` |
 | Permission status is `Unknown` | Await `status_future` instead of relying on the first synchronous cache read |
 | A generated resource name exists but loading fails | Check staging and runtime resource availability separately from code generation |
 

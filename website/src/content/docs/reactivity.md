@@ -103,7 +103,7 @@ returning and resumes on the UI loop; it does not move blocking work to a worker
 Send result data back and format localized messages on the UI thread.
 
 Tasks are not scope-owned. [`TaskHandle::abort`](https://docs.rs/day-core/latest/day_core/struct.TaskHandle.html#method.abort) drops a pending future; dropping the handle alone
-does not cancel it. `day::reactive::Resource` supplies scope-owned, latest-result-wins loading.
+does not cancel it. `day::reactive::AsyncData` supplies scope-owned, latest-result-wins loading.
 See [async ownership and shutdown](/docs/explanation/async) and the
 [HTTP recipe](/docs/how-to/guide-http).
 

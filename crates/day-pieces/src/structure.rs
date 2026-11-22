@@ -307,170 +307,179 @@ impl<K: PartialEq + Clone + 'static> Piece for Keyed<K> {
     }
 }
 
-/// Where a [`load`] reads its state: a [`Resource`](day_reactive::Resource), a
-/// `Signal<Load<T>>`, or a closure. The marker is the same E0119 dodge as [`IntoText`].
-pub trait LoadSource<T: 'static, M>: 'static {
-    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>>;
+/// Where [`load`] reads state: [`AsyncData`](day_reactive::AsyncData), a
+/// `Signal<LoadState<T, E>>`, or a closure. The marker disambiguates implementations.
+pub trait LoadSource<T: 'static, E: 'static, M>: 'static {
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::LoadState<T, E>>;
 }
 
-/// Marker for a [`Resource`](day_reactive::Resource).
-pub struct ResourceMark;
+/// Marker for [`AsyncData`](day_reactive::AsyncData).
+pub struct AsyncDataMark;
 
-impl<T: Clone + 'static> LoadSource<T, ResourceMark> for day_reactive::Resource<T> {
-    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>> {
-        Rc::new(move || self.signal().get())
+impl<T: 'static, E: 'static> LoadSource<T, E, AsyncDataMark> for day_reactive::AsyncData<T, E> {
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::LoadState<T, E>> {
+        Rc::new(move || self.state())
     }
 }
-
-impl<T: Clone + 'static> LoadSource<T, crate::SignalMark> for Signal<day_reactive::Load<T>> {
-    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>> {
+impl<T: 'static, E: 'static> LoadSource<T, E, crate::SignalMark>
+    for Signal<day_reactive::LoadState<T, E>>
+{
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::LoadState<T, E>> {
         Rc::new(move || self.get())
     }
 }
-
-impl<T: 'static, F: Fn() -> day_reactive::Load<T> + 'static> LoadSource<T, crate::FnMark> for F {
-    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>> {
+impl<T: 'static, E: 'static, F: Fn() -> day_reactive::LoadState<T, E> + 'static>
+    LoadSource<T, E, crate::FnMark> for F
+{
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::LoadState<T, E>> {
         Rc::new(self)
     }
 }
 
-/// The loaded value, handed to a [`load`]'s ready arm: `get()` is a tracked read that follows
-/// `Ready(a)` to `Ready(b)` in place, without rebuilding the arm. `Copy`, like a signal.
+/// A ready arm's data. Reads follow new values without rebuilding the arm and retain the
+/// last value while it unmounts. Clone this handle into bindings; it is not `Copy`.
 pub struct Loaded<T: 'static> {
-    source: Rc<dyn Fn() -> day_reactive::Load<T>>,
-    last: Rc<RefCell<T>>,
+    source: Rc<dyn Fn() -> Option<Rc<T>>>,
+    last: Rc<RefCell<Rc<T>>>,
 }
-
 impl<T: 'static> Clone for Loaded<T> {
     fn clone(&self) -> Self {
-        Loaded {
+        Self {
             source: self.source.clone(),
             last: self.last.clone(),
         }
     }
 }
-
-impl<T: Clone + 'static> Loaded<T> {
-    /// The value, tracked: inside a label or a binding this follows a reload's new value.
-    /// While the state is between values (loading again, or failed) the last ready value is
-    /// returned, so the arm never sees a hole.
-    #[must_use]
-    pub fn get(&self) -> T {
-        if let day_reactive::Load::Ready(v) = (self.source)() {
-            *self.last.borrow_mut() = v.clone();
-            v
-        } else {
-            self.last.borrow().clone()
-        }
+impl<T: 'static> Loaded<T> {
+    /// Clone the current value (tracked).
+    pub fn get(&self) -> T
+    where
+        T: Clone,
+    {
+        self.with(Clone::clone)
     }
-    /// A tracked read through a projection, without cloning the whole value.
-    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        let v = self.get();
-        f(&v)
+    /// Borrow the current value (tracked), without copying the value or holding a mutable
+    /// borrow during the callback.
+    pub fn with<R>(&self, read: impl FnOnce(&T) -> R) -> R {
+        if let Some(value) = (self.source)() {
+            *self.last.borrow_mut() = value;
+        }
+        let value = self.last.borrow().clone();
+        read(&value)
     }
 }
 
-/// The three states of an async load as three subtrees (docs/async.md): the ready arm, and
-/// optional [`loading`](LoadPiece::loading) and [`failed`](LoadPiece::failed) arms (nothing is
-/// built for a state without an arm). Arms rebuild only when the *variant* changes; a new
-/// ready value updates the ready arm in place through [`Loaded::get`].
-///
-/// ```ignore
-/// load(stations, |s| station_list(s))
-///     .loading(spinner)
-///     .failed(|e| label(e.to_string()).secondary())
-/// ```
-///
-/// Whether a refetch passes through `Loading` is the [`Resource`](day_reactive::Resource)'s
-/// policy; an app that wants its stale content shown during a refresh keeps the last value in
-/// its own state and the ready arm reads it.
-pub fn load<T, P, M>(
-    state: impl LoadSource<T, M>,
+/// Show asynchronously loaded data. The content stays mounted during refresh and refresh
+/// failure; its bindings receive subsequent values. Loading and failed placeholders apply
+/// only when no value exists. Read the async data's `refreshing()` and `with_error()` in
+/// adjacent pieces to present refresh progress and failures. Use
+/// [`LoadPiece::replace_on_refresh`] for a screen that deliberately replaces its content.
+pub fn load<T: 'static, E: 'static, P: Piece, M>(
+    source: impl LoadSource<T, E, M>,
     ready: impl Fn(Loaded<T>) -> P + 'static,
-) -> LoadPiece<T>
-where
-    T: Clone + 'static,
-    P: Piece,
-{
+) -> LoadPiece<T, E> {
     LoadPiece {
-        source: state.into_load_reader(),
+        source: source.into_load_reader(),
         ready: Rc::new(move |v| AnyPiece::new(ready(v))),
         loading: None,
         failed: None,
+        replace: false,
     }
 }
 
 /// The piece [`load`] builds.
 #[must_use]
-pub struct LoadPiece<T: 'static> {
-    source: Rc<dyn Fn() -> day_reactive::Load<T>>,
+pub struct LoadPiece<T: 'static, E: 'static> {
+    source: Rc<dyn Fn() -> day_reactive::LoadState<T, E>>,
     ready: Rc<dyn Fn(Loaded<T>) -> AnyPiece>,
     loading: Option<Rc<dyn Fn() -> AnyPiece>>,
-    failed: Option<FailedArm>,
+    failed: Option<FailedArm<E>>,
+    replace: bool,
 }
-
-/// A [`load`]'s failed arm: the error in, the subtree out.
-type FailedArm = Rc<dyn Fn(&(dyn std::error::Error + 'static)) -> AnyPiece>;
-
-impl<T: Clone + 'static> LoadPiece<T> {
-    /// The subtree shown while loading (a spinner, a skeleton).
+type FailedArm<E> = Rc<dyn Fn(&E) -> AnyPiece>;
+impl<T: 'static, E: 'static> LoadPiece<T, E> {
+    /// The placeholder while loading without data. Idle shows no subtree.
     pub fn loading<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
         self.loading = Some(Rc::new(move || AnyPiece::new(build())));
         self
     }
-    /// The subtree shown after a failure, given the error.
-    pub fn failed<P: Piece>(
-        mut self,
-        build: impl Fn(&(dyn std::error::Error + 'static)) -> P + 'static,
-    ) -> Self {
+    /// The placeholder after an initial failure, given its typed error.
+    pub fn failed<P: Piece>(mut self, build: impl Fn(&E) -> P + 'static) -> Self {
         self.failed = Some(Rc::new(move |e| AnyPiece::new(build(e))));
+        self
+    }
+    /// Replace content with the loading/error placeholders even when previous data exists.
+    pub fn replace_on_refresh(mut self) -> Self {
+        self.replace = true;
         self
     }
 }
 
-/// Which arm a [`load`] shows: the variant alone, so a new ready value is an update, not a swap.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LoadArm {
+enum LoadArm<E> {
+    Idle,
     Loading,
     Ready,
-    Failed,
+    Failed(Rc<E>),
 }
-
-impl<T: Clone + 'static> Piece for LoadPiece<T> {
+impl<E> Clone for LoadArm<E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Idle => Self::Idle,
+            Self::Loading => Self::Loading,
+            Self::Ready => Self::Ready,
+            Self::Failed(e) => Self::Failed(e.clone()),
+        }
+    }
+}
+impl<E> PartialEq for LoadArm<E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Idle, Self::Idle)
+            | (Self::Loading, Self::Loading)
+            | (Self::Ready, Self::Ready) => true,
+            (Self::Failed(a), Self::Failed(b)) => Rc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+impl<T: 'static, E: 'static> Piece for LoadPiece<T, E> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        let LoadPiece {
+        let Self {
             source,
             ready,
             loading,
             failed,
+            replace,
         } = self;
         let arm_source = source.clone();
-        let error_source = source.clone();
         keyed(
             move || {
-                Some(match arm_source() {
-                    day_reactive::Load::Loading => LoadArm::Loading,
-                    day_reactive::Load::Ready(_) => LoadArm::Ready,
-                    day_reactive::Load::Failed(_) => LoadArm::Failed,
+                let state = arm_source();
+                Some(if !replace && state.value().is_some() {
+                    LoadArm::Ready
+                } else {
+                    match state {
+                        day_reactive::LoadState::Idle => LoadArm::Idle,
+                        day_reactive::LoadState::Loading
+                        | day_reactive::LoadState::Refreshing(_) => LoadArm::Loading,
+                        day_reactive::LoadState::Ready(_) => LoadArm::Ready,
+                        day_reactive::LoadState::Failed { error, .. } => LoadArm::Failed(error),
+                    }
                 })
             },
             move |arm| match arm {
+                LoadArm::Idle => None,
                 LoadArm::Loading => loading.as_ref().map(|f| f()),
-                LoadArm::Failed => {
-                    failed
-                        .as_ref()
-                        .and_then(|f| match day_reactive::untrack(|| error_source()) {
-                            day_reactive::Load::Failed(e) => Some(f(&*e)),
-                            _ => None,
+                LoadArm::Failed(error) => failed.as_ref().map(|f| f(error)),
+                LoadArm::Ready => day_reactive::untrack(|| source())
+                    .shared_value()
+                    .map(|value| {
+                        let source = source.clone();
+                        ready(Loaded {
+                            source: Rc::new(move || source().shared_value().cloned()),
+                            last: Rc::new(RefCell::new(value.clone())),
                         })
-                }
-                LoadArm::Ready => match day_reactive::untrack(|| source()) {
-                    day_reactive::Load::Ready(v) => Some(ready(Loaded {
-                        source: source.clone(),
-                        last: Rc::new(RefCell::new(v)),
-                    })),
-                    _ => None,
-                },
+                    }),
             },
         )
         .build(cx)
@@ -2503,7 +2512,7 @@ mod model_rows {
                 Some(f) => f(),
                 None => self.store.keys(),
             };
-            *self.keys.borrow_mut() = keys.clone();
+            self.keys.borrow_mut().clone_from(&keys);
             keys
         }
         fn len(&self) -> usize {
@@ -2634,8 +2643,7 @@ mod model_rows {
                 .borrow()
                 .children
                 .get(&parent)
-                .map(|v| v.len())
-                .unwrap_or(0)
+                .map_or(0, Vec::len)
         }
         fn child_token(&self, parent: Option<u64>, index: usize) -> u64 {
             self.shape

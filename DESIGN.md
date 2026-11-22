@@ -121,7 +121,7 @@ the architecture-level view and the rationale.
 | accessibility & the a11y audit | [docs/accessibility.md](docs/accessibility.md) | [§13](#13-accessibility) |
 | app directories — `day::storage`: each app's data, cache and configuration folders, per platform | [docs/fs.md](docs/fs.md) | [§8.6](#86-app-directories) |
 | app lifecycle | [docs/lifecycle.md](docs/lifecycle.md) | [§8.1](#81-the-toolkit-trait), [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
-| async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | [docs/async.md](docs/async.md) | [§4.5](#45-async) |
+| async — `day::task`/`TaskHandle`, `AsyncData`/`LoadState`, the runtime-quarantine policy | [docs/async.md](docs/async.md) | [§4.5](#45-async) |
 | observable model — per-property `Store`/`Keyed`/`Elem`/`Field`, `#[derive(Observable)]`, the change log | [docs/model.md](docs/model.md) | [Addendum](#addendum-2026-08-22--day-model-per-property-observation) |
 | persistence — `ModelContainer`, `#[derive(Model)]`, SQLite drivers/engines, migrations, codecs; a crate beside the facade, with its derive and its web scripts | [docs/persistence.md](docs/persistence.md) | [Addendum](#addendum-2026-08-22--day-persistence-sqlite-storage-for-the-model) |
 | tweaks — per-toolkit configuration of built-ins | [docs/tweaks.md](docs/tweaks.md) | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
@@ -690,9 +690,10 @@ boundary ([§3.3](#33-threading-model-and-the-turn-state-machine)).
 > on the UI thread, where `S` needs only `Clone + PartialEq` and the fetcher may touch signals
 > after its awaits. (2) Results are therefore plain signal writes guarded by the generation
 > check — no `Setter` in the delivery path. (3) The fetcher's output is
-> `Result<T, E: Error + Send + Sync>` (`Infallible` for infallible fetchers). Superseded and
+> `Result<T, E>` with a typed error and no `Error`, `Send` or `Sync` requirement;
+> the infallible constructor accepts `T` directly. Superseded and
 > disposed fetches ARE aborted — dropping the task's future cancels any
-> `day_part_http::FetchFuture` inside (the cancel matrix in [docs/http.md](docs/http.md)). The pre-`Resource`
+> `day_part_http::FetchFuture` inside (the cancel matrix in [docs/http.md](docs/http.md)). The pre-`AsyncData`
 > idiom (thread + `Setter`) remains valid for callback-style parts; [docs/async.md](docs/async.md) carries the
 > full policy, including the app-private tokio-quarantine rule the Matrix client models.
 >
@@ -708,17 +709,27 @@ boundary ([§3.3](#33-threading-model-and-the-turn-state-machine)).
 > `an-aborted-task-never-wakes-from-its-sleep` prove them on every toolkit ([docs/testing.md](docs/testing.md)).
 
 ```rust
-// two-closure shape (leptos-style), as shipped in day-reactive (`day::reactive::Resource` —
-// namespaced: the prelude's `Resource` is the asset handle, §18.3):
-let stations = Resource::new(
-    move || region.get(),                       // S: Clone + PartialEq — tracked; refetch on change
+let stations = AsyncData::new(
+    move || region.get(),
     |region| async move { fetch_stations(region).await },
 );
-// stations.signal(): Signal<Load<Vec<Station>>>; Load: Clone
-// Load::Loading | Load::Ready(T) | Load::Failed(Arc<dyn Error + Send + Sync>)
-when(move || stations.ready(), move || station_list(stations));
-stations.refetch(); stations.loading();
+// stations.state(): LoadState<Vec<Station>, FetchError>, read-only and cheap to clone.
+// Values/errors are shared with Rc; neither needs Clone or Send.
+// Refreshing and failed refreshes keep the last value; a new source clears it by default.
 ```
+
+`AsyncData<T, E>` is the prelude's async-data handle; `Resource` remains the bundled-file
+handle. Its implementation is `day-reactive/src/async_data.rs`. The public contract and
+constructor/read APIs are in [async data](docs/async.md#async-data). One snapshot contains
+state and source provenance; readers cannot write it. Explicit refetches keep values, source
+changes clear them unless `keep_previous` is selected, and an absent optional source clears
+all data. Errors remain typed. Cancellation restores the last settled state, invalidating
+its generation before dropping a future; scope disposal and eager completion cannot install
+obsolete abort handles. `load` retains the content subtree when data exists and exposes a
+replacement opt-in. `Loaded::with` borrows without copying the payload. The Skies and Trader
+caches own child scopes; eviction releases cache ownership, and mounted views retain leases
+until they close. The last owner disposes the scope. Regression coverage lives in `async_data_tests` and
+`day-pieces/tests/async_data_mock.rs`.
 
 Latest wins by fetch generation: a source change (or `refetch()`) supersedes the in-flight
 fetch — its task is aborted, and a completion that slips through writes nothing; scope disposal
@@ -4149,8 +4160,8 @@ render checkpoint. Asynchronous checkpoints are bounded and revisioned; toolkits
 native captures can delegate freshness to capture itself. The optional `capture_revision` reply
 lets the runner skip Harmony's legacy fixed delay without changing whole-device framing
 ([docs/window-image.md](docs/window-image.md#screenshot-render-checkpoints)). (The designed richer idle definition —
-in-flight `Resource`s, `busy_scope()` — remains unbuilt even now that `Resource` shipped
-([§4.5](#45-async)): the bounded-retry asserts absorb async gaps, as the showcase's Resource
+in-flight `AsyncData` loads, `busy_scope()` — remains unbuilt even now that `AsyncData` shipped
+([§4.5](#45-async)): the bounded-retry asserts absorb async gaps, as the showcase's async data
 walkthrough steps show.) No sleeps in
 well-written scripts; `pause` exists for demos. Text assertions normalize Fluent's FSI/PDI
 isolation marks ([§12.2](#122-api)).
@@ -7815,8 +7826,8 @@ points (DP-16–DP-25)**.
   `row_kind` for reuse identifiers. `each`-unification → DP-16 (since resolved: unified as
   `ItemSlot<T>`, [§5.4](#54-keyed-collections-each)).
 - **!Send hole in the async story** (`on_main(move || sig.set(v))` could never compile): `Send`
-  `Setter<T>` write-handle with liveness check; `Resource` rebuilt on it (leptos two-closure
-  shape, tracked source, latest-wins).
+  `Setter<T>` write-handle with liveness check for cross-thread callbacks; `AsyncData` uses
+  the main-loop executor and guarded signal writes (two closures, tracked source, latest-wins).
 - **Flush semantics**: "once per turn in dependency order" replaced by a fixpoint drain + re-run
   cap + (priority, scope-depth, seq) ordering + `watch()`; one scheduling state machine (sync
   drain at batch end, posted layout turn — DP-17); enqueue-only event-sink reentrancy contract;

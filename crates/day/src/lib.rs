@@ -138,9 +138,9 @@ pub use day_spec::{
     Attention, WindowBackground, WindowChrome, WindowKind, WindowLevel, WindowMaterial,
     WindowPlacement, WindowState, WindowTabbing,
 };
-/// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data
-/// loading. Namespaced because the prelude's `Resource` is the asset handle above, a different
-/// type that predates the async one.
+/// The reactive core, including [`AsyncData`](day_reactive::AsyncData) and
+/// [`LoadState`](day_reactive::LoadState) for asynchronous data loading. Both are also
+/// available in the prelude; bundled assets use the separate [`Resource`] type.
 pub mod reactive {
     pub use day_reactive::*;
 }

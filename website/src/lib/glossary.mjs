@@ -221,6 +221,13 @@ export const glossary = [
     see: { title: 'Testing with dayscript', href: '/docs/how-to/dayscript' },
   },
   {
+    id: 'async-data',
+    term: 'AsyncData',
+    definition:
+      'A scope-owned reactive handle for asynchronously loaded application data, such as a forecast, database query, or file read. It retains data during refresh, preserves typed errors, and cancels superseded work. Bundled files and translations are separate app resources.',
+    see: { title: 'Async data', href: '/docs/explanation/async#async-data' },
+  },
+  {
     id: 'resource',
     term: 'Resource',
     definition:

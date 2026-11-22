@@ -14,6 +14,10 @@ Signals hold changing values, computed values track their inputs, and effects re
 Scopes dispose of subscriptions with the UI that owns them. State handles belong to the UI thread; a
 setter provides the supported path for sending updates from other threads.
 
+`AsyncData<T, E>` connects a reactive source to an asynchronous fetch, retaining its value during
+refresh and preserving typed errors. Its scope cancels pending work. It is separate from bundled
+app resources. See [async data](https://daybrite.dev/docs/explanation/async#async-data).
+
 Day applications normally use the re-exports in
 [`day`](https://github.com/daybrite/day/tree/main/crates/day). Reusable state libraries can depend
 on this crate directly.

@@ -138,14 +138,15 @@ macro_rules! tls_slots {
 }
 
 use std::any::{Any, TypeId};
-use std::cell::{Cell, RefCell};
+#[cfg(test)]
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use slotmap::{Key, SlotMap, new_key_type};
 
@@ -818,7 +819,7 @@ type Spawner = Rc<dyn Fn(LocalBoxFuture) -> Box<dyn FnOnce()>>;
 
 /// Install the async-spawn door: `spawn` runs a future on the app's main-loop executor and
 /// returns an abort closure (remove + drop the future). The abort must be a no-op once the
-/// task has completed: [`Resource`] stores it after an eager first poll, so a synchronously
+/// task has completed: [`AsyncData`] stores it after an eager first poll, so a synchronously
 /// ready future has already finished by then. day-core's `launch_with` wires this to
 /// `day::task` / `TaskHandle::abort`; call it once at startup (docs/async.md).
 pub fn install_spawner(spawn: impl Fn(LocalBoxFuture) -> Box<dyn FnOnce()> + 'static) {
@@ -1904,215 +1905,8 @@ impl<T: 'static> Binding<T> for AnyBinding<T> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Async data loading: Load + Resource (§4.5, docs/async.md)
-// ---------------------------------------------------------------------------
-
-/// The lifecycle of an async-loaded value. `Failed` carries the fetcher's error as a shared
-/// trait object so `Load` stays `Clone` for signal reads.
-#[derive(Clone)]
-pub enum Load<T> {
-    Loading,
-    Ready(T),
-    Failed(Arc<dyn std::error::Error + Send + Sync>),
-}
-
-impl<T> Load<T> {
-    /// The loaded value, if ready.
-    pub fn ready(&self) -> Option<&T> {
-        match self {
-            Load::Ready(v) => Some(v),
-            _ => None,
-        }
-    }
-    pub fn is_loading(&self) -> bool {
-        matches!(self, Load::Loading)
-    }
-    pub fn is_ready(&self) -> bool {
-        matches!(self, Load::Ready(_))
-    }
-    /// The failure, if the last fetch failed.
-    pub fn error(&self) -> Option<&(dyn std::error::Error + Send + Sync + 'static)> {
-        match self {
-            Load::Failed(e) => Some(e.as_ref()),
-            _ => None,
-        }
-    }
-}
-
-impl<T: std::fmt::Debug> std::fmt::Debug for Load<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Load::Loading => write!(f, "Loading"),
-            Load::Ready(v) => f.debug_tuple("Ready").field(v).finish(),
-            Load::Failed(e) => f.debug_tuple("Failed").field(&e.to_string()).finish(),
-        }
-    }
-}
-
-/// Latest-wins bookkeeping shared by a Resource's reaction, its spawned futures, and disposal.
-struct FetchState {
-    generation: Cell<u64>,
-    abort: RefCell<Option<Box<dyn FnOnce()>>>,
-}
-
-impl FetchState {
-    /// Invalidate the in-flight fetch: bump the generation first (so a completion that cannot
-    /// be aborted still fails its check), then take-and-call the abort outside the borrow
-    /// (dropping a future can re-enter reactive state).
-    fn supersede(&self) -> u64 {
-        let next = self.generation.get() + 1;
-        self.generation.set(next);
-        let old = self.abort.borrow_mut().take();
-        if let Some(abort) = old {
-            abort();
-        }
-        next
-    }
-}
-
-/// Declarative async data loading (§4.5): a tracked `source` whose value feeds an async
-/// `fetcher`; the result lands in a `Signal<Load<T>>`. The source re-runs when its tracked
-/// reads change; an unchanged source value refetches nothing, [`Resource::refetch`] always
-/// does. Latest wins: a source change supersedes the in-flight fetch (aborting its task;
-/// dropping any `FetchFuture` inside cancels the platform request) and a stale completion
-/// writes nothing. Scope disposal aborts the in-flight fetch the same way.
-///
-/// ```ignore
-/// let stations = Resource::new(
-///     move || region.get(),                              // tracked: refetch on change
-///     |region| async move { fetch_stations(region).await },
-/// );
-/// when(move || stations.ready(), move || station_list(stations));
-/// ```
-pub struct Resource<T: 'static> {
-    state: Signal<Load<T>>,
-    refetch_count: Signal<u64>,
-    _not_send: PhantomData<*const T>,
-}
-
-impl<T> Clone for Resource<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl<T> Copy for Resource<T> {}
-
-impl<T: 'static> Resource<T> {
-    /// Start loading: `source` runs tracked (its signal reads become dependencies) and its
-    /// value moves into `fetcher`'s future, which runs on the main-loop executor via the
-    /// installed spawner, so no `Send` bound anywhere, and the future may read/write signals
-    /// after its awaits. Infallible fetchers use `E = std::convert::Infallible`.
-    #[track_caller]
-    pub fn new<S, Fut, E>(
-        source: impl Fn() -> S + 'static,
-        fetcher: impl Fn(S) -> Fut + 'static,
-    ) -> Resource<T>
-    where
-        S: Clone + PartialEq + 'static,
-        Fut: Future<Output = Result<T, E>> + 'static,
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        let state: Signal<Load<T>> = Signal::new(Load::Loading);
-        let refetch_count: Signal<u64> = Signal::new(0);
-        let fs = Rc::new(FetchState {
-            generation: Cell::new(0),
-            abort: RefCell::new(None),
-        });
-        let reaction_fs = fs.clone();
-        let prev: RefCell<Option<(S, u64)>> = RefCell::new(None);
-        create_reaction(
-            Rc::new(move || {
-                // Tracked reads first: the refetch counter and the source. Everything else runs
-                // untracked: the fetcher may read signals without making them dependencies.
-                let count = refetch_count.get();
-                let s = source();
-                let fs = reaction_fs.clone();
-                untrack(|| {
-                    // Equality gate on (source value, refetch count): a rerun caused by an
-                    // unrelated tracked read refetches nothing; refetch() always changes the
-                    // pair, so it always fetches.
-                    let same = prev
-                        .borrow()
-                        .as_ref()
-                        .is_some_and(|(ps, pc)| ps == &s && *pc == count);
-                    if same {
-                        return;
-                    }
-                    *prev.borrow_mut() = Some((s.clone(), count));
-                    let my_generation = fs.supersede();
-                    state.set(Load::Loading);
-                    let fut = fetcher(s);
-                    let done = fs.clone();
-                    let abort = spawn_local(Box::pin(async move {
-                        let result = fut.await;
-                        if done.generation.get() != my_generation {
-                            return; // superseded while in flight; latest wins
-                        }
-                        done.abort.borrow_mut().take(); // completed: the stored abort is dead
-                        match result {
-                            Ok(v) => state.set(Load::Ready(v)),
-                            Err(e) => state.set(Load::Failed(Arc::new(e))),
-                        }
-                    }));
-                    // Eager-poll ordering: the spawner polls once before returning, so a
-                    // synchronously-ready fetcher has already completed here; storing its
-                    // abort is harmless only because the spawner contract makes aborting a
-                    // finished task a no-op (this line is why that contract exists).
-                    *fs.abort.borrow_mut() = Some(abort);
-                });
-            }),
-            1,
-        );
-        // Disposal: supersede + abort the in-flight task. (A completion that slipped through
-        // would write to disposed signals, the defined no-op, but aborting frees the platform
-        // request immediately.)
-        let cleanup_fs = fs;
-        Scope::current().on_cleanup(move || {
-            cleanup_fs.supersede();
-        });
-        Resource {
-            state,
-            refetch_count,
-            _not_send: PhantomData,
-        }
-    }
-
-    /// The underlying state signal (tracked reads, `when(move || …)` guards, `each` sources).
-    #[must_use]
-    pub fn signal(self) -> Signal<Load<T>> {
-        self.state
-    }
-
-    /// The current load state (tracked).
-    #[must_use]
-    pub fn get(self) -> Load<T>
-    where
-        T: Clone,
-    {
-        self.state.get()
-    }
-
-    /// Read the current load state by reference (tracked).
-    pub fn with<R>(self, f: impl FnOnce(&Load<T>) -> R) -> R {
-        self.state.with(f)
-    }
-
-    /// Whether a fetch is in flight (tracked).
-    pub fn loading(self) -> bool {
-        self.with(Load::is_loading)
-    }
-
-    /// Whether a value is ready (tracked): `when(move || r.ready(), …)`.
-    pub fn ready(self) -> bool {
-        self.with(Load::is_ready)
-    }
-
-    /// Force a refetch with the current source value (even if unchanged).
-    pub fn refetch(self) {
-        self.refetch_count.update(|c| *c = c.wrapping_add(1));
-    }
-}
+mod async_data;
+pub use async_data::{AsyncData, AsyncDataOptions, LoadState};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -2459,8 +2253,9 @@ mod tests {
 }
 
 #[cfg(test)]
-mod resource_tests {
+mod async_data_tests {
     use super::*;
+    use std::cell::Cell;
     use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
     // ---- test executor: mirrors day::task's shape (eager first poll; abort = remove+drop;
@@ -2507,13 +2302,15 @@ mod resource_tests {
             Box::new(move || {
                 let removed = TEST_TASKS.with(|t| {
                     let mut t = t.borrow_mut();
-                    let before = t.len();
-                    t.retain(|(i, _)| *i != id);
-                    before != t.len()
+                    t.iter()
+                        .position(|(i, _)| *i == id)
+                        .map(|index| t.remove(index))
                 });
-                if removed {
+                if removed.is_some() {
                     ABORTED.with(|a| a.borrow_mut().push(id));
                 }
+                // Dropping a future may start another task, just as on the real executor.
+                drop(removed);
             })
         });
     }
@@ -2569,43 +2366,43 @@ mod resource_tests {
     impl std::error::Error for TestErr {}
 
     #[test]
-    fn resource_sync_fetcher_is_ready_immediately() {
+    fn async_data_sync_fetcher_is_ready_immediately() {
         install_test_spawner();
-        let r = Resource::new(|| (), |()| async { Ok::<_, std::convert::Infallible>(42) });
-        assert!(r.ready());
-        assert_eq!(r.with(|l| l.ready().copied()), Some(42));
+        let r = AsyncData::new(|| (), |()| async { Ok::<_, std::convert::Infallible>(42) });
+        assert!(r.has_value());
+        assert_eq!(r.with_state(|l| l.value().copied()), Some(42));
     }
 
     #[test]
-    fn resource_loading_then_ready() {
+    fn async_data_loading_then_ready() {
         install_test_spawner();
         let slot: Slot<i32> = Rc::new(RefCell::new(None));
         let s2 = slot.clone();
-        let r = Resource::new(move || (), move |()| manual_future(s2.clone()));
+        let r = AsyncData::new(move || (), move |()| manual_future(s2.clone()));
         assert!(r.loading());
         *slot.borrow_mut() = Some(Ok(7));
         pump();
-        assert_eq!(r.with(|l| l.ready().copied()), Some(7));
+        assert_eq!(r.with_state(|l| l.value().copied()), Some(7));
     }
 
     #[test]
-    fn resource_failed_preserves_error() {
+    fn async_data_failed_preserves_error() {
         install_test_spawner();
-        let r = Resource::new(|| (), |()| async { Err::<i32, _>(TestErr("boom")) });
-        assert!(!r.ready());
+        let r = AsyncData::new(|| (), |()| async { Err::<i32, _>(TestErr("boom")) });
+        assert!(!r.has_value());
         assert_eq!(
-            r.with(|l| l.error().map(std::string::ToString::to_string)),
+            r.with_state(|l| l.error().map(std::string::ToString::to_string)),
             Some("boom".into())
         );
     }
 
     #[test]
-    fn resource_refetches_on_source_change() {
+    fn async_data_refetches_on_source_change() {
         install_test_spawner();
         let src = Signal::new(1i32);
         let fetches = Rc::new(Cell::new(0));
         let f = fetches.clone();
-        let r = Resource::new(
+        let r = AsyncData::new(
             move || src.get(),
             move |v| {
                 f.set(f.get() + 1);
@@ -2613,20 +2410,20 @@ mod resource_tests {
             },
         );
         assert_eq!(fetches.get(), 1);
-        assert_eq!(r.with(|l| l.ready().copied()), Some(10));
+        assert_eq!(r.with_state(|l| l.value().copied()), Some(10));
         batch(|| src.set(2));
         assert_eq!(fetches.get(), 2);
-        assert_eq!(r.with(|l| l.ready().copied()), Some(20));
+        assert_eq!(r.with_state(|l| l.value().copied()), Some(20));
     }
 
     #[test]
-    fn resource_source_equality_gates() {
+    fn async_data_source_equality_gates() {
         install_test_spawner();
         let a = Signal::new(1i32);
         let b = Signal::new(10i32);
         let fetches = Rc::new(Cell::new(0));
         let f = fetches.clone();
-        let r = Resource::new(
+        let r = AsyncData::new(
             move || {
                 let _ = b.get(); // tracked but not part of the source value
                 a.get()
@@ -2639,17 +2436,17 @@ mod resource_tests {
         assert_eq!(fetches.get(), 1);
         batch(|| b.set(20)); // reruns the reaction; the source value is unchanged → no refetch
         assert_eq!(fetches.get(), 1);
-        assert_eq!(r.with(|l| l.ready().copied()), Some(1));
+        assert_eq!(r.with_state(|l| l.value().copied()), Some(1));
         batch(|| a.set(2)); // the value changed → refetch
         assert_eq!(fetches.get(), 2);
     }
 
     #[test]
-    fn resource_refetch_forces() {
+    fn async_data_refetch_forces() {
         install_test_spawner();
         let fetches = Rc::new(Cell::new(0));
         let f = fetches.clone();
-        let r = Resource::new(
+        let r = AsyncData::new(
             || (),
             move |()| {
                 f.set(f.get() + 1);
@@ -2662,12 +2459,12 @@ mod resource_tests {
     }
 
     #[test]
-    fn resource_latest_wins() {
+    fn async_data_latest_wins() {
         install_test_spawner();
         let src = Signal::new(1i32);
         let slots: Rc<RefCell<Vec<Slot<i32>>>> = Rc::new(RefCell::new(Vec::new()));
         let sl = slots.clone();
-        let r = Resource::new(
+        let r = AsyncData::new(
             move || src.get(),
             move |_| {
                 let slot: Slot<i32> = Rc::new(RefCell::new(None));
@@ -2685,16 +2482,16 @@ mod resource_tests {
         assert!(r.loading(), "a stale result writes nothing");
         *slots.borrow()[1].borrow_mut() = Some(Ok(222));
         pump();
-        assert_eq!(r.with(|l| l.ready().copied()), Some(222));
+        assert_eq!(r.with_state(|l| l.value().copied()), Some(222));
     }
 
     #[test]
-    fn resource_scope_disposal_aborts() {
+    fn async_data_scope_disposal_aborts() {
         install_test_spawner();
         let scope = Scope::child();
         let slot: Slot<i32> = Rc::new(RefCell::new(None));
         let s2 = slot.clone();
-        let r = scope.enter(|| Resource::new(move || (), move |()| manual_future(s2.clone())));
+        let r = scope.enter(|| AsyncData::new(move || (), move |()| manual_future(s2.clone())));
         assert!(r.loading());
         let before = aborted_count();
         scope.dispose();
@@ -2705,15 +2502,15 @@ mod resource_tests {
     }
 
     #[test]
-    fn resource_ready_is_tracked() {
+    fn async_data_ready_is_tracked() {
         install_test_spawner();
         let slot: Slot<i32> = Rc::new(RefCell::new(None));
         let s2 = slot.clone();
-        let r = Resource::new(move || (), move |()| manual_future(s2.clone()));
+        let r = AsyncData::new(move || (), move |()| manual_future(s2.clone()));
         let runs = Rc::new(Cell::new(0));
         let rn = runs.clone();
         Effect::new(move || {
-            let _ = r.ready();
+            let _ = r.has_value();
             rn.set(rn.get() + 1);
         });
         assert_eq!(runs.get(), 1);
@@ -2723,10 +2520,202 @@ mod resource_tests {
     }
 
     #[test]
+    fn refresh_retains_data_error_and_cancel_restores_the_settled_state() {
+        install_test_spawner();
+        let slot = Rc::new(RefCell::new(Some(Ok(7))));
+        let input = slot.clone();
+        let data = AsyncData::new(|| (), move |()| manual_future(input.clone()));
+        assert_eq!(data.value(), Some(7));
+        batch(|| data.refetch());
+        assert!(data.refreshing());
+        assert_eq!(data.value(), Some(7));
+        assert!(!data.stale());
+        *slot.borrow_mut() = Some(Err(TestErr("refresh failed")));
+        pump();
+        assert!(!data.loading());
+        assert_eq!(data.value(), Some(7));
+        assert_eq!(data.with_error(|e| e.map(|e| e.0)), Some("refresh failed"));
+        batch(|| data.refetch());
+        assert!(data.with_error(|e| e.is_none()));
+        data.cancel();
+        assert_eq!(data.value(), Some(7));
+        assert_eq!(data.with_error(|e| e.map(|e| e.0)), Some("refresh failed"));
+        *slot.borrow_mut() = Some(Ok(9));
+        pump();
+        assert_eq!(
+            data.value(),
+            Some(7),
+            "cancelled request cannot replace data"
+        );
+        batch(|| data.refetch());
+        assert_eq!(data.value(), Some(9));
+        assert!(data.with_error(|e| e.is_none()));
+    }
+
+    #[test]
+    fn a_new_identity_clears_data_and_an_absent_source_never_fetches() {
+        install_test_spawner();
+        let source = Signal::new(None::<u32>);
+        let slot = Rc::new(RefCell::new(Some(Ok(7))));
+        let input = slot.clone();
+        let calls = Rc::new(Cell::new(0));
+        let called = calls.clone();
+        let data = AsyncData::optional(
+            move || source.get(),
+            move |_| {
+                called.set(called.get() + 1);
+                manual_future(input.clone())
+            },
+        );
+        assert!(matches!(data.state(), LoadState::Idle));
+        batch(|| data.refetch());
+        assert_eq!(calls.get(), 0);
+        batch(|| source.set(Some(1)));
+        assert_eq!(data.value(), Some(7));
+        batch(|| source.set(Some(2)));
+        assert_eq!(data.value(), None);
+        data.cancel();
+        assert!(matches!(data.state(), LoadState::Idle));
+        batch(|| data.refetch());
+        assert!(data.loading());
+        batch(|| source.set(None));
+        assert!(matches!(data.state(), LoadState::Idle));
+        *slot.borrow_mut() = Some(Ok(8));
+        pump();
+        assert_eq!(data.value(), None);
+    }
+
+    #[test]
+    fn retained_values_report_their_actual_source_even_after_switching_back() {
+        install_test_spawner();
+        let source = Signal::new(Some(1));
+        let slot = Rc::new(RefCell::new(Some(Ok(7))));
+        let input = slot.clone();
+        let data = AsyncData::optional_with_options(
+            move || source.get(),
+            move |_| manual_future(input.clone()),
+            AsyncDataOptions {
+                keep_previous: true,
+            },
+        );
+        batch(|| source.set(Some(2)));
+        assert_eq!(data.value(), Some(7));
+        assert!(data.stale());
+        *slot.borrow_mut() = Some(Err(TestErr("different source")));
+        pump();
+        assert!(data.stale());
+        batch(|| source.set(Some(1)));
+        assert!(!data.stale());
+        assert!(data.refreshing());
+        batch(|| source.set(None));
+        assert!(!data.stale());
+        assert_eq!(data.value(), None);
+    }
+
+    #[test]
+    fn non_clone_local_values_and_errors_have_read_only_snapshots() {
+        struct Value(Rc<Cell<u32>>);
+        struct Error(Rc<Cell<u32>>);
+        install_test_spawner();
+        let data = AsyncData::infallible(|| (), |()| async { Value(Rc::new(Cell::new(3))) });
+        assert_eq!(data.with_value(|v| v.unwrap().0.get()), 3);
+        let snapshot = data.state();
+        batch(|| data.refetch());
+        assert_eq!(snapshot.value().unwrap().0.get(), 3);
+        let failed = AsyncData::new(
+            || (),
+            |()| async { Err::<Value, _>(Error(Rc::new(Cell::new(4)))) },
+        );
+        assert_eq!(failed.with_error(|e| e.unwrap().0.get()), 4);
+    }
+
+    #[test]
+    fn cancellation_during_eager_poll_does_not_leave_an_abort_handle() {
+        install_test_spawner();
+        let holder = Rc::new(Cell::new(None::<AsyncData<i32, TestErr>>));
+        let handle = holder.clone();
+        let data = AsyncData::new(
+            || (),
+            move |()| {
+                let handle = handle.clone();
+                async move {
+                    if let Some(data) = handle.get() {
+                        data.cancel();
+                    }
+                    std::future::pending::<Result<i32, TestErr>>().await
+                }
+            },
+        );
+        holder.set(Some(data));
+        batch(|| data.refetch());
+        assert!(matches!(data.state(), LoadState::Idle));
+        assert!(!data.loading());
+        holder.set(None);
+        batch(|| data.refetch());
+        assert!(data.loading());
+        data.cancel();
+    }
+
+    #[test]
+    fn cancelling_a_future_whose_drop_starts_a_new_request_preserves_the_new_result() {
+        struct ChangeSource(Signal<i32>);
+        impl Drop for ChangeSource {
+            fn drop(&mut self) {
+                batch(|| self.0.set(2));
+            }
+        }
+        install_test_spawner();
+        let source = Signal::new(1);
+        let data = AsyncData::new(
+            move || source.get(),
+            move |key| async move {
+                if key == 1 {
+                    let _change = ChangeSource(source);
+                    std::future::pending::<()>().await;
+                }
+                Ok::<_, TestErr>(key * 10)
+            },
+        );
+        data.cancel();
+        assert_eq!(data.value(), Some(20));
+        assert!(!data.loading());
+    }
+
+    #[test]
+    fn late_completions_are_ignored_even_when_the_executor_cannot_abort() {
+        install_test_spawner();
+        // This executor deliberately keeps cancelled futures, as an external operation may.
+        install_spawner(|fut| {
+            let id = NEXT_ID.with(|n| {
+                let id = n.get();
+                n.set(id + 1);
+                id
+            });
+            TEST_TASKS.with(|t| t.borrow_mut().push((id, Some(fut))));
+            Box::new(|| {})
+        });
+        let source = Signal::new(1);
+        let slots = [Rc::new(RefCell::new(None)), Rc::new(RefCell::new(None))];
+        let inputs = slots.clone();
+        let data = AsyncData::new(
+            move || source.get(),
+            move |key| manual_future(inputs[key - 1].clone()),
+        );
+        batch(|| source.set(2));
+        *slots[1].borrow_mut() = Some(Ok(20));
+        pump();
+        *slots[0].borrow_mut() = Some(Ok(10));
+        pump();
+        assert_eq!(data.value(), Some(20));
+        INSTALLED.with(|v| v.set(false));
+        install_test_spawner();
+    }
+
+    #[test]
     #[should_panic(expected = "no spawner installed")]
     fn spawner_missing_panics() {
         // No test spawner installed: this test thread's Runtime has none.
-        let _r = Resource::new(|| (), |()| async { Ok::<_, std::convert::Infallible>(1) });
+        let _r = AsyncData::new(|| (), |()| async { Ok::<_, std::convert::Infallible>(1) });
     }
 }
 

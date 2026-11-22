@@ -192,7 +192,8 @@ pub mod prelude {
         Affine, Angle, Animatable, Color, Insets, Point, Rect, Size, Transform,
     };
     pub use day_reactive::{
-        AnyBinding, Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
+        AnyBinding, AsyncData, AsyncDataOptions, Effect, LoadState, Memo, Scope, Setter, Signal,
+        Trigger, batch, bind, untrack, watch,
     };
     // `Nav::presentation` takes one (docs/size-classes.md); apps that leave the
     // presentation automatic never name it.

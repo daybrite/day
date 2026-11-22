@@ -18,7 +18,7 @@ to compile the example without making a network request.
 
 ## Fetch when the input changes
 
-Keep the endpoint in a signal. Use `day::reactive::Resource` for a request owned by the current
+Keep the endpoint in a signal. Use `day::reactive::AsyncData` for a request owned by the current
 page scope: it starts on construction, supersedes the previous request when the endpoint changes,
 and aborts its task when the scope is disposed. This differs from an ordinary [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html), which
 continues after the page closes unless you abort it.
@@ -31,12 +31,12 @@ to `resource/locales/en/app.ftl` and declare the module in `src/lib.rs`.
 ```rust
 use crate::res;
 use day::prelude::*;
-use day::reactive::Resource as AsyncResource;
+use day::reactive::AsyncData;
 use day_part_http::{Client, HttpError, Request};
 use std::time::Duration;
 
 pub fn response_panel(endpoint: Signal<String>) -> impl Piece {
-    let response = AsyncResource::new(
+    let response = AsyncData::new(
         move || endpoint.get(),
         |url| async move {
             let response = Client::new()

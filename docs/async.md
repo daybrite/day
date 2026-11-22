@@ -50,7 +50,7 @@ See the [HTTP cancellation contract](http.md). Aborting a finished task is a no-
 completed-or-aborted. Task ids are never reused, so stale handles are harmless.
 
 A task is not owned by the scope that starts it. Leaving a page does not abort its tasks.
-Keep the handle and abort it explicitly, or use `Resource` for work that should end with a scope.
+Keep the handle and abort it explicitly, or use `AsyncData` for work that should end with a scope.
 
 On `WillTerminate`, Day stops accepting async work and drops pending tasks before calling app
 lifecycle handlers. Their destructors can still update signals; handlers can then synchronously
@@ -107,50 +107,128 @@ native timer fire into nothing. The platform may round a short delay up: Windows
 every ten milliseconds or so. Both Windows backends check a monotonic deadline when a timer signals
 and rearm an early signal for the remaining time, so clock granularity cannot shorten a sleep.
 
-## `Resource` and `Load` (day::reactive)
+## Async data
 
-`Resource` is the declarative layer: a tracked `source` whose value feeds an async `fetcher`,
-and the result is stored in a `Signal<Load<T>>`.
+Asynchronous data has a lifecycle separate from the view that displays it: it can be loading,
+available, refreshing or failed. `AsyncData<T, E>` owns that lifecycle for an HTTP request,
+a database read or another future. Bundled images, files and translations are the separate
+[app resources](resources.md).
 
 ```rust
-use day::reactive::{Load, Resource};
-
-let stations = Resource::new(
-    move || region.get(),                                   // tracked — refetch on change
-    |region| async move { fetch_stations(region).await },   // Result<T, E: Error + Send + Sync>
+let stations = AsyncData::new(
+    move || region.get(),
+    |region| async move { fetch_stations(region).await },
 );
-load(stations, |s| station_list(s.get()))                  // the three states as subtrees
-    .loading(spinner)
-    .failed(|_| label(res::str::request_failed()).secondary());
-stations.refetch();                                         // force, even if region is unchanged
+load(stations, |data| {
+    // Read in bindings so new results update the mounted content.
+    label(move || data.with(|stations| stations.len().to_string()))
+})
+.loading(spinner)
+.failed(|_| label(res::str::request_failed()).secondary());
+stations.refetch();
 ```
 
-[`load(state, ready)`](https://docs.rs/day-pieces/latest/day_pieces/fn.load.html) shows the three states as three subtrees: the ready arm, and optional
-[`.loading(build)`](https://docs.rs/day-pieces/latest/day_pieces/struct.LoadPiece.html#method.loading) and [`.failed(|err| build)`](https://docs.rs/day-pieces/latest/day_pieces/struct.LoadPiece.html#method.failed) arms (a state without an arm builds nothing).
-`state` is a `Resource<T>`, a `Signal<Load<T>>` or a closure returning a `Load<T>`. Arms rebuild
-only when the variant changes; the ready arm is handed a `Loaded<T>`, whose [`get()`](https://docs.rs/day-pieces/latest/day_pieces/struct.Loaded.html#method.get) is a tracked
-read that follows `Ready(a)` to `Ready(b)` in place, so a refetch updates the list without
-rebuilding it. Whether a refetch passes through `Loading` is the `Resource`'s policy (below); an
-app that wants its stale content shown during a refresh keeps the last value in its own state
-and the ready arm reads it.
+### Creation and source identity
 
-- `Load<T>` is `Loading | Ready(T) | Failed(Arc<dyn Error + Send + Sync>)`, `Clone`, with
-  [`ready`](https://docs.rs/day-reactive/latest/day_reactive/enum.Load.html#method.ready)`()/`[`is_loading`](https://docs.rs/day-reactive/latest/day_reactive/enum.Load.html#method.is_loading)`()/`[`is_ready`](https://docs.rs/day-reactive/latest/day_reactive/enum.Load.html#method.is_ready)`()/`[`error`](https://docs.rs/day-reactive/latest/day_reactive/enum.Load.html#method.error)`()` accessors. `Resource` is a `Copy` handle:
-  [`signal()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Resource.html#method.signal), [`get()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Resource.html#method.get), [`with()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Resource.html#method.with), [`loading()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Resource.html#method.loading), [`ready()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Resource.html#method.ready) (all tracked), [`refetch()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Resource.html#method.refetch).
-- **Latest wins.** A source change supersedes the in-flight fetch: its task is aborted (the
-  drop requests cancellation where supported) and a completion that slips through writes
-  nothing. [`refetch()`](https://docs.rs/day-reactive/latest/day_reactive/struct.Resource.html#method.refetch) always fetches; a rerun with an unchanged source value fetches nothing.
-- **Scope cleanup cancels the fetch.** When the owning scope is disposed, its task is
-  aborted. A late write to the disposed signal has no effect.
-- The fetcher runs on the main-loop executor, so it may read and write signals after its
-  awaits, and its source value needs no `Send` bound.
-- Namespacing: the prelude's `Resource` is the asset handle ([docs/resources](resources.md)), which
-  predates this type; the async one lives at `day::reactive::Resource`, or depend on
-  [`day-reactive`](/docs/explanation/state) directly.
+[`AsyncData::new`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.new)
+starts a load immediately. Reads in the source closure are tracked; reads in the fetcher are
+not. An unchanged source starts no request. The fetcher returns `Result<T, E>`; neither data
+nor error requires `Clone`, `Error`, `Send` or `Sync`. Its future runs on the main loop.
+[`AsyncData::infallible`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.infallible)
+accepts a future returning `T` directly and uses `Infallible` as its error type.
 
-[`day-part-http`](/docs/reference/http) pairs with it for the common case (see the showcase's Platform-services page:
-the loopback `Resource` demo, the PATCH `fetch_future` demo, and the URL checker that aborts
-its previous in-flight task on re-tap).
+[`AsyncData::optional`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.optional)
+takes a source returning `Option<S>`. `None` cancels work, clears data and errors, and becomes
+idle. It does not invoke the fetcher, even when asked to refetch.
+
+An explicit refetch retains the value. A changed source clears it: switching cities must not
+show the old city's forecast under the new heading. To retain previous results across source
+changes, use [`AsyncData::with_options`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.with_options)
+or [`AsyncData::optional_with_options`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.optional_with_options)
+with `AsyncDataOptions { keep_previous: true }`. The
+[`stale()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.stale)
+read then tells the view that the value belongs to another source. Switching back to the
+value's source clears that flag. A same-source refresh is not stale in this sense; the flag
+is not an age or expiration policy.
+
+### State and reads
+
+[`state()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.state)
+returns a read-only `LoadState<T, E>` snapshot. Values and errors are held in `Rc`, so copying
+a snapshot does not copy their contents. No writable state signal is exposed.
+
+| State | Meaning |
+| --- | --- |
+| `Idle` | No source, or an initial request was cancelled |
+| `Loading` | A request with no previous value |
+| `Ready(value)` | The last request succeeded |
+| `Refreshing(value)` | A request with a retained value |
+| `Failed { error, previous }` | An initial failure, or a refresh failure with retained data |
+
+The error clears when another request starts. A failed refresh keeps the previous value.
+All reads below are tracked; wrap them in `untrack` when no subscription is wanted.
+
+| Read | Result |
+| --- | --- |
+| [`value()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.value) | An owned `Option<T>`; requires `T: Clone` |
+| [`with_value()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.with_value) | A borrowed `Option<&T>`; no clone bound |
+| [`error()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.error) | An owned `Option<E>`; requires `E: Clone` |
+| [`with_error()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.with_error) | A borrowed `Option<&E>`; no clone bound |
+| [`with_state()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.with_state) | A borrowed complete `LoadState` |
+| [`has_value()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.has_value) | Whether data is available, including during refresh or refresh failure |
+| [`loading()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.loading) | Whether any request is running |
+| [`refreshing()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.refreshing) | Whether a request is running with retained data |
+
+`LoadState` also exposes
+[`value`](https://docs.rs/day-reactive/latest/day_reactive/enum.LoadState.html#method.value),
+[`shared_value`](https://docs.rs/day-reactive/latest/day_reactive/enum.LoadState.html#method.shared_value),
+[`error`](https://docs.rs/day-reactive/latest/day_reactive/enum.LoadState.html#method.error),
+[`is_loading`](https://docs.rs/day-reactive/latest/day_reactive/enum.LoadState.html#method.is_loading) and
+[`is_refreshing`](https://docs.rs/day-reactive/latest/day_reactive/enum.LoadState.html#method.is_refreshing).
+`shared_value` borrows the `Rc<T>` when a consumer needs to retain it cheaply.
+
+### Rendering and refresh
+
+[`load(data, ready)`](https://docs.rs/day-pieces/latest/day_pieces/fn.load.html) accepts an
+`AsyncData`, a `Signal<LoadState<T, E>>`, or a closure returning `LoadState<T, E>`.
+Its content stays mounted whenever data is available, preserving focus, scroll position and
+local state during refresh and refresh failure. Idle shows nothing. The
+[`.loading(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.LoadPiece.html#method.loading)
+and [`.failed(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.LoadPiece.html#method.failed)
+placeholders apply when no value is available; the failed callback receives `&E`.
+A different failure updates the error placeholder even if the state remains failed.
+
+The content builder receives `Loaded<T>`. Clone this handle into bindings and read
+[`get()`](https://docs.rs/day-pieces/latest/day_pieces/struct.Loaded.html#method.get) or
+[`with(...)`](https://docs.rs/day-pieces/latest/day_pieces/struct.Loaded.html#method.with)
+inside them. `with` borrows without cloning `T`. Reading once while building captures a
+snapshot that will not update the view after a refresh.
+
+Present refresh progress with
+[`refreshing()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.refreshing)
+and refresh errors with
+[`with_error()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.with_error)
+in adjacent pieces. To deliberately replace content during refresh, opt into
+[`.replace_on_refresh()`](https://docs.rs/day-pieces/latest/day_pieces/struct.LoadPiece.html#method.replace_on_refresh).
+
+### Cancellation and ownership
+
+[`refetch()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.refetch)
+forces a request with the current source. Calls in a batch coalesce. A newer request
+invalidates and aborts the earlier one; late completions cannot overwrite the current state.
+
+[`cancel()`](https://docs.rs/day-reactive/latest/day_reactive/struct.AsyncData.html#method.cancel)
+cancels the running request and restores its previous settled state, including a previous
+refresh error. Cancelling an initial request returns to idle. Cancellation creates no error
+and does nothing after scope disposal. A later refetch starts another request.
+
+An async data handle is `Copy`, so dropping a copy does not cancel it. Its creation scope owns
+its reaction and task. Disposing that scope invalidates and aborts pending work. A cache
+entry should own a child scope and dispose it on eviction, outside any cache borrow; a
+root-scoped handle otherwise lives until application shutdown. Physical cancellation depends
+on the future: [HTTP cancellation](http.md) may stop the request or discard its result.
+
+The API provides no automatic retry, shared cache, persistence or offline synchronization.
 
 ## Threading rules
 
@@ -189,8 +267,8 @@ that recipe's catalog; other generated messages come from [the snippet catalog](
 [`on_main`](https://docs.rs/day-reactive/latest/day_reactive/fn.on_main.html) takes a `Send + 'static` closure and requires an installed main poster. It cannot
 capture a `Signal`; pass data through a `Setter` instead. [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) accepts a non-`Send`
 `Future<Output = ()>` and eagerly polls it once. Keep CPU or blocking IO work out of that poll.
-Dropping a task handle does not abort its task; call [`abort`](https://docs.rs/day-core/latest/day_core/struct.TaskHandle.html#method.abort) or use a scope-owned `Resource`.
+Dropping a task handle does not abort its task; call [`abort`](https://docs.rs/day-core/latest/day_core/struct.TaskHandle.html#method.abort) or use a scope-owned `AsyncData`.
 
 See [executor and shutdown](../crates/day-core/src/present.rs),
-[Resource and Setter](../crates/day-reactive/src/lib.rs), and
+[Async data and Setter](../crates/day-reactive/src/lib.rs), and
 [blocking pool](../crates/day-async/src/lib.rs) for implementation details.

@@ -98,7 +98,7 @@ fn a_field_edit_patches_one_label_and_reloads_nothing() {
 }
 
 #[test]
-fn an_order_edit_reloads_and_a_value_edit_does_not() {
+fn an_order_edit_splices_and_a_value_edit_does_not() {
     let store = store();
     // A projection whose order depends on `done` (and nothing else).
     let probe = boot(move || {
@@ -136,13 +136,24 @@ fn an_order_edit_reloads_and_a_value_edit_does_not() {
         "the projection does not read `name`, so it did not re-run"
     );
 
-    // A value the order depends on: exactly one reload.
+    // A value the order depends on: a keyed splice, preserving the existing list.
+    let splices = count(&probe, "list splice");
     store.elem(2).done().update(|d| *d = !*d);
     flush_sync();
     assert_eq!(
         count(&probe, "list reload") - reloads,
-        1,
-        "flipping `done` re-ran the projection and reloaded once"
+        0,
+        "an order edit uses keyed splices rather than reloading"
+    );
+    assert_eq!(count(&probe, "list splice") - splices, 1);
+    probe.list_bind(host, 1, MockHandle(9100));
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, label)| label.text == "row 3"),
+        "the recycled row follows the reordered projection"
     );
 }
 
@@ -293,7 +304,7 @@ fn sequential_writes_keep_patching_under_a_change_sink() {
 }
 
 /// A text patch inside a bound cell must re-lay-out that cell. Cell anchors live outside the
-/// window trees, so the window pass never reaches them; layout_now's dirty-cell sweep does.
+/// window trees, so the window pass never reaches them; `layout_now`'s dirty-cell sweep does.
 /// Without it, a row label edited to longer text keeps the frame its old text measured and
 /// truncates the very text it was just given (the Showcase rename froze at "Re…").
 #[test]
