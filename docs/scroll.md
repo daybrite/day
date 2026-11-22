@@ -135,7 +135,8 @@ button(res::str::fit()).action(move || scale.set(1.0));
 natural size. [`.zoom_scale(binding)`](https://docs.rs/day-pieces/latest/day_pieces/trait.ScrollBuilder.html#tymethod.zoom_scale) is the scale both ways: it follows the
 pinch, and a value the app writes zooms there, animated and clamped to the range, keeping the
 center of the viewport in place. A value written while an earlier zoom is still animating
-replaces it: the view ends at the last value written.
+replaces it: the view ends at the last value written. While the system's reduce-motion
+setting is on, the zoom lands at once, still about the viewport's center.
 
 `Cap::ScrollZoom` is `Native` where the platform's scroll view zooms. Where it is
 unsupported the content stays at its natural size, a pinch does nothing, and the binding

@@ -544,8 +544,10 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
         bounds.origin.x + bounds.size.width / 2.0,
         bounds.origin.y + bounds.size.height / 2.0,
     );
-    if !animated {
-        unsafe { sv.setMagnification_centeredAtPoint(scale, center) };
+    // Reduce Motion lands the zoom at once (docs/scroll.md), as it does a scroll; AppKit would
+    // otherwise apply the animator's change instantly, about another anchor.
+    if !animated || day_core::reduce_motion_now() {
+        land_zoom(sv, scale, center);
         report(sv, ivars, true);
         return;
     }
@@ -571,11 +573,33 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
                 return;
             }
             // Exactly the scale asked for, about the center the zoom started from.
-            unsafe { sv.setMagnification_centeredAtPoint(scale, center) };
+            land_zoom(sv, scale, center);
             report(sv, ivars, true);
         });
     });
     unsafe { NSAnimationContext::runAnimationGroup_completionHandler(&changes, Some(&completion)) };
+}
+
+/// Set `sv`'s magnification to `scale` with `center` (document coordinates) at the middle of the
+/// viewport. `setMagnification:centeredAtPoint:` does nothing when the scale is already `scale`
+/// (an animator that landed it about another anchor), so the clip view is then moved to put
+/// `center` back in the middle.
+fn land_zoom(sv: &NSScrollView, scale: f64, center: NSPoint) {
+    unsafe { sv.setMagnification_centeredAtPoint(scale, center) };
+    let clip = unsafe { sv.contentView() };
+    let mut bounds = clip.bounds();
+    let off_x = bounds.origin.x + bounds.size.width / 2.0 - center.x;
+    let off_y = bounds.origin.y + bounds.size.height / 2.0 - center.y;
+    if off_x.abs() < 0.5 && off_y.abs() < 0.5 {
+        return;
+    }
+    bounds.origin = NSPoint::new(
+        center.x - bounds.size.width / 2.0,
+        center.y - bounds.size.height / 2.0,
+    );
+    let to = clip.constrainBoundsRect(bounds).origin;
+    clip.scrollToPoint(to);
+    sv.reflectScrolledClipView(&clip);
 }
 
 /// Move `scroll`'s clip view so its bounds origin is `to` (clamped to the content), with AppKit's

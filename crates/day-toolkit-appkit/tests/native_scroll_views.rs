@@ -162,7 +162,13 @@ mod native {
                     scale.set(2.0);
                     day_core::sleep(100).await;
                     let m = sv.magnification();
-                    check(m > 1.0 && m < 2.0, "an animated zoom is in flight");
+                    if day_core::reduce_motion_now() {
+                        println!(
+                            "native scroll views: reduce motion is on; the zoom lands at once"
+                        );
+                    } else {
+                        check(m > 1.0 && m < 2.0, "an animated zoom is in flight");
+                    }
                     day_core::sleep(700).await;
                     let after = sv.contentView().bounds();
                     check(
@@ -184,12 +190,23 @@ mod native {
                     let table = find_table(&root()).unwrap();
                     let list = table.enclosingScrollView().unwrap();
                     row.set(Some(RowTarget::new(150).align(RowAlign::Center)));
-                    day_core::sleep(90).await;
-                    let mid = origin_y(&list);
-                    check(
-                        mid > 0.0 && mid < 4720.0,
-                        "an animated row scroll is in flight",
-                    );
+                    // Sampled until it lands, as the scroll above; instant under Reduce Motion.
+                    let mut between = false;
+                    for _ in 0..300 {
+                        day_core::sleep(5).await;
+                        let y = origin_y(&list);
+                        between |= y > 0.5 && y < 4719.5;
+                        if between {
+                            break;
+                        }
+                    }
+                    if day_core::reduce_motion_now() {
+                        println!(
+                            "native scroll views: reduce motion is on; the row scroll is instant"
+                        );
+                    } else {
+                        check(between, "an animated row scroll is in flight");
+                    }
                     day_core::sleep(700).await;
                     let bounds = list.contentView().bounds();
                     let rect = table.rectOfRow(150);
