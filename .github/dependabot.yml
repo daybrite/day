@@ -19,3 +19,11 @@ updates:
       oxc:
         patterns:
           - "oxc_*"
+    # `windows-future` has to be the version the `windows` crate itself is built on: Day names
+    # its `IAsyncOperation` only because `windows` hands that type back. windows-rs published
+    # `windows-future`/`windows-core` 0.100 without a matching `windows` release (still 0.62,
+    # on windows-future 0.3), so a 0.100 bump alone splits `windows-core` in two and the WinRT
+    # types stop satisfying its traits (PR #67). Move it together with `windows` instead.
+    ignore:
+      - dependency-name: "windows-future"
+        versions: [">=0.4"]
