@@ -108,15 +108,30 @@ mod native {
                     // the animation may not have started yet at any one instant.
                     jump.set(Some(ScrollTarget::Bottom));
                     let mut between = false;
+                    let mut seen = Vec::new();
                     for _ in 0..300 {
                         day_core::sleep(5).await;
                         let y = origin_y(&sv);
+                        if seen.last() != Some(&y) {
+                            seen.push(y);
+                        }
                         between |= y > 0.5 && y < 1079.5;
                         if (y - 1080.0).abs() < 0.5 {
                             break;
                         }
                     }
-                    check(between, "an animated scroll_to passes between its ends");
+                    // With Reduce Motion on (as on some CI runners) the scroll is instant by
+                    // design (docs/scroll.md), so only the landing below is checked.
+                    if day_core::reduce_motion_now() {
+                        eprintln!(
+                            "native scroll views: reduce motion is on; the scroll is instant"
+                        );
+                    } else {
+                        if !between {
+                            eprintln!("native scroll views: positions seen {seen:?}");
+                        }
+                        check(between, "an animated scroll_to passes between its ends");
+                    }
                     day_core::sleep(200).await;
                     check(
                         (origin_y(&sv) - 1080.0).abs() < 0.5
