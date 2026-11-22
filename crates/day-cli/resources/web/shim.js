@@ -805,6 +805,27 @@ const foreignStubs = (module, imports) => {
   return imports;
 };
 
+// The exports every caller here (and every web module, through `exports()`) reaches wasm by:
+// each function export behind a wrapper that calls it from a non-tail position. Modules are
+// strict code, and JavaScriptCore implements proper tail calls there, so a handler written
+// `(t) => wasm.day_dom_frame(token, t / 1000)` tail-calls the export. Safari 27.2 corrupts a
+// fractional f64 argument on that path when the handler was entered from the browser (a
+// requestAnimationFrame or setTimeout callback, an event listener): the export receives the
+// double's low 32 bits as an integer, so 0.5 arrives as 0. Every frame then named no pending
+// token and Day's frame clock stopped for good, and an event listener's fractional argument
+// arrives the same way. A normal call from the wrapper takes the intact path. The wrapper must
+// keep its call out of tail position (`return value(...args)` would be a tail call again).
+function nonTailExports(exports) {
+  const out = {};
+  for (const [name, value] of Object.entries(exports)) {
+    out[name] = typeof value !== 'function' ? value : function (...args) {
+      const result = value(...args);
+      return result;
+    };
+  }
+  return Object.freeze(out);
+}
+
 // Minutes east of UTC at `ms`, for the page's zone or for the `?tz=` override the `tz` key
 // honors. `Date.getTimezoneOffset` counts the other way (minutes to add to reach UTC), and a
 // named zone states its offset through `Intl` as "GMT+09:00", "GMT" alone being UTC. An
@@ -4623,7 +4644,7 @@ async function boot(wasmUrl) {
   } catch {
     module = await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer());
   }
-  wasm = (await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports;
+  wasm = nonTailExports((await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports);
   const resourcesReady = installResources();
   const started = Promise.all(starters.map(async ([url, start]) => {
     try {
