@@ -9,7 +9,7 @@ Day is a new cross-platform app development framework that facilitates the creat
 
 Day is a "batteries-included" solution, containing everything you need to create the highest-quality and most efficient applications possible, covering every aspect of the software delivery lifecycle, and includes integration with GitHub for continuous integration, UI testing, localized screenshot generation, and the generation of a customizable landing page.
 
-### The rush to Rust
+## The rush to Rust
 
 Rust is all the rage these days. Once confined to only the most elite galaxy-brain developers who could wrangle the syntax and spar with borrow checkers, Rust's amenability to agentic development has greatly flattened the previously steep learning curve for this amazing language, and thereby broadened the audience that is able to take advantage of it. These days, anyone can gain entry to the rarefied ranks of the Rust intelligentsia.
 
@@ -39,7 +39,7 @@ Day solves these problems. Rather than pixel-pushing or web-jockeying, it drives
 
 You _could_, of course, do all this manually yourself. Implementing a platform-native Windows application with WinUI in C#, macOS with AppKit in Objective-C, Android in Java, iOS in Swift, Linux GTK in C, Qt in C++, and web in Javascript. That would _also_ achieve the same premium-quality and high-performance experience that users want. But that's precisely what Day abstracts away: you can create the logical interface with an intuitive declarative API, and Day deals with all the messy details of the underlying platform's nuts and bolts, while still exposing the ability to dip down into the platform-specific framework for fine-grained customization.
 
-### The Dawn of a Revolution
+## The Dawn of a Revolution
 
 I've been building apps for decades. Back in the 1990s, I was an eager drinker of the Java "write once run anywhere" kool-aid, and briefly thought that Swing was the solution for the ages. More recently, I considered Swift and SwiftUI the best path forward — at least as far as bridging the iOS/Android divide — which is why I made [Skip](https://skip.dev).
 
@@ -56,7 +56,7 @@ To be sure, Day is a new framework, but there are already plenty of apps you can
   <figcaption id="showcase-video-caption">Day Showcase running on iPhone, Android, HarmonyOS, macOS, Linux, and Windows. <a href="/showcase">Try the Showcase app.</a></figcaption>
 </figure>
 
-### Rise and Shine
+## Rise and Shine
 
 Until very recently, convincing you to try out a new app development framework would have required cajoling and enticements. No longer. It has become a well-established fact that agents excel at writing and maintaining Rust codebases, and they can whip up a proof of concept in a jiffy.
 
