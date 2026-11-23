@@ -49,6 +49,7 @@ export const res = {
     social_links: () => "Day on social networks",
     social_mastodon: () => "Mastodon",
     social_mastodon_profile: () => "Day on Mastodon / Fosstodon",
+    social_reddit: () => "Reddit",
     social_twitter: () => "Twitter / X",
     theme: () => "Theme",
   },
@@ -59,6 +60,7 @@ export const res = {
     social_github: "icons/social/github.svg",
     social_linkedin: "icons/social/linkedin.svg",
     social_mastodon: "icons/social/mastodon.svg",
+    social_reddit: "icons/social/reddit.svg",
     social_twitter: "icons/social/twitter.svg",
   },
 };

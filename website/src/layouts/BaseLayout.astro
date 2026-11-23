@@ -47,6 +47,7 @@ const ogImage = Astro.site ? new URL(url(res.images.social_card), Astro.site).hr
     {canonical && <link rel="canonical" href={canonical} />}
     <link rel="me" href={site.mastodon} />
     <link rel="me" href={site.linkedin} />
+    <link rel="me" href={site.reddit} />
     <meta name="fediverse:creator" content={site.fediverseCreator} />
     <meta property="og:site_name" content={site.name} />
     <meta property="og:locale" content="en_US" />

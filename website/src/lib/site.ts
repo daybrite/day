@@ -99,6 +99,7 @@ export const site = {
   twitter: 'https://x.com/@day_brite',
   twitterHandle: '@day_brite',
   linkedin: 'https://www.linkedin.com/company/daybrite/',
+  reddit: 'https://www.reddit.com/r/daybrite/',
   /** The showcase app's repository — it is its own project, released and deployed from there. */
   showcaseRepo: 'https://github.com/daybrite/Day-Showcase',
   /** The live web-dom build, on the showcase's own subdomain. Deployed by the showcase's OWN CI,

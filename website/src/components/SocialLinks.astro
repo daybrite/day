@@ -4,13 +4,14 @@
 import { res } from '../generated/strings.mjs';
 import { site, url } from '../lib/site';
 
-interface Props { labels?: boolean; includeLinkedIn?: boolean }
-const { labels = false, includeLinkedIn = false } = Astro.props;
+interface Props { labels?: boolean; includeLinkedIn?: boolean; includeReddit?: boolean }
+const { labels = false, includeLinkedIn = false, includeReddit = false } = Astro.props;
 const links = [
   { href: site.repo, label: res.str.social_github(), icon: res.vectors.social_github },
   { href: site.mastodon, label: res.str.social_mastodon(), title: res.str.social_mastodon_profile(), icon: res.vectors.social_mastodon, rel: 'me' },
   { href: site.twitter, label: res.str.social_twitter(), icon: res.vectors.social_twitter },
   ...(includeLinkedIn ? [{ href: site.linkedin, label: res.str.social_linkedin(), icon: res.vectors.social_linkedin, rel: 'me' }] : []),
+  ...(includeReddit ? [{ href: site.reddit, label: res.str.social_reddit(), icon: res.vectors.social_reddit, rel: 'me' }] : []),
 ];
 ---
 <div class:list={['social-links', { labels }]} role="group" aria-label={res.str.social_links()}>
