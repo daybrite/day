@@ -1,0 +1,16 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import code from '../../public/examples/travel-check.yaml?raw';
+import CodeSample from './CodeSample.astro';
+---
+<div class="automation-example">
+  <CodeSample code={code} lang="yaml" title="travel-check.yaml · DayScript" />
+  <p class="example-caption">Open Paris in Day Travel, check its translated title, and capture the screen.</p>
+</div>
+<style>
+  .automation-example { min-width: 0; }
+  .automation-example :global(.codewin-body pre) { font-size: .8rem; line-height: 1.55; padding: 18px 16px; }
+  .automation-example :global(code) { word-spacing: -.2em; }
+  .example-caption { color: var(--muted); font-size: .9rem; margin: 18px 0 0; }
+</style>

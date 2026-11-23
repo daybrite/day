@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createMarkdownProcessor } from '@astrojs/markdown-remark';
 import explicitToolkitLabels from '../plugins/accent-target-code.mjs';
 import { toolkitLabel } from '../src/lib/toolkit-labels.mjs';
-import contentLinks from '../plugins/content-links.mjs';
+import contentLinks, { pageLinks } from '../plugins/content-links.mjs';
 import admonitions from '../plugins/admonitions.mjs';
 const text = value => ({ type: 'text', value });
 const element = (tagName, ...children) => ({ type: 'element', tagName, properties: {}, children });
@@ -62,7 +62,7 @@ test('missing, duplicate, capture-only and unknown IDs fail instead of silently 
 });
 
 test('Markdown labels keep heading anchors, code samples, link destinations and warning severity', async () => {
-  const processor = await createMarkdownProcessor({ rehypePlugins: [contentLinks, explicitToolkitLabels, admonitions] });
+  const processor = await createMarkdownProcessor({ rehypePlugins: [contentLinks, explicitToolkitLabels, admonitions, pageLinks] });
   const source = '## Web shells\n\nA web page uses browser permissions.\n\n' +
     '## [Web](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom")\n\n' +
     '| Target | Notes |\n| --- | --- |\n| [`macos-gtk`](/docs/reference/platforms "toolkit:macos-gtk") | material and DOM |\n\n' +
@@ -72,7 +72,7 @@ test('Markdown labels keep heading anchors, code samples, link destinations and 
   assert.deepEqual(result.metadata.headings.map(h => h.slug), ['web-shells', 'web']);
   assert.match(result.code, /<h2 id="web-shells">Web shells<\/h2>/);
   assert.match(result.code, /<p>A web page uses browser permissions\.<\/p>/);
-  assert.match(result.code, /href="\/docs\/reference\/platforms\/web-dom"/);
+  assert.match(result.code, /href="\/docs\/reference\/platforms\/web-dom\/"/);
   assert.equal((result.code.match(/class="doc-target-label"/g) ?? []).length, 3);
   assert.match(result.code, /data-kind="warning"/);
   assert.match(result.code, /id="admonition-winui-alpha-selection"/);

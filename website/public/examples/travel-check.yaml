@@ -1,0 +1,7 @@
+name: check-trip
+on_failure: stop
+flow:
+  - navigate: { route: /city-0 }
+  - wait_for: { id: trip_title }
+  - assert_text: { id: trip_title, key: city_paris }
+  - screenshot: paris-trip

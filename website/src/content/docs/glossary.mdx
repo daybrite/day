@@ -11,6 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
 import { sorted } from '../../lib/glossary.mjs';
+import { url as siteUrl } from '../../lib/site';
 
 Day uses a shared vocabulary for its UI, state, and platform concepts. This glossary defines those
 terms and links to the pages that explain them in context.
@@ -26,7 +27,7 @@ Elsewhere in the docs, hovering over a term with a dotted underline shows its de
       </dt>
       <dd>
         {t.definition.split('`').map((part, i) => (i % 2 ? <code>{part}</code> : part))}
-        <span class="glossary-see">Defined in <a href={t.see.href}>{t.see.title}</a></span>
+        <span class="glossary-see">Defined in <a href={siteUrl(t.see.href)}>{t.see.title}</a></span>
       </dd>
     </div>
   ))}

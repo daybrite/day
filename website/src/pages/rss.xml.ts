@@ -18,7 +18,7 @@ export const GET: APIRoute = async ({ site }) => {
   const items = [];
   for (const post of await blogPosts()) {
     // Keep the trailing slash already used by RSS permalinks and GUIDs.
-    const link = new URL(`${url(postPath(post.id))}/`, site!).href;
+    const link = new URL(url(postPath(post.id)), site!).href;
     const { Content } = await render(post);
     const html = await container.renderToString(Content, { request: new Request(link) });
     items.push({

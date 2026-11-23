@@ -22,3 +22,13 @@ test('missing data does not fabricate a screenshot', () => {
   assert.deepEqual(travelCaptures(undefined), []);
   assert.deepEqual(travelCaptures({ shots: [row('overview', 'macos-appkit', { 'light|en': { ...picture, width: 0 } })] }), []);
 });
+test('city releases use Paris for the exact locale/theme on phones and desktop', () => {
+  const app = { shots: [{ id: 'paris', label: 'Paris', byColumn: [
+    { column: 'ios-uikit', captures: { 'dark|fr': picture } },
+    { column: 'macos-appkit', captures: { 'light|en': picture } },
+  ] }, row('top', 'ios-uikit', { 'light|en': picture })] };
+  const captures = travelCaptures(app);
+  assert.equal(captures.length, 2);
+  assert.deepEqual(captures.map(c => [c.target, c.locale, c.theme]), [['ios-uikit', 'fr', 'dark'], ['macos-appkit', 'en', 'light']]);
+  assert.ok(captures.every(c => c.images.length === 1 && c.images[0].position === 'paris'));
+});

@@ -2,6 +2,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import DocsLayout from '../../../layouts/DocsLayout.astro';
+import { url } from '../../../lib/site';
 import api from '../../../data/api-crates.json';
 
 import external from '../../../data/external-crates.json';
@@ -52,7 +53,7 @@ groups.push({
             <a href={c.href}><code>{c.pkg}</code></a>
             <span>{c.blurb}</span>
             <small>{c.label}</small>
-            {c.guide && <a class="guide-link" href={c.guide}>Setup and usage guide →</a>}
+            {c.guide && <a class="guide-link" href={url(c.guide)}>Setup and usage guide →</a>}
           </article>
         ))}
       </div>

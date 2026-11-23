@@ -3,17 +3,10 @@
 
 // Assemble the screenshots gallery into a static manifest.
 //
-// Inputs  : each app's published screenshot index — the `gallery.json` that `day screenshot index`
-//           writes. An app's site publishes two (its build channels): the newest release's at
-//           `<host>/gallery/gallery.json` (`app.metadata` in gallery.config.mjs), and the newest
-//           build of its default branch at `<host>/main/gallery/gallery.json`. This build reads
-//           the branch build's first unless `preferReleaseScreenshots` says otherwise, and falls
-//           back to the other (see indexCandidates). The index carries absolute image URLs, so
-//           this site REFERENCES the app's own hosted screenshots: one copy of the bytes, owned by
-//           the app that captured them, and daybrite.dev's build waits on nobody else's CI.
-// Outputs : `src/data/gallery-manifest.json`  (src/pages/gallery/index.astro, gallery/[app].astro,
-//                                              components/PlatformShots.astro, hero-shots.mjs)
-//           `.cache/gallery/<app>.json`        (the last index that fetched, gitignored)
+// Inputs: each repository's latest published full GitHub release. Drafts and prereleases
+// are excluded. Indexes and screenshot bytes come from the SAME verified release assets.
+// Outputs: src/data/gallery-manifest.json and optimized public/gallery-media images.
+// The gallery, localization explorer, and carousel consume that shared manifest.
 //
 // The manifest is SHOT-major per app: one row per captured screen holding every column's tile, and
 // each tile carrying all of its (theme, locale) captures so the page's selectors can swap images
@@ -24,16 +17,7 @@
 // platform table names the refinement (`ios-uikit` + `ios-uikit-ipad`). An unknown device folds
 // into its target's own column rather than inventing one the rest of the site cannot name.
 //
-// An app whose index cannot be fetched falls back to the cached copy of its last successful
-// fetch, and is DROPPED (loudly) when there is no cache either: a page of placeholders would say
-// only that a fetch failed, which is not what a reader came for. A build where NO app resolves
-// still succeeds, with an empty gallery — that is a local checkout with no network, and the
-// pages have to be able to render.
-//
-// Runnable standalone (`node scripts/assemble-gallery.mjs`) and from the Astro integration
-// (integrations/gallery.mjs). No third-party dependencies.
-
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, renameSync, readdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import galleryConfig from '../gallery.config.mjs';
@@ -42,75 +26,6 @@ import { platformsById } from '../src/lib/platforms.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEBSITE_ROOT = resolve(HERE, '..');
-const CACHE_DIR = join(WEBSITE_ROOT, '.cache', 'gallery');
-
-/**
- * The two indexes an app's site publishes, in the order this build tries them.
- *
- * A Day app's site carries two builds (daysite's build channels, README "Build channels"): the
- * newest GitHub release at the site root, assembled only from the screenshot bundle that release
- * carries, and the newest build of the default branch one segment deeper, from the screenshots
- * its last CI run took. `metadata` names the root index; the branch build's sits beside it under
- * `main/`. A site with no release publishes its one build at the root and nothing under `main/`,
- * so trying both resolves it whichever order is preferred.
- *
- * The branch build leads by default, because it is the one every push refreshes; a release's
- * screenshots can be months old. `preferReleaseScreenshots` in gallery.config.mjs turns that
- * around for the whole gallery, and an app's own `preferRelease` overrides it for that app.
- */
-function indexCandidates(app) {
-  const site = new URL('../', app.metadata); // <host>/ from <host>/gallery/gallery.json
-  const main = { channel: 'main', url: new URL('main/gallery/gallery.json', site).href };
-  // The root build: the release when the app has shipped one, and its only build when it has not.
-  const root = { channel: 'root', url: app.metadata };
-  const preferRelease = app.preferRelease ?? galleryConfig.preferReleaseScreenshots ?? false;
-  return preferRelease ? [root, main] : [main, root];
-}
-
-/**
- * The site root an index's `path` values are relative to: the `site` it names, else the channel
- * root it was fetched from (`<host>/` for both channels, since a branch build's paths already
- * carry its segment).
- */
-function siteRoot(index, source) {
-  if (typeof index?.site === 'string' && index.site) return `${index.site.replace(/\/+$/, '')}/`;
-  if (!source?.url) return null;
-  return new URL(source.channel === 'main' ? '../../' : '../', source.url).href;
-}
-
-/**
- * Where a capture lives. An index carries an absolute `url` per shot once its app's
- * `website/site.toml` names a host; one published before that names only `path`, relative to the
- * site root, and resolving it there is what keeps an app's first build from showing as an app
- * with no screenshots.
- */
-function captureURL(shot, index, source) {
-  if (typeof shot?.url === 'string' && shot.url) return shot.url;
-  if (typeof shot?.path !== 'string' || !shot.path) return null;
-  const base = siteRoot(index, source);
-  return base ? new URL(shot.path, base).href : null;
-}
-
-/**
- * Whether an index's images are actually where it says. One HEAD on the first linkable capture.
- *
- * An index can be served and still link nothing: daysite before 2026-09-13 republished a build
- * channel's index with the root channel's image paths, so every URL in a site's
- * `main/gallery/gallery.json` pointed at `/gallery/…`, where that channel's images are not. A
- * candidate that fails this is passed over for the next one rather than rendered as a page of
- * broken images.
- */
-async function linksResolve(index, source) {
-  const first = index.screenshots.map((s) => captureURL(s, index, source)).find(Boolean);
-  if (!first) return true; // nothing linkable at all; assembleApp leaves such an app out itself
-  try {
-    const res = await fetch(first, { method: 'HEAD', signal: AbortSignal.timeout(15_000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 /** `san-francisco` → `San Francisco`: the row heading for a shot whose dayscript declared no
  *  `title:`. The same derivation `day screenshot index` applies, so a thin index and a rich one
  *  read alike. */
@@ -130,6 +45,8 @@ function english(text) {
  *  target (`ios-uikit` + `ipad` → `ios-uikit-ipad`) gets its own column; every other device —
  *  the app's primary phone, an unnamed profile — folds into the target's own column. */
 function columnFor(platform, device) {
+  // The CLI retains this historical spelling as an alias for the same backend.
+  if (platform === 'android-mdc') platform = 'android-material';
   if (device && platformsById[`${platform}-${device}`]) return `${platform}-${device}`;
   return platform;
 }
@@ -141,57 +58,22 @@ function captureKey(theme, locale) {
   return `${theme || 'default'}|${locale || 'default'}`;
 }
 
-/** Fetch an app's published index — the first candidate that answers with screenshots whose
- *  links resolve — caching the last good copy so a later build survives an unreachable site (and
- *  so a local checkout works offline once it has fetched). */
+// Fail closed: a failed latest-release lookup/download leaves the previous generated
+// manifest untouched instead of silently publishing branch captures or an older release.
 async function loadIndex(app, log) {
-  if (app.screenshotRelease) return loadReleaseGallery(app);
-  const cacheFile = join(CACHE_DIR, `${app.id}.json`);
-  const failures = [];
-  for (const source of indexCandidates(app)) {
-    try {
-      const res = await fetch(source.url, { signal: AbortSignal.timeout(20_000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (!Array.isArray(data.screenshots)) throw new Error('no screenshots[] in the index');
-      if (!(await linksResolve(data, source))) throw new Error('its screenshot URLs do not resolve');
-      mkdirSync(CACHE_DIR, { recursive: true });
-      writeFileSync(cacheFile, JSON.stringify({ source, data }));
-      return { data, source, stale: false };
-    } catch (err) {
-      failures.push(`${source.channel} index ${err?.message ?? err}`);
-    }
-  }
-  const why = failures.join('; ');
-  if (existsSync(cacheFile)) {
-    try {
-      const cached = JSON.parse(readFileSync(cacheFile, 'utf8'));
-      // A cache written before the source was recorded holds the bare index.
-      const data = Array.isArray(cached.screenshots) ? cached : cached.data;
-      if (Array.isArray(data?.screenshots)) {
-        log(`${app.id}: ${why} — using the cached index from the last good fetch`);
-        return { data, source: cached.source ?? null, stale: true };
-      }
-    } catch {
-      /* fall through to the drop below */
-    }
-  }
-  log(`${app.id}: ${why} — no cached index, so the app is left out of this build`);
-  return { error: why };
+  return loadReleaseGallery(app, log);
 }
 
 /** Turn one published index into the app's manifest entry. */
-function assembleApp(app, index, stale, source) {
-  // Group every usable capture by (shot, column, theme+locale). Each tile links the capture where
-  // its own site hosts it (`captureURL`); a capture whose index gives neither a URL nor a path
-  // this site can resolve contributes nothing.
+export function assembleApp(app, index, stale, source) {
+  // Group locally materialized release captures by (shot, column, theme+locale).
   const byShot = new Map();
   const columnShots = new Map();
   const themes = [];
   const locales = [];
   let captures = 0;
   for (const s of index.screenshots) {
-    const src = captureURL(s, index, source);
+    const src = s.url;
     if (!src || !s.shot || !s.platform) continue;
     const column = columnFor(s.platform, s.device);
     if (app.platforms && !app.platforms.includes(column)) continue;
@@ -212,7 +94,8 @@ function assembleApp(app, index, stale, source) {
   // Column order: the index lists platforms in the Day target vocabulary's order, and a device
   // refinement follows the target it refines.
   const columns = [];
-  for (const platform of index.platforms ?? []) {
+  for (const target of index.platforms ?? []) {
+    const platform = columnFor(target);
     for (const id of [platform, ...[...columnShots.keys()].filter((c) => c !== platform && c.startsWith(`${platform}-`)).sort()]) {
       if (columnShots.has(id) && !columns.includes(id)) columns.push(id);
     }
@@ -272,14 +155,12 @@ function assembleApp(app, index, stale, source) {
     webRoutes: web
       ? { ...Object.fromEntries((app.webShots ?? []).map((s) => [s, s])), ...(app.webRoutes ?? {}) }
       : null,
-    // When the app's site went unreachable this build, the page says so rather than presenting a
-    // possibly-months-old set as current.
     stale,
     indexGeneratedAt: index.generated ?? null,
-    // Which build the screenshots came from, so the page can say when they are the branch
-    // build's rather than a release's. `root` is the release, or an app's only build.
+    // Provenance for the exact full release supplying every image in this app.
     indexURL: source?.url ?? null,
-    fromMain: source?.channel === 'main',
+    fromMain: false,
+    release: { tag: source.tag, url: source.releaseURL, publishedAt: source.publishedAt, archiveDigest: source.digest },
     themes,
     locales,
     columns: columns.map((id) => {
@@ -324,33 +205,19 @@ function coverOf(shots, themes, locales, max = 6) {
 
 /**
  * @param {{ quiet?: boolean }} [opts]
- * @returns {Promise<{ manifestPath: string, apps: number, captures: number, dropped: string[], reasons: Record<string, string>, stale: string[] }>}
+ * @returns {Promise<{ manifestPath: string, apps: number, captures: number }>}
  */
 export async function assembleGallery(opts = {}) {
   const dataDir = join(WEBSITE_ROOT, 'src', 'data');
   const log = (m) => opts.quiet || console.log(`[gallery] ${m}`);
   mkdirSync(dataDir, { recursive: true });
 
-  const dropped = [];
-  /** Why each dropped app was left out. The integration builds quietly, and a build that has to
-   *  fail over a missing app (integrations/gallery.mjs) has to be able to say why. */
-  const reasons = {};
-  const stale = [];
   const apps = [];
   for (const app of galleryConfig.apps) {
     const loaded = await loadIndex(app, log);
-    if (!loaded.data) {
-      dropped.push(app.id);
-      reasons[app.id] = loaded.error;
-      continue;
-    }
-    if (loaded.stale) stale.push(app.id);
     const entry = assembleApp(app, loaded.data, loaded.stale, loaded.source);
     if (entry.counts.captures === 0) {
-      log(`${app.id}: its index describes no linkable screenshot — left out`);
-      dropped.push(app.id);
-      reasons[app.id] = 'its index describes no linkable screenshot';
-      continue;
+      throw new Error(`${app.id}: latest full release contains no usable screenshots`);
     }
     log(
       `${app.id}: ${entry.counts.shots} screen(s), ${entry.counts.captures} capture(s) ` +
@@ -366,13 +233,36 @@ export async function assembleGallery(opts = {}) {
     apps,
   };
   const manifestPath = join(dataDir, 'gallery-manifest.json');
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-  log(
-    apps.length > 0
-      ? `indexed ${captures} published screenshot(s) across ${apps.length} app(s)`
-      : 'no app index could be read — the gallery is empty (expected offline, on a cold checkout)',
-  );
-  return { manifestPath, apps: apps.length, captures, dropped, reasons, stale };
+  const temporary = `${manifestPath}.${process.pid}.tmp`;
+  writeFileSync(temporary, JSON.stringify(manifest, null, 2) + '\n');
+  renameSync(temporary, manifestPath);
+  // Only generated release images live here. Retain the active asset identity for each
+  // app; obsolete renditions must not accumulate in every future Pages deployment.
+  const media = join(WEBSITE_ROOT, 'public', 'gallery-media');
+  const referenced = new Set(apps.flatMap(app => app.shots.flatMap(shot => shot.byColumn.flatMap(column =>
+    Object.values(column.captures).map(image => image.src)))));
+  const active = new Set([...referenced].map(path => path.split('/').slice(2, 5).join('/')));
+  // Release archives also contain hidden test states and duplicate device captures.
+  // Publish only images actually referenced by the curated gallery manifest.
+  for (const identity of active) {
+    for (const file of readdirSync(join(media, identity))) {
+      if (!referenced.has(`/gallery-media/${identity}/${file}`)) rmSync(join(media, identity, file));
+    }
+  }
+  for (const app of readdirSync(media, { withFileTypes: true })) {
+    if (!app.isDirectory()) continue;
+    for (const tag of readdirSync(join(media, app.name), { withFileTypes: true })) {
+      if (!tag.isDirectory()) continue;
+      const release = `${app.name}/${tag.name}`;
+      if (![...active].some(path => path.startsWith(release + '/'))) {
+        rmSync(join(media, release), { recursive: true, force: true });
+      } else for (const identity of readdirSync(join(media, release))) {
+        if (!active.has(`${release}/${identity}`)) rmSync(join(media, release, identity), { recursive: true, force: true });
+      }
+    }
+  }
+  log(`indexed ${captures} full-release screenshot(s) across ${apps.length} app(s)`);
+  return { manifestPath, apps: apps.length, captures };
 }
 
 // Standalone entry point.

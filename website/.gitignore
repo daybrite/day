@@ -26,8 +26,7 @@ pnpm-debug.log*
 # jetbrains setting folder
 .idea/
 
-# day gallery: the manifest assembled from the apps' published indexes, and the cached copy of
-# each index (so a build survives an unreachable app site, and works offline once warm)
+# day gallery: generated full-release manifest and verified release asset/rendition cache
 /src/data/gallery-manifest.json
 /.cache/
 
@@ -44,7 +43,7 @@ pnpm-debug.log*
 # Optional local Copyedit configuration (the normal build stays independent of it)
 /astro.copyedit.config.mjs
 
-# Verified, generated screenshot renditions from pinned release bundles.
+# Verified, generated screenshot renditions from latest full-release bundles.
 /public/gallery-media/
 
 # Compiled landing-page app, generated from apps/website-controls on build/dev startup.

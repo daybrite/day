@@ -14,6 +14,7 @@ bash scripts/ci/docs-symlinks.sh
 python3 -B scripts/ci/doc-links.py
 npm --prefix website run docs:check
 npm --prefix website run docs:test
+npm --prefix website run gallery:test
 npm --prefix website run blog:test
 npm --prefix website run llms:test
 npm --prefix website run strings:check

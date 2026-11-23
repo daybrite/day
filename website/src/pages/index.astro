@@ -9,7 +9,8 @@ import AnnouncementBanner from '../components/AnnouncementBanner.astro';
 import HeroCarousel from '../components/HeroCarousel.astro';
 import LocaleExplorer from '../components/LocaleExplorer.astro';
 import RustExample from '../components/RustExample.astro';
-import AccessibilityIllustration from '../components/AccessibilityIllustration.astro';
+import AccessibilityExample from '../components/AccessibilityExample.astro';
+import AutomationExample from '../components/AutomationExample.astro';
 import Logo from '../components/Logo.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import SidebarIcon from '../components/SidebarIcon.astro';
@@ -107,7 +108,7 @@ const stages = [
       <p class="section-lead">Help people use your app with a keyboard or screen reader. Day builds on the accessibility support of native controls, with a shared Rust API for localized labels, hints, and changing values. These tools help you address regional and government accessibility requirements.</p>
       <a href={url('docs/how-to/accessibility')}>Build accessible interfaces →</a>
       </div>
-      <AccessibilityIllustration />
+      <AccessibilityExample />
     </div>
   </section>
 
@@ -128,9 +129,14 @@ const stages = [
 
   <section class="section lifecycle" id="automation">
     <div class="container">
-      <p class="eyebrow">Continuous verification across all platforms</p>
-      <h2>Automation done right</h2>
-      <p class="section-lead">DayScript is Day's testing and automation driver. The same walkthrough can exercise a feature on several targets and grab screenshots. Run it locally while developing your app, then fan out across all the targets and locales in CI to verify behavior and generate screenshots. <a href={url('docs/how-to/dayscript')}>DayScript overview →</a></p>
+      <div class="split">
+        <div>
+          <p class="eyebrow">Continuous verification across all platforms</p>
+          <h2>Automation done right</h2>
+          <p class="section-lead">DayScript is Day's testing and automation driver. The same walkthrough can exercise a feature on several targets and grab screenshots. Run it locally while developing your app, then fan out across all the targets and locales in CI to verify behavior and generate screenshots. <a href={url('docs/how-to/dayscript')}>DayScript overview →</a></p>
+        </div>
+        <AutomationExample />
+      </div>
       <ol class="stages">
         {stages.map((stage) => <li><h3><a href={url(stage.path)}>{stage.title} →</a></h3><p>{stage.body}</p></li>)}
       </ol>

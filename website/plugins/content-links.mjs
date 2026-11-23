@@ -3,6 +3,8 @@
 import { posix } from 'node:path';
 import { routes, canonicalPath, isUnpublishedPath } from '../src/lib/content-routes.mjs';
 
+import { pagePath } from '../src/lib/page-path.mjs';
+
 const bySource = new Map(Object.values(routes).map((page) => [page.source, page.route]));
 
 /** Keep repository Markdown links usable both in GitHub and at their public route. */
@@ -37,6 +39,19 @@ export default function contentLinks() {
           node.tagName = 'span';
           node.properties = {};
         } else node.properties.href = destination;
+      }
+      if (Array.isArray(node.children)) node.children.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
+/** Run after link-enhancing plugins, which match canonical catalog paths without slashes. */
+export function pageLinks() {
+  return tree => {
+    const visit = node => {
+      if (node.type === 'element' && node.tagName === 'a' && typeof node.properties?.href === 'string') {
+        node.properties.href = pagePath(node.properties.href);
       }
       if (Array.isArray(node.children)) node.children.forEach(visit);
     };

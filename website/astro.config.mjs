@@ -11,7 +11,7 @@ import devSearch from './integrations/dev-search.mjs';
 import docVersions from './integrations/doc-versions.mjs';
 import blog from './integrations/blog.mjs';
 import llmDocs from './integrations/llm-docs.mjs';
-import contentLinks from './plugins/content-links.mjs';
+import contentLinks, { pageLinks } from './plugins/content-links.mjs';
 import explicitToolkitLabels from './plugins/accent-target-code.mjs';
 import tierBadge from './plugins/tier-badge.mjs';
 import admonitions from './plugins/admonitions.mjs';
@@ -25,7 +25,9 @@ import tutorialSteps from './plugins/tutorial-steps.mjs';
 // the tutorial captures used in /examples; see integrations/gallery.mjs.
 export default defineConfig({
   site: 'https://daybrite.dev',
-  trailingSlash: 'ignore',
+  trailingSlash: 'always',
+  // Only opted-in navigation links prefetch, on hover/focus rather than page load.
+  prefetch: { defaultStrategy: 'hover' },
   // Minify CSS with esbuild rather than lightningcss. lightningcss mishandles the non-standard
   // `background-clip: text`: it strips the `-webkit-background-clip: text` prefix and narrows the
   // `@supports` guard, which regresses Safari/iOS and the older Chromium-based WebView /
@@ -55,7 +57,7 @@ export default defineConfig({
     // stays at this level — it configures the highlighter, not the unified pipeline.
     processor: unified({
       remarkPlugins: [tutorialSteps],
-      rehypePlugins: [contentLinks, explicitToolkitLabels, tierBadge, glossaryLinks, admonitions, apiLinks],
+      rehypePlugins: [contentLinks, explicitToolkitLabels, tierBadge, glossaryLinks, admonitions, apiLinks, pageLinks],
     }),
   },
 });

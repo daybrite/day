@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import struct
 import tarfile
+import zipfile
+import lzma
 import tempfile
 import unittest
 
@@ -40,6 +42,64 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(kwargs=kwargs), tempfile.TemporaryDirectory() as directory:
                 with self.assertRaises(ValueError):
                     module.unpack(self.fixture(directory, **kwargs), directory)
+
+    def stream_fixture(self, directory, **kwargs):
+        archive = self.fixture(directory, **kwargs)
+        with tarfile.open(archive) as bundle:
+            index = Path(directory) / 'input.json'
+            index.write_bytes(bundle.extractfile('gallery.json').read())
+        return archive, index
+
+    def test_streams_verified_tar_and_zip_without_raw_extraction(self):
+        for kind in ['tar', 'zip', 'concatenated-xz']:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                archive, index = self.stream_fixture(directory)
+                if kind == 'zip':
+                    zipped = Path(directory) / 'shots.zip'
+                    with tarfile.open(archive) as source, zipfile.ZipFile(zipped, 'w') as target:
+                        for member in source:
+                            target.writestr(member.name, source.extractfile(member).read())
+                    archive = zipped
+                elif kind == 'concatenated-xz':
+                    raw = lzma.decompress(archive.read_bytes())
+                    archive.write_bytes(lzma.compress(raw[:1024]) + lzma.compress(raw[1024:]))
+                output = io.BytesIO()
+                module.stream(archive, index, output)
+                raw = output.getvalue()
+                length = struct.unpack('>I', raw[:4])[0]
+                header = json.loads(raw[4:4+length])
+                self.assertEqual(header['relative'], 'ios-uikit/light/top.png')
+                self.assertEqual(len(raw) - 4 - length, header['bytes'])
+                self.assertFalse((Path(directory) / 'ios-uikit').exists())
+
+    def test_stream_rejects_traversal_links_hash_and_missing_members(self):
+        for kwargs in [{'platform': '..'}, {'link': True}, {'digest': '0'*64}, {}]:
+            with self.subTest(kwargs=kwargs), tempfile.TemporaryDirectory() as directory:
+                archive, index = self.stream_fixture(directory, **kwargs)
+                if not kwargs:
+                    data = json.loads(index.read_text())
+                    data['screenshots'][0]['file'] = 'missing.png'
+                    index.write_text(json.dumps(data))
+                with self.assertRaises(ValueError):
+                    module.stream(archive, index, io.BytesIO())
+
+    def test_stream_rejects_zip_symlinks_and_wrong_dimensions(self):
+        for kind in ['symlink', 'dimensions']:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                archive, index = self.stream_fixture(directory)
+                if kind == 'symlink':
+                    archive = Path(directory) / 'shots.zip'
+                    with zipfile.ZipFile(archive, 'w') as bundle:
+                        member = zipfile.ZipInfo('ios-uikit/light/top.png')
+                        member.create_system = 3
+                        member.external_attr = 0o120777 << 16
+                        bundle.writestr(member, '/outside')
+                else:
+                    data = json.loads(index.read_text())
+                    data['screenshots'][0]['width'] = 1
+                    index.write_text(json.dumps(data))
+                with self.assertRaises(ValueError):
+                    module.stream(archive, index, io.BytesIO())
 
 if __name__ == '__main__':
     unittest.main()

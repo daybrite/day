@@ -1,0 +1,17 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import source from '../../public/examples/accessibility.rs?raw';
+import CodeSample from './CodeSample.astro';
+const code = source.slice(source.indexOf('pub fn volume_controls'));
+---
+<div class="accessibility-example">
+  <CodeSample code={code} title="Accessible controls · Rust" />
+  <p class="example-caption">Localized labels, hints, live values, and a spoken confirmation.</p>
+</div>
+<style>
+  .accessibility-example { min-width: 0; }
+  .accessibility-example :global(.codewin-body pre) { font-size: .8rem; line-height: 1.55; padding: 18px 16px; }
+  .accessibility-example :global(code) { word-spacing: -.2em; }
+  .example-caption { color: var(--muted); font-size: .9rem; max-width: 85ch; margin: 18px 0 0; }
+</style>

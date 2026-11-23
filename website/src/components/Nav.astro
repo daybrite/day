@@ -26,12 +26,12 @@ const product = [['', 'Home'], ['features', 'Features'], ['platforms', 'Platform
     </a>
     <nav class="nav-links" aria-label="Primary">
       {links.map((l) => (
-        <a href={l.href} class:list={['nav-link', { on: active === l.key }]}>{l.label}</a>
+        <a data-astro-prefetch href={l.href} class:list={['nav-link', { on: active === l.key }]}>{l.label}</a>
       ))}
       <details class="product-menu">
         <summary class:list={['nav-link', { on: ['product', 'contributing'].includes(active ?? '') }]}>Explore</summary>
         <div class="product-links">
-          {product.map(([path, label]) => <a class="nav-link" href={url(path)}>{label}</a>)}
+          {product.map(([path, label]) => <a data-astro-prefetch class="nav-link" href={url(path)}>{label}</a>)}
         </div>
       </details>
     </nav>

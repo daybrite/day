@@ -34,7 +34,8 @@
     "docs:versions": "node scripts/check-doc-dependency-versions.mjs",
     "copy:review": "node authoring/copy-review/start.mjs",
     "copy:review:test": "python3 -B -m unittest discover -s authoring/copy-review -p \"test_*.py\"",
-    "interactions:test": "node --test scripts/interactions.test.mjs"
+    "interactions:test": "node --test scripts/interactions.test.mjs",
+    "gallery:test": "node --test scripts/release-gallery.test.mjs scripts/travel-explorer.test.mjs && python3 -B -m unittest discover -s scripts -p 'test_release_gallery.py'"
   },
   "dependencies": {
     "@astrojs/markdown-remark": "^7.2.3",

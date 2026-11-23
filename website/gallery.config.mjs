@@ -22,19 +22,6 @@ export const platforms = /** @type {Platform[]} */ (
 );
 
 /**
- * Whether the gallery shows each app's newest RELEASE rather than the newest build of its default
- * branch.
- *
- * Off: the branch build is the one every push refreshes, so its screenshots match the app as it
- * is today, and a release's can be months behind. Turn it on once apps release often enough that
- * a release's screenshots are the ones worth showing. Either way the other build is the fallback,
- * so an app that has not published the preferred one still appears — and a site with no release
- * publishes its single build where both settings find it. `preferRelease` on an app overrides
- * this for that app.
- */
-export const preferReleaseScreenshots = false;
-
-/**
  * The apps this gallery indexes, in display order.
  *
  * @typedef {object} App
@@ -42,10 +29,6 @@ export const preferReleaseScreenshots = false;
  * @property {string}  label     Display name.
  * @property {string}  blurb     One sentence on what the app is, for its page and its hub card.
  * @property {string}  repo      GitHub repository — where a shot's `source` path resolves.
- * @property {string}  metadata  The site's root index, `<host>/gallery/gallery.json`: its release
- *                               build's, or its only build's before it has shipped a release. The
- *                               branch build's index beside it, under `main/`, is derived from it.
- * @property {boolean} [preferRelease]  Override `preferReleaseScreenshots` for this app alone.
  * @property {string} [site]     The app's own website. Defaults to the index's `site` field.
  * @property {{apple?: string, google?: string}} [stores]  Published App Store / Google Play listing URLs.
  * @property {string} [web]      Its hosted web-dom build, when that lives somewhere other than
@@ -60,7 +43,6 @@ export const preferReleaseScreenshots = false;
  * @property {string[]} [order]  Shot ids first in row order; the index's own order fills in behind.
  * @property {Record<string,string>} [labels]  Row headings for shots whose index metadata has none.
  * @property {string[]} [hide]   Shot ids to leave out.
- * @property {{tag: string, sha256: string}} [screenshotRelease]  Pinned release bundle, cached and served locally.
  * @property {string[]} [platforms]  Column allow list. Absent = every platform the index carries.
  * @type {App[]}
  */
@@ -72,7 +54,6 @@ export const apps = [
       'One app showing every implemented Piece, rendered with native widgets on each target.',
     repo: 'https://github.com/daybrite/Day-Showcase',
     site: 'https://showcase.daybrite.dev',
-    metadata: 'https://showcase.daybrite.dev/gallery/gallery.json',
     stores: {
       apple: 'https://apps.apple.com/app/id6802801331',
       google: 'https://play.google.com/store/apps/details?id=dev.daybrite.showcase',
@@ -118,17 +99,10 @@ export const apps = [
     label: 'Day Travel',
     blurb: 'A travel screen with translated text, local date and number formats, and right-to-left layouts.',
     repo: 'https://github.com/daybrite/Day-Travel',
-    metadata: 'https://github.com/daybrite/Day-Travel/releases/download/v0.1.0/gallery.json',
-    // The release exists before its project Pages site. Pin the reviewed screenshot
-    // bundle; both the gallery and localization explorer reuse its generated images.
-    screenshotRelease: {
-      tag: 'v0.1.0',
-      sha256: 'a48b8edbfba1ae8932bb1f15f87e81284eec911d4d48f0d299cdc2aade0e2b0b',
-    },
+    site: 'https://daybrite.github.io/Day-Travel',
     platforms: ['ios-uikit', 'android-material', 'harmony-arkui', 'macos-appkit', 'windows-winui', 'linux-gtk', 'linux-qt', 'web-dom'],
-    hero: 'overview',
-    order: ['overview', 'top', 'bottom'],
-    labels: { overview: 'Trip overview', top: 'Trip · top', bottom: 'Trip · bottom' },
+    hero: 'paris',
+    order: ['paris', 'tokyo', 'new_york', 'rome'],
   },
   {
     id: 'Day-Rise',
@@ -136,7 +110,6 @@ export const apps = [
     blurb:
       'The starting point every Day app shares: the project the day CLI scaffolds, captured exactly as it generates it.',
     repo: 'https://github.com/daybrite/Day-Rise',
-    metadata: 'https://daybrite.github.io/Day-Rise/gallery/gallery.json',
     hero: 'welcome',
     labels: { 'after-new-window': 'After a second window' },
   },
@@ -146,7 +119,6 @@ export const apps = [
     blurb:
       'A weather app whose sky follows the conditions, with an hourly strip, a ten-day forecast and detail cards for what you check next.',
     repo: 'https://github.com/daybrite/Day-Skies',
-    metadata: 'https://daybrite.github.io/Day-Skies/gallery/gallery.json',
     labels: { 'san-francisco-fahrenheit': 'San Francisco · in Fahrenheit' },
   },
   {
@@ -155,7 +127,6 @@ export const apps = [
     blurb:
       'A stock watchlist that opens on the day at a glance: how many symbols moved which way, a sparkline per card, and the detail behind each one.',
     repo: 'https://github.com/daybrite/Day-Trader',
-    metadata: 'https://daybrite.github.io/Day-Trader/gallery/gallery.json',
     labels: {
       'watchlist-chip-absolute': 'Watchlist · absolute change',
       'watchlist-sorted': 'Watchlist · sorted',
@@ -171,7 +142,6 @@ export const apps = [
     blurb:
       'A feed reader in three panes on a desktop and three taps on a phone, handling RSS, Atom, RDF and JSON Feed.',
     repo: 'https://github.com/Fleet-Reader/Fleet-Reader',
-    metadata: 'https://fleet-reader.app/gallery/gallery.json',
     stores: {
       apple: 'https://apps.apple.com/app/id6832401867',
       google: 'https://play.google.com/store/apps/details?id=org.appfair.app.FleetReader',
@@ -191,7 +161,6 @@ export const apps = [
     blurb:
       'A vector drawing editor with drag handles, layer arrangement and unlimited undo, keeping each drawing in a plain SQLite file.',
     repo: 'https://github.com/daybrite/Day-Sketch',
-    metadata: 'https://daybrite.github.io/Day-Sketch/gallery/gallery.json',
   },
   {
     id: 'Day-Tunes',
@@ -199,7 +168,6 @@ export const apps = [
     blurb:
       'An internet radio player with station search, favorites, listening history, and native playback controls.',
     repo: 'https://github.com/daybrite/Day-Tunes',
-    metadata: 'https://daybrite.github.io/Day-Tunes/gallery/gallery.json',
     hero: 'browse',
   },
   {
@@ -209,7 +177,6 @@ export const apps = [
       'A free EPUB reader with a personal library, online book catalogs, bookmarks, and customizable typography for reading offline.',
     repo: 'https://github.com/Stanza-Redux/Stanza-Redux',
     site: 'https://stanza-redux.app',
-    metadata: 'https://stanza-redux.app/gallery/gallery.json',
     stores: {
       apple: 'https://apps.apple.com/app/id1639831676',
       google: 'https://play.google.com/store/apps/details?id=org.appfair.app.Stanza_Redux',
@@ -222,7 +189,6 @@ export const apps = [
     blurb:
       'Ten classic games in one app, from solitaire and sudoku to minesweeper, charades and reversi, each board drawn on a canvas by the game itself and playable offline.',
     repo: 'https://github.com/Games-Fair/Games-Fair',
-    metadata: 'https://games-fair.github.io/Games-Fair/gallery/gallery.json',
     stores: {
       apple: 'https://apps.apple.com/app/id6761661340',
       google: 'https://play.google.com/store/apps/details?id=org.appfair.app.Faire_Games',
@@ -262,4 +228,4 @@ export const apps = [
   },
 ];
 
-export default { platforms, apps, preferReleaseScreenshots };
+export default { platforms, apps };

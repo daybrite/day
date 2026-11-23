@@ -92,6 +92,15 @@ function brokenFragments(files) {
   return { found, checked };
 }
 
+// Missing trailing slashes are valid links but incur a GitHub Pages 301 before navigation.
+// Check the final HTML too: raw HTML and MDX expressions bypass the Markdown link plugin.
+function directoryRedirects(files) {
+  const directories = new Set(files.filter(file => file.endsWith('/index.html')).map(urlOf));
+  return files.flatMap(file => [...readFileSync(join(DIST, file), 'utf8').matchAll(/<a\b[^>]*\bhref="(\/[^"\s]*)"/g)]
+    .filter(([, href]) => !href.startsWith('//') && directories.has(href.split(/[?#]/)[0]))
+    .map(([, href]) => ({ from: urlOf(file), href })));
+}
+
 const checker = new LinkChecker();
 const broken = [];
 checker.on('link', (link) => {
@@ -108,11 +117,12 @@ const result = await checker.check({
 });
 
 const fragments = brokenFragments(paths);
+const redirects = directoryRedirects(paths);
 
-if (broken.length === 0 && fragments.found.length === 0) {
+if (broken.length === 0 && fragments.found.length === 0 && redirects.length === 0) {
   console.log(
     `linkcheck: OK — ${result.links.length} links across ${paths.length} pages ` +
-      `(${fragments.checked} of them into an anchor), no broken internal links.`,
+      `(${fragments.checked} of them into an anchor), no broken internal links or directory redirects.`,
   );
   process.exit(0);
 }
@@ -128,5 +138,9 @@ if (fragments.found.length > 0) {
   for (const f of fragments.found) {
     console.error(`  [no such id] ${f.href}\n        on: ${f.from}`);
   }
+}
+if (redirects.length) {
+  console.error(`linkcheck: ${redirects.length} internal link(s) need a trailing slash to avoid a redirect:`);
+  for (const link of redirects) console.error(`  ${link.href} on ${link.from}`);
 }
 process.exit(1);

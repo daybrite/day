@@ -4,16 +4,15 @@
 // Small helpers for base-path-aware URLs. Astro sets `import.meta.env.BASE_URL` to the configured
 // `base` (with a trailing slash), so every internal link / static asset must be built through here.
 
-import { canonicalPath } from './content-routes.mjs';
+import { pagePath } from './page-path.mjs';
 
 export const BASE: string = import.meta.env.BASE_URL;
 
-/** Join a path onto the site base, e.g. url('docs/explanation/overview') -> '/day/docs/explanation/overview'.
- *  Absolute URLs pass through untouched — gallery tiles referencing another site's published
- *  screenshots (a suite with a `metadata` index) carry them in the same `src` slot. */
+/** Join a path onto the site base, e.g. url('docs/explanation/overview') -> '/day/docs/explanation/overview/'.
+ *  Absolute URLs pass through untouched; local pages, image assets, and anchors share this helper. */
 export function url(path = ''): string {
   if (/^https?:\/\//.test(path)) return path;
-  return BASE.replace(/\/$/, '') + canonicalPath('/' + path.replace(/^\//, ''));
+  return BASE.replace(/\/$/, '') + pagePath('/' + path.replace(/^\//, ''));
 }
 
 // The internal reference docs (repo `docs/*.md`, symlinked into src/content/internal) carry no

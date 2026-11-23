@@ -3,7 +3,7 @@
 
 // Build a reviewed set of gallery images for the landing carousel. The gallery index supplies
 // capture URLs and dimensions; hero.config.mjs chooses the app, screen, and toolkit. Generated
-// images stay local to the website, including captures supplied by a pinned release bundle.
+// images stay local to the website, using only captures from the latest full release of each app.
 import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
@@ -78,7 +78,7 @@ export async function assembleHeroShots(opts = {}) {
     return { ...pick, label: app?.label, light, dark };
   });
   // Changes to the reviewed selection or its published URLs invalidate the generated pool.
-  const key = createHash('sha256').update(JSON.stringify(['curated-v3-independent-themes', candidates])).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify(['curated-v4-release-content-hashes', candidates])).digest('hex');
   if (!opts.refresh && existsSync(manifestPath)) {
     try {
       const cached = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -127,7 +127,8 @@ export async function assembleHeroShots(opts = {}) {
         continue;
       }
       const image = await normalize(bytes);
-      const filename = `${stem}${theme === 'dark' ? '-dark' : ''}.webp`;
+      const digest = createHash('sha256').update(image.data).digest('hex').slice(0, 12);
+      const filename = `${stem}${theme === 'dark' ? '-dark' : ''}-${digest}.webp`;
       files.set(filename, image.data);
       // Each theme is independent, including its actual window dimensions.
       if (theme === 'dark') Object.assign(entry, {

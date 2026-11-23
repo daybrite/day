@@ -61,7 +61,7 @@ const payload = JSON.stringify(captures).replace(/</g, '\\u003c');
   .explorer-slide[data-theme=dark] { background: radial-gradient(ellipse at 15% 0%, #244d49, transparent 75%), #172629; }
   .explorer-images { container-type: size; display: flex; justify-content: center; align-items: center; gap: 8px; flex: 1; min-height: 0; }
   .explorer-images figure { flex: 1; min-width: 0; margin: 0; height: 100%; display: flex; flex-direction: column; gap: 8px; }
-  .explorer-images.is-mobile figure { flex: 0 1 auto; width: min(calc((100cqw - 8px)/2), calc(100cqh * var(--shot-ratio))); }
+  .explorer-images.is-mobile figure { flex: 0 1 auto; width: min(100cqw, calc(100cqh * var(--shot-ratio))); }
   .explorer-frame { display: flex; align-items: center; justify-content: center; min-height: 0; flex: 1; --shell-h: 100cqh; }
   .explorer-images img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
   .explorer-frame > img { border-radius: 8px; filter: drop-shadow(0 5px 9px #10282818); }

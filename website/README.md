@@ -225,9 +225,9 @@ the dev server.
 docs.rs. After a build, `npm run docs:api` checks those links against rustdoc built the way docs.rs
 builds it; that needs the Rust toolchain, jq, and Python 3 in addition to Node.js.
 
-> Builds assemble the apps’ published gallery indexes and Day Showcase release metadata. A warm
-> checkout can reuse gallery indexes and hero images offline; unavailable release metadata produces
-> download placeholders. Dependencies must already be installed for an offline build.
+> Builds resolve every app's latest full GitHub release online, excluding drafts and
+> prereleases. Screenshot assets and optimized images are cached locally. A failed release
+> lookup or invalid asset stops the build; it never substitutes branch or older screenshots.
 
 ## Structure
 
@@ -342,10 +342,21 @@ platform shells, captions, and available theme variants. Each slide links direct
 to its screenshot row in the gallery.
 
 `integrations/gallery.mjs` runs `scripts/assemble-gallery.mjs` and `scripts/hero-shots.mjs` before
-every dev/build. Gallery indexes come from the apps’ published sites, with saved indexes under
-`.cache/gallery/` available for offline builds. Cached indexes are labeled when used. Gallery
-images remain hosted by their apps; the hero downloads and caches its images under `public/hero/`.
+every dev/build. GitHub's `/releases/latest` endpoint selects each repository's latest published,
+non-draft, non-prerelease release. No tag pins, branch fallback, or app-site fallback remain.
+The build verifies GitHub's SHA-256 digest for `gallery.json` and `screenshots.tar.xz` (or legacy
+`screenshots.zip`), then verifies every indexed PNG's hash and dimensions. Python 3 streams
+images to Sharp one at a time, avoiding multi-gigabyte raw extraction directories. WebP
+renditions use quality 90, fit within 1600 × 1600 without upscaling, and retain their aspect ratio.
+Archives and renditions are cached under `.cache/release-gallery/`; images are published from
+`public/gallery-media/`. Byte-identical captures share one published file. URLs include the release tag and asset identity, so replacement assets
+invalidate browser caches too. The generated manifest records the release tag, publication time,
+URL, and archive digest. Missing release assets or failed lookups stop the build, preserving the
+last deployment. Set `GITHUB_TOKEN` or `GH_TOKEN` to increase the GitHub API rate limit in CI.
 The landing carousel uses the reviewed app/screen/toolkit selections in `hero.config.mjs`.
+Its selection spans platforms and form factors, balancing populated native controls and
+useful app layouts with city photography, charts, media, and colorful canvas games. Prefer
+visually distinct, complete views; avoid sparse lists, empty editors, and near-duplicate screens.
 Each slide links to its own gallery row and names its app. Set `framed: true` for captures
 that already contain desktop window chrome. Set `darkOnly: true` for an additional dark-mode
 selection without adding it to the light rotation. Review the actual images before changing a pick;
@@ -359,7 +370,7 @@ Each variant retains its own dimensions, including small differences in native w
 The client decodes the requested images before switching and keeps the current app when it is
 available in the new theme. Run `node --test scripts/hero-theme.test.mjs` for selection checks.
 Run `node scripts/hero-shots.mjs --refresh` to rebuild the hero pool. A cold build needs access to
-the app sites; a warm checkout can build from its cached indexes and hero images.
+GitHub; warm builds reuse verified asset bytes but still resolve the latest full releases online.
 
 `DAY_REQUIRE_SHOWCASE=1` prevents publishing a build without a current Showcase index and a
 nonempty verified hero pool. The existing deployment workflow sets it. Screenshot validation
@@ -407,8 +418,9 @@ Enable Pages with **Build and deployment → Source → GitHub Actions** in the 
 ## Day Travel localization explorer
 
 `LocaleExplorer.astro` reads Day Travel from the same generated gallery manifest as
-`/gallery/Day-Travel`. It pairs `top` and `bottom` only when both captures match the
-selected phone target, locale, and appearance. Desktop targets use `overview`.
+`/gallery/Day-Travel`. Current releases use the Paris city screen for each exact target,
+language, and theme. Legacy release layouts pair `top` and `bottom` on phones and use
+`overview` on desktop, without substituting another locale or appearance.
 Missing combinations are disabled; an image-loading failure retains the last complete
 view. The controls support hover, tap, keyboard navigation, and reduced motion.
 Screenshot appearance follows the site’s theme selector, including its system setting;
@@ -416,19 +428,11 @@ the explorer has no separate theme control. Phone screenshots appear without bez
 Missing desktop chrome uses the shared `DeviceShell.astro` component; AppKit and WinUI
 retain their captured title bars.
 
-Day Travel's v0.1.0 project website was not deployed when its release was published.
-Its `screenshotRelease` entry in `gallery.config.mjs` pins the released `screenshots.tar.xz`
-by tag and SHA-256. The website build downloads it once into `.cache/release-gallery`,
-checks the archive and individual image checksums, and generates lossless WebP renditions
-under ignored `public/gallery-media`. The gallery and explorer share those URLs; app
-source and screenshots do not need to be committed to this repository. A cold build
-needs access to GitHub; subsequent builds reuse the verified archive and renditions.
-
-To adopt another release, update the tag, metadata URL, and archive digest together.
-Keep the old release pinned until its replacement has a complete, reviewed capture set.
-Run `node --test scripts/travel-explorer.test.mjs` and
-`python3 -B -m unittest discover -s scripts -p 'test_release_gallery.py'`, then build the site
-and check hover/tap selection, both phone positions, and narrow-screen layout.
+The explorer uses the same automatic full-release selection and locally served images as
+all other gallery surfaces. No project Pages deployment or manual tag update is needed.
+Run `npm run gallery:test`, then build the site and check hover/tap selection, both themes,
+and narrow-screen layout. Gallery updates arrive on the next website build after a full
+release is published; publishing an app release does not itself trigger this site's deployment.
 
 ## Landing-page Rust example
 

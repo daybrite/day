@@ -17,7 +17,7 @@ interface Props {
 const { title, description = site.description, active, noindex = false } = Astro.props;
 const fullTitle = title ? `${title} — Day` : `Day — ${site.tagline}`;
 const canonicalPath = Astro.url.pathname.replace(/\/$/, '') || '/';
-const canonical = Astro.site ? new URL(canonicalPath, Astro.site).href : undefined;
+const canonical = Astro.site ? new URL(url(canonicalPath), Astro.site).href : undefined;
 // Social previews use an absolute URL built from the configured site origin and base.
 // The bundled Day Travel banner is 1500 × 500 pixels.
 const ogImage = Astro.site ? new URL(url(res.images.social_card), Astro.site).href : undefined;

@@ -99,7 +99,7 @@ def main():
             continue  # Rustdoc has its own templates and a separate bundle check.
         if f.is_relative_to(DIST / 'demos/shared-signal'):
             continue  # Embedded Wasm host, not a documentation route; live-demo.test.mjs validates it.
-        route='/' if f.parent==DIST else '/'+str(f.parent.relative_to(DIST));p=Page();p.feed(f.read_text());issues=[]
+        route='/' if f.parent==DIST else '/'+str(f.parent.relative_to(DIST))+'/';p=Page();p.feed(f.read_text());issues=[]
         for href in p.links:
             link=urlsplit(href or '')
             if link.netloc in ('', 'daybrite.dev') and link.path.rstrip('/') in unpublished:

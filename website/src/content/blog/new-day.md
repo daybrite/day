@@ -53,7 +53,7 @@ To be sure, Day is a new framework, but there are already plenty of apps you can
     <source src="https://media.daybrite.cloud/reels/candidate-07-full-4k/master.m3u8" type="application/vnd.apple.mpegurl">
     <source src="https://media.daybrite.cloud/reels/candidate-07-full-4k/showreel-1080p.mp4" type="video/mp4">
   </video>
-  <figcaption id="showcase-video-caption">Day Showcase running on iPhone, Android, HarmonyOS, macOS, Linux, and Windows. <a href="/showcase">Try the Showcase app.</a></figcaption>
+  <figcaption id="showcase-video-caption">Day Showcase running on iPhone, Android, HarmonyOS, macOS, Linux, and Windows. <a href="/showcase/">Try the Showcase app.</a></figcaption>
 </figure>
 
 ## Rise and Shine
