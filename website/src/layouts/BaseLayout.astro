@@ -18,8 +18,8 @@ const { title, description = site.description, active, noindex = false } = Astro
 const fullTitle = title ? `${title} — Day` : `Day — ${site.tagline}`;
 const canonicalPath = Astro.url.pathname.replace(/\/$/, '') || '/';
 const canonical = Astro.site ? new URL(canonicalPath, Astro.site).href : undefined;
-// og:image must be an ABSOLUTE URL (scrapers don't resolve relative ones) — built from the
-// configured site origin + base. public/og-card.png is the 1200×630 share card.
+// Social previews use an absolute URL built from the configured site origin and base.
+// The bundled Day Travel banner is 1500 × 500 pixels.
 const ogImage = Astro.site ? new URL(url(res.images.social_card), Astro.site).href : undefined;
 ---
 <!doctype html>
@@ -46,6 +46,7 @@ const ogImage = Astro.site ? new URL(url(res.images.social_card), Astro.site).hr
     <link rel="icon" type="image/svg+xml" href={url('favicon.svg')} />
     {canonical && <link rel="canonical" href={canonical} />}
     <link rel="me" href={site.mastodon} />
+    <link rel="me" href={site.linkedin} />
     <meta name="fediverse:creator" content={site.fediverseCreator} />
     <meta property="og:site_name" content={site.name} />
     <meta property="og:locale" content="en_US" />
@@ -54,8 +55,8 @@ const ogImage = Astro.site ? new URL(url(res.images.social_card), Astro.site).hr
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
     {ogImage && <meta property="og:image" content={ogImage} />}
-    {ogImage && <meta property="og:image:width" content="1200" />}
-    {ogImage && <meta property="og:image:height" content="630" />}
+    {ogImage && <meta property="og:image:width" content="1500" />}
+    {ogImage && <meta property="og:image:height" content="500" />}
     {ogImage && <meta property="og:image:type" content="image/png" />}
     {ogImage && <meta property="og:image:alt" content={res.str.social_card_alt()} />}
     <meta name="twitter:card" content="summary_large_image" />

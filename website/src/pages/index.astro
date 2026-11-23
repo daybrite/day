@@ -48,14 +48,14 @@ const stages = [
   <section class="hero" id="overview">
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="container hero-grid">
-      <div>
+      <div class="hero-intro">
         <p class="eyebrow">The universal app development framework</p>
         <h1>One app.<br />Every platform.<br /><span class="hero-day">All Day.</span></h1>
-        <p class="lead">Build native apps for iOS, Android, macOS, Windows, and Linux from one Rust codebase. Day includes tools for testing, translation, and packaging.</p>
-        <div class="actions">
-          <a class="btn btn-primary" href={url('docs/tutorials/first-app')}>Build your first app</a>
-          <a class="btn btn-ghost" href={url('gallery')}>See the apps →</a>
-        </div>
+        <p class="lead">Create native apps for iOS, Android, macOS, Windows, and Linux from a single Rust codebase. Day combines platform-native widgets with tools for UI testing, localization, continuous integration, packaging, and app store deployment.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href={url('docs/tutorials/first-app')}>Build your first app</a>
+        <a class="btn btn-ghost" href={url('gallery')}>See the apps →</a>
       </div>
       <div class="hero-media"><HeroCarousel /></div>
     </div>
@@ -167,6 +167,8 @@ const stages = [
   .lead { margin-bottom: 28px; }
   .section-lead { font-size: 1.12rem; line-height: 1.75; max-width: 65ch; color: var(--muted); margin: 0 0 28px; }
   .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .hero .actions .btn { min-height: var(--hero-footer-height); }
+  @media (min-width: 881px) { .hero-intro .lead { margin-bottom: 12px; } }
   .platform-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px 32px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--border-soft); }
   .platform-strip a { display: flex; align-items: center; gap: 9px; color: var(--text); font-weight: 600; font-size: .9rem; }
   .platform-strip :global(.platform-icon) { width: 25px; height: 25px; color: var(--pf); }

@@ -41,8 +41,9 @@ export const res = {
     search_unavailable: () => "Search could not load. Please try again.",
     see_gallery: () => "See {app} in the gallery",
     show_platform: () => "Show {app} · {os} {toolkit}",
-    social_card_alt: () => "Day: native apps for every platform under the sun, with desktop and mobile app screenshots.",
+    social_card_alt: () => "Day, the universal app development framework, with Day Travel running on Linux, iOS, macOS, Android, and Windows.",
     social_github: () => "GitHub",
+    social_linkedin: () => "LinkedIn",
     social_links: () => "Day on social networks",
     social_mastodon: () => "Mastodon",
     social_mastodon_profile: () => "Day on Mastodon / Fosstodon",
@@ -50,10 +51,11 @@ export const res = {
     theme: () => "Theme",
   },
   images: {
-    social_card: "og-card.png",
+    social_card: "social/day-travel-banner-1500x500.png",
   },
   vectors: {
     social_github: "icons/social/github.svg",
+    social_linkedin: "icons/social/linkedin.svg",
     social_mastodon: "icons/social/mastodon.svg",
     social_twitter: "icons/social/twitter.svg",
   },

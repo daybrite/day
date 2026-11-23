@@ -219,20 +219,21 @@ code, pre { font-family: var(--mono); }
   align-items: center;
 }
 .hero-grid > *, .split > * { min-width: 0; }
-/* The hero is the exception to the centering above: both columns start at the top of the row, and
-   the figure is pushed down by the height of the eyebrow, so its top edge lands level with the top
-   of the <h1> rather than with the small label above it. Centering made the two columns' heights
-   decide where the picture sat, which put it against the eyebrow on a short hero and below the
-   heading on a tall one. The landing page's `.hero-grid` opens with an eyebrow; the `.split`
-   sections keep their centering, which is what suits a paragraph beside a figure. */
-.hero-grid { align-items: start; }
-.hero-grid .hero-media { margin-top: var(--eyebrow-block); }
+/* The carousel shares rows with the intro and actions so its indicators align with the buttons. */
+.hero-grid { --hero-footer-height: 3.25rem; align-items: end; }
+@media (min-width: 881px) {
+  .hero-grid { grid-template-rows: auto auto auto; row-gap: 16px; }
+  .hero-grid .hero-intro { grid-column: 1; grid-row: 1; }
+  .hero-grid .actions { grid-column: 1; grid-row: 2; }
+  .hero-grid .hero-media {
+    grid-column: 2; grid-row: 1 / 4;
+    display: grid; grid-template-rows: subgrid; align-self: stretch;
+  }
+}
 @media (max-width: 880px) {
   .hero-grid, .split { grid-template-columns: minmax(0, 1fr); gap: 32px; }
-  /* Stacked, the figure follows the prose instead of sitting beside it, so the step past the
-     eyebrow would just be a gap. */
+  .hero-grid .hero-intro .lead { margin-bottom: 0; }
   .hero-media { max-width: 600px; width: 100%; margin-inline: auto; }
-  .hero-grid .hero-media { margin-top: 0; }
 }
 
 /* The highlighted phrase inside a heading. A plain color, so it needs no `background-clip: text`

@@ -166,12 +166,13 @@ const accents = [...new Set(shots.map((s) => s.accent))];
      padding back out with a negative margin, leaving the layout exactly where it was. */
   .hc-track {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(24px, 1fr));
-    column-gap: 4px;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    column-gap: min(4px, .5%);
     padding: 0 2px; margin: -11px 0;
   }
   .hc-seg {
-    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     padding: 11px 0;
@@ -196,11 +197,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   @keyframes hc-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
   .hc-caption { display: flex; flex-direction: column; gap: 3px; min-height: 40px; }
-  .hc-plat { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-  /* The platform mark, wearing the same accent as the OS name beside it. */
-  /* The mark sits ON the text baseline, like a capital letter: an SVG's baseline is its bottom
-     margin edge, so letting it take part in the row's baseline alignment (rather than centering it
-     against the line box) puts its foot exactly where "iOS" and "UIKit" put theirs. */
+  .hc-plat { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .hc-icon { display: inline-flex; color: var(--hc-accent, var(--text)); }
   .hc-icon :global(.pf-icon) { width: 1.35rem; height: 1.35rem; }
   .hc-icons { display: none; }
@@ -210,6 +207,12 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   }
   :global(html[data-theme=light]) .hc-os { color: color-mix(in srgb, var(--hc-accent, var(--text)) 70%, var(--text)); }
   .hc-toolkit { color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+
+  @media (min-width: 881px) {
+    .hero-carousel { display: grid; grid-template-rows: subgrid; grid-row: 1 / 4; }
+    .hc-link { align-self: end; }
+    .hc-track { align-self: center; margin-block: 0; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .hc-slide { transition: opacity 0.2s linear; transform: none; }

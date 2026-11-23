@@ -1,11 +1,11 @@
 ---
 title: A new Day for app development in Rust
-description: Build truly native iOS, Android, macOS, Windows, Linux, and web apps in Rust using platform-native widgets and an agent-friendly toolchain
+description: Build cross-platform Rust apps with native widgets and a shared toolchain for building, testing, packaging, and distribution.
 pubDate: 2026-11-23
 author: Marc Prud'hommeaux
 ---
 
-Day is a new cross-platform app development framework that facilitates the creation of premium desktop and mobile applications using Rust. It is a declarative and reactive application programming interface as well as a complete toolchain for creating, building, testing, packaging, and distributing consumer apps.
+Day is a cross-platform application framework for Rust that uses each platform’s native UI toolkit. Its declarative, reactive API lets you share application code, while the `day` toolchain handles building, testing, packaging, and distribution.
 
 Day is a "batteries-included" solution, containing everything you need to create the highest-quality and most efficient applications possible, covering every aspect of the software delivery lifecycle, and includes integration with GitHub for continuous integration, UI testing, localized screenshot generation, and the generation of a customizable landing page.
 
@@ -23,7 +23,7 @@ And yet, while the Rust ecosystem itself is replete with APIs for creating graph
   <figcaption><cite><a href="https://areweguiyet.com">Are we GUI Yet?</a></cite></figcaption>
 </figure>
 
-So basically, your choices are to paint mimicked widgets onto a canvas or slap a web renderer around an HTML page or JavaScript canvas and bridge it through to a separate Rust process. These present the exact same set of compromises and unsatisfactory user experiences as the dominant cross platform frameworks for the other languages, such as [Flutter](https://medium.com/@osx_/my-criticism-of-flutter-and-the-hype-around-it-a9485ecfa1e5) and [Electron](https://canberkpitirli.com/blog/why-i-hate-electron/). Being written in Rust doesn't somehow excuse these deficiencies.
+So basically, your choices are to paint mimicked widgets onto a canvas or slap a web renderer around an HTML page or JavaScript canvas and bridge it through to a separate Rust process. These present the exact same set of compromises and unsatisfactory user experiences as the dominant cross-platform frameworks for the other languages, such as Flutter and Electron. Being written in Rust doesn't somehow excuse these deficiencies.
 
 This past weekend, a timely post titled [**Advice for the next 100 Rust GUIs**](https://linebender.org/blog/next-100-guis/) discusses this state of affairs and goes on to lament that — despite the plethora of attempts thus far — we haven't gotten very close to solving these shortcomings. In the [_Native is complicated_](https://linebender.org/blog/next-100-guis/#native-is-complicated) section, the author writes:
 
@@ -35,17 +35,17 @@ This past weekend, a timely post titled [**Advice for the next 100 Rust GUIs**](
   <figcaption>Raph Levien · <cite><a href="https://linebender.org/blog/next-100-guis/#native-is-complicated">Advice for the next 100 Rust GUIs</a></cite> · Linebender</figcaption>
 </figure>
 
-Day solves these problems. Rather than pixel-pushing or web-jockeying, it drives the actual platform-native widgets, screens, and navigation paradigms that are used throughout the rest of the host OS. Day creates apps that are indistinguishable from the first-party user interfaces that the platform vendors themselves (Apple, Google, Microsoft, etc.) recommend and use for most of their own applications.
+Day solves these problems by taking a different approach. Rather than pixel-pushing or web-jockeying, it drives the platform's native widgets, screens, and navigation paradigms that are used throughout the rest of the host OS. Day creates apps that are indistinguishable from the first-party user interfaces that the platform vendors themselves (Apple, Google, Microsoft, etc.) recommend and use for most of their own applications.
 
-You _could_, of course, do all this manually yourself. Implementing a platform-native Windows application with WinUI in C#, macOS with AppKit in Objective-C, Android in Java, iOS in Swift, Linux GTK in C, Qt in C++, and web in Javascript. That would _also_ achieve the same premium-quality and high-performance experience that users want. But that's precisely what Day abstracts away: you can create the logical interface with an intuitive declarative API, and Day deals with all the messy details of the underlying platform's nuts and bolts, while still exposing the ability to dip down into the platform-specific framework for fine-grained customization.
+You _could_, of course, do all this manually yourself: implement a platform-native Windows application with WinUI in C#, macOS with AppKit in Objective-C, Android in Java, iOS in Swift, Linux GTK in C, Qt in C++, and web in JavaScript. That would _also_ achieve the same premium-quality and high-performance experience that users want. But that's precisely what Day abstracts away: you can create the logical interface with an intuitive declarative API, and Day deals with all the messy details of the underlying platform's nuts and bolts, while still exposing the ability to dip down into the platform-specific framework for fine-grained customization.
 
 ## The Dawn of a Revolution
 
 I've been building apps for decades. Back in the 1990s, I was an eager drinker of the Java "write once run anywhere" kool-aid, and briefly thought that Swing was the solution for the ages. More recently, I considered Swift and SwiftUI the best path forward — at least as far as bridging the iOS/Android divide — which is why I made [Skip](https://skip.dev).
 
-After all those years of chasing the cross-platform holy grail, I've come to a somewhat counterintuitive conclusion: the best way to make a great app that runs everywhere is to stop trying to make it look the same everywhere. That's the core idea behind Day. A single codebase can define a single semantic definition for an application, while at the same time respecting the platform conventions and leveraging all the benefits of using the first-party SDKs: performance, accessibility, automatic updates, and all the rest.
+After all those years of chasing the cross-platform holy grail, I've come to a somewhat counterintuitive conclusion: the best way to make a great app that runs everywhere is to stop trying to make it look the same everywhere. That's the core idea behind Day. A single codebase can define the application's structure and behavior, while at the same time respecting the platform conventions and leveraging all the benefits of using the first-party SDKs: cohesiveness, performance, accessibility, and ongoing platform improvements inherited through native controls.
 
-To be sure, Day is a new framework, but there are already plenty of apps you can download and try right now to see for yourself. The [Day Showcase](/showcase/) app gives an overview of the capabilities of the technology. Our [gallery](/gallery/) presents a variety of real world applications, including mobile versions that are already shipping to the Apple App Store and Google Play Store: an [ebook reader](/gallery/Stanza-Redux/), a [games app](/gallery/Games-Fair/), and an [RSS reader](/gallery/Fleet-Reader/). Try them out for yourself and see what a difference using the true platform-native toolkit makes.
+To be sure, Day is a new framework, but there are already plenty of apps you can download and try right now to see for yourself. The [Day Showcase](/showcase/) app gives an overview of the capabilities of the technology. Our [gallery](/gallery/) presents a variety of real-world applications, including mobile versions that are already shipping to the Apple App Store and Google Play Store: an [ebook reader](/gallery/Stanza-Redux/), a [games app](/gallery/Games-Fair/), and an [RSS reader](/gallery/Fleet-Reader/). Try them out for yourself and see what a difference using the true platform-native toolkit makes.
 
 
 <figure style="margin: 2rem 0;">
@@ -72,6 +72,6 @@ To see Day in action, simply [fire up](https://daybrite.dev/docs/tutorials/ai-as
 
 … and then let it whirr for a bit. Once it comes up, you will experience firsthand the beauty and efficiency of a genuinely platform-native application. Be sure to have your app take advantage of the [daybrite ecosystem](https://github.com/daybrite/) of optional packages for Day: [media](https://github.com/daybrite/day-piece-media), [bluetooth](https://github.com/daybrite/day-part-bluetooth), [maps](https://github.com/daybrite/day-piece-map), [charts](https://github.com/daybrite/day-piece-charts), [web views](https://github.com/daybrite/day-piece-webview), and much more.
 
-And for extra credit, push it to a GitHub repo with [actions](https://daybrite.dev/docs/how-to/github-actions/) and [pages](https://daybrite.dev/docs/how-to/websites/) enabled, let it run through the build, and post your work to the daybrite [show-and-tell forum](https://github.com/orgs/daybrite/discussions/categories/show-and-tell). Follow up with automated [app store distribution](https://daybrite.dev/docs/how-to/app-store-submissions/) and your project is done and dusted.
+And for extra credit, push it to a GitHub repo with [Actions](https://daybrite.dev/docs/how-to/github-actions/) and [Pages](https://daybrite.dev/docs/how-to/websites/) enabled, let it run through the build, and post your work to the daybrite [show-and-tell forum](https://github.com/orgs/daybrite/discussions/categories/show-and-tell). Follow up with automated [app store distribution](https://daybrite.dev/docs/how-to/app-store-submissions/) and your project is done and dusted.
 
 A new Day is here. It's time to rise and shine.

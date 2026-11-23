@@ -1,10 +1,11 @@
 {
   "vectors": {
     "social_github": "icons/social/github.svg",
+    "social_linkedin": "icons/social/linkedin.svg",
     "social_mastodon": "icons/social/mastodon.svg",
     "social_twitter": "icons/social/twitter.svg"
   },
   "images": {
-    "social_card": "og-card.png"
+    "social_card": "social/day-travel-banner-1500x500.png"
   }
 }

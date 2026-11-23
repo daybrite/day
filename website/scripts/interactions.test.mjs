@@ -222,8 +222,9 @@ test('every reviewed hero capture loads in its theme with its gallery link and u
         const { x, y, width, height } = element.getBoundingClientRect();
         return { x, y, width, height };
       }));
-      assert.ok(indicators.every(r => r.width >= 24 && r.height >= 24 && r.x >= 0 && r.x + r.width <= 390));
-      if (expected.length > 15) assert.ok(new Set(indicators.map(r => r.y)).size > 1, 'large pools wrap instead of squeezing');
+      assert.ok(indicators.every(r => r.width > 0 && r.height >= 24 && r.x >= 0 && r.x + r.width <= 390));
+      assert.equal(new Set(indicators.map(r => r.y)).size, 1, 'indicators stay on one row');
+      assert.ok(Math.max(...indicators.map(r => r.width)) - Math.min(...indicators.map(r => r.width)) < 1, 'indicators share the available width equally');
       const tablet = page.locator('[data-hc-seg]:visible[href$="#split"]');
       await tablet.focus();
       await page.waitForFunction(() => document.querySelector('.hc-slide.is-active .hc-img')?.dataset.shot === 'split');
@@ -231,7 +232,15 @@ test('every reviewed hero capture loads in its theme with its gallery link and u
         const rect = img.getBoundingClientRect(), stage = img.closest('.hc-stage').getBoundingClientRect();
         return Math.abs(rect.width / rect.height - img.naturalWidth / img.naturalHeight) < 0.02 && rect.height <= stage.height + 1;
       }), 'tablet captures must retain their aspect ratio on phones');
-      await page.setViewportSize({ width: 1280, height: 900 });
+      for (const width of [900, 1280, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        const alignment = await page.evaluate(() => {
+          const button = document.querySelector('.hero .actions .btn-ghost').getBoundingClientRect();
+          const tabs = document.querySelector('[data-hc-track]').getBoundingClientRect();
+          return Math.abs(button.y + button.height / 2 - tabs.y - tabs.height / 2);
+        });
+        assert.ok(alignment < 1, `carousel indicators must align with the gallery button at ${width}px`);
+      }
     }
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
