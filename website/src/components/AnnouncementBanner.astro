@@ -1,0 +1,77 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import { activeAnnouncement, type Announcement } from '../data/announcement';
+import { res } from '../generated/strings.mjs';
+import { url } from '../lib/site';
+
+interface Props { announcement?: Announcement | null }
+const { announcement = activeAnnouncement } = Astro.props;
+---
+{announcement && (
+  <aside class="announcement" aria-label={res.str.announcement_label()} data-pagefind-ignore>
+    <a class="announcement-link" href={url(announcement.href)}>
+      <span class="container announcement-content">
+        <span class="announcement-label">{announcement.label}</span>
+        <span class="announcement-headline">{announcement.headline}</span>
+        <span class="announcement-action">{res.str.announcement_read_more()}</span>
+      </span>
+    </a>
+  </aside>
+)}
+
+<style>
+  .announcement-link {
+    display: block;
+    border-block: 1px solid #2d3c54;
+    background: #142136;
+    color: #f4f6fc;
+    text-decoration: none;
+    transition: background-color 160ms ease;
+  }
+  .announcement-content {
+    display: grid;
+    grid-template-columns: auto minmax(0, max-content) auto;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    min-height: 52px;
+    padding-block: 8px;
+  }
+  .announcement-label {
+    padding: 5px 10px;
+    border: 1px solid #3a5275;
+    border-radius: 6px;
+    background: #233857;
+    color: #b5d1ff;
+    font-size: .875rem;
+    font-weight: 600;
+    line-height: 1.25;
+    justify-self: start;
+  }
+  .announcement-headline {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -.01em;
+    overflow-wrap: anywhere;
+  }
+  .announcement-action {
+    color: #b5d1ff;
+    font-size: .875rem;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-color: #708db9;
+  }
+  .announcement-link:hover { background-color: #1b2d48; color: #fff; }
+  .announcement-link:hover .announcement-action { text-decoration-color: currentColor; }
+  .announcement-link:focus-visible { outline: 2px solid #b5d1ff; outline-offset: -4px; }
+  @media (max-width: 600px) {
+    .announcement-content { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; padding-block: 10px; }
+    .announcement-label { grid-column: 1; grid-row: 1; }
+    .announcement-headline { grid-column: 1 / -1; grid-row: 2; }
+    .announcement-action { grid-column: 2; grid-row: 1; border: 0; padding: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { .announcement-link { transition: none; } }
+</style>

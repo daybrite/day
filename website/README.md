@@ -13,6 +13,18 @@ The [App websites guide](src/content/docs/websites.md) covers their configuratio
 themes, custom Astro pages, built-in Actions deployment, and GitHub Pages/custom-domain setup.
 This directory maintains Day's own documentation and marketing site.
 
+## Homepage announcement
+
+Edit `src/data/announcement.ts` to replace the homepage headline, its short label, and its
+destination. This is editorial publication text, like a blog title. Set `activeAnnouncement`
+to `null` when there is no announcement; the banner then renders no markup or empty space.
+Internal destinations start with `/`; external destinations use `https://`. Rebuild and deploy
+the website to publish a change.
+
+`src/components/AnnouncementBanner.astro` supplies the responsive banner and can also receive
+an `announcement` prop. Its shared action and accessibility labels come from
+`src/locales/en.json`; regenerate them with `npm run strings:generate` after editing.
+
 ## Documentation for coding agents
 
 Astro generates `/llms.txt`, `/llms-full.txt`, and Markdown endpoints for the selected guides

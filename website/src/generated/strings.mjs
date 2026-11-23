@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 export const res = {
   str: {
+    announcement_label: () => "Latest announcement",
+    announcement_read_more: () => "Read more",
     blog_back: () => "All posts",
     blog_description: () => "Updates, announcements, and engineering stories from Day.",
     blog_draft: () => "Draft",
