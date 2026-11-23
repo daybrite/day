@@ -345,8 +345,10 @@ to its screenshot row in the gallery.
 every dev/build. GitHub's `/releases/latest` endpoint selects each repository's latest published,
 non-draft, non-prerelease release. No tag pins, branch fallback, or app-site fallback remain.
 The build verifies GitHub's SHA-256 digest for `gallery.json` and `screenshots.tar.xz` (or legacy
-`screenshots.zip`), then verifies every indexed PNG's hash and dimensions. Python 3 streams
-images to Sharp one at a time, avoiding multi-gigabyte raw extraction directories. WebP
+`screenshots.zip`), then verifies each selected PNG's hash and dimensions. The build applies
+the gallery's hidden-screen and platform filters before conversion, preserving its device order.
+Python 3 streams selected images to Sharp in batches of up to four, avoiding multi-gigabyte
+raw extraction directories and bounding memory use. WebP
 renditions use quality 90, fit within 1600 × 1600 without upscaling, and retain their aspect ratio.
 Archives and renditions are cached under `.cache/release-gallery/`; images are published from
 `public/gallery-media/`. Byte-identical captures share one published file. URLs include the release tag and asset identity, so replacement assets
@@ -371,6 +373,13 @@ The client decodes the requested images before switching and keeps the current a
 available in the new theme. Run `node --test scripts/hero-theme.test.mjs` for selection checks.
 Run `node scripts/hero-shots.mjs --refresh` to rebuild the hero pool. A cold build needs access to
 GitHub; warm builds reuse verified asset bytes but still resolve the latest full releases online.
+
+CI restores optimized WebPs and their indexes using a cache key derived from the latest release
+asset digests, selection policy, and encoder inputs. It saves them immediately after a successful
+site build, before browser and link checks. Raw screenshot archives are not cached in Actions.
+When one app releases an update, the fallback cache retains the other apps' renditions; each app
+still verifies its current release identity before reuse. Missing renditions alone are regenerated.
+Build logs report selected, cached, and newly encoded capture counts and elapsed time per app.
 
 `DAY_REQUIRE_SHOWCASE=1` prevents publishing a build without a current Showcase index and a
 nonempty verified hero pool. The existing deployment workflow sets it. Screenshot validation

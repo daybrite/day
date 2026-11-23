@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import galleryConfig from '../gallery.config.mjs';
 import { loadReleaseGallery } from './release-gallery.mjs';
+import { columnFor, selectCaptures } from './gallery-selection.mjs';
 import { platformsById } from '../src/lib/platforms.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -39,16 +40,6 @@ function english(text) {
   if (!text) return null;
   if (typeof text === 'string') return text;
   return text.en ?? Object.values(text).find((v) => typeof v === 'string') ?? null;
-}
-
-/** The column a capture belongs in. A device the platform table names as a refinement of the
- *  target (`ios-uikit` + `ipad` → `ios-uikit-ipad`) gets its own column; every other device —
- *  the app's primary phone, an unnamed profile — folds into the target's own column. */
-function columnFor(platform, device) {
-  // The CLI retains this historical spelling as an alias for the same backend.
-  if (platform === 'android-mdc') platform = 'android-material';
-  if (device && platformsById[`${platform}-${device}`]) return `${platform}-${device}`;
-  return platform;
 }
 
 /** The key a capture is stored under: the two dimensions the app actually varied. Either may be
@@ -72,12 +63,10 @@ export function assembleApp(app, index, stale, source) {
   const themes = [];
   const locales = [];
   let captures = 0;
-  for (const s of index.screenshots) {
+  for (const s of selectCaptures(app, index.screenshots.filter(s => s.url))) {
     const src = s.url;
     if (!src || !s.shot || !s.platform) continue;
     const column = columnFor(s.platform, s.device);
-    if (app.platforms && !app.platforms.includes(column)) continue;
-    if (app.hide?.includes(s.shot)) continue;
     if (s.theme && !themes.includes(s.theme)) themes.push(s.theme);
     if (s.locale && !locales.includes(s.locale)) locales.push(s.locale);
     const tiles = byShot.get(s.shot) ?? new Map();

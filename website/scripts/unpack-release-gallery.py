@@ -77,12 +77,16 @@ def stream(archive, index, output=None):
     if str(archive).endswith('.zip'):
         with zipfile.ZipFile(archive) as bundle:
             for member in bundle.infolist():
+                if not expected:
+                    break
                 mode = member.external_attr >> 16
                 emit(member.filename, member.file_size,
                      not member.is_dir() and not stat.S_ISLNK(mode), lambda: bundle.read(member))
     else:
         with lzma.open(archive, 'rb') as compressed, tarfile.open(fileobj=compressed, mode='r|') as bundle:
             for member in bundle:
+                if not expected:
+                    break
                 emit(member.name.removeprefix('./'), member.size, member.isfile(),
                      lambda: bundle.extractfile(member).read())
     if expected:

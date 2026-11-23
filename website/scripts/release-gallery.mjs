@@ -10,11 +10,17 @@ import { Readable } from 'node:stream';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import sharp from 'sharp';
+import { selectCaptures } from './gallery-selection.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const rendition = 'webp-1600-q90-v1';
+
+export function releaseIdentity({ index, archive }) {
+  return hash(`${index.digest}:${archive.digest}:${rendition}`);
+}
 
 export async function latestRelease(app, request = fetch) {
   const repo = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/?$/.exec(app.repo)?.[1];
@@ -46,12 +52,12 @@ async function fileHash(path) {
   return digest.digest('hex');
 }
 
-async function download(asset, path) {
+async function download(asset, path, request = fetch) {
   const digest = asset.digest.slice(7);
   if (await fileHash(path).then(value => value === digest, () => false)) return;
   const temporary = `${path}.${process.pid}.part`;
   try {
-    const response = await fetch(asset.browser_download_url, { signal: AbortSignal.timeout(600_000) });
+    const response = await request(asset.browser_download_url, { signal: AbortSignal.timeout(600_000) });
     if (!response.ok) throw new Error(`Release asset ${asset.name}: HTTP ${response.status}`);
     await pipeline(Readable.fromWeb(response.body), createWriteStream(temporary));
     if (await fileHash(temporary) !== digest) throw new Error(`Release asset ${asset.name}: checksum mismatch`);
@@ -61,9 +67,10 @@ async function download(asset, path) {
   }
 }
 
-// Python streams one verified PNG at a time. Backpressure bounds memory, and raw PNGs
+// Python streams verified PNGs into bounded encoding batches. Backpressure bounds memory; raw PNGs
 // never occupy the disk (a release may contain thousands of very large captures).
-async function encodeArchive(archive, indexPath, cache, log) {
+export async function encodeArchive(archive, indexPath, cache, log = () => {}, concurrency = Math.min(4, availableParallelism())) {
+  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4) throw new Error('Invalid screenshot concurrency');
   const child = spawn('python3', [fileURLToPath(new URL('./unpack-release-gallery.py', import.meta.url)), '--stream', archive, indexPath]);
   let stderr = '';
   child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-8000); });
@@ -95,6 +102,11 @@ async function encodeArchive(archive, indexPath, cache, log) {
   }
   const images = [];
   const encoded = new Map();
+  let batch = [];
+  async function flush() {
+    images.push(...await Promise.all(batch));
+    batch = [];
+  }
   try {
     for (;;) {
       const header = await read(4, true);
@@ -106,50 +118,82 @@ async function encodeArchive(archive, indexPath, cache, log) {
       const png = await read(bytes);
       const webp = relative.replace(/\.png$/, '.webp');
       const path = join(cache, webp);
-      await mkdir(join(path, '..'), { recursive: true });
       const digest = shot.archived?.sha256 ?? shot.sha256;
       let image = encoded.get(digest);
-      if (image) {
-        await copyFile(image.path, path);
-      } else {
-        const { data, info } = await sharp(png).resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: 90, effort: 3 }).toBuffer({ resolveWithObject: true });
-        await writeFile(path, data);
-        image = { path, width: info.width, height: info.height };
+      if (!image) {
+        image = (async () => {
+          const { data, info } = await sharp(png).resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 90, effort: 3 }).toBuffer({ resolveWithObject: true });
+          await mkdir(join(path, '..'), { recursive: true });
+          await writeFile(path, data);
+          return { path, width: info.width, height: info.height };
+        })();
         encoded.set(digest, image);
       }
-      images.push({ ...shot, width: image.width, height: image.height, relative: webp });
-      if (images.length % 500 === 0) log(`optimized ${images.length} screenshots`);
+      const job = image.then(async result => {
+        if (result.path !== path) {
+          await mkdir(join(path, '..'), { recursive: true });
+          await copyFile(result.path, path);
+        }
+        return { ...shot, width: result.width, height: result.height, relative: webp };
+      });
+      job.catch(() => {});
+      batch.push(job);
+      if (batch.length === concurrency) {
+        await flush();
+        if (images.length % 500 < concurrency) log(`optimized ${images.length} screenshots`);
+      }
     }
+    await flush();
     await completed;
     return images;
   } finally {
     if (child.exitCode === null) child.kill();
+    await Promise.allSettled(batch);
   }
 }
 
-export async function loadReleaseGallery(app, log = () => {}) {
-  const { release, index, archive } = await latestRelease(app);
+export async function loadReleaseGallery(app, log = () => {}, { directory = root, request = fetch } = {}) {
+  const started = performance.now();
+  const { release, index, archive } = await latestRelease(app, request);
   const tag = release.tag_name;
   // Asset identities change even if a maintainer replaces an asset on the same tag.
-  const identity = hash(`${index.digest}:${archive.digest}:${rendition}`);
-  const cache = join(root, '.cache', 'release-gallery', app.id, tag, identity);
+  const identity = releaseIdentity({ index, archive });
+  const cache = join(directory, '.cache', 'release-gallery', app.id, tag, identity);
   await mkdir(cache, { recursive: true });
   const indexPath = join(cache, 'gallery.json');
-  await download(index, indexPath);
+  await download(index, indexPath, request);
   const data = JSON.parse(await readFile(indexPath, 'utf8'));
   if (!Array.isArray(data.screenshots) || !data.screenshots.length) throw new Error(`${app.id} ${tag}: empty screenshot index`);
+  const selected = selectCaptures(app, data.screenshots);
+  const key = shot => JSON.stringify([shot.platform, shot.device, shot.variant, shot.file]);
   const manifest = join(cache, 'renditions.json');
-  let images = await readFile(manifest, 'utf8').then(JSON.parse).catch(() => null);
-  if (images && (images.length !== data.screenshots.length || !(await Promise.all(images.map(s => stat(join(cache, s.relative)).then(f => f.size > 0, () => false)))).every(Boolean))) images = null;
-  if (!images) {
-    log(`${app.id}: downloading and optimizing ${tag} (${data.screenshots.length} captures)`);
+  const saved = await readFile(manifest, 'utf8').then(JSON.parse).catch(() => null);
+  const cached = Array.isArray(saved) ? saved : [];
+  const byPath = new Map(cached.map(shot => [key(shot), shot]));
+  const usable = await Promise.all(selected.map(async shot => {
+    const image = byPath.get(key(shot));
+    return image && await stat(join(cache, image.relative)).then(f => f.size > 0, () => false) ? image : null;
+  }));
+  const missing = selected.filter((_, i) => !usable[i]);
+  if (missing.length) {
+    log(`${app.id}: ${tag}: optimizing ${missing.length} missing captures (${selected.length} selected from ${data.screenshots.length})`);
     const archivePath = join(cache, archive.name);
-    await download(archive, archivePath);
-    images = await encodeArchive(archivePath, indexPath, cache, message => log(`${app.id}: ${message}`));
-    if (images.length !== data.screenshots.length) throw new Error(`${app.id} ${tag}: incomplete release archive`);
-    await writeFile(manifest, JSON.stringify(images));
+    await download(archive, archivePath, request);
+    const selectionPath = join(cache, 'selected.json');
+    await writeFile(selectionPath, JSON.stringify({ screenshots: missing }));
+    const generated = await encodeArchive(archivePath, selectionPath, cache, message => log(`${app.id}: ${message}`));
+    if (generated.length !== missing.length) throw new Error(`${app.id} ${tag}: incomplete release archive`);
+    for (const shot of generated) byPath.set(key(shot), shot);
+    const temporary = `${manifest}.${process.pid}.tmp`;
+    await writeFile(temporary, JSON.stringify([...byPath.values()]));
+    await rename(temporary, manifest);
   }
+  // Keep archive order, including when replacing a damaged rendition. The gallery's
+  // first-wins device selection must not change just because a build restores a cache.
+  const selectedKeys = new Set(selected.map(key));
+  const images = [...byPath.values()].filter(shot => selectedKeys.has(key(shot)));
+  log(`${app.id}: ${images.length} selected, ${images.length - missing.length} cached, ${missing.length} encoded in ${((performance.now() - started) / 1000).toFixed(1)}s`);
   const prefix = `gallery-media/${app.id}/${tag}/${identity.slice(0, 16)}-dedup`;
   const copied = new Set();
   const published = [];
@@ -158,7 +202,7 @@ export async function loadReleaseGallery(app, log = () => {}) {
     // avoids shipping (and downloading) the same capture for every locale or screen.
     const bytes = await readFile(join(cache, relative));
     const filename = `${hash(bytes)}.webp`;
-    const dest = join(root, 'public', prefix, filename);
+    const dest = join(directory, 'public', prefix, filename);
     if (!copied.has(filename)) {
       await mkdir(join(dest, '..'), { recursive: true });
       if (!(await stat(dest).then(file => file.size === bytes.length, () => false))) await writeFile(dest, bytes);

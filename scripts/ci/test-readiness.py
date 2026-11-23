@@ -203,7 +203,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertTrue((self.root / "checked-api").exists())
         self.assertEqual((self.root / "npm.log").read_text().splitlines(), [
             f"--prefix website run {name}" for name in (
-                "docs:check", "docs:test", "blog:test", "llms:test", "strings:check",
+                "docs:check", "docs:test", "gallery:test", "blog:test", "llms:test", "strings:check",
                 "docs:architecture",
             )
         ])

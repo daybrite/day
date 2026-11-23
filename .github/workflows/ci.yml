@@ -1594,6 +1594,25 @@ jobs:
           python3 -B scripts/docs/verify-recipes.py
           python3 -B scripts/docs/verify-excerpts.py
 
+      - name: Resolve latest full screenshot releases for the cache
+        id: gallery-cache-key
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node website/scripts/release-gallery-cache.mjs
+
+      - name: Restore optimized release screenshots
+        id: gallery-cache
+        uses: actions/cache/restore@v6
+        with:
+          # Only small indexes and finished WebPs; never multi-gigabyte source archives.
+          path: |
+            website/.cache/release-gallery/**/gallery.json
+            website/.cache/release-gallery/**/renditions.json
+            website/.cache/release-gallery/**/*.webp
+          key: ${{ runner.os }}-${{ runner.arch }}-gallery-v1-${{ hashFiles('website/scripts/release-gallery.mjs', 'website/scripts/unpack-release-gallery.py', 'website/package-lock.json') }}-${{ steps.gallery-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-gallery-v1-${{ hashFiles('website/scripts/release-gallery.mjs', 'website/scripts/unpack-release-gallery.py', 'website/package-lock.json') }}-
+
       - name: Build the site (indexes each app's published screenshots)
         working-directory: website
         env:
@@ -1611,6 +1630,21 @@ jobs:
           # forks still build and linkcheck while an app's site is down, since they publish nothing.
           DAY_REQUIRE_SHOWCASE: ${{ github.repository == 'daybrite/day' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
         run: npm run build:site
+
+      - name: Prune obsolete screenshot cache entries
+        if: steps.gallery-cache.outputs.cache-hit != 'true'
+        run: node website/scripts/release-gallery-cache.mjs --prune
+
+      - name: Save optimized release screenshots
+        # Preserve successful image processing even if a later browser/link check fails.
+        if: steps.gallery-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            website/.cache/release-gallery/**/gallery.json
+            website/.cache/release-gallery/**/renditions.json
+            website/.cache/release-gallery/**/*.webp
+          key: ${{ steps.gallery-cache.outputs.cache-primary-key }}
 
       - name: Check rendered pages and sitemap
         run: python3 -B scripts/docs/check-site.py
