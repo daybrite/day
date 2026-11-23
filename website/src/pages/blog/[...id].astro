@@ -28,7 +28,6 @@ const draft = isDraftPost(post);
           {post.data.author && <span>{post.data.author}</span>}
           {post.data.updatedDate && <span>{res.str.blog_updated()} <time datetime={post.data.updatedDate.toISOString()}>{postDate(post.data.updatedDate)}</time></span>}
         </div>
-        <p class="lead">{post.data.description}</p>
       </header>
       <div class="blog-prose"><Content /></div>
       <div class="post-footer"><a href={url('rss.xml')}>{res.str.blog_subscribe()}</a></div>
@@ -41,13 +40,110 @@ const draft = isDraftPost(post);
   .back { display: inline-block; margin-bottom: 32px; }
   h1 { font-size: clamp(2.3rem, 5vw, 3.5rem); line-height: 1.15; letter-spacing: -.03em; overflow-wrap: anywhere; margin: 0 0 20px; }
   .post-meta { display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--muted); font-size: .9rem; }
-  .lead { margin-block: 24px 36px; }
+  .blog-post > header { margin-bottom: 36px; }
   .draft-notice { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   .blog-prose { font-size: 1.05rem; line-height: 1.8; overflow-wrap: anywhere; }
   .blog-prose :global(h2), .blog-prose :global(h3) { line-height: 1.3; margin-top: 2em; }
   .blog-prose :global(img), .blog-prose :global(video) { max-width: 100%; height: auto; }
+  .blog-prose :global(figcaption) { margin-top: 10px; color: var(--muted); font-size: .85rem; line-height: 1.5; }
   .blog-prose :global(pre) { padding: 20px; overflow-x: auto; border-radius: var(--radius); font-size: .9rem; }
   .blog-prose :global(blockquote) { margin-inline: 0; padding-left: 24px; border-left: 3px solid var(--brand); color: var(--muted); }
+  .blog-prose :global(.terminal-prompt) {
+    margin: 28px 0;
+    overflow: hidden;
+    border: 1px solid #344154;
+    border-radius: 12px;
+    background: #141c28;
+    color: #e2e8f0;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+    font-family: var(--mono);
+    font-size: .9rem;
+    line-height: 1.85;
+  }
+  .blog-prose :global(.terminal-prompt-bar) {
+    display: flex;
+    gap: 7px;
+    padding: 13px 18px;
+    border-bottom: 1px solid #344154;
+    background: #1c2634;
+  }
+  .blog-prose :global(.terminal-prompt-bar span) {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #68778c;
+  }
+  .blog-prose :global(.terminal-prompt-body) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 14px;
+    padding: clamp(16px, 4vw, 26px);
+  }
+  .blog-prose :global(.terminal-prompt-sigil) { color: #92d5b5; user-select: none; }
+  .blog-prose :global(.terminal-prompt p) { margin: 0; }
+  .blog-prose :global(.terminal-prompt a) {
+    color: #a9ceff;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .blog-prose :global(.terminal-prompt a:hover) { color: #d0e4ff; }
+  .blog-prose :global(.terminal-prompt a:focus-visible) { outline: 2px solid #a9ceff; outline-offset: 3px; }
+  .blog-prose :global(.terminal-prompt em) { color: #b6c4d8; }
+  .blog-prose :global(.terminal-prompt-cursor) {
+    display: inline-block;
+    width: .55em;
+    height: 1em;
+    margin-left: .35em;
+    background: #92d5b5;
+    vertical-align: -.15em;
+  }
+  .blog-prose :global(.source-quote) {
+    position: relative;
+    margin: 32px 0;
+    padding: 24px 28px 20px 56px;
+    border-inline-start: 2px solid color-mix(in srgb, var(--brand) 35%, var(--border));
+    border-radius: 0 12px 12px 0;
+    background: color-mix(in srgb, var(--brand) 4%, var(--surface));
+  }
+  .blog-prose :global(.source-quote-mark) {
+    position: absolute;
+    inset-block-start: 18px;
+    inset-inline-start: 18px;
+    color: color-mix(in srgb, var(--brand) 40%, var(--muted));
+    font: 3rem / 1 Georgia, serif;
+    user-select: none;
+  }
+  .blog-prose :global(.source-quote blockquote) {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: var(--text);
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 1.08em;
+    line-height: 1.75;
+  }
+  .blog-prose :global(.source-quote blockquote p) { margin: 0 0 1em; }
+  .blog-prose :global(.source-quote blockquote p:last-child) { margin-bottom: 0; }
+  .blog-prose :global(.source-quote figcaption) {
+    margin-top: 18px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-soft);
+    font-size: .8rem;
+    line-height: 1.6;
+  }
+  .blog-prose :global(.source-quote cite) { font-style: normal; }
+  .blog-prose :global(.source-quote figcaption a) {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--muted) 35%, transparent);
+    text-underline-offset: 3px;
+  }
+  .blog-prose :global(.source-quote figcaption a:hover),
+  .blog-prose :global(.source-quote figcaption a:focus-visible) { color: var(--brand); text-decoration-color: currentColor; }
+  @media (max-width: 600px) {
+    .blog-prose :global(.source-quote) { padding: 20px 18px 18px 42px; }
+    .blog-prose :global(.source-quote-mark) { inset-inline-start: 12px; font-size: 2.5rem; }
+  }
   .blog-prose :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
   .blog-prose :global(th), .blog-prose :global(td) { padding: 10px 14px; border: 1px solid var(--border); }
   .post-footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border-soft); }
