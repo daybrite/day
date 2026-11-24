@@ -4691,6 +4691,23 @@ above every native/web transport, preserving connection reuse and the platform's
 configuration. Browser CORS still applies. See [HTTP conditional requests](docs/http.md#conditional-requests-for-application-owned-data)
 and the portable validator/bounded-collector tests.
 
+HTTP upload producers distinguish EOF from failure. Apple stream writers and bridged upload
+readers report producer errors and cancel their exchanges instead of reporting successful
+shortened uploads. Apple, libcurl, reqwest, and bridged readers retry `Interrupted`; Apple and
+reqwest workers stop between reads after cancellation. An arbitrary blocking `Read` cannot be
+forcibly interrupted; it must return before its worker can release it. Apple progress uses final
+[transaction payload metrics](https://developer.apple.com/documentation/foundation/urlsessiontasktransactionmetrics/countofrequestbodybytesbeforeencoding)
+when coalesced task counters omit the last chunk. Counts describe provider progress, not proof
+of remote storage. Host tests exercise the bridge's upload frames and the system libcurl path;
+those tests do not replace Android or HarmonyOS device validation.
+
+The reqwest provider applies idle deadlines per request rather than fixing them on its pooled
+client. Upload production refreshes the pre-response idle deadline; the portable total timer
+still bounds the whole operation. A stalled producer or response fails without replaying the
+write. Regression tests in `crates/day-part-http/tests/upload_timeouts.rs` cover producer errors,
+interrupted reads, progress, cancellation, deadline overrides, and reuse after failure. Provider
+and network faults can leave a write's outcome ambiguous; consumers must reconcile remote state.
+
 `Nav::icon_progress` is a separate reactive route-key binding, lowered to an icon-only patch
 rather than a row rebuild. Row changes re-map progress to current indexes. AppKit/UIKit
 render a muted circular Core Animation overlay, indeterminate rotation or determinate fill,

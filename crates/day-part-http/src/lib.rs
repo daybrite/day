@@ -777,6 +777,13 @@ fn start_cancellable(req: Request, on_done: Completion) -> CancelFn {
 }
 
 /// [`fetch_to_file`] without blocking; `on_done` runs on an unspecified background thread.
+#[cfg_attr(
+    target_arch = "wasm32",
+    expect(
+        clippy::needless_pass_by_value,
+        reason = "the browser stub preserves the owned arguments required by the native background worker API"
+    )
+)]
 pub fn fetch_to_file_async(
     req: Request,
     dest: PathBuf,
@@ -861,6 +868,15 @@ mod imp;
 #[path = "linux.rs"]
 #[allow(dead_code)]
 mod curl;
+
+// Exercise bridge frame/error handling on the host; the bridge calls use their fallback arm.
+#[cfg(all(test, target_os = "macos"))]
+#[path = "bridged.rs"]
+#[expect(
+    dead_code,
+    reason = "host frame tests exercise the bridge protocol without constructing a platform transport"
+)]
+mod bridge_frames;
 
 // Android, HarmonyOS and the web: the bridged arms over one frame protocol (src/bridge.rs).
 #[cfg(any(

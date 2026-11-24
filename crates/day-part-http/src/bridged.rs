@@ -58,7 +58,7 @@ pub const TIER: Tier = Tier::NativeStack;
 
 /// What the OkHttp arm offers the client. Challenges run through the client's own loop (OkHttp
 /// has no NTLM or Negotiate), cookies through its jar, and a WebSocket has no manual ping.
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", all(test, target_os = "macos")))]
 pub(crate) const CAPABILITIES: Capabilities = Capabilities {
     streaming: true,
     upload_streaming: true,
@@ -416,16 +416,41 @@ impl AndroidTransfer {
                 let want = usize::try_from(f.i32()).unwrap_or(0).clamp(1, 1 << 20);
                 let mut buf = vec![0u8; want];
                 let reader = lock(&self.state).reader.take();
-                let read = match reader {
-                    Some(mut reader) => match reader.read(&mut buf) {
-                        Ok(n) if n > 0 => {
-                            lock(&self.state).reader = Some(reader);
-                            n
-                        }
-                        _ => 0,
-                    },
-                    None => 0,
+                let Some(mut reader) = reader else {
+                    if self.events().is_some() {
+                        bridge::body(token, &[]);
+                    }
+                    return;
                 };
+                let read = loop {
+                    if self.events().is_none() {
+                        return;
+                    }
+                    match reader.read(&mut buf) {
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                        Err(e) => {
+                            let events = {
+                                let mut state = lock(&self.state);
+                                state.cancelled = true;
+                                state.events.take()
+                            };
+                            bridge::exchange_cancel(token);
+                            if let Some(events) = events {
+                                events(Event::Failed(HttpError::Io(e.to_string())));
+                            }
+                            return;
+                        }
+                        Ok(n) => break n,
+                    }
+                };
+                let mut state = lock(&self.state);
+                if state.events.is_none() {
+                    return;
+                }
+                if read > 0 {
+                    state.reader = Some(reader);
+                }
+                drop(state);
                 bridge::body(token, &buf[..read]);
             }
             _ => {}
@@ -710,4 +735,73 @@ impl Socket for AndroidSocket {
 
     /// OkHttp delivers every message as it arrives; the client's queue holds them.
     fn demand(&self, _messages: u32) {}
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod upload_tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    struct Producer(VecDeque<std::io::Result<Vec<u8>>>);
+    impl Read for Producer {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let bytes = self.0.pop_front().unwrap_or_else(|| Ok(Vec::new()))?;
+            buf[..bytes.len()].copy_from_slice(&bytes);
+            Ok(bytes.len())
+        }
+    }
+    fn frame(tag: u8) -> Vec<u8> {
+        let mut bytes = vec![tag];
+        bytes.extend_from_slice(&71i64.to_be_bytes());
+        if tag == NEED_BODY {
+            bytes.extend_from_slice(&64i32.to_be_bytes());
+        }
+        bytes
+    }
+    #[test]
+    fn producer_error_cancels_instead_of_becoming_successful_eof() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        let transfer = AndroidTransfer {
+            token: AtomicU64::new(71),
+            state: Mutex::new(ExchangeState {
+                events: Some(Arc::new(move |e| lock(&received).push(e))),
+                reader: Some(Box::new(Producer(VecDeque::from([
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted)),
+                    Ok(b"synthetic partial".to_vec()),
+                    Err(std::io::Error::other("synthetic producer error")),
+                ])))),
+                ..Default::default()
+            }),
+        };
+        transfer.frame(&frame(NEED_BODY));
+        assert!(lock(&events).is_empty());
+        assert!(lock(&transfer.state).reader.is_some());
+        transfer.frame(&frame(NEED_BODY));
+        assert!(lock(&transfer.state).cancelled);
+        assert!(lock(&transfer.state).reader.is_none());
+        transfer.frame(&frame(NEED_BODY));
+        transfer.frame(&frame(END));
+        let events = lock(&events);
+        assert_eq!(events.len(), 1);
+        std::assert_matches!(&events[0], Event::Failed(HttpError::Io(message)) if message == "synthetic producer error");
+    }
+    #[test]
+    fn true_eof_still_allows_a_successful_completion() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let received = events.clone();
+        let transfer = AndroidTransfer {
+            token: AtomicU64::new(71),
+            state: Mutex::new(ExchangeState {
+                events: Some(Arc::new(move |e| lock(&received).push(e))),
+                reader: Some(Box::new(std::io::empty())),
+                ..Default::default()
+            }),
+        };
+        transfer.frame(&frame(NEED_BODY));
+        assert!(!lock(&transfer.state).cancelled);
+        assert!(lock(&events).is_empty());
+        transfer.frame(&frame(END));
+        std::assert_matches!(lock(&events).as_slice(), [Event::End]);
+    }
 }

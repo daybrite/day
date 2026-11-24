@@ -299,11 +299,12 @@ impl Transport for AppleTransport {
                 questions: HashMap::new(),
                 next_question: 0,
                 refused_trust: false,
+                sent: 0,
             }),
         });
         lock(&self.routes.transfers).insert(task.taskIdentifier(), transfer.clone());
         if let Some((output, reader)) = writer {
-            spawn_writer(output, reader);
+            spawn_writer(output, reader, &transfer);
         }
         task.resume();
         transfer
@@ -370,8 +371,13 @@ impl Transport for AppleTransport {
 
 /// Feed a bound stream pair's output from `reader`, on a thread of its own: the output side
 /// blocks, or reports no space, until `URLSession` reads.
-fn spawn_writer(output: Shared<Retained<NSOutputStream>>, mut reader: Box<dyn Read + Send>) {
-    let _ = std::thread::Builder::new()
+fn spawn_writer(
+    output: Shared<Retained<NSOutputStream>>,
+    mut reader: Box<dyn Read + Send>,
+    transfer: &Arc<AppleTransfer>,
+) {
+    let weak = Arc::downgrade(transfer);
+    let spawned = std::thread::Builder::new()
         .name("day-http-upload".into())
         .spawn(move || {
             // Move the whole wrapper in: its Send is what makes the stream safe to carry here.
@@ -380,12 +386,26 @@ fn spawn_writer(output: Shared<Retained<NSOutputStream>>, mut reader: Box<dyn Re
             out.open();
             let mut buf = vec![0u8; UPLOAD_BUFFER];
             'read: loop {
+                let Some(transfer) = weak.upgrade() else {
+                    break;
+                };
+                if lock(&transfer.state).events.is_none() {
+                    break;
+                }
                 let n = match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => {
+                        transfer.fail_upload(HttpError::Io(e.to_string()));
+                        break;
+                    }
                     Ok(n) => n,
                 };
                 let mut offset = 0;
                 while offset < n {
+                    if lock(&transfer.state).events.is_none() {
+                        break 'read;
+                    }
                     let Some(ptr) = NonNull::new(buf[offset..n].as_mut_ptr()) else {
                         break 'read;
                     };
@@ -401,6 +421,9 @@ fn spawn_writer(output: Shared<Retained<NSOutputStream>>, mut reader: Box<dyn Re
                         || status == NSStreamStatus::Error
                         || status == NSStreamStatus::Closed
                     {
+                        transfer.fail_upload(HttpError::Io(
+                            "upload stream closed before its producer finished".into(),
+                        ));
                         break 'read;
                     }
                     std::thread::sleep(Duration::from_millis(2));
@@ -408,6 +431,9 @@ fn spawn_writer(output: Shared<Retained<NSOutputStream>>, mut reader: Box<dyn Re
             }
             out.close();
         });
+    if let Err(e) = spawned {
+        transfer.fail_upload(HttpError::Io(e.to_string()));
+    }
 }
 
 type ChallengeCompletion =
@@ -477,9 +503,24 @@ struct TransferState {
     next_question: QuestionId,
     /// The client refused the server, so the task's cancellation is a TLS failure.
     refused_trust: bool,
+    sent: u64,
 }
 
 impl AppleTransfer {
+    fn sent(&self, sent: u64, total: Option<u64>) {
+        let events = {
+            let mut state = lock(&self.state);
+            if sent <= state.sent {
+                return;
+            }
+            state.sent = sent;
+            state.events.clone()
+        };
+        if let Some(events) = events {
+            events(Event::Sent { sent, total });
+        }
+    }
+
     fn emit(&self, event: Event) {
         let events = lock(&self.state).events.clone();
         if let Some(events) = events {
@@ -522,14 +563,44 @@ impl AppleTransfer {
     }
 
     fn finish(&self, error: Option<&NSError>) {
-        let (events, refused, pending) = {
+        let refused = lock(&self.state).refused_trust;
+        let error = error.map(|e| {
+            if refused && e.code() == CANCELLED {
+                HttpError::Tls("the server is not trusted".into())
+            } else {
+                map_error(e)
+            }
+        });
+        if error.is_none() {
+            // URLSession may coalesce away the last progress callback for a streamed body.
+            // Report its actual sent count, never the expected length as inferred success.
+            let sent = u64::try_from(self.task.0.countOfBytesSent()).unwrap_or(0);
+            if sent > 0 {
+                self.sent(
+                    sent,
+                    u64::try_from(self.task.0.countOfBytesExpectedToSend())
+                        .ok()
+                        .filter(|n| *n > 0),
+                );
+            }
+        }
+        self.finish_result(error);
+    }
+
+    fn fail_upload(&self, error: HttpError) {
+        self.finish_result(Some(error));
+    }
+
+    fn finish_result(&self, error: Option<HttpError>) {
+        let (events, pending) = {
             let mut st = lock(&self.state);
-            (
-                st.events.take(),
-                st.refused_trust,
-                std::mem::take(&mut st.questions),
-            )
+            (st.events.take(), std::mem::take(&mut st.questions))
         };
+        if error.is_some() {
+            // Stop the task before exposing a producer failure to its caller. Taking the
+            // callback above keeps URLSession's cancellation completion from replacing it.
+            self.task.0.cancel();
+        }
         for (_, question) in pending {
             question.resolve(Answer::Cancel);
         }
@@ -538,10 +609,7 @@ impl AppleTransfer {
         };
         match error {
             None => events(Event::End),
-            Some(e) if refused && e.code() == CANCELLED => events(Event::Failed(HttpError::Tls(
-                "the server is not trusted".into(),
-            ))),
-            Some(e) => events(Event::Failed(map_error(e))),
+            Some(e) => events(Event::Failed(e)),
         }
     }
 }
@@ -1168,10 +1236,10 @@ define_class!(
             total_expected: i64,
         ) {
             if let Some(transfer) = self.ivars().routes.transfer(task) {
-                transfer.emit(Event::Sent {
-                    sent: u64::try_from(total_sent).unwrap_or(0),
-                    total: u64::try_from(total_expected).ok().filter(|t| *t > 0),
-                });
+                transfer.sent(
+                    u64::try_from(total_sent).unwrap_or(0),
+                    u64::try_from(total_expected).ok().filter(|t| *t > 0),
+                );
             }
         }
 
@@ -1194,6 +1262,16 @@ define_class!(
             metrics: &NSURLSessionTaskMetrics,
         ) {
             if let Some(transfer) = self.ivars().routes.transfer(task) {
+                // Task counters can lag the final streamed chunk. Transaction metrics carry
+                // the measured payload count; the wire count also includes HTTP framing.
+                if let Some(last) = metrics.transactionMetrics().lastObject() {
+                    transfer.sent(
+                        u64::try_from(last.countOfRequestBodyBytesBeforeEncoding()).unwrap_or(0),
+                        u64::try_from(task.countOfBytesExpectedToSend())
+                            .ok()
+                            .filter(|n| *n > 0),
+                    );
+                }
                 transfer.emit(Event::Metrics(metrics_of(metrics)));
             }
         }

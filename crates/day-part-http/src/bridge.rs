@@ -1357,7 +1357,8 @@ day_bridge::bridge! {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn client(
     idle_ms: i32,
@@ -1382,7 +1383,8 @@ pub(crate) fn client(
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn client_release(client: i64) {
     client_release_native(client);
@@ -1391,7 +1393,8 @@ pub(crate) fn client_release(client: i64) {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn cache_clear(client: i64) {
     cache_clear_native(client);
@@ -1400,7 +1403,8 @@ pub(crate) fn cache_clear(client: i64) {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn demand(token: i64, chunks: i32) {
     demand_native(token, chunks);
@@ -1409,7 +1413,8 @@ pub(crate) fn demand(token: i64, chunks: i32) {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn answer(token: i64, question: i32, answer: i32) {
     answer_native(token, question, answer);
@@ -1418,7 +1423,8 @@ pub(crate) fn answer(token: i64, question: i32, answer: i32) {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn body(token: i64, chunk: &[u8]) {
     body_native(token, chunk);
@@ -1427,7 +1433,8 @@ pub(crate) fn body(token: i64, chunk: &[u8]) {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn exchange_cancel(token: i64) {
     exchange_cancel_native(token);
@@ -1436,7 +1443,8 @@ pub(crate) fn exchange_cancel(token: i64) {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn ws_send(token: i64, binary: bool, data: &[u8]) -> Result<bool, day_bridge::Error> {
     ws_send_native(token, binary, data)
@@ -1445,7 +1453,8 @@ pub(crate) fn ws_send(token: i64, binary: bool, data: &[u8]) -> Result<bool, day
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn ws_close(token: i64, code: i32, reason: &str) {
     ws_close_native(token, code, reason);
@@ -1455,7 +1464,8 @@ pub(crate) fn ws_close(token: i64, code: i32, reason: &str) {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn header_block(headers: &[(String, String)]) -> String {
     let mut out = String::new();
@@ -1472,7 +1482,8 @@ pub(crate) fn header_block(headers: &[(String, String)]) -> String {
 #[cfg(any(
     target_os = "android",
     all(target_os = "linux", target_env = "ohos"),
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    all(test, target_os = "macos")
 ))]
 pub(crate) fn bridge_error(e: day_bridge::Error) -> super::HttpError {
     match e {

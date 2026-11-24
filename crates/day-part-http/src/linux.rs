@@ -750,10 +750,19 @@ extern "C" fn on_read(buffer: *mut c_char, size: usize, items: usize, data: *mut
             *at += n;
             Ok(n)
         }
-        Upload::File(file) => file.read(out),
-        Upload::Stream(reader) => reader.read(out),
+        Upload::File(file) => read_upload(file, out),
+        Upload::Stream(reader) => read_upload(reader.as_mut(), out),
     };
     read.unwrap_or(READFUNC_ABORT)
+}
+
+fn read_upload(reader: &mut dyn Read, out: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match reader.read(out) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            result => return result,
+        }
+    }
 }
 
 extern "C" fn on_progress(
@@ -1271,6 +1280,29 @@ mod curl_tests {
                 .cache(Cache::Off)
                 .build(),
         )
+    }
+
+    #[test]
+    fn interrupted_upload_reads_retry_and_other_errors_abort() {
+        struct Producer(u8);
+        impl Read for Producer {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                self.0 += 1;
+                match self.0 {
+                    1 => Err(std::io::ErrorKind::Interrupted.into()),
+                    2 => {
+                        out[..7].copy_from_slice(b"fixture");
+                        Ok(7)
+                    }
+                    _ => Err(std::io::Error::other("synthetic read failure")),
+                }
+            }
+        }
+        let mut reader = Producer(0);
+        let mut out = [0; 16];
+        assert_eq!(read_upload(&mut reader, &mut out).unwrap(), 7);
+        assert_eq!(&out[..7], b"fixture");
+        assert!(read_upload(&mut reader, &mut out).is_err());
     }
 
     #[test]

@@ -50,14 +50,14 @@ pub(crate) struct Reqwest {
     client: Result<reqwest::Client, String>,
 }
 impl Reqwest {
-    pub fn new(config: &TransportConfig) -> Self {
+    pub fn new(_config: &TransportConfig) -> Self {
         // Redirect/auth policy remains in Day's portable Client. TLS uses rustls/webpki roots;
         // native proxy/PAC, platform caches and client identities are not claimed here.
         let builder = reqwest::Client::builder()
             .tls_backend_preconfigured((*tls_config()).clone())
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(config.timeout_idle)
-            .read_timeout(config.timeout_idle);
+            .redirect(reqwest::redirect::Policy::none());
+        // Deadlines belong to each Prepared request. A fixed client timeout would prevent
+        // Request::timeout from extending the default while reusing this connection pool.
         Self {
             client: builder.build().map_err(|e| e.to_string()),
         }
@@ -68,9 +68,13 @@ struct HttpTransfer {
     demand: Semaphore,
     over: AtomicBool,
     task: Mutex<Option<tokio::task::AbortHandle>>,
+    upload_activity: Mutex<tokio::time::Instant>,
 }
 impl HttpTransfer {
     fn emit(&self, e: Event) {
+        if matches!(e, Event::Sent { .. }) {
+            *lock(&self.upload_activity) = tokio::time::Instant::now();
+        }
         if matches!(e, Event::End | Event::Failed(_)) {
             if !self.over.swap(true, Ordering::AcqRel) {
                 (self.events)(e);
@@ -101,9 +105,19 @@ fn body_stream(
         let t = transfer.clone();
         async move {
             let mut reader = reader?;
+            let active = t.clone();
             let result = tokio::task::spawn_blocking(move || {
                 let mut b = vec![0; 16 * 1024];
-                let result = reader.read(&mut b).map(|n| {
+                let result = loop {
+                    if active.over.load(Ordering::Acquire) {
+                        break Err(std::io::Error::other("upload cancelled"));
+                    }
+                    match reader.read(&mut b) {
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                        result => break result,
+                    }
+                }
+                .map(|n| {
                     b.truncate(n);
                     b
                 });
@@ -146,6 +160,7 @@ impl Transport for Reqwest {
             demand: Semaphore::new(0),
             over: AtomicBool::new(false),
             task: Mutex::new(None),
+            upload_activity: Mutex::new(tokio::time::Instant::now()),
         });
         let transfer = t.clone();
         let client = self.client.clone();
@@ -188,10 +203,26 @@ impl Transport for Reqwest {
                     }
                     builder = builder.body(body_stream(reader, transfer.clone(), len));
                 }
-                let response = tokio::time::timeout(req.timeout_idle, builder.send())
-                    .await
-                    .map_err(|_| HttpError::Timeout)?
-                    .map_err(|e| error(&e))?;
+                let sending = builder.send();
+                tokio::pin!(sending);
+                let response = loop {
+                    let deadline = lock(&transfer.upload_activity).checked_add(req.timeout_idle);
+                    let Some(deadline) = deadline else {
+                        // Durations beyond the clock's range cannot expire. The portable
+                        // total deadline and cancellation still bound this request.
+                        break sending.as_mut().await.map_err(|e| error(&e))?;
+                    };
+                    tokio::select! {
+                        result = &mut sending => break result.map_err(|e| error(&e))?,
+                        () = tokio::time::sleep_until(deadline) => {
+                            // Upload production is progress, even before response headers.
+                            // Recheck after waking: a chunk may have advanced this deadline.
+                            if lock(&transfer.upload_activity).elapsed() >= req.timeout_idle {
+                                return Err(HttpError::Timeout);
+                            }
+                        }
+                    }
+                };
                 let head = Head {
                     status: response.status().as_u16(),
                     headers: response

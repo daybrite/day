@@ -171,7 +171,11 @@ for protocol in sorted(Path("crates/day-spec/src/controls").glob("*.rs")):
     if not keys:
         continue
     row = [protocol.stem, ", ".join(f"`{key}`" for key in keys)]
-    row += ["✓" if Path(f"crates/day-toolkit-{n}/src/controls/{protocol.stem}.rs").exists() else "·" for n in names]
+    # The crate folder comes from BACKENDS: a column is named for its matrix key, and two of
+    # them live in crates named otherwise (xaml in day-toolkit-winui, android in
+    # day-toolkit-material).
+    row += ["✓" if (Path(lib).parent / "controls" / f"{protocol.stem}.rs").exists() else "·"
+            for _, lib, _ in BACKENDS]
     out.append("| " + " | ".join(row) + " |")
 
 out += [
