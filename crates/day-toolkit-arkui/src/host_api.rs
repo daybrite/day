@@ -39,6 +39,7 @@ type Callback<Args> = RefCell<Option<Registered<Args>>>;
 /// A registered callback's reference, as the `#[napi]` exports receive it.
 type Registered<Args> = FunctionRef<Args, Unknown<'static>>;
 /// The file picker's `(req, mode, name, src, filters)` (docs/files.md).
+type PopoverArgs = FnArgs<(i32, f64, f64, f64)>;
 type FilePickerArgs = FnArgs<(f64, i32, String, String, String)>;
 /// The toolbar's five `\n`-joined parallel fields (docs/toolbars.md).
 type MenuArgs = FnArgs<(String, String, String, String, String)>;
@@ -58,6 +59,10 @@ day_reactive::tls_slots! {
     static ENV: Cell<sys::napi_env> = const { Cell::new(ptr::null_mut()) };
     /// `(req, mode, name, src, filters)` (docs/files.md).
     static FILE_PICKER: Callback<FilePickerArgs> = const { RefCell::new(None) };
+    static POPOVER: Callback<PopoverArgs> = const { RefCell::new(None) };
+    static CLOSE_POPOVER: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
+    static TOAST: Callback<FnArgs<(String,)>> = const { RefCell::new(None) };
+    static POPOVER_SLOTS: RefCell<HashMap<usize, (u64, usize, ObjectRef<false>)>> = RefCell::new(HashMap::new());
     static DIALOG: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
     static DISMISS_DIALOG: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
     static DIALOG_REQUESTS: RefCell<std::collections::HashSet<u64>> = RefCell::new(std::collections::HashSet::new());
@@ -350,6 +355,74 @@ pub fn on_file_result(req: f64, path: String) {
 }
 
 /// Register before `start`: a root task may present on its first turn.
+#[napi(js_name = "registerFeedback")]
+pub fn register_feedback(
+    env: Env,
+    open: Registered<PopoverArgs>,
+    close: Registered<FnArgs<(f64,)>>,
+    toast: Registered<FnArgs<(String,)>>,
+) {
+    remember(&env);
+    store(|t| &t.POPOVER, open);
+    store(|t| &t.CLOSE_POPOVER, close);
+    store(|t| &t.TOAST, toast);
+}
+
+pub fn show_toast(text: &str) {
+    call(|t| &t.TOAST, FnArgs::from((text.to_owned(),)), |_, _| ());
+}
+
+#[napi(js_name = "popoverDismissed")]
+pub fn popover_dismissed(id: f64) {
+    crate::emit(
+        day_spec::NodeId(id as u64),
+        day_spec::Event::PopoverDismissed,
+    );
+}
+
+pub fn open_popover(anchor: i32, panel: Handle, size: day_spec::Size, id: u64) -> bool {
+    call(
+        |t| &t.POPOVER,
+        FnArgs::from((anchor, id as f64, size.width, size.height)),
+        |env, ret| {
+            let mut slot: ArkUI_NodeContentHandle = ptr::null_mut();
+            // SAFETY: the host returns the NodeContent held by its ComponentContent.
+            unsafe {
+                OH_ArkUI_GetNodeContentFromNapiValue(
+                    env.raw().cast(),
+                    ret.raw().cast(),
+                    &raw mut slot,
+                )
+            };
+            if slot.is_null() {
+                return false;
+            }
+            let Ok(keep) = Object::from_raw(env.raw(), ret.raw()).create_ref::<false>() else {
+                return false;
+            };
+            if node::content_add(slot, panel) != 0 {
+                return false;
+            }
+            POPOVER_SLOTS.with(|s| {
+                s.borrow_mut()
+                    .insert(panel as usize, (id, slot as usize, keep))
+            });
+            true
+        },
+    )
+    .unwrap_or(false)
+}
+
+pub fn close_popover(panel: Handle) {
+    if let Some((id, slot, _keep)) =
+        POPOVER_SLOTS.with(|s| s.borrow_mut().remove(&(panel as usize)))
+    {
+        // SAFETY: the JS reference keeps the slot alive through detachment.
+        unsafe { OH_ArkUI_NodeContent_RemoveNode(slot as ArkUI_NodeContentHandle, panel) };
+        call(|t| &t.CLOSE_POPOVER, FnArgs::from((id as f64,)), |_, _| ());
+    }
+}
+
 #[napi(js_name = "registerDialogs")]
 pub fn register_dialogs(
     env: Env,

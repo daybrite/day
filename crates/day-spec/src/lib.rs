@@ -1178,6 +1178,8 @@ pub enum Event {
         edge: SwipeEdge,
         action: usize,
     },
+    /// The platform dismissed the popover whose content root received this event.
+    PopoverDismissed,
     /// A fullscreen cover's hide transition finished (docs/cover.md): the content can now be
     /// disposed. Answers [`props::CoverPatch::Dismiss`]; delivery is a hard guarantee, and
     /// backends over-report rather than under-report; consumers gate on their own closing
@@ -9721,6 +9723,28 @@ pub trait Toolkit: Sized + 'static {
     }
 
     // pillars
+    /// Attach visible help to a widget. Empty text removes it.
+    fn set_tooltip(&mut self, _anchor: &Self::Handle, _text: &str) {}
+    /// Whether Day should also show the help on a long press.
+    fn needs_touch_tooltip(&self) -> bool {
+        false
+    }
+    /// Host a detached Day container in an anchored popup. Send `PopoverDismissed` to
+    /// `id` on light dismissal. The content and its children remain owned by Day.
+    fn open_popover(
+        &mut self,
+        _anchor: &Self::Handle,
+        _content: &Self::Handle,
+        _size: Size,
+        _id: NodeId,
+    ) -> bool {
+        false
+    }
+    /// Detach the content before its Day tree is released.
+    fn close_popover(&mut self, _content: &Self::Handle) {}
+    /// Show brief feedback in the window containing `host`.
+    fn show_toast(&mut self, _host: &Self::Handle, _text: &str) {}
+
     /// Apply a node's accessibility annotations (docs/accessibility.md): the label, hint and
     /// value the screen reader speaks, an explicit role, whether the node is hidden from
     /// assistive technology, and the automation identifier. Called with the node's whole

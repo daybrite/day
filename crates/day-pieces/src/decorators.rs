@@ -1698,6 +1698,21 @@ impl<P: Piece> Decorated<P> {
     pub fn selectable(self) -> Self {
         self.push(op_selectable())
     }
+    /// See [`Decorate::tooltip`].
+    pub fn tooltip<M>(self, text: impl IntoText<M>) -> Self {
+        let text = text.into_text();
+        self.push_node(move |n| crate::context::install_tooltip(n, text))
+    }
+
+    /// See [`Decorate::popover`].
+    pub fn popover<C: Piece>(
+        self,
+        open: impl Binding<bool>,
+        content: impl Fn() -> C + 'static,
+    ) -> Self {
+        self.push_node(move |n| crate::context::install_popover(n, open, content))
+    }
+
     pub fn cursor<M>(self, cursor: impl IntoReactive<Cursor, M>) -> Self {
         self.push(op_cursor(cursor.into_reactive()))
     }
@@ -2074,6 +2089,20 @@ where
 }
 
 pub trait Decorate: Piece + Sized {
+    /// Attach localized, reactive help to the piece. Empty text clears the tooltip.
+    fn tooltip<M>(self, text: impl IntoText<M>) -> Decorated<Self> {
+        Decorated::new(self).tooltip(text)
+    }
+    /// Present Day content beside this piece while `open` is true. Outside dismissal
+    /// writes false. Each opening builds a fresh subtree in the trigger's scope.
+    fn popover<P: Piece>(
+        self,
+        open: impl Binding<bool>,
+        content: impl Fn() -> P + 'static,
+    ) -> Decorated<Self> {
+        Decorated::new(self).popover(open, content)
+    }
+
     /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
     ///
     /// Names the piece's own node wherever it sits in the chain (docs/api-style.md "Modifier
@@ -4178,6 +4207,77 @@ pub(crate) mod conformance {
                 d.drag("target", (10.0, 40.0), (90.0, 44.0)).await?;
                 // Began, four samples and Ended: the whole drag, from its first event.
                 d.assert_text("state", "moved 80 after 6").await
+            })
+    }
+
+    /// Synthetic help, popup content, and status feedback exercise a single mounted trigger.
+    #[day_macros::test(day_core)]
+    fn contextual_feedback_lifecycle() -> Case {
+        Case::new()
+            .proves_modifier("popover")
+            .proves_modifier("tooltip")
+            .proves_duty("open_popover")
+            .proves_duty("close_popover")
+            .proves_duty("set_tooltip")
+            .proves_duty("show_toast")
+            .page(|| {
+                let open = Signal::new(false);
+                let saved = Signal::new(false);
+                let help = move || {
+                    if saved.get() {
+                        "Saved fixture"
+                    } else {
+                        "Edit fixture"
+                    }
+                };
+                column((
+                    button("Open fixture")
+                        .id(day_core::id!(feedback_anchor))
+                        .action(move || open.set(true))
+                        .tooltip(help)
+                        .popover(open, move || {
+                            button("Apply fixture")
+                                .id(day_core::id!(feedback_apply))
+                                .action(move || {
+                                    saved.set(true);
+                                    open.set(false);
+                                    crate::toast("Saved fixture");
+                                })
+                                .padding(10.0)
+                        }),
+                    label(help).id(day_core::id!(feedback_state)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_missing("feedback_apply").await?;
+                for _ in 0..2 {
+                    d.tap("feedback_anchor").await?;
+                    d.assert_visible("feedback_apply").await?;
+                    d.tap("feedback_apply").await?;
+                    d.assert_missing("feedback_apply").await?;
+                    d.assert_text("feedback_state", "Saved fixture").await?;
+                }
+                Ok(())
+            })
+    }
+
+    /// The trigger needs a native parent even when the binding starts open.
+    #[day_macros::test(day_core)]
+    fn contextual_feedback_initially_open() -> Case {
+        Case::new()
+            .page(|| {
+                let open = Signal::new(true);
+                button("Fixture trigger").popover(open, move || {
+                    button("Close fixture")
+                        .id(day_core::id!(initial_feedback_close))
+                        .action(move || open.set(false))
+                })
+            })
+            .drive(|d: Drive| async move {
+                d.wait_idle().await?;
+                d.assert_visible("initial_feedback_close").await?;
+                d.tap("initial_feedback_close").await?;
+                d.assert_missing("initial_feedback_close").await
             })
     }
 

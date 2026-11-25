@@ -3581,6 +3581,38 @@ impl Toolkit for Xaml {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
     }
 
+    fn set_tooltip(&mut self, h: &WinHandle, text: &str) {
+        unsafe { ffi::day_xaml_set_tooltip(h.0, cstr(text).as_ptr()) };
+    }
+    fn open_popover(
+        &mut self,
+        anchor: &WinHandle,
+        content: &WinHandle,
+        size: Size,
+        id: NodeId,
+    ) -> bool {
+        extern "C" fn dismissed(id: u64) {
+            day_spec::ffi_guard::contain((), || emit(NodeId(id), Event::PopoverDismissed));
+        }
+        unsafe {
+            ffi::day_xaml_popover(
+                anchor.0,
+                content.0,
+                size.width,
+                size.height,
+                id.0,
+                dismissed,
+            ) != 0
+        }
+    }
+    fn close_popover(&mut self, content: &WinHandle) {
+        unsafe { ffi::day_xaml_close_popover(content.0) };
+    }
+    fn show_toast(&mut self, host: &WinHandle, text: &str) {
+        unsafe { ffi::day_xaml_toast(host.0, cstr(text).as_ptr()) };
+        self.announce(text, false);
+    }
+
     fn set_a11y(&mut self, h: &WinHandle, a11y: &A11yProps) {
         use day_spec::Role;
         if let Some(id) = &a11y.identifier {

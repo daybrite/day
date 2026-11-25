@@ -95,6 +95,7 @@ the architecture-level view and the rationale.
 | raster images from bytes — `day::decode_image`, the `Bitmap` handle, `ImageSource`, `Draw::image`, per-backend decode/encode/metadata | [docs/images.md](docs/images.md) | [§8.1](#81-the-toolkit-trait), [§11](#11-canvas) |
 | canvas export — `Drawing::record`, `to_bitmap`/`to_png`/`to_pdf`, `PdfDocument`, `canvas_exports()`, `Cap::CanvasBitmap`/`Cap::CanvasPdf`, per-toolkit painters and PDF writers | [docs/canvas.md](docs/canvas.md) "Exporting" | [§8.1](#81-the-toolkit-trait), [§11](#11-canvas) |
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
+| contextual feedback — reactive tooltips, anchored Day content, and transient window messages | [Tooltips, popovers, and toasts](docs/dialogs.md#tooltips) | [§8.1](#81-the-toolkit-trait) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled`, `status_bar_hidden` (`Cap::StatusBarHidden`) | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
 | inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
@@ -2314,6 +2315,14 @@ pub trait Toolkit: Sized + 'static {
     // HarmonyOS: the entry page's onBackPress (2026-11, docs/navigation.md). Defaulted.
     fn set_system_back(&mut self, armed: bool) {}
 
+    // Contextual feedback (docs/dialogs.md). Each anchored popup mounts Day content in a
+    // scope under its trigger. Its parentless native container is a separate layout root.
+    // The toolkit supplies the presentation and sends PopoverDismissed to the unique
+    // content node on outside dismissal. Programmatic close detaches the native host before
+    // releasing the content. A late event addresses only the retired node generation.
+    // Tooltips follow IntoText and survive native backing replacements. Touch help uses the
+    // same anchored surface where a toolkit has no long-press tooltip. Toasts resolve
+    // their text once and follow the current window and the toolkit's dismissal timer.
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
     fn dismiss(&mut self, req: u64) {}

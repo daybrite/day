@@ -6329,14 +6329,48 @@ public final class DayBridge extends DayRuntime {
         }
     }
 
-    /** Apply a node's whole accessibility set (docs/accessibility.md). Empty strings and
-     *  `ROLE_NONE` mean "not set": those members leave the native default alone, and a member
-     *  set once stays set, so re-sending the same values changes nothing. `level` is the heading
-     *  level, informational here: Android's node has heading yes/no and no level. */
     /** Views the app gave an accessibility label (setA11y), whose content description a later
      *  button content change must leave alone. Weak: a released view drops out with it. */
     static final java.util.Map<View, Boolean> appLabeled = new java.util.WeakHashMap<>();
 
+    private static final java.util.Map<View, android.widget.PopupWindow> popovers = new java.util.IdentityHashMap<>();
+
+    public static void setTooltip(View v, String text) {
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(v, text.isEmpty() ? null : text);
+    }
+
+    public static boolean openPopover(View anchor, View content, int w, int h, long id) {
+        if (!anchor.isAttachedToWindow()) return false;
+        android.widget.PopupWindow popup = new android.widget.PopupWindow(content, w, h, true);
+        android.util.TypedValue color = new android.util.TypedValue();
+        anchor.getContext().getTheme().resolveAttribute(android.R.attr.colorBackground, color, true);
+        popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(color.data));
+        popup.setOutsideTouchable(true);
+        popup.setElevation(6 * anchor.getResources().getDisplayMetrics().density);
+        popup.setOnDismissListener(() -> nativePopoverDismissed(id));
+        popup.showAsDropDown(anchor);
+        popovers.put(content, popup);
+        return true;
+    }
+
+    private static native void nativePopoverDismissed(long id);
+
+    public static void closePopover(View content) {
+        android.widget.PopupWindow popup = popovers.remove(content);
+        if (popup != null) {
+            popup.setOnDismissListener(null);
+            popup.dismiss();
+        }
+    }
+
+    public static void showToast(View host, String text) {
+        android.widget.Toast.makeText(host.getContext(), text, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    /** Apply a node's whole accessibility set (docs/accessibility.md). Empty strings and
+     *  `ROLE_NONE` mean "not set": those members leave the native default alone, and a member
+     *  set once stays set, so re-sending the same values changes nothing. `level` is the heading
+     *  level, informational here: Android's node has heading yes/no and no level. */
     public static void setA11y(View v, String label, String hint, String value, String id,
             int role, int level, boolean hidden, int selected) {
         try {

@@ -11,6 +11,9 @@ license.workspace = true
 [package.metadata.day.ios]
 frameworks = ["MobileCoreServices"]
 
+[build-dependencies]
+cc = { workspace = true }
+
 [dependencies]
 log = { workspace = true }
 day-spec = { workspace = true }

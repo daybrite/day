@@ -2222,6 +2222,53 @@ const env = {
       else { navigator.setAppBadge?.(count); }
     } catch (_) { /* unsupported or blocked; the cap already says Emulated */ }
   },
+  day_dom_touch_tooltip() { return Number(matchMedia('(any-pointer: coarse)').matches); },
+  day_dom_popover(anchorId, id, width, height) {
+    const anchor = E(anchorId), panel = E(id);
+    if (!anchor?.isConnected || !panel) return 0;
+    const popup = div('day-context-popover');
+    popup.setAttribute('role', 'dialog');
+    popup.tabIndex = -1;
+    Object.assign(panel.style, {position:'relative', width:width+'px', height:height+'px'});
+    popup.append(panel);
+    document.body.append(popup);
+    const position = () => {
+      const r = anchor.getBoundingClientRect(), box = popup.getBoundingClientRect();
+      popup.style.left = Math.max(0, Math.min(r.left, innerWidth-box.width))+'px';
+      popup.style.top = Math.max(0, Math.min(r.bottom+4+box.height <= innerHeight ? r.bottom+4 : r.top-box.height-4, innerHeight-box.height))+'px';
+    };
+    const events = new AbortController(), options = {signal:events.signal};
+    const native = typeof popup.showPopover === 'function';
+    const dismiss = () => wasm.day_dom_popover_dismissed(id);
+    if (native) {
+      popup.popover = 'auto';
+      popup.addEventListener('toggle', e => { if (e.newState === 'closed') dismiss(); }, options);
+      popup.showPopover();
+    } else {
+      document.addEventListener('pointerdown', e => { if (!popup.contains(e.target)) dismiss(); }, options);
+      document.addEventListener('keydown', e => { if (e.key === 'Escape') dismiss(); }, options);
+    }
+    position();
+    window.addEventListener('resize', position, options);
+    document.addEventListener('scroll', position, {capture:true, ...options});
+    panel.__closePopover = () => {
+      events.abort();
+      const restore = popup.contains(document.activeElement);
+      popup.remove();
+      if (restore && anchor.isConnected) anchor.focus({preventScroll:true});
+      delete panel.__closePopover;
+    };
+    (popup.querySelector('button,input,select,textarea,[tabindex="0"]') || popup).focus({preventScroll:true});
+    return 1;
+  },
+  day_dom_close_popover(id) { E(id)?.__closePopover?.(); },
+  day_dom_toast(p, l) {
+    document.querySelector('.day-context-toast')?.remove();
+    const card = div('day-context-toast');
+    card.textContent = str(p, l);
+    document.body.append(card);
+    setTimeout(() => card.remove(), 3000);
+  },
   // Screen-reader announcements (docs/accessibility.md): two ARIA live regions, one per
   // politeness, made on first use and kept for the document's life. Visually hidden by a
   // clipped 1px box (`.day-live`), never `display:none`, which would drop them from the

@@ -25,7 +25,7 @@ case " ${RUSTFLAGS:-} " in
     *) export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-D warnings" ;;
 esac
 
-TWEAKS=(-p day-tweak-button-bezel -p day-tweak-slider-tick-marks -p day-tweak-tooltip -p day-tweak-tree-style)
+TWEAKS=(-p day-tweak-button-bezel -p day-tweak-slider-tick-marks -p day-tweak-tree-style)
 # clippy 1.97 false-positives missing_const_for_thread_local on the bionic/musl cross-targets,
 # flagging thread_local!s that already use `const { … }`. The host legs enforce the lint.
 XCROSS=(-A clippy::missing_const_for_thread_local)

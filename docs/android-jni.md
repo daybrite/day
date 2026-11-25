@@ -141,8 +141,7 @@ A binding can name any class: Day's own, the Android platform's, or a library's.
   jni's `JObject`, `JClass` (with `get_class_loader`), `JString` and `JThrowable` cover them.
 
 A binding needing a newer API level than Day's minimum (24) says so with `since = 26`. Below that
-level the startup check skips it, and its callers ask `sdk_int()` before calling, as
-day-tweak-tooltip does for `View.setTooltipText`.
+level the startup check skips it, and its callers ask `sdk_int()` before calling the method.
 
 ## The startup check
 

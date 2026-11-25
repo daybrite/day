@@ -87,17 +87,17 @@ safe `None`, never a dangling widget. Reads are [reactive](/docs/reference/gloss
 
 To reuse a tweak across apps, package it: a `day-tweak-*` crate wraps the per-toolkit calls in one
 modifier and no-ops on [toolkits](/docs/reference/glossary#toolkit) it doesn't cover, so the *app* using it
-stays free of `#[cfg]`. Three examples in the repository show different platform configurations:
+stays free of `#[cfg]`. The examples below show different platform configurations:
 
 ```rust
 use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
 use day_tweak_slider_tick_marks::{SliderTickmarksTweak, Tickmarks};
-use day_tweak_tooltip::TooltipTweak;
 
 button(res::str::save()).bezel(Bezel::Toolbar); // AppKit only; stock elsewhere
-button(res::str::save()).tooltip(res::str::save_hint()); // AppKit, GTK, Android; no-op elsewhere
 slider(v).tickmarks(Tickmarks::count(11).snap(true));
 ```
+
+For help attached to a control, see [Tooltips](/docs/reference/dialogs#tooltips).
 
 The tick-marks crate demonstrates configuring a native feature on
 toolkits through objc2, gtk4-rs, JNI, and compiled Qt C++,

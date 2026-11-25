@@ -82,6 +82,10 @@ unsafe extern "C" {
     fn day_dom_screen(out: *mut f64);
     /// Speak `text` through the shim's ARIA live regions (docs/accessibility.md); `urgent`
     /// picks the assertive one, which interrupts, over the polite one, which queues.
+    fn day_dom_popover(anchor: u32, content: u32, width: f64, height: f64) -> u32;
+    fn day_dom_close_popover(content: u32);
+    fn day_dom_touch_tooltip() -> u32;
+    fn day_dom_toast(ptr: *const u8, len: usize);
     fn day_dom_announce(ptr: *const u8, len: usize, urgent: u32);
     fn day_dom_insert(parent: u32, child: u32, index: u32);
     fn day_dom_remove(child: u32);
@@ -4120,6 +4124,29 @@ impl Toolkit for Dom {
         )
     }
 
+    fn set_tooltip(&mut self, h: &DomHandle, text: &str) {
+        attr(h.0, "title", text);
+    }
+    fn needs_touch_tooltip(&self) -> bool {
+        unsafe { day_dom_touch_tooltip() != 0 }
+    }
+    fn open_popover(
+        &mut self,
+        anchor: &DomHandle,
+        panel: &DomHandle,
+        size: Size,
+        id: NodeId,
+    ) -> bool {
+        remember(panel.0, id);
+        unsafe { day_dom_popover(anchor.0, panel.0, size.width, size.height) != 0 }
+    }
+    fn close_popover(&mut self, content: &DomHandle) {
+        unsafe { day_dom_close_popover(content.0) };
+    }
+    fn show_toast(&mut self, _host: &DomHandle, text: &str) {
+        unsafe { day_dom_toast(text.as_ptr(), text.len()) };
+        self.announce(text, false);
+    }
     fn set_a11y(&mut self, h: &DomHandle, a11y: &A11yProps) {
         use day_spec::Role;
         if let Some(label) = &a11y.label {
@@ -6500,6 +6527,15 @@ pub extern "C" fn day_dom_list_move(host: u32, from: u32, to: u32) -> u32 {
         post_local(move || list_populate(host));
         1
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_popover_dismissed(el: u32) {
+    day_spec::ffi_guard::contain((), || {
+        if let Some(node) = node_of(el) {
+            emit(node, Event::PopoverDismissed);
+        }
+    });
 }
 
 #[unsafe(no_mangle)]

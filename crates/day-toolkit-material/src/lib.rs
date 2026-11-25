@@ -2251,6 +2251,15 @@ mod imp {
         })
     }
 
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativePopoverDismissed(
+        _env: *mut std::ffi::c_void,
+        _class: *mut std::ffi::c_void,
+        id: i64,
+    ) {
+        day_spec::ffi_guard::contain((), || emit(NodeId(id as u64), Event::PopoverDismissed));
+    }
+
     pub const BRIDGE: &str = "dev/daybrite/day/bridge/DayBridge";
 
     // DayBridge (java/dev/daybrite/day/bridge/DayBridge.java): every static method Rust calls,
@@ -2260,6 +2269,10 @@ mod imp {
         pub DayBridge => dev.daybrite.day.bridge.DayBridge,
         methods {
         static fn addChild(parent: android.view.View, child: android.view.View),
+        static fn setTooltip(v: android.view.View, text: JString),
+        static fn openPopover(anchor: android.view.View, content: android.view.View, w: jint, h: jint, id: jlong) -> jboolean,
+        static fn closePopover(content: android.view.View),
+        static fn showToast(host: android.view.View, text: JString),
         static fn announce(text: JString, urgent: jboolean),
         static fn baselineAt(v: android.view.View, w_px: jint, h_px: jint) -> jint,
         static fn cancelFrame(token: jlong),
@@ -6787,6 +6800,46 @@ mod imp {
                         let _ = java_in(env, |env| DayBridge::setPrimaryWindowTitle(env, &jtitle));
                     }
                 }
+            });
+        }
+
+        fn set_tooltip(&mut self, h: &AHandle, text: &str) {
+            with_env(|env| {
+                let text = jstr(env, text);
+                let _ = java_in(env, |env| DayBridge::setTooltip(env, h.0.as_obj(), &text));
+            });
+        }
+        fn open_popover(
+            &mut self,
+            anchor: &AHandle,
+            content: &AHandle,
+            size: Size,
+            id: NodeId,
+        ) -> bool {
+            let d = density();
+            with_env(|env| {
+                java_in(env, |env| {
+                    DayBridge::openPopover(
+                        env,
+                        anchor.0.as_obj(),
+                        content.0.as_obj(),
+                        (size.width * d).ceil() as i32,
+                        (size.height * d).ceil() as i32,
+                        id.0 as i64,
+                    )
+                })
+            })
+            .unwrap_or(false)
+        }
+        fn close_popover(&mut self, content: &AHandle) {
+            with_env(|env| {
+                let _ = java_in(env, |env| DayBridge::closePopover(env, content.0.as_obj()));
+            });
+        }
+        fn show_toast(&mut self, h: &AHandle, text: &str) {
+            with_env(|env| {
+                let text = jstr(env, text);
+                let _ = java_in(env, |env| DayBridge::showToast(env, h.0.as_obj(), &text));
             });
         }
 

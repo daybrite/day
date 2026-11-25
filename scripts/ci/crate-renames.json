@@ -64,7 +64,6 @@
     "pieces/day-piece-swiftui": "crates/day-piece-swiftui",
     "tweaks/day-tweak-tree-style": "crates/day-tweak-tree-style",
     "tweaks/day-tweak-button-bezel": "crates/day-tweak-button-bezel",
-    "tweaks/day-tweak-tooltip": "crates/day-tweak-tooltip",
     "tweaks/day-tweak-slider-tickmarks": "crates/day-tweak-slider-tick-marks"
   },
   "target": {

@@ -547,8 +547,8 @@ pub use day_localization_ui::launch_locales;
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};
-pub use day_pieces::Command;
 pub use day_pieces::NativeRef;
+pub use day_pieces::{Command, toast};
 // Typed routes (docs/navigation.md): `day::routes! { enum Section { Home => "home", … } }`.
 /// Tests that run inside the built app (docs/testing.md): `#[day::test]`, [`Case`], [`Drive`].
 pub use day_core::conformance;

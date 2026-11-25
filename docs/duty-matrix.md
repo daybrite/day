@@ -61,6 +61,11 @@ implement them, and this table proves it.
 | [`edit_toolbar`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.edit_toolbar) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`update_toolbar`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.update_toolbar) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`supports_lifecycle`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.supports_lifecycle) | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
+| [`set_tooltip`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_tooltip) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| [`needs_touch_tooltip`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.needs_touch_tooltip) | · | · | ✓ | · | · | · | · | ✓ | ✓ | · |
+| [`open_popover`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.open_popover) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`close_popover`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.close_popover) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`show_toast`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.show_toast) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`set_a11y`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_a11y) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`announce`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.announce) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`read_native`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.read_native) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

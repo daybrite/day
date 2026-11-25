@@ -4752,6 +4752,29 @@ mod imp {
             SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
         }
 
+        fn needs_touch_tooltip(&self) -> bool {
+            true
+        }
+
+        fn open_popover(
+            &mut self,
+            anchor: &AHandle,
+            content: &AHandle,
+            size: Size,
+            id: NodeId,
+        ) -> bool {
+            let Some(target) = node::unique_id(anchor.0) else {
+                return false;
+            };
+            node::set_size(content.0, size.width, size.height);
+            crate::host_api::open_popover(target, content.0, size, id.0)
+        }
+        fn close_popover(&mut self, content: &AHandle) {
+            crate::host_api::close_popover(content.0);
+        }
+        fn show_toast(&mut self, _host: &AHandle, text: &str) {
+            crate::host_api::show_toast(text);
+        }
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {
             // Every member is an ArkUI accessibility attribute (node.rs says which).
             node::set_a11y(h.0, a11y);

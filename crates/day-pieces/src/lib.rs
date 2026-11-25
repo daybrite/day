@@ -42,6 +42,8 @@ mod canvas;
 mod commands;
 pub use commands::Command;
 mod containers;
+mod context;
+pub use context::toast;
 mod decorators;
 mod dialogs;
 mod file_access;
@@ -128,7 +130,6 @@ pub mod prelude {
     pub use crate::{DocumentTabs, TabActions, TabSet, document_tabs};
     pub use day_core::{ElementId, IntoElementKey, id};
     // Model-driven rows (docs/model.md): the store-as-RowSource surface.
-    pub use crate::TextStyle;
     pub use crate::ToolbarEntry;
     pub use crate::routes;
     pub use crate::{
@@ -158,6 +159,7 @@ pub mod prelude {
     };
     pub use crate::{DropTarget, InteractionState};
     pub use crate::{Radius, Space, TextPreset};
+    pub use crate::{TextStyle, toast};
     // Canvas export (docs/canvas.md "Exporting"): record a drawing once, render it to a bitmap
     // or a PDF through the toolkit's own painter, and ask what this target can do first.
     pub use crate::{CanvasExports, Drawing, PdfDocument, canvas_exports};

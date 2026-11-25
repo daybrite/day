@@ -1032,6 +1032,7 @@ name = "day-toolkit-appkit"
 version = "0.7.10"
 dependencies = [
  "block2",
+ "cc",
  "day-build",
  "day-core",
  "day-localization",
@@ -1147,6 +1148,7 @@ name = "day-toolkit-uikit"
 version = "0.7.10"
 dependencies = [
  "block2",
+ "cc",
  "day-core",
  "day-process",
  "day-reactive",
@@ -1211,21 +1213,6 @@ dependencies = [
  "day-toolkit-winui",
  "gtk4",
  "objc2-app-kit",
-]
-
-[[package]]
-name = "day-tweak-tooltip"
-version = "0.7.10"
-dependencies = [
- "day-core",
- "day-pieces",
- "day-platform-android",
- "day-toolkit-appkit",
- "day-toolkit-gtk",
- "day-toolkit-material",
- "gtk4",
- "objc2-app-kit",
- "objc2-foundation",
 ]
 
 [[package]]

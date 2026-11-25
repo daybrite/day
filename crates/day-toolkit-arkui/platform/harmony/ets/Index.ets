@@ -10,7 +10,7 @@
 // @kit.CoreFileKit DocumentViewPicker, so Day's native `open_file()`/`save_file()` calls up into
 // this host, which drives the picker and copies bytes through @ohos.file.fs.
 
-import { NodeContent } from '@kit.ArkUI';
+import { ComponentContent, NodeContent } from '@kit.ArkUI';
 import { display } from '@kit.ArkUI';
 import { window } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
@@ -26,6 +26,22 @@ import { dayNavigation, registerDayNavigation } from './DayNavigation';
 import { DayCapture } from './DayCapture';
 import { DayDialogs } from './DayDialogs';
 
+class PopoverSlot {
+  slot: NodeContent = new NodeContent();
+  width: number;
+  height: number;
+  constructor(width: number, height: number) {
+    this.width = width;
+    this.height = height;
+  }
+}
+
+@Builder
+function popoverContent(model: PopoverSlot) {
+  Stack() { ContentSlot(model.slot) }
+    .width(model.width).height(model.height)
+}
+
 @Entry
 @Component
 struct Index {
@@ -35,6 +51,7 @@ struct Index {
   private coverHeightVp: number = 0;
   @State coverShown: boolean = false;
   private started: boolean = false;
+  private popovers: Map<number, ComponentContent<PopoverSlot>> = new Map();
   private dialogs?: DayDialogs;
 
   aboutToDisappear(): void {
@@ -121,6 +138,26 @@ struct Index {
     }, Index.privacyGranted(this.getUIContext().getHostContext() as common.UIAbilityContext));
 
     const d = display.getDefaultDisplaySync();
+    const ui = this.getUIContext();
+    const prompt = ui.getPromptAction();
+    nativeEntry.registerFeedback((anchor: number, id: number, width: number, height: number): Object => {
+      const slot = new PopoverSlot(width, height);
+      const popup = new ComponentContent(ui, wrapBuilder(popoverContent), slot);
+      this.popovers.set(id, popup);
+      prompt.openPopup(popup, { id: anchor }, {
+        placement: Placement.Bottom, autoCancel: true,
+        onStateChange: (state: PopupStateChangeParam) => {
+          if (!state.isVisible) nativeEntry.popoverDismissed(id);
+        }
+      }).catch(() => { nativeEntry.popoverDismissed(id); });
+      return slot.slot;
+    }, (id: number): void => {
+      const popup = this.popovers.get(id);
+      if (popup) {
+        this.popovers.delete(id);
+        prompt.closePopup(popup).catch(() => {}).finally(() => { popup.dispose(); });
+      }
+    }, (message: string): void => { prompt.showToast({ message: message }); });
     this.dialogs = new DayDialogs(this.getUIContext());
     // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
     nativeEntry.start(this.content, widthVp, heightVp, d.densityPixels);

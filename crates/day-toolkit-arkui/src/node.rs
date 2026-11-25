@@ -441,6 +441,14 @@ pub fn get_f32(n: Handle, attr: Attr, index: usize) -> Option<f32> {
     get_values(n, attr).get(index).map(|v| unsafe { v.f32_ })
 }
 
+#[expect(
+    deprecated,
+    reason = "The API 18 host provides NODE_UNIQUE_ID; the replacement function requires API 20."
+)]
+pub fn unique_id(n: Handle) -> Option<i32> {
+    get_i32(n, Attr::NODE_UNIQUE_ID, 0)
+}
+
 pub fn get_i32(n: Handle, attr: Attr, index: usize) -> Option<i32> {
     // SAFETY: the attribute's slots are integers.
     get_values(n, attr).get(index).map(|v| unsafe { v.i32_ })

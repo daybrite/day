@@ -148,12 +148,11 @@ more reason the rules below say to hold a `NativeRef` rather than a handle clone
 
 For anything reusable, package the tweak: an ordinary crate whose modifier applies the native
 calls per toolkit and **no-ops where it has no coverage**; the consuming app writes no
-`#[cfg]`. Four in-tree examples span the range:
+`#[cfg]`. The repository includes these examples:
 
 | crate | scope | demonstrates |
 |---|---|---|
 | `crates/day-tweak-button-bezel` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit") only | the minimal shape: one enum of symbolic constants, one setter |
-| `crates/day-tweak-tooltip` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material") | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
 | `crates/day-tweak-slider-tick-marks` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk"), [Android](https://daybrite.dev/docs/reference/platforms/android-material "toolkit:android-material"), [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt"), [WinUI](https://daybrite.dev/docs/reference/platforms/windows-winui "toolkit:windows-winui"), [ArkUI](https://daybrite.dev/docs/reference/platforms/harmony-arkui "toolkit:harmony-arkui") | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own [Qt](https://daybrite.dev/docs/reference/platforms/linux-qt "toolkit:linux-qt") C++, WinRT C++, and NDK C++ |
 | `crates/day-tweak-tree-style` | [AppKit](https://daybrite.dev/docs/reference/platforms/macos-appkit "toolkit:macos-appkit"), [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") | styling a composite control's subcontrols (`with_native_subcontrol` reaches the [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) inside the tree's scroll host; [GTK](https://daybrite.dev/docs/reference/platforms/linux-gtk "toolkit:linux-gtk") adds a CSS class to the [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html)) |
 

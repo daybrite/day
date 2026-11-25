@@ -472,6 +472,16 @@ unsafe extern "C" {
     pub fn day_qt_baseline(w: *mut c_void, h: c_double) -> c_double;
     pub fn day_qt_set_enabled(w: *mut c_void, enabled: c_int);
     pub fn day_qt_set_object_name(w: *mut c_void, name: *const c_char);
+    pub fn day_qt_popover(
+        anchor: *mut c_void,
+        content: *mut c_void,
+        width: f64,
+        height: f64,
+        id: u64,
+        dismissed: extern "C" fn(u64),
+    ) -> c_int;
+    pub fn day_qt_close_popover(content: *mut c_void);
+    pub fn day_qt_toast(host: *mut c_void, text: *const c_char);
     pub fn day_qt_set_tooltip(w: *mut c_void, text: *const c_char);
     pub fn day_qt_set_accessible_name(w: *mut c_void, name: *const c_char);
     pub fn day_qt_set_accessible_description(w: *mut c_void, text: *const c_char);

@@ -3001,6 +3001,33 @@ impl Toolkit for MockToolkit {
         s.log(format!("announce {text:?} urgent={urgent}"));
     }
 
+    fn set_tooltip(&mut self, h: &MockHandle, text: &str) {
+        self.state
+            .borrow_mut()
+            .log(format!("tooltip #{} {text:?}", h.0));
+    }
+    fn open_popover(
+        &mut self,
+        anchor: &MockHandle,
+        content: &MockHandle,
+        size: Size,
+        _id: NodeId,
+    ) -> bool {
+        self.state
+            .borrow_mut()
+            .log(format!("popover #{} -> #{} {size:?}", anchor.0, content.0));
+        true
+    }
+    fn close_popover(&mut self, content: &MockHandle) {
+        self.state
+            .borrow_mut()
+            .log(format!("close popover #{}", content.0));
+    }
+    fn show_toast(&mut self, host: &MockHandle, text: &str) {
+        self.state
+            .borrow_mut()
+            .log(format!("toast #{} {text:?}", host.0));
+    }
     fn set_a11y(&mut self, h: &MockHandle, a11y: &A11yProps) {
         let mut s = self.state.borrow_mut();
         if let Some(w) = s.widgets.get_mut(&h.0) {

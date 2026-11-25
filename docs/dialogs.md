@@ -1,7 +1,7 @@
 ---
-navTitle: "Dialogs"
-title: "Dialogs and prompts"
-description: "Imperative presentation via present(): alerts, confirmations, sheets, and how dismissal returns a value."
+navTitle: "Dialogs and feedback"
+title: "Dialogs, prompts, and contextual feedback"
+description: "Show tooltips, anchored popovers, and status toasts, or ask for a decision with alerts, confirmations, and sheets."
 ---
 
 <!--
@@ -9,7 +9,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Dialogs and prompts
+# Dialogs, prompts, and contextual feedback
 
 A dialog asks for a decision or a short piece of information before an app continues a task. It is
 useful when the answer affects what happens next, such as confirming a deletion or naming a new
@@ -37,6 +37,80 @@ Use [`day::task`](https://docs.rs/day-app/latest/day/fn.task.html) to await a di
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](/docs/reference/localization#reference-example-messages) and [catalog setup](/docs/how-to/localization).
+
+## Tooltips
+
+Attach [`.tooltip(...)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.tooltip)
+to a piece to explain a control on hover or long press. It accepts the same text sources as a
+[label](/docs/reference/text), including generated localized messages and reactive closures.
+Changing the source updates the mounted control. Empty text clears the help. Give an icon-only
+control an [accessible name](/docs/reference/accessibility) so its purpose is also available
+to a screen reader.
+
+Apps migrating from the tooltip tweak can remove its dependency and trait import.
+The modifier is available through the Day prelude.
+
+```rust
+button(res::str::feedback_trigger())
+    .tooltip(res::str::feedback_hint())
+```
+
+## Popovers
+
+Attach [`.popover(open, content)`](https://docs.rs/day-pieces/latest/day_pieces/trait.Decorate.html#method.popover)
+to the piece the panel should point to. Its boolean binding controls presentation. The trigger
+can use its normal button action, so keyboard and accessibility activation open the same panel.
+Each opening builds the content in a fresh scope. Put state that should survive dismissal in
+the enclosing page. The panel can contain ordinary Day labels, inputs, and actions.
+
+```rust
+let open = Signal::new(false);
+let enabled = Signal::new(true);
+button(res::str::feedback_trigger())
+    .action(move || open.set(true))
+    .tooltip(res::str::feedback_hint())
+    .popover(open, move || {
+        column((
+            label(res::str::feedback_autosave()),
+            toggle(enabled).a11y(|a| a.label(res::str::feedback_autosave())),
+            button(res::str::feedback_done()).action(move || open.set(false)),
+        )).spacing(Space::S).padding(Space::M)
+    })
+```
+
+The toolkit places the panel relative to the trigger. Day measures its content at opening with
+a maximum proposed width of 320 points and a 12-point window margin. Use a scroll view for
+content that can exceed the available height. A click or tap outside dismisses the panel and
+writes `false` to the binding. Setting the binding to `false` closes it programmatically.
+Removing the trigger releases its panel and the content's handlers.
+
+## Toasts
+
+Call [`toast(...)`](https://docs.rs/day-pieces/latest/day_pieces/fn.toast.html) from a UI action to
+show a short status message in the current window. The text resolves when called. The toolkit
+hides it after a brief interval and the user can keep working. An empty message has no effect.
+Use a popover for an action that needs a button and an [alert](#alerts-confirmations-and-prompts)
+for a decision that must finish before work continues.
+
+```rust
+button(res::str::feedback_done()).action(|| toast(res::str::feedback_enabled()))
+```
+
+### Toolkit behavior
+
+| Toolkit | Tooltip | Popover | Toast |
+| --- | --- | --- | --- |
+| AppKit | View tooltip | Transient `NSPopover` | Visual effect view over the window |
+| UIKit | Pointer tooltip and long-press help | Popover presentation controller | Label above the window’s safe-area edge |
+| GTK | Widget tooltip | `GtkPopover` | libadwaita toast overlay |
+| Qt | Widget tooltip | Widget with the popup window flag | Timed label in the window |
+| Material | AndroidX tooltip, including older Android versions | Focusable popup window | Android text toast |
+| WinUI and system XAML | Tooltip service | Flyout | Timed XAML popup |
+| ArkUI | Long-press help | PromptAction popup | PromptAction toast |
+| DOM | Browser title and touch help | HTML popover with a positioned fallback | Timed status overlay |
+
+The Menus & dialogs page in Day Showcase combines the three features. Open **Save options**,
+change **Auto-save**, and choose **Done** to see the resulting status message.
 
 ## Alerts, confirmations, and prompts
 

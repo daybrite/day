@@ -4370,6 +4370,78 @@ double day_xaml_baseline(void* h, double box_h) {
     return out;
 }
 
+void day_xaml_set_tooltip(void* h, const char* text) {
+    guard([&] { WUXC::ToolTipService::SetToolTip(elem(h), *text ? winrt::box_value(hs(text)) : nullptr); });
+}
+
+static std::map<void*, WUXC::Flyout> day_popovers;
+
+int day_xaml_popover(void* anchor, void* content, double width, double height, uint64_t id,
+                     void (*dismissed)(uint64_t)) {
+    bool opened = false;
+    guard([&] {
+        auto child = elem(content).as<WUX::FrameworkElement>();
+        child.Width(width);
+        child.Height(height);
+        WUXC::Flyout flyout;
+        flyout.Content(child);
+        flyout.Closed([id, dismissed](auto&&, auto&&) { dismissed(id); });
+        flyout.ShowAt(elem(anchor).as<WUX::FrameworkElement>());
+        day_popovers.insert_or_assign(content, flyout);
+        opened = true;
+    });
+    return opened;
+}
+
+void day_xaml_close_popover(void* content) {
+    guard([&] {
+        auto it = day_popovers.find(content);
+        if (it == day_popovers.end()) return;
+        auto flyout = it->second;
+        day_popovers.erase(it);
+        flyout.Hide();
+        flyout.Content(nullptr);
+    });
+}
+
+void day_xaml_toast(void* host, const char* text) {
+    guard([&] {
+        auto anchor = elem(host).as<WUX::FrameworkElement>();
+        auto root = anchor.XamlRoot();
+        if (!root) return;
+        WUXCP::Popup popup;
+        popup.XamlRoot(root);
+        WUXC::TextBlock label;
+        label.Text(hs(text));
+        label.TextWrapping(WUX::TextWrapping::Wrap);
+        WUXC::Border card;
+        card.RequestedTheme(anchor.ActualTheme());
+        const bool dark = anchor.ActualTheme() == WUX::ElementTheme::Dark;
+        card.Background(WUXM::SolidColorBrush(dark ? winrt::Windows::UI::Colors::DarkSlateGray()
+                                                   : winrt::Windows::UI::Colors::WhiteSmoke()));
+        card.Padding({12,8,12,8});
+        card.CornerRadius({6,6,6,6});
+        card.Child(label);
+        card.IsHitTestVisible(false);
+        auto area = root.Size();
+        card.MaxWidth((std::max)(1.0, double(area.Width)-24));
+        card.Measure(area);
+        popup.Child(card);
+        auto size = card.DesiredSize();
+        popup.HorizontalOffset((std::max)(0.0f, (area.Width-size.Width)/2));
+        popup.VerticalOffset((std::max)(0.0f, area.Height-size.Height-16));
+        popup.IsOpen(true);
+        WUX::DispatcherTimer timer;
+        timer.Interval(std::chrono::seconds(3));
+        timer.Tick([popup](const auto& sender, auto&&) {
+            sender.template as<WUX::DispatcherTimer>().Stop();
+            popup.IsOpen(false);
+            popup.Child(nullptr);
+        });
+        timer.Start();
+    });
+}
+
 void day_xaml_set_name(void* h, const char* name) {
     guard([&] { WUX::Automation::AutomationProperties::SetAutomationId(elem(h), hs(name)); });
 }

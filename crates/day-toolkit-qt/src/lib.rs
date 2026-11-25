@@ -5403,6 +5403,38 @@ impl Toolkit for Qt {
         QtHandle(raw)
     }
 
+    fn set_tooltip(&mut self, h: &QtHandle, text: &str) {
+        unsafe { ffi::day_qt_set_tooltip(h.0, cstr(text).as_ptr()) };
+    }
+    fn open_popover(
+        &mut self,
+        anchor: &QtHandle,
+        content: &QtHandle,
+        size: Size,
+        id: NodeId,
+    ) -> bool {
+        extern "C" fn dismissed(id: u64) {
+            day_spec::ffi_guard::contain((), || emit(NodeId(id), Event::PopoverDismissed));
+        }
+        unsafe {
+            ffi::day_qt_popover(
+                anchor.0,
+                content.0,
+                size.width,
+                size.height,
+                id.0,
+                dismissed,
+            ) != 0
+        }
+    }
+    fn close_popover(&mut self, content: &QtHandle) {
+        unsafe { ffi::day_qt_close_popover(content.0) };
+    }
+    fn show_toast(&mut self, host: &QtHandle, text: &str) {
+        unsafe { ffi::day_qt_toast(host.0, cstr(text).as_ptr()) };
+        self.announce(text, false);
+    }
+
     fn set_a11y(&mut self, h: &QtHandle, a11y: &A11yProps) {
         unsafe {
             if let Some(id) = &a11y.identifier {

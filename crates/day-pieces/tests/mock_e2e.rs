@@ -17,6 +17,70 @@ use std::assert_matches;
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
+fn popover_dismissal_belongs_to_one_opening_and_unmount_releases_it() {
+    let shown = Signal::new(true);
+    let open = Signal::new(false);
+    let help = Signal::new("Fixture hint");
+    let probe = boot(move || {
+        when(
+            move || shown.get(),
+            move || {
+                button("Fixture trigger")
+                    .tooltip(move || help.get())
+                    .popover(open, || label("Fixture panel").id(id!(fixture_panel)))
+            },
+        )
+    });
+    let panel =
+        || day_core::with_tree(|t| t.find_by_id("fixture_panel").and_then(|n| t.parent_of(n)));
+    let (anchor, _) = probe.find_by_kind("day.button").pop().unwrap();
+    let has_help = |value: &str| {
+        probe
+            .log()
+            .contains(&format!("tooltip #{} {value:?}", anchor.0))
+    };
+    assert!(has_help("Fixture hint"));
+    help.set("");
+    flush_sync();
+    assert!(has_help(""));
+    open.set(true);
+    flush_sync();
+    let first = day_core::rnode_to_id(panel().unwrap());
+    probe.emit(first, Event::PopoverDismissed);
+    flush_sync();
+    assert!(!open.get_untracked());
+    assert!(panel().is_none());
+    open.set(true);
+    flush_sync();
+    let second = panel().unwrap();
+    probe.emit(first, Event::PopoverDismissed);
+    flush_sync();
+    assert!(open.get_untracked());
+    assert_eq!(panel(), Some(second));
+    toast("Fixture status");
+    toast("");
+    assert_eq!(
+        probe
+            .log()
+            .iter()
+            .filter(|op| op.starts_with("toast "))
+            .count(),
+        1
+    );
+    shown.set(false);
+    flush_sync();
+    assert!(panel().is_none());
+    assert_eq!(
+        probe
+            .log()
+            .iter()
+            .filter(|op| op.starts_with("close popover "))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn dynamic_context_menu_survives_padding_and_uses_live_state() {
     let revision = Signal::new(0);
     let probe = boot(move || {

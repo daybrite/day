@@ -95,6 +95,8 @@ pub struct NodeProbe {
     pub text: String,
     /// A label's effective font, also used by text reservation measurement.
     pub font: Option<day_spec::FontSpec>,
+    /// The current contextual help on this native piece.
+    pub tooltip: Option<String>,
     pub value: f64,
     pub flag: bool,
     pub selected: i64,
@@ -191,6 +193,7 @@ enum ContextMenuModel {
 }
 
 pub struct Tree<B: Toolkit> {
+    popovers: HashMap<RNode, RNode>,
     mounted_id_families: std::collections::BTreeSet<String>,
     pub toolkit: B,
     nodes: SlotMap<RNode, NodeData<B::Handle>>,
@@ -295,6 +298,7 @@ impl<B: Toolkit> Tree<B> {
             is_boundary: true,
         });
         Tree {
+            popovers: HashMap::new(),
             mounted_id_families: std::collections::BTreeSet::default(),
             toolkit,
             nodes,
@@ -767,6 +771,13 @@ impl<B: Toolkit> Tree<B> {
             // (not the node tree): dispose them with the node, or their bindings (e.g. a
             // localized row label) outlive the list and patch freed native cells on the
             // next locale/theme change (a use-after-free on raw-pointer backends like Qt).
+            if let Some(panel) = self.popovers.remove(&n) {
+                self.drop_extra_layout_root(panel);
+                if let Some(h) = self.nodes.get(panel).and_then(|p| p.handle.clone()) {
+                    self.toolkit.close_popover(&h);
+                }
+                stack.push(panel);
+            }
             self.context_menus.remove(&n);
             self.button_menus.remove(&n);
             if let Some(list) = self.lists.remove(&n) {
@@ -1166,6 +1177,11 @@ pub trait TreeOps {
     /// Give a wrapper that takes its size from `inner` (an overlay host) the inner node's
     /// [`Flex::whole_row`], so a decorated platform row still reads as one to its list cell.
     fn forward_whole_row(&mut self, wrapper: RNode, inner: RNode);
+    fn set_tooltip(&mut self, node: RNode, text: &str);
+    fn needs_touch_tooltip(&self) -> bool;
+    fn open_popover(&mut self, anchor: RNode, content: RNode) -> bool;
+    fn close_popover(&mut self, anchor: RNode, content: RNode);
+    fn show_toast(&mut self, root: RNode, text: &str);
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps);
     /// Speak `text` through the screen reader (`Toolkit::announce`, docs/accessibility.md).
     fn announce(&mut self, text: &str, urgent: bool);
@@ -2041,6 +2057,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             });
             if let Some(h) = n.handle.clone() {
                 self.toolkit.set_a11y(&h, &n.a11y);
+                if let Some(help) = &n.probe.tooltip {
+                    self.toolkit.set_tooltip(&h, help);
+                }
             }
         }
     }
@@ -2072,6 +2091,74 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn announce(&mut self, text: &str, urgent: bool) {
         self.toolkit.announce(text, urgent);
+    }
+
+    fn set_tooltip(&mut self, node: RNode, text: &str) {
+        if let Some((h, n)) = self.native_under(node) {
+            self.toolkit.set_tooltip(&h, text);
+            self.nodes[n].probe.tooltip = Some(text.to_owned());
+        }
+    }
+
+    fn needs_touch_tooltip(&self) -> bool {
+        self.toolkit.needs_touch_tooltip()
+    }
+
+    fn open_popover(&mut self, anchor: RNode, content: RNode) -> bool {
+        let Some((a, _)) = self.native_under(anchor) else {
+            return false;
+        };
+        let Some(panel) = self.nodes.get(content).and_then(|n| n.handle.clone()) else {
+            return false;
+        };
+        if self.popovers.contains_key(&anchor) {
+            return false;
+        }
+        let mut owner = anchor;
+        let area = loop {
+            if let Some(w) = self.windows.iter().find(|w| w.root == owner) {
+                break w.size;
+            }
+            let Some(parent) = self.parent_of(owner).or_else(|| self.cell_host(owner)) else {
+                break self.windows[0].size;
+            };
+            owner = parent;
+        };
+        let width = (area.width - 24.0).clamp(1.0, 320.0);
+        let fit = crate::layout::measure_node(self, content, Proposal::new(Some(width), None));
+        let size = Size::new(
+            fit.width.clamp(1.0, width),
+            fit.height.clamp(1.0, (area.height - 24.0).max(1.0)),
+        );
+        if !self
+            .toolkit
+            .open_popover(&a, &panel, size, rnode_to_id(content))
+        {
+            return false;
+        }
+        self.popovers.insert(anchor, content);
+        self.add_extra_layout_root(content, size);
+        crate::layout::place_node(self, content, Rect::from_size(size), Point::ZERO, true);
+        true
+    }
+
+    fn close_popover(&mut self, anchor: RNode, content: RNode) {
+        if self.popovers.get(&anchor) == Some(&content) {
+            self.popovers.remove(&anchor);
+            self.drop_extra_layout_root(content);
+            if let Some(h) = self.nodes.get(content).and_then(|n| n.handle.clone()) {
+                self.toolkit.close_popover(&h);
+            }
+        }
+        if self.nodes.contains_key(content) {
+            self.remove_subtree_impl(content);
+        }
+    }
+
+    fn show_toast(&mut self, root: RNode, text: &str) {
+        if let Some((host, _)) = self.native_under(root) {
+            self.toolkit.show_toast(&host, text);
+        }
     }
 
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps) {
@@ -2500,6 +2587,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 patch
             };
             self.toolkit.update(&h, kind, patch.as_ref(), anim.as_ref());
+            if kind == kinds::BUTTON
+                && let Some(help) = &self.nodes[node].probe.tooltip
+            {
+                self.toolkit.set_tooltip(&h, help);
+            }
         }
         if affects_size {
             self.mark_needs_measure_impl(node);
@@ -2560,6 +2652,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                      discarding an earlier tweak's changes — apply `.selectable()` BEFORE the \
                      tweak so it runs against the widget that ships (docs/tweaks.md)."
                 );
+            }
+            if let Some(help) = &n.probe.tooltip {
+                self.toolkit.set_tooltip(&new, help);
             }
             n.handle = Some(new);
         }
@@ -2622,6 +2717,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     "a text field's `.secure()` rebuilt this widget as a different native \
                      class, discarding an earlier tweak's changes (docs/tweaks.md)."
                 );
+            }
+            if let Some(help) = &n.probe.tooltip {
+                self.toolkit.set_tooltip(&new, help);
             }
             n.handle = Some(new);
             n.last_native_frame = None;

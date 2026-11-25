@@ -6306,7 +6306,9 @@ impl DialogHost {
                 );
             });
         });
-        toolbar.set_content(Some(&cell));
+        let overlay = adw::ToastOverlay::new();
+        overlay.set_child(Some(&cell));
+        toolbar.set_content(Some(&overlay));
         dialog.set_child(Some(&toolbar));
         self.install(&dialog);
     }
@@ -11322,6 +11324,48 @@ impl Toolkit for Gtk {
         unsafe { gtk4::glib::translate::from_glib_none(raw.cast::<gtk4::ffi::GtkWidget>()) }
     }
 
+    fn set_tooltip(&mut self, h: &Handle, text: &str) {
+        h.set_tooltip_text((!text.is_empty()).then_some(text));
+    }
+
+    fn open_popover(&mut self, anchor: &Handle, content: &Handle, size: Size, id: NodeId) -> bool {
+        let popup = gtk4::Popover::new();
+        popup.set_autohide(true);
+        popup.set_position(gtk4::PositionType::Bottom);
+        content.set_size_request(size.width.ceil() as i32, size.height.ceil() as i32);
+        popup.set_child(Some(content));
+        popup.set_parent(anchor);
+        popup.connect_closed(move |_| emit(id, Event::PopoverDismissed));
+        popup.popup();
+        true
+    }
+
+    fn close_popover(&mut self, content: &Handle) {
+        if let Some(popup) = content
+            .ancestor(gtk4::Popover::static_type())
+            .and_downcast::<gtk4::Popover>()
+        {
+            popup.popdown();
+            popup.set_child(gtk4::Widget::NONE);
+            popup.unparent();
+        }
+    }
+
+    fn show_toast(&mut self, host: &Handle, text: &str) {
+        let toast = adw::Toast::new(&gtk4::glib::markup_escape_text(text));
+        if let Some(dialog) = dialog_host_for(host)
+            .and_then(|h| h.dialog.borrow().clone())
+            .and_downcast::<adw::PreferencesDialog>()
+        {
+            dialog.add_toast(toast);
+        } else if let Some(overlay) = host
+            .ancestor(adw::ToastOverlay::static_type())
+            .and_downcast::<adw::ToastOverlay>()
+        {
+            overlay.add_toast(toast);
+        }
+    }
+
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
         use day_spec::Role;
         use gtk4::AccessibleRole;
@@ -12451,7 +12495,9 @@ fn build_day_window(
     // AdwAlertDialog needs.
     let header = adw::HeaderBar::new();
     let toolbar = adw::ToolbarView::new();
-    toolbar.set_content(Some(&wrapper));
+    let overlay = adw::ToastOverlay::new();
+    overlay.set_child(Some(&wrapper));
+    toolbar.set_content(Some(&overlay));
     // The chrome (docs/window-chrome.md): the header bar for `Standard` (a day toolbar packs
     // into it, docs/toolbars.md), window controls over the content for `Overlay`, nothing for
     // `Frameless`; plus resizability, limits, background and shadow.

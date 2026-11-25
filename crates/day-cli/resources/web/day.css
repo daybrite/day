@@ -956,3 +956,24 @@ body.day-has-toolbar #day-root {
 
 /* A list's header, footer, empty state and padding rows take no row highlight (docs/list.md). */
 .day-scroll.day-list .day-cell.day-supplement:not(.selected):hover { background: none; }
+
+.day-context-popover, .day-context-toast {
+  position: fixed;
+  margin: 0;
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid GrayText;
+  border-radius: 8px;
+  box-shadow: 0 3px 14px #0003;
+  z-index: 2147483647;
+}
+.day-context-popover { inset: auto; padding: 0; }
+.day-context-toast {
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100vw - 24px);
+  padding: 8px 12px;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}

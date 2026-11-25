@@ -35,6 +35,12 @@ export const registerFilePicker: (
 export const onFileResult: (req: number, path: string) => void;
 
 // JSON-encoded dialog spec; result kind 0 = dismissed, 1 = button index, 2 = prompt text.
+export const registerFeedback: (
+  open: (anchor: number, id: number, width: number, height: number) => Object,
+  close: (id: number) => void,
+  toast: (message: string) => void
+) => void;
+export const popoverDismissed: (id: number) => void;
 export const registerDialogs: (
   present: (req: number, spec: string) => void,
   dismiss: (req: number) => void

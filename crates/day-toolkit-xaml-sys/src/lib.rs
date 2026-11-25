@@ -732,6 +732,17 @@ unsafe extern "C" {
     /// First text baseline from the element's top for a box `box_h` tall; `-1` ⇒ no text
     /// (docs/baseline.md).
     pub fn day_xaml_baseline(w: *mut c_void, box_h: f64) -> f64;
+    pub fn day_xaml_set_tooltip(w: *mut c_void, text: *const c_char);
+    pub fn day_xaml_popover(
+        anchor: *mut c_void,
+        content: *mut c_void,
+        width: f64,
+        height: f64,
+        id: u64,
+        dismissed: extern "C" fn(u64),
+    ) -> c_int;
+    pub fn day_xaml_close_popover(content: *mut c_void);
+    pub fn day_xaml_toast(host: *mut c_void, text: *const c_char);
     pub fn day_xaml_set_name(w: *mut c_void, name: *const c_char);
     /// A node's accessibility annotations (docs/accessibility.md), each applied only when set:
     /// a null or empty string, role 0 and hidden 0 leave the element alone. `role` is

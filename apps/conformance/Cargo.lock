@@ -554,6 +554,7 @@ name = "day-toolkit-appkit"
 version = "0.7.10"
 dependencies = [
  "block2",
+ "cc",
  "day-build",
  "day-core",
  "day-localization",
@@ -668,6 +669,7 @@ name = "day-toolkit-uikit"
 version = "0.7.10"
 dependencies = [
  "block2",
+ "cc",
  "day-core",
  "day-process",
  "day-reactive",

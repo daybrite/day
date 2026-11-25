@@ -3026,6 +3026,77 @@ void day_qt_set_enabled(void *w, int enabled) {
 void day_qt_set_object_name(void *w, const char *name) {
     static_cast<QWidget *>(w)->setObjectName(QString::fromUtf8(name));
 }
+// The Day widget stays owned by the tree. Detach it before the popup is released.
+class DayPopoverWindow final : public QFrame {
+public:
+    uint64_t id;
+    void (*dismissed)(uint64_t);
+    DayPopoverWindow(QWidget *anchor, uint64_t node, void (*callback)(uint64_t))
+        : QFrame(anchor, Qt::Popup), id(node), dismissed(callback) {
+        setFrameStyle(QFrame::StyledPanel);
+    }
+protected:
+    void hideEvent(QHideEvent *event) override {
+        QFrame::hideEvent(event);
+        if (dismissed) dismissed(id);
+    }
+    void keyPressEvent(QKeyEvent *event) override {
+        if (event->key() == Qt::Key_Escape) close();
+        else QFrame::keyPressEvent(event);
+    }
+};
+
+int day_qt_popover(void *anchor, void *content, double width, double height, uint64_t id,
+                    void (*dismissed)(uint64_t)) {
+    auto *source = static_cast<QWidget *>(anchor);
+    auto *child = static_cast<QWidget *>(content);
+    auto *popup = new DayPopoverWindow(source, id, dismissed);
+    child->setParent(popup);
+    child->setGeometry(1, 1, qCeil(width), qCeil(height));
+    popup->resize(child->size() + QSize(2, 2));
+    const QRect area = source->screen()->availableGeometry();
+    QPoint at = source->mapToGlobal(QPoint(0, source->height()));
+    if (at.y() + popup->height() > area.bottom())
+        at.setY(source->mapToGlobal(QPoint(0, 0)).y() - popup->height());
+    popup->move(qBound(area.left(), at.x(), qMax(area.left(), area.right()-popup->width()+1)),
+                qBound(area.top(), at.y(), qMax(area.top(), area.bottom()-popup->height()+1)));
+    popup->show();
+    child->show();
+    return 1;
+}
+
+void day_qt_close_popover(void *content) {
+    auto *child = static_cast<QWidget *>(content);
+    auto *popup = dynamic_cast<DayPopoverWindow *>(child->parentWidget());
+    if (!popup) return;
+    popup->dismissed = nullptr;
+    child->hide();
+    child->setParent(nullptr);
+    popup->hide();
+    popup->deleteLater();
+}
+
+void day_qt_toast(void *host, const char *text) {
+    auto *window = static_cast<QWidget *>(host)->window();
+    const QString name = QStringLiteral("day.feedback.toast");
+    if (auto *old = window->findChild<QLabel *>(name, Qt::FindDirectChildrenOnly)) {
+        old->hide();
+        old->setObjectName(QString());
+        old->deleteLater();
+    }
+    auto *label = new QLabel(QString::fromUtf8(text), window);
+    label->setObjectName(name);
+    label->setTextFormat(Qt::PlainText);
+    label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    label->setStyleSheet("QLabel { color: palette(tool-tip-text); background: palette(tool-tip-base); padding: 8px; border-radius: 6px; }");
+    label->setMaximumWidth(qMax(1, window->width()-24));
+    label->setWordWrap(true);
+    label->adjustSize();
+    label->move((window->width()-label->width()) / 2, qMax(0, window->height()-label->height()-16));
+    label->show();
+    label->raise();
+    QTimer::singleShot(3000, label, &QObject::deleteLater);
+}
 void day_qt_set_tooltip(void *w, const char *text) {
     static_cast<QWidget *>(w)->setToolTip(QString::fromUtf8(text));
 }

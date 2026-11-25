@@ -25,6 +25,7 @@ name = "native_main_menu"
 harness = false
 
 [build-dependencies]
+cc = { workspace = true }
 day-build = { workspace = true }
 
 [dependencies]

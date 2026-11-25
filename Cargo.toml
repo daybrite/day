@@ -60,7 +60,6 @@ members = [
     "crates/day-piece-text-editor",
     "crates/day-piece-settings",
     "crates/day-tweak-button-bezel",
-    "crates/day-tweak-tooltip",
     "crates/day-tweak-slider-tick-marks",
     "crates/day-tweak-tree-style",
     "crates/day-toolchain",

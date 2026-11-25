@@ -268,6 +268,18 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
+unsafe extern "C" {
+    fn day_appkit_open_popover(
+        anchor: *const NSView,
+        content: *const NSView,
+        w: f64,
+        h: f64,
+        id: u64,
+        closed: extern "C" fn(u64),
+    ) -> bool;
+    fn day_appkit_close_popover(content: *const NSView);
+    fn day_appkit_toast(host: *const NSView, text: *const NSString);
+}
 fn ptr_of(v: &NSView) -> usize {
     std::ptr::from_ref::<NSView>(v).cast::<()>() as usize
 }
@@ -13884,6 +13896,37 @@ impl Toolkit for AppKit {
         input::pointer_kind()
     }
 
+    fn open_popover(&mut self, anchor: &Handle, content: &Handle, size: Size, id: NodeId) -> bool {
+        extern "C" fn dismissed(id: u64) {
+            day_spec::ffi_guard::contain((), || emit(NodeId(id), Event::PopoverDismissed));
+        }
+        // SAFETY: the tree owns both views through dismissal. The callback only queues an event.
+        unsafe {
+            day_appkit_open_popover(
+                Retained::as_ptr(anchor),
+                Retained::as_ptr(content),
+                size.width,
+                size.height,
+                id.0,
+                dismissed,
+            )
+        }
+    }
+    fn close_popover(&mut self, content: &Handle) {
+        unsafe { day_appkit_close_popover(Retained::as_ptr(content)) };
+    }
+    fn show_toast(&mut self, host: &Handle, text: &str) {
+        let message = NSString::from_str(text);
+        unsafe { day_appkit_toast(Retained::as_ptr(host), Retained::as_ptr(&message)) };
+        self.announce(text, false);
+    }
+    fn set_tooltip(&mut self, h: &Handle, text: &str) {
+        h.setToolTip(
+            (!text.is_empty())
+                .then(|| NSString::from_str(text))
+                .as_deref(),
+        );
+    }
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
         unsafe {
             if let Some(id) = &a11y.identifier {
