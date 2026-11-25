@@ -95,7 +95,7 @@ default-members = [
 # behind the newest release: an app's CI builds against main through a `[patch.crates-io]` table,
 # and cargo passes over a patch older than what crates.io offers.
 [workspace.package]
-version = "0.7.10"
+version = "0.7.11"
 edition = "2024"
 description = "Declarative app development API using native UI toolkits"
 repository = "https://github.com/daybrite/day"
