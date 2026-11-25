@@ -433,7 +433,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "day-app"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-geometry",
@@ -470,11 +470,11 @@ dependencies = [
 
 [[package]]
 name = "day-async"
-version = "0.7.11"
+version = "0.7.12"
 
 [[package]]
 name = "day-bridge"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-async",
  "day-macros",
@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "day-build"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cc",
  "day-fonts",
@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "day-cli"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "anstream",
  "anstyle",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "day-core"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "anstream",
  "anstyle",
@@ -549,15 +549,15 @@ dependencies = [
 
 [[package]]
 name = "day-fonts"
-version = "0.7.11"
+version = "0.7.12"
 
 [[package]]
 name = "day-geometry"
-version = "0.7.11"
+version = "0.7.12"
 
 [[package]]
 name = "day-localization"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-reactive",
  "fluent-bundle",
@@ -576,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "day-localization-ui"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-localization",
@@ -584,11 +584,11 @@ dependencies = [
 
 [[package]]
 name = "day-macros"
-version = "0.7.11"
+version = "0.7.12"
 
 [[package]]
 name = "day-mock"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-async",
  "day-spec",
@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "day-model"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-macros",
@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-biometrics"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "day-async",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-clipboard"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "base64",
  "day-async",
@@ -639,7 +639,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-connectivity"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cc",
  "day-bridge",
@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-device"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-downloads"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "day-async",
@@ -684,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-filesystem"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-async",
  "day-process",
@@ -692,7 +692,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-haptics"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-bridge",
  "day-build",
@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-http"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "day-async",
@@ -732,7 +732,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-keychain"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-async",
  "day-bridge",
@@ -749,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-local-notify"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "day-bridge",
@@ -763,7 +763,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-location"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-bridge",
  "day-build",
@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-permissions"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "day-bridge",
@@ -785,7 +785,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-preferences"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-bridge",
  "day-build",
@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-sensors"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "day-platform-android",
@@ -811,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-sound"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-bridge",
  "day-build",
@@ -825,7 +825,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-wakelock"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-bridge",
  "day-build",
@@ -837,7 +837,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-settings"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cc",
  "day-core",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-swiftui"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-mock",
@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-text-editor"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cc",
  "day-core",
@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "day-pieces"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-geometry",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "day-platform-android"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-macros",
  "day-process",
@@ -953,11 +953,11 @@ dependencies = [
 
 [[package]]
 name = "day-platform-linux"
-version = "0.7.11"
+version = "0.7.12"
 
 [[package]]
 name = "day-platform-macos"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-reactive",
@@ -969,14 +969,14 @@ dependencies = [
 
 [[package]]
 name = "day-platform-windows"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "day-process"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "linkme",
  "log",
@@ -984,7 +984,7 @@ dependencies = [
 
 [[package]]
 name = "day-reactive"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "log",
  "slotmap",
@@ -992,7 +992,7 @@ dependencies = [
 
 [[package]]
 name = "day-script"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-localization-ui",
@@ -1009,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "day-script-protocol"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "serde",
  "serde_json",
@@ -1018,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "day-spec"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-fonts",
  "day-geometry",
@@ -1029,11 +1029,11 @@ dependencies = [
 
 [[package]]
 name = "day-toolchain"
-version = "0.7.11"
+version = "0.7.12"
 
 [[package]]
 name = "day-toolkit-appkit"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "cc",
@@ -1058,7 +1058,7 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-arkui"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-bridge",
  "day-build",
@@ -1077,7 +1077,7 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-dom"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-geometry",
@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-gtk"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cairo-rs",
  "day-core",
@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-material"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-platform-android",
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-qt"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-platform-linux",
@@ -1142,14 +1142,14 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-qt-sys"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "day-toolkit-uikit"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "block2",
  "cc",
@@ -1170,7 +1170,7 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-winui"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-localization",
@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "day-toolkit-xaml-sys"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cc",
  "day-toolchain",
@@ -1192,7 +1192,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-button-bezel"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-slider-tick-marks"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "cc",
  "day-core",
@@ -1221,7 +1221,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-tree-style"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -1234,7 +1234,7 @@ dependencies = [
 
 [[package]]
 name = "day-vector"
-version = "0.7.11"
+version = "0.7.12"
 dependencies = [
  "resvg",
  "roxmltree",
