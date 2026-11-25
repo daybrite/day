@@ -3046,12 +3046,11 @@ protected:
     }
 };
 
-int day_qt_popover(void *anchor, void *content, double width, double height, uint64_t id,
-                    void (*dismissed)(uint64_t)) {
-    auto *source = static_cast<QWidget *>(anchor);
+void day_qt_resize_popover(void *content, double width, double height) {
     auto *child = static_cast<QWidget *>(content);
-    auto *popup = new DayPopoverWindow(source, id, dismissed);
-    child->setParent(popup);
+    auto *popup = dynamic_cast<DayPopoverWindow *>(child->parentWidget());
+    if (!popup) return;
+    auto *source = popup->parentWidget();
     child->setGeometry(1, 1, qCeil(width), qCeil(height));
     popup->resize(child->size() + QSize(2, 2));
     const QRect area = source->screen()->availableGeometry();
@@ -3060,6 +3059,15 @@ int day_qt_popover(void *anchor, void *content, double width, double height, uin
         at.setY(source->mapToGlobal(QPoint(0, 0)).y() - popup->height());
     popup->move(qBound(area.left(), at.x(), qMax(area.left(), area.right()-popup->width()+1)),
                 qBound(area.top(), at.y(), qMax(area.top(), area.bottom()-popup->height()+1)));
+}
+
+int day_qt_popover(void *anchor, void *content, double width, double height, uint64_t id,
+                    void (*dismissed)(uint64_t)) {
+    auto *source = static_cast<QWidget *>(anchor);
+    auto *child = static_cast<QWidget *>(content);
+    auto *popup = new DayPopoverWindow(source, id, dismissed);
+    child->setParent(popup);
+    day_qt_resize_popover(child, width, height);
     popup->show();
     child->show();
     return 1;
@@ -3076,6 +3084,22 @@ void day_qt_close_popover(void *content) {
     popup->deleteLater();
 }
 
+class DayToastLabel final : public QLabel {
+public:
+    using QLabel::QLabel;
+    void position() {
+        auto *window = parentWidget();
+        setMaximumWidth(qMax(1, window->width()-24));
+        adjustSize();
+        move((window->width()-width())/2, qMax(0, window->height()-height()-16));
+    }
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override {
+        if (object == parentWidget() && event->type() == QEvent::Resize) position();
+        return QLabel::eventFilter(object, event);
+    }
+};
+
 void day_qt_toast(void *host, const char *text) {
     auto *window = static_cast<QWidget *>(host)->window();
     const QString name = QStringLiteral("day.feedback.toast");
@@ -3084,15 +3108,14 @@ void day_qt_toast(void *host, const char *text) {
         old->setObjectName(QString());
         old->deleteLater();
     }
-    auto *label = new QLabel(QString::fromUtf8(text), window);
+    auto *label = new DayToastLabel(QString::fromUtf8(text), window);
     label->setObjectName(name);
     label->setTextFormat(Qt::PlainText);
     label->setAttribute(Qt::WA_TransparentForMouseEvents);
     label->setStyleSheet("QLabel { color: palette(tool-tip-text); background: palette(tool-tip-base); padding: 8px; border-radius: 6px; }");
-    label->setMaximumWidth(qMax(1, window->width()-24));
     label->setWordWrap(true);
-    label->adjustSize();
-    label->move((window->width()-label->width()) / 2, qMax(0, window->height()-label->height()-16));
+    label->position();
+    window->installEventFilter(label);
     label->show();
     label->raise();
     QTimer::singleShot(3000, label, &QObject::deleteLater);

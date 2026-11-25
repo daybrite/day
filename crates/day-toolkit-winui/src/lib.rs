@@ -3605,6 +3605,9 @@ impl Toolkit for Xaml {
             ) != 0
         }
     }
+    fn resize_popover(&mut self, content: &WinHandle, size: Size) {
+        unsafe { ffi::day_xaml_resize_popover(content.0, size.width, size.height) };
+    }
     fn close_popover(&mut self, content: &WinHandle) {
         unsafe { ffi::day_xaml_close_popover(content.0) };
     }

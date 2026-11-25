@@ -36,6 +36,11 @@ bool day_appkit_open_popover(NSView *anchor, NSView *panel, double width, double
     return true;
 }
 
+void day_appkit_resize_popover(NSView *panel, double width, double height) {
+    DayContextPopover *popup = objc_getAssociatedObject(panel, &popupKey);
+    popup.contentSize = NSMakeSize(width, height);
+}
+
 void day_appkit_close_popover(NSView *panel) {
     DayContextPopover *popup = objc_getAssociatedObject(panel, &popupKey);
     popup.dismissed = NULL;
@@ -44,9 +49,23 @@ void day_appkit_close_popover(NSView *panel) {
     objc_setAssociatedObject(panel, &popupKey, nil, OBJC_ASSOCIATION_ASSIGN);
 }
 
-@interface DayToastView : NSVisualEffectView
+@interface DayToastOverlay : NSView
 @end
-@implementation DayToastView
+@implementation DayToastOverlay
+- (void)hostBoundsChanged:(NSNotification *)notification {
+    self.frame = self.superview.bounds;
+}
+- (void)viewWillMoveToSuperview:(NSView *)parent {
+    NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    if (self.superview)
+        [center removeObserver:self name:NSViewBoundsDidChangeNotification object:self.superview];
+    [super viewWillMoveToSuperview:parent];
+    if (parent) {
+        parent.postsBoundsChangedNotifications = YES;
+        [center addObserver:self selector:@selector(hostBoundsChanged:)
+                       name:NSViewBoundsDidChangeNotification object:parent];
+    }
+}
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 @end
 
@@ -54,7 +73,12 @@ void day_appkit_toast(NSView *host, NSString *text) {
     NSView *root = host.window.contentView;
     if (!root) return;
     [objc_getAssociatedObject(root, &toastKey) removeFromSuperview];
-    DayToastView *card = [DayToastView new];
+    // Day shifts the content view's bounds below the toolbar. Lay out the card in an
+    // overlay with its own zero-origin bounds so its bottom edge stays inside the window.
+    DayToastOverlay *overlay = [[DayToastOverlay alloc] initWithFrame:root.bounds];
+    overlay.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [root addSubview:overlay positioned:NSWindowAbove relativeTo:nil];
+    NSVisualEffectView *card = [NSVisualEffectView new];
     card.material = NSVisualEffectMaterialPopover;
     card.blendingMode = NSVisualEffectBlendingModeWithinWindow;
     card.wantsLayer = YES;
@@ -63,21 +87,21 @@ void day_appkit_toast(NSView *host, NSString *text) {
     NSTextField *label = [NSTextField wrappingLabelWithString:text];
     label.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:label];
-    [root addSubview:card];
+    [overlay addSubview:card];
     [NSLayoutConstraint activateConstraints:@[
         [label.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [label.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
         [label.topAnchor constraintEqualToAnchor:card.topAnchor constant:8],
         [label.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-8],
-        [card.widthAnchor constraintLessThanOrEqualToAnchor:root.widthAnchor constant:-24],
-        [card.centerXAnchor constraintEqualToAnchor:root.centerXAnchor],
-        [card.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-16]
+        [card.widthAnchor constraintLessThanOrEqualToAnchor:overlay.widthAnchor constant:-24],
+        [card.centerXAnchor constraintEqualToAnchor:overlay.centerXAnchor],
+        [card.bottomAnchor constraintEqualToAnchor:overlay.bottomAnchor constant:-16]
     ]];
-    objc_setAssociatedObject(root, &toastKey, card, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(root, &toastKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     __weak NSView *owner = root;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        [card removeFromSuperview];
-        if (owner && objc_getAssociatedObject(owner, &toastKey) == card)
+        [overlay removeFromSuperview];
+        if (owner && objc_getAssociatedObject(owner, &toastKey) == overlay)
             objc_setAssociatedObject(owner, &toastKey, nil, OBJC_ASSOCIATION_ASSIGN);
     });
 }

@@ -16,6 +16,13 @@ target_compile_options(qt-menu-lifetime PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UN
 add_test(NAME qt-menu-lifetime COMMAND qt-menu-lifetime)
 set_tests_properties(qt-menu-lifetime PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+add_executable(qt-feedback feedback.cpp ../src/shim.cpp)
+target_compile_features(qt-feedback PRIVATE cxx_std_17)
+target_link_libraries(qt-feedback PRIVATE Qt6::Widgets Qt6::Svg)
+target_compile_options(qt-feedback PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+add_test(NAME qt-feedback COMMAND qt-feedback)
+set_tests_properties(qt-feedback PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(qt-tree tree.cpp ../src/shim.cpp)
 target_compile_features(qt-tree PRIVATE cxx_std_17)
 target_link_libraries(qt-tree PRIVATE Qt6::Widgets Qt6::Svg)

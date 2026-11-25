@@ -480,6 +480,7 @@ unsafe extern "C" {
         id: u64,
         dismissed: extern "C" fn(u64),
     ) -> c_int;
+    pub fn day_qt_resize_popover(content: *mut c_void, width: f64, height: f64);
     pub fn day_qt_close_popover(content: *mut c_void);
     pub fn day_qt_toast(host: *mut c_void, text: *const c_char);
     pub fn day_qt_set_tooltip(w: *mut c_void, text: *const c_char);

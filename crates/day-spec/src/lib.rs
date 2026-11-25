@@ -9740,6 +9740,9 @@ pub trait Toolkit: Sized + 'static {
     ) -> bool {
         false
     }
+    /// Update the size of an already presented popover, keeping its content and focus.
+    fn resize_popover(&mut self, _content: &Self::Handle, _size: Size) {}
+
     /// Detach the content before its Day tree is released.
     fn close_popover(&mut self, _content: &Self::Handle) {}
     /// Show brief feedback in the window containing `host`.

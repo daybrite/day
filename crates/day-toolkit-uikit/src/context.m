@@ -41,6 +41,11 @@ bool day_uikit_open_popover(UIView *anchor, UIView *panel, double width, double 
     return true;
 }
 
+void day_uikit_resize_popover(UIView *panel, double width, double height) {
+    DayContextController *popup = objc_getAssociatedObject(panel, &popupKey);
+    popup.preferredContentSize = CGSizeMake(width, height);
+}
+
 void day_uikit_close_popover(UIView *panel) {
     DayContextController *popup = objc_getAssociatedObject(panel, &popupKey);
     popup.dismissed = NULL;
@@ -81,6 +86,38 @@ void day_uikit_toast(UIView *host, NSString *text) {
     label.translatesAutoresizingMaskIntoConstraints = NO;
     [card addSubview:label];
     [window addSubview:card];
+    // Pin to the lowest unobscured edge. The preferred bottom constraint yields to
+    // the keyboard and to the safe area of the currently visible tab or navigation page.
+    UIViewController *page = window.rootViewController;
+    while (page) {
+        UIViewController *next = page.presentedViewController;
+        if (!next && [page isKindOfClass:UITabBarController.class])
+            next = ((UITabBarController *)page).selectedViewController;
+        if (!next && [page isKindOfClass:UINavigationController.class])
+            next = ((UINavigationController *)page).visibleViewController;
+        // Day embeds its tab controller as a child of its window controller.
+        if (!next) {
+            for (UIViewController *child in page.childViewControllers) {
+                if ([child isKindOfClass:UITabBarController.class] && child.viewIfLoaded.window == window) {
+                    next = child;
+                    break;
+                }
+            }
+        }
+        if (!next) break;
+        page = next;
+    }
+    NSLayoutConstraint *bottom = [card.bottomAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.bottomAnchor constant:-12];
+    bottom.priority = UILayoutPriorityDefaultHigh;
+    if (page.viewIfLoaded.window == window)
+        [card.bottomAnchor constraintLessThanOrEqualToAnchor:page.view.safeAreaLayoutGuide.bottomAnchor constant:-12].active = YES;
+    if (@available(iOS 15.0, *)) {
+        // UIKit delivers keyboard geometry to the controller's view. The window's own
+        // guide can stay empty even when a docked input view covers part of the window.
+        UIView *keyboardHost = window.rootViewController.viewIfLoaded;
+        if (keyboardHost.window == window)
+            [card.bottomAnchor constraintLessThanOrEqualToAnchor:keyboardHost.keyboardLayoutGuide.topAnchor constant:-12].active = YES;
+    }
     [NSLayoutConstraint activateConstraints:@[
         [label.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:12],
         [label.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-12],
@@ -88,7 +125,7 @@ void day_uikit_toast(UIView *host, NSString *text) {
         [label.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-8],
         [card.widthAnchor constraintLessThanOrEqualToAnchor:window.safeAreaLayoutGuide.widthAnchor constant:-24],
         [card.centerXAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.centerXAnchor],
-        [card.bottomAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.bottomAnchor constant:-12]
+        bottom
     ]];
     objc_setAssociatedObject(window, &toastKey, card, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     __weak UIWindow *owner = window;

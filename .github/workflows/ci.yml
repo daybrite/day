@@ -1660,6 +1660,7 @@ jobs:
             sleep $((attempt * 30))
           done
           npm run demo:test
+          node --test scripts/contextual-feedback.test.mjs
 
       - name: Check rendered API links against rustdoc
         run: |

@@ -13,7 +13,7 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--serial',required=True)
 p.add_argument('--package',required=True)
 p.add_argument('--classes',required=True,type=pathlib.Path)
-p.add_argument('--test',default='ContextMenu',choices=['ContextMenu','DragHold'])
+p.add_argument('--test',default='ContextMenu',choices=['ContextMenu','DragHold','Feedback'])
 p.add_argument('--sdk',type=pathlib.Path,default=os.environ.get('ANDROID_HOME'))
 p.add_argument('--keystore',type=pathlib.Path,default=pathlib.Path.home()/'.android/debug.keystore')
 a=p.parse_args()
@@ -22,6 +22,7 @@ def run(*cmd,**kw):return subprocess.run([str(x) for x in cmd],check=True,**kw)
 build=sorted((a.sdk/'build-tools').iterdir(),key=lambda x:tuple(int(n) for n in x.name.split('.')))[-1]
 android=a.sdk/'platforms/android-36/android.jar'
 java=pathlib.Path(os.environ['JAVA_HOME'])/'bin'
+min_sdk = '24' if a.test == 'Feedback' else '26'
 name=a.test+'Instrumentation'
 source=pathlib.Path(__file__).with_name(name+'.java')
 with tempfile.TemporaryDirectory(prefix='day-context-menu-') as tmp:
@@ -29,10 +30,10 @@ with tempfile.TemporaryDirectory(prefix='day-context-menu-') as tmp:
     classes=work/'classes';classes.mkdir()
     run(java/'javac','-source','8','-target','8','-Xlint:-options','-cp',str(android)+os.pathsep+str(a.classes),'-d',classes,source)
     dex=work/'dex';dex.mkdir()
-    run(build/'d8','--lib',android,'--classpath',a.classes,'--min-api','26','--output',dex,*classes.rglob('*.class'))
+    run(build/'d8','--lib',android,'--classpath',a.classes,'--min-api',min_sdk,'--output',dex,*classes.rglob('*.class'))
     manifest=work/'AndroidManifest.xml'
     manifest.write_text(f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.daybrite.day.contextmenutest">
-    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36"/>
+    <uses-sdk android:minSdkVersion="{min_sdk}" android:targetSdkVersion="36"/>
     <application android:debuggable="true"/>
     <instrumentation android:name="dev.daybrite.day.bridge.{name}" android:targetPackage="{a.package}"/>
 </manifest>''')

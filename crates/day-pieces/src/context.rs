@@ -19,38 +19,54 @@ pub fn toast<M>(text: impl IntoText<M>) {
 }
 
 pub(crate) fn install_tooltip(anchor: RNode, text: TextSource) {
-    let touch = with_tree(|tree| tree.needs_touch_tooltip());
-    if touch {
-        let open = Signal::new(false);
-        let content = text.clone();
-        install_popover(anchor, open, move || label(content.clone()).padding(8.0));
+    if with_tree(|tree| tree.needs_touch_tooltip()) {
         let help = text.clone();
-        let mut cx = BuildCx::new(anchor);
-        with_tree(|t| t.enable_gesture(anchor, GestureKind::LongPress));
-        let timer = Rc::new(Cell::new(None::<day_core::TaskHandle>));
-        let cleanup = timer.clone();
-        Scope::current().on_cleanup(move || {
-            if let Some(task) = cleanup.take() {
-                task.abort();
+        let scope = Scope::current();
+        day_core::frame::request(move |_| {
+            // Context menus and explicit long presses own this gesture, in either modifier order.
+            let available = with_tree(|t| {
+                t.node_exists(anchor)
+                    && t.context_menu_of(anchor).is_none()
+                    && t.gesture_ancestor(anchor, GestureKind::LongPress).is_none()
+                    && t.gesture_target(anchor, GestureKind::LongPress).is_none()
+            });
+            if available {
+                scope.enter(|| install_touch_help(anchor, help));
             }
-        });
-        cx.on(anchor, move |event| {
-            if matches!(event, Event::LongPress(_)) && !help.initial().is_empty() {
-                if let Some(task) = timer.take() {
-                    task.abort();
-                }
-                open.set(true);
-                timer.set(Some(day_core::task(async move {
-                    day_core::sleep(3000).await;
-                    open.set(false);
-                })));
-            }
-        });
+        })
+        .in_scope();
     }
     bind(
         move || text.resolve(),
         move |help| with_tree(|t| t.set_tooltip(anchor, help)),
     );
+}
+
+fn install_touch_help(anchor: RNode, text: TextSource) {
+    let open = Signal::new(false);
+    let content = text.clone();
+    install_popover(anchor, open, move || label(content.clone()).padding(8.0));
+    let mut cx = BuildCx::new(anchor);
+    with_tree(|t| t.enable_gesture(anchor, GestureKind::LongPress));
+    let timer = Rc::new(Cell::new(None::<day_core::TaskHandle>));
+    let cleanup = timer.clone();
+    Scope::current().on_cleanup(move || {
+        if let Some(task) = cleanup.take() {
+            task.abort();
+        }
+    });
+    cx.on(anchor, move |event| {
+        if matches!(event, Event::LongPress(_)) && !text.initial().is_empty() {
+            if let Some(task) = timer.take() {
+                task.abort();
+            }
+            open.set(true);
+            timer.set(Some(day_core::task(async move {
+                day_core::sleep(3000).await;
+                open.set(false);
+            })));
+        }
+    });
 }
 
 pub(crate) fn install_popover<P: Piece>(

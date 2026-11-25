@@ -11335,16 +11335,29 @@ impl Toolkit for Gtk {
         content.set_size_request(size.width.ceil() as i32, size.height.ceil() as i32);
         popup.set_child(Some(content));
         popup.set_parent(anchor);
-        popup.connect_closed(move |_| emit(id, Event::PopoverDismissed));
+        let handler = popup.connect_closed(move |_| emit(id, Event::PopoverDismissed));
+        // SAFETY: this private key is written and taken only here and in close_popover.
+        unsafe {
+            popup.set_data("day-popover-closed", handler);
+        }
         popup.popup();
         true
     }
 
+    fn resize_popover(&mut self, content: &Handle, size: Size) {
+        content.set_size_request(size.width.ceil() as i32, size.height.ceil() as i32);
+    }
     fn close_popover(&mut self, content: &Handle) {
         if let Some(popup) = content
             .ancestor(gtk4::Popover::static_type())
             .and_downcast::<gtk4::Popover>()
         {
+            // SAFETY: open_popover stores exactly one closed signal handler under this key.
+            if let Some(handler) =
+                unsafe { popup.steal_data::<gtk4::glib::SignalHandlerId>("day-popover-closed") }
+            {
+                popup.disconnect(handler);
+            }
             popup.popdown();
             popup.set_child(gtk4::Widget::NONE);
             popup.unparent();

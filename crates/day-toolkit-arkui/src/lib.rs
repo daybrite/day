@@ -4769,6 +4769,10 @@ mod imp {
             node::set_size(content.0, size.width, size.height);
             crate::host_api::open_popover(target, content.0, size, id.0)
         }
+        fn resize_popover(&mut self, content: &AHandle, size: Size) {
+            node::set_size(content.0, size.width, size.height);
+            crate::host_api::resize_popover(content.0, size);
+        }
         fn close_popover(&mut self, content: &AHandle) {
             crate::host_api::close_popover(content.0);
         }

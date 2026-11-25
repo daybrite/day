@@ -5427,6 +5427,9 @@ impl Toolkit for Qt {
             ) != 0
         }
     }
+    fn resize_popover(&mut self, content: &QtHandle, size: Size) {
+        unsafe { ffi::day_qt_resize_popover(content.0, size.width, size.height) };
+    }
     fn close_popover(&mut self, content: &QtHandle) {
         unsafe { ffi::day_qt_close_popover(content.0) };
     }

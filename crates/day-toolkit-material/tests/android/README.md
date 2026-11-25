@@ -41,3 +41,7 @@ pull-to-refresh piece.
 python3 crates/day-toolkit-material/tests/android/run-native.py --test DragHold \
   --serial emulator-5554 --package <app id> --classes <app classes>
 ```
+
+Use `--test Feedback` to check that setting and clearing a tooltip preserves an existing
+long-click listener and that a Material Snackbar appears inside the activity and expires.
+Run this case on API 24 or 25 to exercise the AndroidX compatibility listener.

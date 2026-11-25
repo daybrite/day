@@ -1672,6 +1672,7 @@ mod imp {
             id: u64,
             closed: extern "C" fn(u64),
         ) -> bool;
+        fn day_uikit_resize_popover(content: *const UIView, width: f64, height: f64);
         fn day_uikit_close_popover(content: *const UIView);
         fn day_uikit_toast(host: *const UIView, text: *const NSString);
     }
@@ -19299,6 +19300,9 @@ mod imp {
                     dismissed,
                 )
             }
+        }
+        fn resize_popover(&mut self, content: &Handle, size: Size) {
+            unsafe { day_uikit_resize_popover(Retained::as_ptr(content), size.width, size.height) };
         }
         fn close_popover(&mut self, content: &Handle) {
             unsafe { day_uikit_close_popover(Retained::as_ptr(content)) };

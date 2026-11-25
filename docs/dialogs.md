@@ -45,7 +45,8 @@ to a piece to explain a control on hover or long press. It accepts the same text
 [label](/docs/reference/text), including generated localized messages and reactive closures.
 Changing the source updates the mounted control. Empty text clears the help. Give an icon-only
 control an [accessible name](/docs/reference/accessibility) so its purpose is also available
-to a screen reader.
+to a screen reader. On touch toolkits that emulate help with a long press, a context menu or
+an explicit long-press action on the control takes priority.
 
 Apps migrating from the tooltip tweak can remove its dependency and trait import.
 The modifier is available through the Day prelude.
@@ -78,8 +79,9 @@ button(res::str::feedback_trigger())
     })
 ```
 
-The toolkit places the panel relative to the trigger. Day measures its content at opening with
-a maximum proposed width of 320 points and a 12-point window margin. Use a scroll view for
+The toolkit places the panel relative to the trigger. Day measures its content at opening and again when the
+content or window changes, with a maximum proposed width of 320 points and a 12-point window
+margin. Resizing an open panel preserves its controls and their state. Use a scroll view for
 content that can exceed the available height. A click or tap outside dismisses the panel and
 writes `false` to the binding. Setting the binding to `false` closes it programmatically.
 Removing the trigger releases its panel and the content's handlers.
@@ -101,16 +103,19 @@ button(res::str::feedback_done()).action(|| toast(res::str::feedback_enabled()))
 | Toolkit | Tooltip | Popover | Toast |
 | --- | --- | --- | --- |
 | AppKit | View tooltip | Transient `NSPopover` | Visual effect view over the window |
-| UIKit | Pointer tooltip and long-press help | Popover presentation controller | Label above the window’s safe-area edge |
+| UIKit | Pointer tooltip and long-press help | Popover presentation controller | Label above the bottom safe area, tab bar, and docked keyboard |
 | GTK | Widget tooltip | `GtkPopover` | libadwaita toast overlay |
 | Qt | Widget tooltip | Widget with the popup window flag | Timed label in the window |
-| Material | AndroidX tooltip, including older Android versions | Focusable popup window | Android text toast |
+| Material | AndroidX tooltip, including older Android versions | Focusable popup window | In-app Material Snackbar |
 | WinUI and system XAML | Tooltip service | Flyout | Timed XAML popup |
 | ArkUI | Long-press help | PromptAction popup | PromptAction toast |
 | DOM | Browser title and touch help | HTML popover with a positioned fallback | Timed status overlay |
 
-The Menus & dialogs page in Day Showcase combines the three features. Open **Save options**,
-change **Auto-save**, and choose **Done** to see the resulting status message.
+In Day Showcase, open **Navigation & chrome → Tooltips, popovers & toasts**. Each example
+has its own text length selector. Hover over **Draft**, or touch and hold it, to read the
+tooltip. Choose **Long**, enable **Narrow panel**, and select **Open popover** to see how
+the paragraph wraps. Close the panel, turn off **Narrow panel**, and reopen it to compare.
+Select **Show toast** for a temporary save message.
 
 ## Alerts, confirmations, and prompts
 

@@ -4374,7 +4374,19 @@ void day_xaml_set_tooltip(void* h, const char* text) {
     guard([&] { WUXC::ToolTipService::SetToolTip(elem(h), *text ? winrt::box_value(hs(text)) : nullptr); });
 }
 
-static std::map<void*, WUXC::Flyout> day_popovers;
+struct DayFlyout {
+    WUXC::Flyout flyout;
+    winrt::event_token closed;
+};
+static std::map<void*, DayFlyout> day_popovers;
+
+void day_xaml_resize_popover(void* content, double width, double height) {
+    guard([&] {
+        auto child = elem(content).as<WUX::FrameworkElement>();
+        child.Width(width);
+        child.Height(height);
+    });
+}
 
 int day_xaml_popover(void* anchor, void* content, double width, double height, uint64_t id,
                      void (*dismissed)(uint64_t)) {
@@ -4385,9 +4397,9 @@ int day_xaml_popover(void* anchor, void* content, double width, double height, u
         child.Height(height);
         WUXC::Flyout flyout;
         flyout.Content(child);
-        flyout.Closed([id, dismissed](auto&&, auto&&) { dismissed(id); });
+        auto closed = flyout.Closed([id, dismissed](auto&&, auto&&) { dismissed(id); });
         flyout.ShowAt(elem(anchor).as<WUX::FrameworkElement>());
-        day_popovers.insert_or_assign(content, flyout);
+        day_popovers.insert_or_assign(content, DayFlyout{flyout, closed});
         opened = true;
     });
     return opened;
@@ -4397,7 +4409,8 @@ void day_xaml_close_popover(void* content) {
     guard([&] {
         auto it = day_popovers.find(content);
         if (it == day_popovers.end()) return;
-        auto flyout = it->second;
+        auto flyout = it->second.flyout;
+        flyout.Closed(it->second.closed);
         day_popovers.erase(it);
         flyout.Hide();
         flyout.Content(nullptr);
@@ -4409,34 +4422,39 @@ void day_xaml_toast(void* host, const char* text) {
         auto anchor = elem(host).as<WUX::FrameworkElement>();
         auto root = anchor.XamlRoot();
         if (!root) return;
+        for (auto open : WUXM::VisualTreeHelper::GetOpenPopupsForXamlRoot(root)) {
+            auto old = open.Child().try_as<WUX::FrameworkElement>();
+            if (old && old.Name() == L"DayFeedbackToast") open.IsOpen(false);
+        }
         WUXCP::Popup popup;
         popup.XamlRoot(root);
-        WUXC::TextBlock label;
-        label.Text(hs(text));
-        label.TextWrapping(WUX::TextWrapping::Wrap);
-        WUXC::Border card;
-        card.RequestedTheme(anchor.ActualTheme());
-        const bool dark = anchor.ActualTheme() == WUX::ElementTheme::Dark;
-        card.Background(WUXM::SolidColorBrush(dark ? winrt::Windows::UI::Colors::DarkSlateGray()
-                                                   : winrt::Windows::UI::Colors::WhiteSmoke()));
-        card.Padding({12,8,12,8});
-        card.CornerRadius({6,6,6,6});
-        card.Child(label);
-        card.IsHitTestVisible(false);
-        auto area = root.Size();
-        card.MaxWidth((std::max)(1.0, double(area.Width)-24));
-        card.Measure(area);
+        auto card = WUX::Markup::XamlReader::Load(LR"(<Border xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            Name="DayFeedbackToast" Background="{ThemeResource SystemControlBackgroundChromeMediumLowBrush}"
+            Padding="12,8" CornerRadius="6" IsHitTestVisible="False">
+            <TextBlock Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" TextWrapping="Wrap"/>
+        </Border>)").as<WUXC::Border>();
+        card.Child().as<WUXC::TextBlock>().Text(hs(text));
         popup.Child(card);
-        auto size = card.DesiredSize();
-        popup.HorizontalOffset((std::max)(0.0f, (area.Width-size.Width)/2));
-        popup.VerticalOffset((std::max)(0.0f, area.Height-size.Height-16));
+        auto position = [popup, card, anchor](const WUX::XamlRoot& xr) {
+            card.RequestedTheme(anchor.ActualTheme());
+            auto area = xr.Size();
+            card.MaxWidth((std::max)(1.0, double(area.Width)-24));
+            card.Measure(area);
+            auto size = card.DesiredSize();
+            popup.HorizontalOffset((std::max)(0.0f, (area.Width-size.Width)/2));
+            popup.VerticalOffset((std::max)(0.0f, area.Height-size.Height-16));
+        };
+        position(root);
         popup.IsOpen(true);
+        auto changed = root.Changed([position](const auto& xr, auto&&) { position(xr); });
         WUX::DispatcherTimer timer;
         timer.Interval(std::chrono::seconds(3));
-        timer.Tick([popup](const auto& sender, auto&&) {
-            sender.template as<WUX::DispatcherTimer>().Stop();
-            popup.IsOpen(false);
-            popup.Child(nullptr);
+        auto tick = timer.Tick([popup](auto&&, auto&&) { popup.IsOpen(false); });
+        popup.Closed([root, changed, timer, tick](const auto& sender, auto&&) {
+            root.Changed(changed);
+            timer.Stop();
+            timer.Tick(tick);
+            sender.template as<WUXCP::Popup>().Child(nullptr);
         });
         timer.Start();
     });

@@ -60,6 +60,7 @@ day_reactive::tls_slots! {
     /// `(req, mode, name, src, filters)` (docs/files.md).
     static FILE_PICKER: Callback<FilePickerArgs> = const { RefCell::new(None) };
     static POPOVER: Callback<PopoverArgs> = const { RefCell::new(None) };
+    static RESIZE_POPOVER: Callback<FnArgs<(f64, f64, f64)>> = const { RefCell::new(None) };
     static CLOSE_POPOVER: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
     static TOAST: Callback<FnArgs<(String,)>> = const { RefCell::new(None) };
     static POPOVER_SLOTS: RefCell<HashMap<usize, (u64, usize, ObjectRef<false>)>> = RefCell::new(HashMap::new());
@@ -359,11 +360,13 @@ pub fn on_file_result(req: f64, path: String) {
 pub fn register_feedback(
     env: Env,
     open: Registered<PopoverArgs>,
+    resize: Registered<FnArgs<(f64, f64, f64)>>,
     close: Registered<FnArgs<(f64,)>>,
     toast: Registered<FnArgs<(String,)>>,
 ) {
     remember(&env);
     store(|t| &t.POPOVER, open);
+    store(|t| &t.RESIZE_POPOVER, resize);
     store(|t| &t.CLOSE_POPOVER, close);
     store(|t| &t.TOAST, toast);
 }
@@ -411,6 +414,17 @@ pub fn open_popover(anchor: i32, panel: Handle, size: day_spec::Size, id: u64) -
         },
     )
     .unwrap_or(false)
+}
+
+pub fn resize_popover(panel: Handle, size: day_spec::Size) {
+    let id = POPOVER_SLOTS.with(|s| s.borrow().get(&(panel as usize)).map(|entry| entry.0));
+    if let Some(id) = id {
+        call(
+            |t| &t.RESIZE_POPOVER,
+            FnArgs::from((id as f64, size.width, size.height)),
+            |_, _| (),
+        );
+    }
 }
 
 pub fn close_popover(panel: Handle) {

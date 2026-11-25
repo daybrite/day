@@ -27,10 +27,11 @@ import { DayCapture } from './DayCapture';
 import { DayDialogs } from './DayDialogs';
 
 class PopoverSlot {
-  slot: NodeContent = new NodeContent();
+  slot: NodeContent;
   width: number;
   height: number;
-  constructor(width: number, height: number) {
+  constructor(width: number, height: number, slot: NodeContent = new NodeContent()) {
+    this.slot = slot;
     this.width = width;
     this.height = height;
   }
@@ -42,6 +43,11 @@ function popoverContent(model: PopoverSlot) {
     .width(model.width).height(model.height)
 }
 
+interface MountedPopover {
+  popup: ComponentContent<PopoverSlot>;
+  slot: NodeContent;
+}
+
 @Entry
 @Component
 struct Index {
@@ -51,7 +57,7 @@ struct Index {
   private coverHeightVp: number = 0;
   @State coverShown: boolean = false;
   private started: boolean = false;
-  private popovers: Map<number, ComponentContent<PopoverSlot>> = new Map();
+  private popovers: Map<number, MountedPopover> = new Map();
   private dialogs?: DayDialogs;
 
   aboutToDisappear(): void {
@@ -143,19 +149,22 @@ struct Index {
     nativeEntry.registerFeedback((anchor: number, id: number, width: number, height: number): Object => {
       const slot = new PopoverSlot(width, height);
       const popup = new ComponentContent(ui, wrapBuilder(popoverContent), slot);
-      this.popovers.set(id, popup);
+      this.popovers.set(id, { popup: popup, slot: slot.slot });
       prompt.openPopup(popup, { id: anchor }, {
         placement: Placement.Bottom, autoCancel: true,
         onStateChange: (state: PopupStateChangeParam) => {
-          if (!state.isVisible) nativeEntry.popoverDismissed(id);
+          if (!state.isVisible && this.popovers.has(id)) nativeEntry.popoverDismissed(id);
         }
       }).catch(() => { nativeEntry.popoverDismissed(id); });
       return slot.slot;
+    }, (id: number, width: number, height: number): void => {
+      const mounted = this.popovers.get(id);
+      if (mounted) mounted.popup.update(new PopoverSlot(width, height, mounted.slot));
     }, (id: number): void => {
-      const popup = this.popovers.get(id);
-      if (popup) {
+      const mounted = this.popovers.get(id);
+      if (mounted) {
         this.popovers.delete(id);
-        prompt.closePopup(popup).catch(() => {}).finally(() => { popup.dispose(); });
+        prompt.closePopup(mounted.popup).catch(() => {}).finally(() => { mounted.popup.dispose(); });
       }
     }, (message: string): void => { prompt.showToast({ message: message }); });
     this.dialogs = new DayDialogs(this.getUIContext());

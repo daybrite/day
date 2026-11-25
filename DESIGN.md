@@ -1289,12 +1289,16 @@ placement per node and tells each widget through `Toolkit::set_layout_direction`
 `Toolkit::set_cursor` with `Cap::Cursor` saying how faithfully; [docs/cursor.md](docs/cursor.md)),
 `.window_drag_region()` (the piece moves its window when dragged, like a title bar — routed to
 `Toolkit::set_drag_region`, `Cap::DragRegion`; [docs/window-chrome.md](docs/window-chrome.md)),
+`.tooltip(text)` (reactive hover or touch help), `.popover(open, content)` (an anchored panel controlled by a boolean binding),
 `.context_menu()`, `.toolbar()` (declare toolbar items on the chrome this piece sits under —
 one item, a list, or a closure that derives one, [docs/toolbars.md](docs/toolbars.md)),
 `.defers_system_gestures()` / `.interactive_dismiss_disabled()` / `.status_bar_hidden()` (a
 constant or a reactive source; routed to `Toolkit::set_status_bar_hidden`)
 ([docs/cover.md](docs/cover.md)), `.tweak()` / `.native_ref()` ([docs/tweaks.md](docs/tweaks.md)), `.modifier(impl Modifier)`,
 and `.any()`.
+
+Call `toast(text)` from a UI action for a transient message in the current window. See
+[contextual feedback](docs/dialogs.md#tooltips) for all three presentations.
 
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
 `search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`, `async_image`,
@@ -2318,11 +2322,15 @@ pub trait Toolkit: Sized + 'static {
     // Contextual feedback (docs/dialogs.md). Each anchored popup mounts Day content in a
     // scope under its trigger. Its parentless native container is a separate layout root.
     // The toolkit supplies the presentation and sends PopoverDismissed to the unique
-    // content node on outside dismissal. Programmatic close detaches the native host before
-    // releasing the content. A late event addresses only the retired node generation.
+    // content node on outside dismissal. When content or window bounds change, the tree
+    // remeasures the existing panel and resizes its native host without rebuilding its scope.
+    // Programmatic close detaches the native host before releasing the content. A late event
+    // addresses only the retired node generation.
     // Tooltips follow IntoText and survive native backing replacements. Touch help uses the
     // same anchored surface where a toolkit has no long-press tooltip. Toasts resolve
     // their text once and follow the current window and the toolkit's dismissal timer.
+    // AppKit places the toast in a click-through overlay that tracks the content view's
+    // bounds as title bars, toolbars and document tabs shift the client origin.
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
     fn dismiss(&mut self, req: u64) {}

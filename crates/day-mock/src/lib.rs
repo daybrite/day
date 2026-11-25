@@ -3018,6 +3018,11 @@ impl Toolkit for MockToolkit {
             .log(format!("popover #{} -> #{} {size:?}", anchor.0, content.0));
         true
     }
+    fn resize_popover(&mut self, content: &MockHandle, size: Size) {
+        self.state
+            .borrow_mut()
+            .log(format!("resize popover #{} {size:?}", content.0));
+    }
     fn close_popover(&mut self, content: &MockHandle) {
         self.state
             .borrow_mut()

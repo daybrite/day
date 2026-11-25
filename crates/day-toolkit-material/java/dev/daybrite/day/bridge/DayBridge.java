@@ -2577,7 +2577,7 @@ public final class DayBridge extends DayRuntime {
         // it here then replaced the app's label on every title or icon change.
         if (!appLabeled.containsKey(button)) button.setContentDescription(title);
         // `View.setTooltipText` is API 26; the compat call reaches the scaffold's minSdk of 24 (docs/size-classes.md).
-        androidx.appcompat.widget.TooltipCompat.setTooltipText(button, iconOnly && icon != null ? title : null);
+        setViewTooltip(button, iconOnly && icon != null ? title : null);
         if (iconOnly && icon != null) buttonIconOnly.put(button, Boolean.TRUE);
         else buttonIconOnly.remove(button);
         applyPlainIconTint(button);
@@ -2952,7 +2952,9 @@ public final class DayBridge extends DayRuntime {
     public static void enableRecognizer(View v, final long id, int kind) {
         Recognizers r = recognizersOf(v);
         switch (kind) {
-            case G_LONG_PRESS: r.longPress = true; r.longPressId = id; break;
+            case G_LONG_PRESS:
+                clearCompatTooltip(v);
+                r.longPress = true; r.longPressId = id; break;
             case G_DOUBLE_TAP: r.doubleTap = true; r.doubleTapId = id; break;
             case G_PRESS_IN: r.press = true; r.pressId = id; break;
             case G_TOUCHES: r.touches = true; r.touchesId = id; break;
@@ -6336,7 +6338,36 @@ public final class DayBridge extends DayRuntime {
     private static final java.util.Map<View, android.widget.PopupWindow> popovers = new java.util.IdentityHashMap<>();
 
     public static void setTooltip(View v, String text) {
-        androidx.appcompat.widget.TooltipCompat.setTooltipText(v, text.isEmpty() ? null : text);
+        setViewTooltip(v, text.isEmpty() ? null : text);
+    }
+
+    private static final java.util.Map<View, String> tooltipHints = new java.util.WeakHashMap<>();
+
+    private static final java.util.Set<View> compatTooltips =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
+    private static void clearCompatTooltip(View v) {
+        if (compatTooltips.remove(v)) androidx.appcompat.widget.TooltipCompat.setTooltipText(v, null);
+    }
+
+    private static void setViewTooltip(View v, String text) {
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            v.setTooltipText(text);
+            return;
+        }
+        // TooltipCompat owns the single long-click listener on these Android releases.
+        // A text editor's native selection gesture also needs that listener.
+        if (text == null) {
+            tooltipHints.remove(v);
+            clearCompatTooltip(v);
+            return;
+        }
+        tooltipHints.put(v, text);
+        Recognizers r = recognizers.get(v);
+        if (contextMenus.containsKey(v) || (r != null && r.longPress)
+                || (v.isLongClickable() && !compatTooltips.contains(v))) return;
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(v, text);
+        compatTooltips.add(v);
     }
 
     public static boolean openPopover(View anchor, View content, int w, int h, long id) {
@@ -6355,6 +6386,11 @@ public final class DayBridge extends DayRuntime {
 
     private static native void nativePopoverDismissed(long id);
 
+    public static void resizePopover(View content, int width, int height) {
+        android.widget.PopupWindow popup = popovers.get(content);
+        if (popup != null) popup.update(width, height);
+    }
+
     public static void closePopover(View content) {
         android.widget.PopupWindow popup = popovers.remove(content);
         if (popup != null) {
@@ -6364,7 +6400,14 @@ public final class DayBridge extends DayRuntime {
     }
 
     public static void showToast(View host, String text) {
-        android.widget.Toast.makeText(host.getContext(), text, android.widget.Toast.LENGTH_SHORT).show();
+        if (host.isAttachedToWindow()) {
+            // FragmentActivity inflates the Snackbar's hidden action as a framework Button.
+            // Supply the size overlay that MaterialButton normally applies to Expressive styles.
+            Context theme = new android.view.ContextThemeWrapper(host.getContext(),
+                    com.google.android.material.R.style.SizeOverlay_Material3Expressive_Button_Small);
+            com.google.android.material.snackbar.Snackbar.make(theme, host, text,
+                    com.google.android.material.snackbar.Snackbar.LENGTH_SHORT).show();
+        }
     }
 
     /** Apply a node's whole accessibility set (docs/accessibility.md). Empty strings and
@@ -6828,6 +6871,8 @@ public final class DayBridge extends DayRuntime {
         if (provider == null) {
             v.setOnLongClickListener(null);
             v.setLongClickable(false);
+            if (android.os.Build.VERSION.SDK_INT < 26 && tooltipHints.containsKey(v))
+                setViewTooltip(v, tooltipHints.get(v));
             // Remove only the forwarding listener this menu installed. Native menu
             // items, buttons and declared tap gestures own their own click actions.
             if (contextMenuForwardedClicks.remove(v)) {
@@ -6839,6 +6884,7 @@ public final class DayBridge extends DayRuntime {
             return;
         }
         final ContextMenuBinding binding = new ContextMenuBinding(provider);
+        clearCompatTooltip(v);
         contextMenus.put(v, binding);
         updateTouchListener(v);
         // A long-clickable child consumes ordinary taps too; forward them to its row.

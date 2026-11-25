@@ -21,11 +21,12 @@ fn popover_dismissal_belongs_to_one_opening_and_unmount_releases_it() {
     let shown = Signal::new(true);
     let open = Signal::new(false);
     let help = Signal::new("Fixture hint");
+    let title = Signal::new("Fixture trigger");
     let probe = boot(move || {
         when(
             move || shown.get(),
             move || {
-                button("Fixture trigger")
+                button(move || title.get())
                     .tooltip(move || help.get())
                     .popover(open, || label("Fixture panel").id(id!(fixture_panel)))
             },
@@ -43,6 +44,14 @@ fn popover_dismissal_belongs_to_one_opening_and_unmount_releases_it() {
     help.set("");
     flush_sync();
     assert!(has_help(""));
+    let mark = probe.log_len();
+    title.set("Renamed fixture");
+    flush_sync();
+    assert!(
+        probe
+            .log_since(mark)
+            .contains(&format!(r#"tooltip #{} """#, anchor.0))
+    );
     open.set(true);
     flush_sync();
     let first = day_core::rnode_to_id(panel().unwrap());
@@ -77,6 +86,39 @@ fn popover_dismissal_belongs_to_one_opening_and_unmount_releases_it() {
             .filter(|op| op.starts_with("close popover "))
             .count(),
         2
+    );
+}
+
+#[test]
+fn window_resize_updates_the_mounted_popover_host_only_when_its_size_changes() {
+    let open = Signal::new(false);
+    let probe =
+        boot(move || button("Fixture").popover(open, || label("Fixture panel").frame(200., 120.)));
+    open.set(true);
+    flush_sync();
+    let resize = |width, height| {
+        day_core::with_tree(|tree| {
+            tree.set_root_size(tree.root_node(), Size::new(width, height));
+            tree.layout_if_needed();
+        });
+    };
+    let mark = probe.log_len();
+    resize(140., 90.);
+    resize(140., 90.);
+    resize(500., 400.);
+    let changes: Vec<_> = probe
+        .log_since(mark)
+        .into_iter()
+        .filter(|op| op.starts_with("resize popover "))
+        .collect();
+    assert_eq!(changes.len(), 2, "{changes:?}");
+    assert!(
+        changes[0].contains("width: 116.0, height: 66.0"),
+        "{changes:?}"
+    );
+    assert!(
+        changes[1].contains("width: 200.0, height: 120.0"),
+        "{changes:?}"
     );
 }
 

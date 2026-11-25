@@ -83,6 +83,7 @@ unsafe extern "C" {
     /// Speak `text` through the shim's ARIA live regions (docs/accessibility.md); `urgent`
     /// picks the assertive one, which interrupts, over the polite one, which queues.
     fn day_dom_popover(anchor: u32, content: u32, width: f64, height: f64) -> u32;
+    fn day_dom_resize_popover(content: u32, width: f64, height: f64);
     fn day_dom_close_popover(content: u32);
     fn day_dom_touch_tooltip() -> u32;
     fn day_dom_toast(ptr: *const u8, len: usize);
@@ -4139,6 +4140,9 @@ impl Toolkit for Dom {
     ) -> bool {
         remember(panel.0, id);
         unsafe { day_dom_popover(anchor.0, panel.0, size.width, size.height) != 0 }
+    }
+    fn resize_popover(&mut self, content: &DomHandle, size: Size) {
+        unsafe { day_dom_resize_popover(content.0, size.width, size.height) };
     }
     fn close_popover(&mut self, content: &DomHandle) {
         unsafe { day_dom_close_popover(content.0) };

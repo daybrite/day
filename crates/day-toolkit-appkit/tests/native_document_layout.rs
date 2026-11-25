@@ -12,6 +12,8 @@ fn main() {
         NodeId, Platform, Toolkit, WindowKind, WindowOpenReply, WindowOptions, WindowTabbing,
     };
     use day_toolkit_appkit::{AppKit, Handle};
+    use objc2_app_kit::{NSTextField, NSView};
+    use objc2_foundation::NSRect;
     use std::cell::RefCell;
 
     thread_local! {
@@ -25,6 +27,26 @@ fn main() {
             (host.bounds().origin.y + inset).abs() < 0.5,
             "client origin must clear native chrome: bounds={:?}, inset={inset}",
             host.bounds()
+        );
+    }
+    fn toast_label_in_window(view: &NSView) -> Option<NSRect> {
+        if let Some(label) = view.downcast_ref::<NSTextField>()
+            && label.stringValue().to_string() == "Fixture status"
+        {
+            return Some(view.convertRect_toView(view.bounds(), None));
+        }
+        view.subviews()
+            .iter()
+            .find_map(|child| toast_label_in_window(&child))
+    }
+    fn assert_toast_in_client(host: &Handle) {
+        host.layoutSubtreeIfNeeded();
+        let rect = toast_label_in_window(host).expect("native toast label");
+        let client = host.window().unwrap().contentLayoutRect();
+        assert!(rect.size.width > 0.0 && rect.size.height > 0.0);
+        assert!(
+            objc2_foundation::NSContainsRect(client, rect),
+            "toast text must be visible inside the client area: {rect:?} in {client:?}"
         );
     }
     std::thread::spawn(|| {
@@ -55,12 +77,15 @@ fn main() {
                             panic!("AppKit must open a native document window");
                         };
                         assert_client_origin(&host);
+                        toolkit.show_toast(&host, "Fixture status");
+                        assert_toast_in_client(&host);
                         host
                     })
                     .collect();
                 toolkit.group_windows(&hosts);
                 for host in &hosts {
                     assert_client_origin(host);
+                    assert_toast_in_client(host);
                 }
                 RUNNING.with(|r| *r.borrow_mut() = Some((toolkit, hosts)));
             }));

@@ -2271,6 +2271,7 @@ mod imp {
         static fn addChild(parent: android.view.View, child: android.view.View),
         static fn setTooltip(v: android.view.View, text: JString),
         static fn openPopover(anchor: android.view.View, content: android.view.View, w: jint, h: jint, id: jlong) -> jboolean,
+        static fn resizePopover(content: android.view.View, w: jint, h: jint),
         static fn closePopover(content: android.view.View),
         static fn showToast(host: android.view.View, text: JString),
         static fn announce(text: JString, urgent: jboolean),
@@ -6830,6 +6831,19 @@ mod imp {
                 })
             })
             .unwrap_or(false)
+        }
+        fn resize_popover(&mut self, content: &AHandle, size: Size) {
+            let d = density();
+            with_env(|env| {
+                let _ = java_in(env, |env| {
+                    DayBridge::resizePopover(
+                        env,
+                        content.0.as_obj(),
+                        (size.width * d).ceil() as i32,
+                        (size.height * d).ceil() as i32,
+                    )
+                });
+            });
         }
         fn close_popover(&mut self, content: &AHandle) {
             with_env(|env| {

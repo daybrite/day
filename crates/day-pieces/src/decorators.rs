@@ -4219,12 +4219,14 @@ pub(crate) mod conformance {
             .proves_duty("open_popover")
             .proves_duty("close_popover")
             .proves_duty("set_tooltip")
-            .proves_duty("show_toast")
             .page(|| {
                 let open = Signal::new(false);
                 let saved = Signal::new(false);
+                let cleared = Signal::new(false);
                 let help = move || {
-                    if saved.get() {
+                    if cleared.get() {
+                        ""
+                    } else if saved.get() {
                         "Saved fixture"
                     } else {
                         "Edit fixture"
@@ -4246,9 +4248,20 @@ pub(crate) mod conformance {
                                 .padding(10.0)
                         }),
                     label(help).id(day_core::id!(feedback_state)),
+                    button("Clear fixture hint")
+                        .id(day_core::id!(feedback_clear))
+                        .action(move || cleared.set(true)),
                 ))
             })
             .drive(|d: Drive| async move {
+                let tooltip = || {
+                    day_core::with_tree(|t| {
+                        t.find_by_id("feedback_anchor")
+                            .and_then(|n| t.node_probe(n))
+                            .and_then(|p| p.tooltip)
+                    })
+                };
+                d.check_eq(tooltip().as_deref(), Some("Edit fixture"))?;
                 d.assert_missing("feedback_apply").await?;
                 for _ in 0..2 {
                     d.tap("feedback_anchor").await?;
@@ -4256,8 +4269,66 @@ pub(crate) mod conformance {
                     d.tap("feedback_apply").await?;
                     d.assert_missing("feedback_apply").await?;
                     d.assert_text("feedback_state", "Saved fixture").await?;
+                    d.check_eq(tooltip().as_deref(), Some("Saved fixture"))?;
                 }
-                Ok(())
+                d.tap("feedback_clear").await?;
+                d.check_eq(tooltip(), None)
+            })
+    }
+
+    /// Expanding and collapsing content resizes the mounted panel and preserves its controls.
+    #[day_macros::test(day_core)]
+    fn contextual_feedback_resizes() -> Case {
+        Case::new()
+            .proves_duty("resize_popover")
+            .page(|| {
+                let open = Signal::new(false);
+                button("Open fixture")
+                    .id(day_core::id!(size_anchor))
+                    .action(move || open.set(true))
+                    .popover(open, || {
+                        let expanded = Signal::new(false);
+                        column((
+                            // XAML applies its button template on load. Give this fixture a
+                            // stable baseline so it measures only the conditional row.
+                            button("Resize fixture")
+                                .height(44.0)
+                                .id(day_core::id!(size_toggle))
+                                .action(move || expanded.update(|v| *v = !*v)),
+                            when(
+                                move || expanded.get(),
+                                || label("Expanded fixture").height(64.0),
+                            ),
+                        ))
+                    })
+            })
+            .drive(|d: Drive| async move {
+                let layout = || {
+                    day_core::with_tree(|tree| {
+                        let control = tree.find_by_id("size_toggle")?;
+                        let mut root = control;
+                        while let Some(parent) = tree.parent_of(root) {
+                            root = parent;
+                        }
+                        Some((control, tree.node_frame(root)?.size.height))
+                    })
+                };
+                d.tap("size_anchor").await?;
+                d.wait_idle().await?;
+                let initial = layout()
+                    .ok_or_else(|| day_core::conformance::Fail("missing initial panel".into()))?;
+                d.tap("size_toggle").await?;
+                d.wait_idle().await?;
+                let expanded = layout()
+                    .ok_or_else(|| day_core::conformance::Fail("missing expanded panel".into()))?;
+                d.check_eq(expanded.0, initial.0)?;
+                d.check(
+                    expanded.1 >= initial.1 + 63.0,
+                    "panel grows to fit its new content",
+                )?;
+                d.tap("size_toggle").await?;
+                d.wait_idle().await?;
+                d.check_eq(layout(), Some(initial))
             })
     }
 

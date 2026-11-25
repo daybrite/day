@@ -277,6 +277,7 @@ unsafe extern "C" {
         id: u64,
         closed: extern "C" fn(u64),
     ) -> bool;
+    fn day_appkit_resize_popover(content: *const NSView, width: f64, height: f64);
     fn day_appkit_close_popover(content: *const NSView);
     fn day_appkit_toast(host: *const NSView, text: *const NSString);
 }
@@ -13911,6 +13912,9 @@ impl Toolkit for AppKit {
                 dismissed,
             )
         }
+    }
+    fn resize_popover(&mut self, content: &Handle, size: Size) {
+        unsafe { day_appkit_resize_popover(Retained::as_ptr(content), size.width, size.height) };
     }
     fn close_popover(&mut self, content: &Handle) {
         unsafe { day_appkit_close_popover(Retained::as_ptr(content)) };

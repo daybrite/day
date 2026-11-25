@@ -134,6 +134,9 @@ pub struct NodeData<H> {
     /// repeats at one size per pass. Invalidated with `needs_measure`, alongside `cache`.
     pub baseline_cache: Option<((u64, u64), Option<f64>)>,
     pub probe: NodeProbe,
+    /// The modifier also owns an explicitly cleared hint, so a native button refresh
+    /// cannot restore its implicit icon title after the app has cleared it.
+    has_explicit_tooltip: bool,
     pub needs_measure: bool,
     /// Placement dirt reaches the root even through measure boundaries. Recycled cell
     /// subtrees are detached from the window tree, so their sweep must see this bit.
@@ -151,6 +154,13 @@ pub struct NodeData<H> {
     /// this node's handle (docs/tweaks.md). Read by `set_node_selectable`: a backing swap would
     /// discard that work, which warrants a loud warning rather than silent loss.
     pub tweaked: bool,
+}
+
+impl<H> NodeData<H> {
+    fn explicit_tooltip(&self) -> Option<&str> {
+        self.has_explicit_tooltip
+            .then(|| self.probe.tooltip.as_deref().unwrap_or_default())
+    }
 }
 
 /// An event handler registered on a realized node.
@@ -182,6 +192,7 @@ pub enum WindowRootReply {
 /// `remove_window_root`.
 struct WindowEntry {
     root: RNode,
+    popover_anchor: Option<RNode>,
     size: Size,
 }
 
@@ -289,6 +300,7 @@ impl<B: Toolkit> Tree<B> {
             cache: Vec::new(),
             baseline_cache: None,
             probe: NodeProbe::default(),
+            has_explicit_tooltip: false,
             needs_measure: true,
             needs_layout: true,
             last_native_frame: None,
@@ -305,6 +317,7 @@ impl<B: Toolkit> Tree<B> {
             windows: vec![WindowEntry {
                 root,
                 size: window_size,
+                popover_anchor: None,
             }],
             layout_dirty: true,
             handlers: HashMap::new(),
@@ -548,6 +561,7 @@ impl<B: Toolkit> Tree<B> {
             cache: Vec::new(),
             baseline_cache: None,
             probe: NodeProbe::default(),
+            has_explicit_tooltip: false,
             needs_measure: true,
             needs_layout: true,
             last_native_frame: None,
@@ -1033,11 +1047,44 @@ impl<B: Toolkit> Tree<B> {
         self.nodes[anchor].needs_measure = false;
     }
 
+    fn measure_popover(&mut self, anchor: RNode, content: RNode) -> Size {
+        let mut owner = anchor;
+        let area = loop {
+            if let Some(w) = self.windows.iter().find(|w| w.root == owner) {
+                if let Some(trigger) = w.popover_anchor {
+                    owner = trigger;
+                    continue;
+                }
+                break w.size;
+            }
+            let Some(parent) = self.parent_of(owner).or_else(|| self.cell_host(owner)) else {
+                break self.windows[0].size;
+            };
+            owner = parent;
+        };
+        let width = (area.width - 24.0).clamp(1.0, 320.0);
+        let fit = crate::layout::measure_node(self, content, Proposal::new(Some(width), None));
+        Size::new(
+            fit.width.clamp(1.0, width),
+            fit.height.clamp(1.0, (area.height - 24.0).max(1.0)),
+        )
+    }
+
     fn layout_now(&mut self) {
         // Every window lays out independently at its own size; the release queue drains
         // once, after all of them (a released handle may be referenced by no window).
         for i in 0..self.windows.len() {
-            let (root, size) = (self.windows[i].root, self.windows[i].size);
+            let root = self.windows[i].root;
+            if let Some(anchor) = self.windows[i].popover_anchor {
+                let fit = self.measure_popover(anchor, root);
+                if fit != self.windows[i].size {
+                    self.windows[i].size = fit;
+                    if let Some(host) = &self.nodes[root].handle {
+                        self.toolkit.resize_popover(host, fit);
+                    }
+                }
+            }
+            let size = self.windows[i].size;
             let p = Proposal::exact(size);
             let _ = crate::layout::measure_node(self, root, p);
             crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
@@ -1815,6 +1862,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             cache: Vec::new(),
             baseline_cache: None,
             probe,
+            has_explicit_tooltip: false,
             needs_measure: true,
             needs_layout: true,
             last_native_frame: None,
@@ -2057,7 +2105,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             });
             if let Some(h) = n.handle.clone() {
                 self.toolkit.set_a11y(&h, &n.a11y);
-                if let Some(help) = &n.probe.tooltip {
+                if let Some(help) = n.explicit_tooltip() {
                     self.toolkit.set_tooltip(&h, help);
                 }
             }
@@ -2096,7 +2144,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn set_tooltip(&mut self, node: RNode, text: &str) {
         if let Some((h, n)) = self.native_under(node) {
             self.toolkit.set_tooltip(&h, text);
-            self.nodes[n].probe.tooltip = Some(text.to_owned());
+            self.nodes[n].has_explicit_tooltip = true;
+            self.nodes[n].probe.tooltip = (!text.is_empty()).then(|| text.to_owned());
         }
     }
 
@@ -2114,22 +2163,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if self.popovers.contains_key(&anchor) {
             return false;
         }
-        let mut owner = anchor;
-        let area = loop {
-            if let Some(w) = self.windows.iter().find(|w| w.root == owner) {
-                break w.size;
-            }
-            let Some(parent) = self.parent_of(owner).or_else(|| self.cell_host(owner)) else {
-                break self.windows[0].size;
-            };
-            owner = parent;
-        };
-        let width = (area.width - 24.0).clamp(1.0, 320.0);
-        let fit = crate::layout::measure_node(self, content, Proposal::new(Some(width), None));
-        let size = Size::new(
-            fit.width.clamp(1.0, width),
-            fit.height.clamp(1.0, (area.height - 24.0).max(1.0)),
-        );
+        let size = self.measure_popover(anchor, content);
         if !self
             .toolkit
             .open_popover(&a, &panel, size, rnode_to_id(content))
@@ -2137,7 +2171,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             return false;
         }
         self.popovers.insert(anchor, content);
-        self.add_extra_layout_root(content, size);
+        self.windows.push(WindowEntry {
+            root: content,
+            size,
+            popover_anchor: Some(anchor),
+        });
+        self.layout_dirty = true;
         crate::layout::place_node(self, content, Rect::from_size(size), Point::ZERO, true);
         true
     }
@@ -2587,8 +2626,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 patch
             };
             self.toolkit.update(&h, kind, patch.as_ref(), anim.as_ref());
+            // Native buttons refresh their implicit icon-only hint when their content changes.
+            // An explicit Day tooltip takes precedence; other widget updates leave it alone.
             if kind == kinds::BUTTON
-                && let Some(help) = &self.nodes[node].probe.tooltip
+                && let Some(help) = self.nodes[node].explicit_tooltip()
             {
                 self.toolkit.set_tooltip(&h, help);
             }
@@ -2653,7 +2694,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                      tweak so it runs against the widget that ships (docs/tweaks.md)."
                 );
             }
-            if let Some(help) = &n.probe.tooltip {
+            if let Some(help) = n.explicit_tooltip() {
                 self.toolkit.set_tooltip(&new, help);
             }
             n.handle = Some(new);
@@ -2718,7 +2759,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                      class, discarding an earlier tweak's changes (docs/tweaks.md)."
                 );
             }
-            if let Some(help) = &n.probe.tooltip {
+            if let Some(help) = n.explicit_tooltip() {
                 self.toolkit.set_tooltip(&new, help);
             }
             n.handle = Some(new);
@@ -3106,6 +3147,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             cache: Vec::new(),
             baseline_cache: None,
             probe: NodeProbe::default(),
+            has_explicit_tooltip: false,
             needs_measure: true,
             needs_layout: true,
             last_native_frame: None,
@@ -3120,6 +3162,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 self.windows.push(WindowEntry {
                     root,
                     size: options.size,
+                    popover_anchor: None,
                 });
                 self.layout_dirty = true;
                 WindowRootReply::Open(root)
@@ -3139,7 +3182,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let handle = self.toolkit.adopt(raw);
         node.handle = Some(handle);
         node.needs_measure = true;
-        self.windows.push(WindowEntry { root, size });
+        self.windows.push(WindowEntry {
+            root,
+            size,
+            popover_anchor: None,
+        });
         self.layout_dirty = true;
         true
     }
@@ -3182,7 +3229,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn add_extra_layout_root(&mut self, node: RNode, size: Size) {
         if !self.windows.iter().any(|w| w.root == node) {
-            self.windows.push(WindowEntry { root: node, size });
+            self.windows.push(WindowEntry {
+                root: node,
+                size,
+                popover_anchor: None,
+            });
             self.layout_dirty = true;
         }
     }

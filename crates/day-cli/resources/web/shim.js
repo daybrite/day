@@ -846,6 +846,7 @@ function tzOffsetMinutes(ms) {
   }
 }
 
+const openContextPopovers = []; // Presentation order, including nested Day popovers.
 const liveRegions = {}; // the announcement live regions, by politeness (day_dom_announce)
 
 const env = {
@@ -2240,27 +2241,44 @@ const env = {
     const events = new AbortController(), options = {signal:events.signal};
     const native = typeof popup.showPopover === 'function';
     const dismiss = () => wasm.day_dom_popover_dismissed(id);
+    // A native auto popover light-dismisses even on its source before Day's button
+    // receives its click. Let the binding own that click on both rendering paths.
     if (native) {
-      popup.popover = 'auto';
-      popup.addEventListener('toggle', e => { if (e.newState === 'closed') dismiss(); }, options);
-      popup.showPopover();
-    } else {
-      document.addEventListener('pointerdown', e => { if (!popup.contains(e.target)) dismiss(); }, options);
-      document.addEventListener('keydown', e => { if (e.key === 'Escape') dismiss(); }, options);
+      popup.popover = 'manual';
+      popup.showPopover({source:anchor});
     }
+    const entry = {popup, anchor, dismiss};
+    openContextPopovers.push(entry);
+    document.addEventListener('pointerdown', e => {
+      if (openContextPopovers.at(-1) !== entry) return;
+      for (const open of [...openContextPopovers].reverse()) {
+        if (open.popup.contains(e.target) || open.anchor.contains(e.target)) break;
+        open.dismiss();
+      }
+    }, options);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && openContextPopovers.at(-1) === entry) dismiss();
+    }, options);
+    panel.__resizePopover = (w, h) => {
+      Object.assign(panel.style, {width:w+'px', height:h+'px'});
+      position();
+    };
     position();
     window.addEventListener('resize', position, options);
     document.addEventListener('scroll', position, {capture:true, ...options});
     panel.__closePopover = () => {
       events.abort();
+      openContextPopovers.splice(openContextPopovers.indexOf(entry), 1);
       const restore = popup.contains(document.activeElement);
       popup.remove();
       if (restore && anchor.isConnected) anchor.focus({preventScroll:true});
       delete panel.__closePopover;
+      delete panel.__resizePopover;
     };
     (popup.querySelector('button,input,select,textarea,[tabindex="0"]') || popup).focus({preventScroll:true});
     return 1;
   },
+  day_dom_resize_popover(id, width, height) { E(id)?.__resizePopover?.(width, height); },
   day_dom_close_popover(id) { E(id)?.__closePopover?.(); },
   day_dom_toast(p, l) {
     document.querySelector('.day-context-toast')?.remove();
