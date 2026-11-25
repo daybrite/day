@@ -103,6 +103,50 @@ async function imageFixture(t, reverseArchive = false) {
   return { dir, archivePath, assets, requests, request };
 }
 
+test('a broken screenshot index transfer restarts from byte zero and installs only verified bytes', async t => {
+  const f = await imageFixture(t);
+  const directory = join(f.dir, 'website');
+  let attempts = 0;
+  const request = async url => {
+    if (url.endsWith('/gallery.json') && ++attempts === 1) {
+      return new Response(new ReadableStream({
+        start(controller) { controller.enqueue(Buffer.from('partial index')); },
+        pull(controller) { controller.error(Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })); },
+      }));
+    }
+    return f.request(url);
+  };
+  const result = await loadReleaseGallery(app, () => {}, { directory, request });
+  assert.equal(attempts, 2);
+  assert.equal(result.data.screenshots.length, 3);
+  const cached = join(directory, '.cache/release-gallery/Fixture/v1.0.0', releaseIdentity(f.assets), 'gallery.json');
+  assert.deepEqual(await readFile(cached), await readFile(join(f.dir, 'gallery.json')));
+});
+
+test('release metadata retries a temporary HTTP failure and reports permanent failures immediately', async () => {
+  let attempts = 0;
+  const assets = await latestRelease(app, async url =>
+    ++attempts === 1 ? new Response(null, { status: 503 }) : response(release)(url));
+  assert.equal(assets.release.tag_name, 'v1.0.0');
+  assert.equal(attempts, 2);
+  attempts = 0;
+  await assert.rejects(latestRelease(app, async () => {
+    attempts++;
+    return new Response(null, { status: 404 });
+  }), /HTTP 404/);
+  assert.equal(attempts, 1);
+});
+
+test('a repeatedly closed connection reports the requested release after three attempts', async () => {
+  let attempts = 0;
+  await assert.rejects(latestRelease(app, async () => {
+    attempts++;
+    const cause = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' });
+    throw new TypeError('fetch failed', { cause });
+  }), /example\/Fixture\/releases\/latest: other side closed/);
+  assert.equal(attempts, 3);
+});
+
 test('warm cache needs no archive; selection expansion and missing files regenerate only missing images', async t => {
   const f = await imageFixture(t);
   const logs = [];

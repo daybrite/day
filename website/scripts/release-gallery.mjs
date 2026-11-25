@@ -11,12 +11,38 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { availableParallelism } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import sharp from 'sharp';
 import { selectCaptures } from './gallery-selection.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const rendition = 'webp-1600-q90-v1';
+const transientCodes = new Set(['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']);
+
+// A release GET can lose its connection before the headers or partway through the body.
+// Retry the whole transfer so a partial file never satisfies the digest check.
+async function readRelease(url, { request, timeout, headers }, consume) {
+  for (let attempt = 1; ; attempt++) {
+    const signal = AbortSignal.timeout(timeout);
+    try {
+      const response = await request(url, { headers, signal });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
+      }
+      return await consume(response);
+    } catch (error) {
+      const transient = signal.aborted || transientCodes.has(error.code) || transientCodes.has(error.cause?.code)
+        || [408, 429, 500, 502, 503, 504].includes(error.status);
+      const reason = error.cause?.message ?? error.message;
+      if (!transient || attempt === 3) throw new Error(`${url}: ${reason}`, { cause: error });
+      console.warn(`[gallery] ${url}: ${reason}; retrying (attempt ${attempt + 1}/3)`);
+      await delay(500 * attempt);
+    }
+  }
+}
 
 export function releaseIdentity({ index, archive }) {
   return hash(`${index.digest}:${archive.digest}:${rendition}`);
@@ -26,12 +52,9 @@ export async function latestRelease(app, request = fetch) {
   const repo = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/?$/.exec(app.repo)?.[1];
   if (!repo || !/^[\w.-]+$/.test(app.id)) throw new Error('Invalid gallery repository');
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  const response = await request(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) throw new Error(`${app.id}: latest full release lookup HTTP ${response.status}`);
-  const release = await response.json();
+  const headers = { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  const release = await readRelease(`https://api.github.com/repos/${repo}/releases/latest`,
+    { request, timeout: 30_000, headers }, response => response.json());
   if (release.draft !== false || release.prerelease !== false || !release.published_at || !/^[\w.-]+$/.test(release.tag_name)) {
     throw new Error(`${app.id}: latest release is not a published full release`);
   }
@@ -57,9 +80,8 @@ async function download(asset, path, request = fetch) {
   if (await fileHash(path).then(value => value === digest, () => false)) return;
   const temporary = `${path}.${process.pid}.part`;
   try {
-    const response = await request(asset.browser_download_url, { signal: AbortSignal.timeout(600_000) });
-    if (!response.ok) throw new Error(`Release asset ${asset.name}: HTTP ${response.status}`);
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(temporary));
+    await readRelease(asset.browser_download_url, { request, timeout: 600_000 },
+      response => pipeline(Readable.fromWeb(response.body), createWriteStream(temporary)));
     if (await fileHash(temporary) !== digest) throw new Error(`Release asset ${asset.name}: checksum mismatch`);
     await rename(temporary, path);
   } finally {
