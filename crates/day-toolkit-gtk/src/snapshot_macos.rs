@@ -31,6 +31,8 @@ pub(super) fn has_native_surface(widget: &gtk4::Widget) -> bool {
         return false;
     };
     let ptr: *mut gtk4::gdk::ffi::GdkSurface = surface.to_glib_none().0;
+    // SAFETY: `ptr` is the live macOS GdkSurface `surface` holds, on the main thread; GDK owns
+    // the NSWindow it returns (or null), alive while the surface is.
     let Some(window) = (unsafe { gdk_macos_surface_get_native_window(ptr.cast()).as_ref() }) else {
         return false;
     };
@@ -50,7 +52,8 @@ pub(super) fn snapshot(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
         .and_then(|n| n.surface())
         .ok_or("no GDK surface")?;
     let ptr: *mut gtk4::gdk::ffi::GdkSurface = surface.to_glib_none().0;
-    // GDK owns the NSWindow for the live surface, held above for the duration of capture.
+    // SAFETY: `ptr` is the live macOS GdkSurface `surface` holds, on the main thread; GDK owns
+    // the NSWindow it returns (or null), alive while `surface` is held for the capture.
     let window = unsafe { gdk_macos_surface_get_native_window(ptr.cast()).as_ref() }
         .ok_or("no Cocoa window")?;
     let content = window.contentView().ok_or("no Cocoa content view")?;
@@ -59,6 +62,8 @@ pub(super) fn snapshot(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
         return Err("window is not on screen".into());
     }
     window.displayIfNeeded();
+    // SAFETY: plain values in (the null rect, option bits, a window number); the result is an
+    // owned CGImage or null, checked below.
     let image = unsafe {
         CGWindowListCreateImage(
             CGRect::new(
@@ -71,7 +76,8 @@ pub(super) fn snapshot(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
         )
     };
     let image = NonNull::new(image).ok_or("window server has no image")?;
-    // Create rule: transfer the single owned reference into CFRetained.
+    // SAFETY: Create rule: `image` is non-null and carries one owned reference, moved into
+    // `CFRetained` exactly once.
     let image = unsafe { CFRetained::from_raw(image) };
     let frame = window.frame();
     if frame.size.width <= 0.0 {
@@ -97,6 +103,8 @@ pub(super) fn snapshot(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
         objc2_app_kit::NSColorRenderingIntent::Default,
     );
     let rep = srgb.as_deref().unwrap_or(&rep);
+    // SAFETY: an empty properties dictionary, so no value can mismatch its key's expected type;
+    // `rep` is a live bitmap rep on the main thread.
     let png = unsafe {
         rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
     }

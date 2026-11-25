@@ -41,6 +41,8 @@ extern "C" fn on_pick(id: u64, r: f64, g: f64, b: f64, a: f64) {
 
 fn make(_backend: &mut Qt, p: &ColorProps, id: NodeId) -> QtHandle {
     let title = CString::new(p.title.as_str()).unwrap_or_default();
+    // SAFETY: a constructor on the GUI thread; `title` outlives the call and `on_pick` carries only
+    // the node id (crate note "Unsafe calls").
     QtHandle(unsafe {
         day_colorpicker_new(
             p.color.r,
@@ -57,12 +59,14 @@ fn make(_backend: &mut Qt, p: &ColorProps, id: NodeId) -> QtHandle {
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &ColorPatch) {
     let ColorPatch::SetColor(c) = patch;
+    // SAFETY: `h` is the DayColorWidget `make` returned, still live (crate note "Unsafe calls").
     unsafe { day_colorpicker_set(h.0, c.r, c.g, c.b, c.a) };
 }
 
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe calls").
     unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(72.0), hh.max(24.0))
 }

@@ -9,12 +9,15 @@ use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUnini
 struct Apartment(bool);
 impl Apartment {
     fn new() -> Self {
+        // SAFETY: initializes WinRT on this thread; `Drop` balances a successful call on the same
+        // thread, since `Subscription` (not `Send`) and the probes in `is_available` keep it there.
         Self(unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.is_ok())
     }
 }
 impl Drop for Apartment {
     fn drop(&mut self) {
         if self.0 {
+            // SAFETY: balances this value's successful `RoInitialize`, on the same thread.
             unsafe { RoUninitialize() };
         }
     }

@@ -92,6 +92,8 @@ impl TATarget {
             placeholder,
             submit_on_enter,
         });
+        // SAFETY: `this` is a fresh TATarget with ivars set; NSObject's `init` takes no arguments
+        // and returns the initialized object.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -134,6 +136,7 @@ pub fn set_text_input_trait(tv: &UITextView, sel: Sel, value: isize) {
     // retyping of `objc_msgSend` (which is `extern "C-unwind"`).
     let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel, isize) =
         unsafe { core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn()) };
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     unsafe { send(recv, sel, value) };
 }
 
@@ -163,12 +166,14 @@ fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
     if !p.text.is_empty() {
         tv.setText(Some(&NSString::from_str(&p.text)));
     }
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let line_h = unsafe { font.lineHeight() };
 
     // Placeholder overlay (UITextView has no native placeholder): a faint label pinned near the top-left
     // text origin, hidden while the editor has text.
     let ph = UILabel::new(mtm);
     ph.setText(Some(&NSString::from_str(&p.placeholder)));
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     unsafe {
         ph.setFont(Some(&font));
         ph.setTextColor(Some(&UIColor::lightGrayColor()));
@@ -182,6 +187,8 @@ fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
     tv.addSubview(<UILabel as AsRef<UIView>>::as_ref(&ph));
 
     let target = TATarget::new(mtm, id, ph.clone(), p.submit_on_enter);
+    // SAFETY: UITextView's delegate is weak; the view's `STATE` entry holds `target` until release
+    // sweeps it. Main thread (`mtm`).
     unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
 
     let ns: Retained<UIView> = Retained::from(<UITextView as AsRef<UIView>>::as_ref(&tv));

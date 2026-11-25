@@ -2841,8 +2841,10 @@ mod imp {
         aam: *mut aasset::AAssetManager,
         _keepalive: Global<JObject<'static>>,
     }
-    // The AAssetManager pointer is valid for the app lifetime; resource() runs on the main thread.
+    // SAFETY: `aam` stays valid while `_keepalive` pins its Java AssetManager (never dropped: the
+    // value lives in a static), and AAssetManager locks internally, so any thread may open assets.
     unsafe impl Send for AssetMgr {}
+    // SAFETY: as for `Send`: the only use through `&AssetMgr` is AAssetManager_open, thread-safe.
     unsafe impl Sync for AssetMgr {}
     static ASSET_MGR: OnceLock<AssetMgr> = OnceLock::new();
 
@@ -2857,6 +2859,8 @@ mod imp {
         }) else {
             return;
         };
+        // SAFETY: `env` is this thread's attached JNIEnv and `keepalive` a live global ref to an
+        // android.content.res.AssetManager, which the native pointer depends on.
         let aam =
             unsafe { aasset::AAssetManager_fromJava(env.get_raw(), keepalive.as_obj().as_raw()) };
         if aam.is_null() {
@@ -2874,19 +2878,25 @@ mod imp {
         struct AssetGuard(*mut aasset::AAsset);
         impl Drop for AssetGuard {
             fn drop(&mut self) {
+                // SAFETY: the guard owns the open, non-null asset and closes it exactly once.
                 unsafe { aasset::AAsset_close(self.0) };
             }
         }
         let mgr = ASSET_MGR.get()?.aam;
         let cname = std::ffi::CString::new(name).ok()?;
+        // SAFETY: `mgr` is valid for the process (see `AssetMgr`) and `cname` is NUL-terminated
+        // and outlives the call.
         let asset =
             unsafe { aasset::AAssetManager_open(mgr, cname.as_ptr(), aasset::AASSET_MODE_BUFFER) };
         if asset.is_null() {
             return None;
         }
+        // SAFETY: `asset` is the open, non-null asset just returned, used on this thread only.
         let len = unsafe { aasset::AAsset_getLength64(asset) };
+        // SAFETY: as above; the buffer belongs to `asset` and lives until it is closed.
         let ptr = unsafe { aasset::AAsset_getBuffer(asset) }.cast::<u8>();
         if ptr.is_null() || len < 0 {
+            // SAFETY: `asset` is open and owned here; nothing else closes it on this path.
             unsafe { aasset::AAsset_close(asset) };
             return None;
         }
@@ -6670,6 +6680,8 @@ mod imp {
         fn adopt(&mut self, raw: RawHandle) -> AHandle {
             // A recycling ListView cell (a DayFixed); Day fills/rebinds its row content in place.
             with_env(|env| {
+                // SAFETY: `raw` is a global ref this toolkit made (a list cell's or a window
+                // root's), alive during the adoption; the JObject borrows it, never deletes it.
                 let obj = unsafe { JObject::from_raw(env, raw as jni::sys::jobject) };
                 AHandle(std::sync::Arc::new(
                     // Only fails when the JNI global-ref table is exhausted (a process-fatal

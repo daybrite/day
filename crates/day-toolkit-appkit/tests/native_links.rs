@@ -31,6 +31,7 @@ fn main() {
         }
     }));
 
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -40,6 +41,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
 
     // Both an initial link and a link added reactively must use the label as the field
@@ -69,6 +71,7 @@ fn main() {
         let field = handle.downcast_ref::<NSTextField>().unwrap();
         assert!(field.isSelectable(), "links need native hit testing");
         assert_eq!(field.alignment(), objc2_app_kit::NSTextAlignment::Center);
+        // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
         unsafe { field.selectText(None) };
         let editor = field.currentEditor().expect("label has a field editor");
         let editor = editor.downcast::<NSTextView>().unwrap();
@@ -76,9 +79,11 @@ fn main() {
         assert!(delegate.respondsToSelector(sel!(textView:clickedOnLink:atIndex:)));
         for target in ["#navigate", "#settings", "https://daybrite.dev/#docs"] {
             events.borrow_mut().clear();
+            // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
             unsafe { editor.clickedOnLink_atIndex(&NSString::from_str(target), 9) };
             assert_eq!(*events.borrow(), [(41, target.to_string())]);
         }
+        // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
         unsafe {
             window.endEditingFor(None);
             handle.removeFromSuperview();

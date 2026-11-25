@@ -59,6 +59,8 @@ define_class!(
 impl PickerTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+        // SAFETY: `this` is a fresh DayPickerUIKitTarget with ivars set; NSObject's `init` takes no
+        // arguments and returns the initialized object.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -99,6 +101,8 @@ fn make_segmented(
         seg.insertSegmentWithTitle_atIndex_animated(Some(&NSString::from_str(opt)), i, false);
     }
     seg.setSelectedSegmentIndex(p.selected as isize);
+    // SAFETY: UIControl does not retain its target; the caller stores it in the view's `STATE`
+    // entry (`_target`), swept on release. Main thread; `fire:` takes the sender.
     unsafe {
         seg.addTarget_action_forControlEvents(
             Some(target as &AnyObject),
@@ -136,6 +140,8 @@ fn make_inline(
         if let Some(img) = checkmark(i == p.selected) {
             btn.setImage_forState(Some(&img), UIControlState::Normal);
         }
+        // SAFETY: UIControl does not retain its target; the caller stores it in the view's `STATE`
+        // entry (`_target`), swept on release. Main thread; the stack retains `btn`.
         unsafe {
             btn.addTarget_action_forControlEvents(
                 Some(target as &AnyObject),
@@ -179,6 +185,8 @@ fn menu_actions(
         let handler = RcBlock::new(move |_action: core::ptr::NonNull<UIAction>| {
             crate::emit(node, Event::SelectionChanged(i as i64));
         });
+        // SAFETY: UIAction copies the handler block, which owns only `node` and `i` (both Copy) and
+        // runs on the main thread. Main thread (`mtm`).
         let action = unsafe {
             UIAction::actionWithTitle_image_identifier_handler(
                 &NSString::from_str(opt),
@@ -226,16 +234,14 @@ fn attach_menu(
             .map(|end| {
                 let children = NSArray::from_retained_slice(&elems[start..end]);
                 start = end;
-                let group = unsafe {
-                    UIMenu::menuWithTitle_image_identifier_options_children(
-                        &NSString::from_str(""),
-                        None,
-                        None,
-                        objc2_ui_kit::UIMenuOptions::DisplayInline,
-                        &children,
-                        mtm,
-                    )
-                };
+                let group = UIMenu::menuWithTitle_image_identifier_options_children(
+                    &NSString::from_str(""),
+                    None,
+                    None,
+                    objc2_ui_kit::UIMenuOptions::DisplayInline,
+                    &children,
+                    mtm,
+                );
                 Retained::from(<UIMenu as AsRef<UIMenuElement>>::as_ref(&group))
             })
             .collect()

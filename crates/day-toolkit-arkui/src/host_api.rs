@@ -219,6 +219,8 @@ pub(crate) fn textarea_enter(id: i32) -> bool {
 pub fn register_cover_layer(env: Env, content: Unknown, callback: Registered<FnArgs<(bool,)>>) {
     remember(&env);
     let mut handle: ArkUI_NodeContentHandle = ptr::null_mut();
+    // SAFETY: `env` and `content` are this napi call's live env and value, on the JS thread;
+    // `handle` is a local out-parameter, left null when the value is not a NodeContent.
     unsafe {
         OH_ArkUI_GetNodeContentFromNapiValue(
             env.raw().cast(),

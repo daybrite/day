@@ -152,6 +152,8 @@ struct Lib {
 // SAFETY: the struct holds only function pointers and plain symbol addresses, valid for the life
 // of the process once the libraries are loaded (they are never unloaded).
 unsafe impl Send for Lib {}
+// SAFETY: as for `Send`: the fields are never written after `load`, so shared references only
+// read code addresses; no per-thread state lives in the struct.
 unsafe impl Sync for Lib {}
 
 static LIB: OnceLock<Option<Lib>> = OnceLock::new();
@@ -234,6 +236,7 @@ fn schema() -> &'static Schema {
 
 // SAFETY: a `Schema` is plain data and `'static` pointers into this binary's constants.
 unsafe impl Sync for Schema {}
+// SAFETY: as for `Sync`: nothing in it is tied to the thread that built it.
 unsafe impl Send for Schema {}
 
 /// A `GHashTable` of attributes whose strings this struct owns for the table's lifetime.
@@ -266,6 +269,8 @@ impl Attributes {
                 "g_hash_table_new_full failed".into(),
             ));
         }
+        // SAFETY: `table` is the live table made above; the key is a `'static` C string and the
+        // value lives in `owned`, which outlives the table.
         unsafe {
             (lib.hash_table_insert)(
                 table,
@@ -274,6 +279,8 @@ impl Attributes {
             );
         }
         if let Some(key) = key {
+            // SAFETY: as above; `key` moves into `owned` below, and moving a `CString` keeps its
+            // heap buffer where it is.
             unsafe {
                 (lib.hash_table_insert)(
                     table,

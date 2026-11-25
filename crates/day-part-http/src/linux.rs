@@ -185,6 +185,8 @@ struct Lib {
 // libcurl's global functions are thread-safe once curl_global_init has run, which loading does
 // once; every easy and multi handle stays on the driver thread.
 unsafe impl Send for Lib {}
+// SAFETY: as for `Send`: the fields are never written after loading, and the global functions
+// they point to may be called from any thread once curl_global_init has run.
 unsafe impl Sync for Lib {}
 
 /// Look a symbol up as a function pointer.

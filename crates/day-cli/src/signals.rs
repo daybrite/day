@@ -208,8 +208,9 @@ pub fn install() {
     let (read_fd, write_fd) = (fds[0], fds[1]);
     let _ = WAKE_WRITE_FD.set(write_fd);
 
-    // SAFETY: install async-signal-safe handler (only writes a byte to the pipe).
     let handler = handle_signal as *const () as usize;
+    // SAFETY: `handler` is an `extern "C" fn(i32)`, and it is async-signal-safe: it reads a
+    // OnceLock set above, before installation, and calls write(2) on the pipe.
     unsafe {
         libc::signal(libc::SIGINT, handler);
         libc::signal(libc::SIGTERM, handler);

@@ -25,6 +25,7 @@ fn main() {
     let mtm = MainThreadMarker::new().unwrap();
     let _app = NSApplication::sharedApplication(mtm);
     let mut toolkit = AppKit::new();
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -34,6 +35,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     let host = toolkit.realize(
         kinds::LIST,
@@ -61,6 +63,8 @@ fn main() {
             len: Rc::new(|| 2),
             token_at: Rc::new(|i| i as u64),
             bind_row: Rc::new(move |index, raw| {
+                // SAFETY: `raw` is the live cell view the list hands to `bind_row`; `retain` takes
+                // a +1 of it.
                 let cell = unsafe { Retained::retain(raw.cast::<NSView>()) }.unwrap();
                 // Nested content exercises discovery through the native cell's layout wrapper.
                 let mut row_toolkit = AppKit::new();

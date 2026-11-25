@@ -8,8 +8,17 @@
 //! delegate class is force-registered before `UIApplicationMain`, and exposes `window`/
 //! `setWindow:` for the no-scene-manifest compat path). iOS-only (`cfg(target_os = "ios")`);
 //! host builds see an empty crate.
-
-#![allow(unused_unsafe)]
+//!
+//! # Unsafe calls
+//!
+//! objc2 leaves an Apple framework method, function or constant `unsafe` until its header has
+//! been audited, even when it asks nothing of the caller. Those calls carry the one-line comment
+//! "unaudited Apple API". It means the receiver and every object argument are live `Retained`
+//! or borrowed references rather than raw pointers, plain values are in range, constants are
+//! read-only framework statics, and objects that belong to the main thread are only used there,
+//! which objc2's `MainThreadOnly` types enforce. A call with any further obligation (an
+//! unretained delegate or target, a raw pointer, a selector sent with `msg_send!`, a block that
+//! outlives the call) carries its own comment.
 
 // `setBadgeCount:` lives in UserNotifications; the class lookup needs the framework linked.
 #[cfg(target_os = "ios")]
@@ -1284,8 +1293,8 @@ mod imp {
                     .collect()
             });
         for (window, style) in windows {
-            if unsafe { window.overrideUserInterfaceStyle() } != style {
-                unsafe { window.setOverrideUserInterfaceStyle(style) };
+            if window.overrideUserInterfaceStyle() != style {
+                window.setOverrideUserInterfaceStyle(style);
             }
         }
     }
@@ -1312,6 +1321,15 @@ mod imp {
     ///
     /// Cached: `NSProcessInfo` is a lookup per call otherwise, and the answer cannot change
     /// while the process runs.
+    /// The app icon's badge count on iOS 15, which predates `setBadgeCount:withCompletionHandler:`.
+    #[expect(
+        deprecated,
+        reason = "the only badge API on iOS 15, which this backend supports"
+    )]
+    fn set_legacy_app_badge(count: isize) {
+        UIApplication::sharedApplication(mtm()).setApplicationIconBadgeNumber(count);
+    }
+
     fn os_at_least(major: isize) -> bool {
         thread_local! {
             static VERSION: isize = objc2_foundation::NSProcessInfo::processInfo()
@@ -1400,18 +1418,17 @@ mod imp {
         let Some(min) = min.or_else(plist_min_window_size) else {
             return;
         };
-        let Some(restrictions) = (unsafe { scene.sizeRestrictions() }) else {
+        let Some(restrictions) = scene.sizeRestrictions() else {
             return;
         };
-        unsafe { restrictions.setMinimumSize(CGSize::new(min.width, min.height)) };
+        restrictions.setMinimumSize(CGSize::new(min.width, min.height));
     }
 
     /// The URL scheme the app registered (`CFBundleURLTypes`), the first one as `day build`
     /// reads it for the Info.plist quick actions: dynamic shortcuts carry the same link form.
     fn bundle_url_scheme() -> Option<String> {
         let bundle = objc2_foundation::NSBundle::mainBundle();
-        let types =
-            unsafe { bundle.objectForInfoDictionaryKey(&NSString::from_str("CFBundleURLTypes")) }?;
+        let types = bundle.objectForInfoDictionaryKey(&NSString::from_str("CFBundleURLTypes"))?;
         let types = types.downcast::<objc2_foundation::NSArray>().ok()?;
         types.iter().find_map(|t| {
             let dict = t.downcast::<objc2_foundation::NSDictionary>().ok()?;
@@ -1428,7 +1445,7 @@ mod imp {
     fn plist_min_window_size() -> Option<Size> {
         fn key(name: &str) -> Option<f64> {
             let bundle = objc2_foundation::NSBundle::mainBundle();
-            let value = unsafe { bundle.objectForInfoDictionaryKey(&NSString::from_str(name)) }?;
+            let value = bundle.objectForInfoDictionaryKey(&NSString::from_str(name))?;
             let s = value.downcast::<NSString>().ok()?;
             s.to_string().trim().parse::<f64>().ok()
         }
@@ -1464,10 +1481,10 @@ mod imp {
                 screen.size.height,
             );
         }
-        let window = unsafe { UIWindow::initWithWindowScene(UIWindow::alloc(mtm), scene) };
+        let window = UIWindow::initWithWindowScene(UIWindow::alloc(mtm), scene);
         let vc: Retained<UIViewController> = DayRootVC::new(mtm).into_super();
         let holder = DayHolderView::new(mtm);
-        unsafe { holder.setFrame(bounds) };
+        holder.setFrame(bounds);
         // The holder tracks its window rather than keeping the frame it was built with: a scene
         // resized before its first layout pass (a restored window, a drag that starts during
         // launch) would otherwise hold the launch size until something else invalidated it.
@@ -1475,7 +1492,7 @@ mod imp {
             objc2_ui_kit::UIViewAutoresizing::FlexibleWidth
                 | objc2_ui_kit::UIViewAutoresizing::FlexibleHeight,
         );
-        let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
+        let root_view = UIView::initWithFrame(UIView::alloc(mtm), bounds);
         // RTL locales (docs/localization): force the semantic content attribute on the
         // window AND the day content roots — see the module docs.
         if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
@@ -1488,28 +1505,27 @@ mod imp {
         // (themed CI runs). A per-window override comes later, through `apply_window`.
         let style = app_style();
         if style != objc2_ui_kit::UIUserInterfaceStyle::Unspecified {
-            unsafe { window.setOverrideUserInterfaceStyle(style) };
+            window.setOverrideUserInterfaceStyle(style);
         }
-        unsafe {
-            holder.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor()));
-            holder.addSubview(&root_view);
-            vc.setView(Some(&holder));
-            window.setRootViewController(Some(&vc));
-            window.makeKeyAndVisible();
-        }
+        holder.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor()));
+        holder.addSubview(&root_view);
+        vc.setView(Some(&holder));
+        window.setRootViewController(Some(&vc));
+        window.makeKeyAndVisible();
         watch_pointer(&window);
         // Safe area as root padding (§7.7): valid once the window is key. The window's OWN
         // bounds, not the ones the holder was built with — `makeKeyAndVisible` is where a scene
         // that is smaller than it first reported settles.
         let bounds = window.bounds();
-        let insets = unsafe { window.safeAreaInsets() };
+        let insets = window.safeAreaInsets();
         // A hosted root takes the whole window (the holder's layout pass has the rule); the
         // tree usually mounts after this point, and the insert duty re-lays the holder then.
         let inner = content_frame(bounds, insets, scroll_leaf(&holder));
-        unsafe { root_view.setFrame(inner) };
+        root_view.setFrame(inner);
         if *DIAG_NAV {
-            let min = unsafe { scene.sizeRestrictions() }
-                .map_or(CGSize::new(0.0, 0.0), |r| unsafe { r.minimumSize() });
+            let min = scene
+                .sizeRestrictions()
+                .map_or(CGSize::new(0.0, 0.0), |r| r.minimumSize());
             log::debug!(
                 "DAYDIAG launch window {}x{} safe(t{} b{} l{} r{}) -> root {}x{} min {}x{}",
                 bounds.size.width,
@@ -1536,8 +1552,8 @@ mod imp {
         let app = UIApplication::sharedApplication(mtm);
         let mut any_active = false;
         let mut any_foreground = false;
-        for scene in unsafe { app.connectedScenes() } {
-            match unsafe { scene.activationState() } {
+        for scene in app.connectedScenes() {
+            match scene.activationState() {
                 S::ForegroundActive => {
                     any_active = true;
                     any_foreground = true;
@@ -1587,7 +1603,7 @@ mod imp {
                     // breathing room below the field.
                     let mut r = field.convertRect_toView(field.bounds(), Some(&sv));
                     r.size.height += 12.0;
-                    unsafe { sv.scrollRectToVisible_animated(r, true) };
+                    sv.scrollRectToVisible_animated(r, true);
                     return;
                 }
             }
@@ -1615,7 +1631,7 @@ mod imp {
                     let Some(view) = vc.viewIfLoaded() else {
                         continue;
                     };
-                    let mut extra = unsafe { vc.additionalSafeAreaInsets() };
+                    let mut extra = vc.additionalSafeAreaInsets();
                     let screen = view
                         .window()
                         .and_then(|w| w.windowScene())
@@ -1648,7 +1664,7 @@ mod imp {
                     let changed = extra.bottom != wanted;
                     if changed {
                         extra.bottom = wanted;
-                        unsafe { vc.setAdditionalSafeAreaInsets(extra) };
+                        vc.setAdditionalSafeAreaInsets(extra);
                     }
                 }
             });
@@ -1700,7 +1716,7 @@ mod imp {
     fn key_name(key: &objc2_ui_kit::UIKey) -> Option<&'static str> {
         use objc2_ui_kit::UIKeyModifierFlags as M;
         use objc2_ui_kit::UIKeyboardHIDUsage as U;
-        match unsafe { key.keyCode() } {
+        match key.keyCode() {
             U::KeyboardLeftArrow => Some("ArrowLeft"),
             U::KeyboardRightArrow => Some("ArrowRight"),
             U::KeyboardUpArrow => Some("ArrowUp"),
@@ -1709,7 +1725,8 @@ mod imp {
             U::KeyboardDeleteOrBackspace => Some("Backspace"),
             // A digit, main row or keypad, named by what it types. Never under ⌘, ⌥ or ⌃:
             // those combinations are key commands, and a canvas claiming one would starve them.
-            _ if unsafe { key.modifierFlags() }
+            _ if key
+                .modifierFlags()
                 .intersects(M::Command | M::Alternate | M::Control) =>
             {
                 None
@@ -1747,7 +1764,7 @@ mod imp {
     /// or `None` for a key that types.
     fn named_key(key: &objc2_ui_kit::UIKey) -> Option<&'static str> {
         use objc2_ui_kit::UIKeyboardHIDUsage as U;
-        Some(match unsafe { key.keyCode() } {
+        Some(match key.keyCode() {
             U::KeyboardLeftArrow => "ArrowLeft",
             U::KeyboardRightArrow => "ArrowRight",
             U::KeyboardUpArrow => "ArrowUp",
@@ -1786,7 +1803,7 @@ mod imp {
     /// same way the soft keyboard's text arrives, and a key is never heard twice.
     fn full_route_press(key: &objc2_ui_kit::UIKey) -> Option<day_spec::KeyEvent> {
         use objc2_ui_kit::UIKeyModifierFlags as M;
-        let flags = unsafe { key.modifierFlags() };
+        let flags = key.modifierFlags();
         let mods = key_modifiers(flags);
         if flags.contains(M::Command) {
             return None;
@@ -1797,7 +1814,7 @@ mod imp {
         if !flags.intersects(M::Control | M::Alternate) {
             return None;
         }
-        let typed = unsafe { key.charactersIgnoringModifiers() }.to_string();
+        let typed = key.charactersIgnoringModifiers().to_string();
         (!typed.is_empty() && !typed.chars().any(char::is_control))
             .then(|| day_spec::KeyEvent::named(typed, mods))
     }
@@ -1839,11 +1856,11 @@ mod imp {
         let node = KEY_NODES.with(|t| t.get(ptr));
         let mut rest = Vec::new();
         for press in presses {
-            let Some(key) = (unsafe { press.key(view.mtm()) }) else {
+            let Some(key) = press.key(view.mtm()) else {
                 rest.push(press.retain());
                 continue;
             };
-            let code = unsafe { key.keyCode() }.0;
+            let code = key.keyCode().0;
             let held = KEYS_DOWN
                 .with(|t| {
                     t.with(ptr, |held| {
@@ -1859,7 +1876,7 @@ mod imp {
             if let Some(node) = node
                 && (!held.text || held.inserts > 0)
             {
-                let mods = key_modifiers(unsafe { key.modifierFlags() });
+                let mods = key_modifiers(key.modifierFlags());
                 day_spec::ffi_guard::contain((), || {
                     emit(
                         node,
@@ -1899,12 +1916,12 @@ mod imp {
     ///
     ///     A view can only be associated with at most one view controller at a time!
     fn enclosing_view_controller(view: &UIView) -> Option<Retained<UIViewController>> {
-        let mut next = unsafe { view.nextResponder() };
+        let mut next = view.nextResponder();
         while let Some(responder) = next {
             if let Some(vc) = responder.downcast_ref::<UIViewController>() {
                 return Some(vc.retain());
             }
-            next = unsafe { responder.nextResponder() };
+            next = responder.nextResponder();
         }
         None
     }
@@ -2085,11 +2102,11 @@ mod imp {
                     if obj.downcast_ref::<objc2_ui_kit::UIRefreshControl>().is_some() {
                         emit(node, Event::RefreshRequested);
                     } else if let Some(sw) = obj.downcast_ref::<UISwitch>() {
-                        emit(node, Event::ToggleChanged(unsafe { sw.isOn() }));
+                        emit(node, Event::ToggleChanged(sw.isOn()));
                     } else if let Some(sl) = obj.downcast_ref::<UISlider>() {
-                        emit(node, Event::ValueChanged(f64::from(unsafe { sl.value() })));
+                        emit(node, Event::ValueChanged(f64::from(sl.value())));
                     } else if let Some(tf) = obj.downcast_ref::<UITextField>() {
-                        let s = unsafe { tf.text() }.map_or_default(|s| s.to_string());
+                        let s = tf.text().map_or_default(|s| s.to_string());
                         emit(node, Event::TextChanged(s));
                     } else {
                         emit(node, Event::Pressed);
@@ -2108,7 +2125,7 @@ mod imp {
                     if let Some(sl) = obj.downcast_ref::<UISlider>() {
                         emit(
                             self.ivars().node,
-                            Event::ValueCommitted(f64::from(unsafe { sl.value() })),
+                            Event::ValueCommitted(f64::from(sl.value())),
                         );
                     }
                 });
@@ -2155,6 +2172,8 @@ mod imp {
                 traits: RefCell::default(),
                 muted: Cell::new(false),
             });
+            // SAFETY: `this` is a fresh DayTarget with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -2179,6 +2198,7 @@ mod imp {
         let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel, A) = unsafe {
             core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn())
         };
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe { send(recv, sel, arg) };
     }
 
@@ -2198,6 +2218,7 @@ mod imp {
         let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel) -> objc2::runtime::Bool = unsafe {
             core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn())
         };
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe { send(recv, sel!(isSecureTextEntry)) }.as_bool()
     }
 
@@ -2216,6 +2237,7 @@ mod imp {
         use UITextAutocapitalizationType as C;
         // SAFETY (the statics below): UIKit string constants, present since iOS 12 at the
         // latest.
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             match purpose {
                 InputPurpose::Text => (K::Default, None, C::Sentences, true),
@@ -2354,6 +2376,8 @@ mod imp {
                 item,
                 root,
             });
+            // SAFETY: `this` is a fresh DayToolbarTarget with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -2449,8 +2473,9 @@ mod imp {
             let title = NSString::from_str(&item.label);
             let bar: Retained<UIBarButtonItem> = match &item.kind {
                 K::Search { .. } => continue,
-                K::Separator => unsafe { UIBarButtonItem::fixedSpaceItemOfWidth(16.0, mtm) },
+                K::Separator => UIBarButtonItem::fixedSpaceItemOfWidth(16.0, mtm),
                 K::Label => {
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     let b = unsafe {
                         UIBarButtonItem::initWithTitle_style_target_action(
                             UIBarButtonItem::alloc(mtm),
@@ -2460,27 +2485,23 @@ mod imp {
                             None,
                         )
                     };
-                    unsafe { b.setEnabled(false) };
+                    b.setEnabled(false);
                     out.push(b);
                     continue;
                 }
                 K::Menu { items: entries } => {
                     let menu = build_ui_menu(mtm, "", entries);
                     match image {
-                        Some(img) => unsafe {
-                            UIBarButtonItem::initWithImage_menu(
-                                UIBarButtonItem::alloc(mtm),
-                                Some(&img),
-                                Some(&menu),
-                            )
-                        },
-                        None => unsafe {
-                            UIBarButtonItem::initWithTitle_menu(
-                                UIBarButtonItem::alloc(mtm),
-                                Some(&title),
-                                Some(&menu),
-                            )
-                        },
+                        Some(img) => UIBarButtonItem::initWithImage_menu(
+                            UIBarButtonItem::alloc(mtm),
+                            Some(&img),
+                            Some(&menu),
+                        ),
+                        None => UIBarButtonItem::initWithTitle_menu(
+                            UIBarButtonItem::alloc(mtm),
+                            Some(&title),
+                            Some(&menu),
+                        ),
                     }
                 }
                 K::Segmented { segments, selected } => {
@@ -2524,13 +2545,11 @@ mod imp {
                         );
                         els.push(el);
                     }
-                    let menu = unsafe {
-                        UIMenu::menuWithTitle_children(
-                            &title,
-                            &objc2_foundation::NSArray::from_retained_slice(&els),
-                            mtm,
-                        )
-                    };
+                    let menu = UIMenu::menuWithTitle_children(
+                        &title,
+                        &objc2_foundation::NSArray::from_retained_slice(&els),
+                        mtm,
+                    );
                     // The control's own icon if it declared one; failing that the SEGMENT in
                     // force, which is what a segmented control shows anyway. Only a set of
                     // segments with no icons at all falls back to the chosen segment's word: a
@@ -2543,15 +2562,13 @@ mod imp {
                             .and_then(|s| menu_image(s.icon.as_ref()))
                     });
                     if let Some(img) = current {
-                        unsafe {
-                            UIBarButtonItem::initWithImage_menu(
-                                UIBarButtonItem::alloc(mtm),
-                                Some(&img),
-                                Some(&menu),
-                            )
-                        }
+                        UIBarButtonItem::initWithImage_menu(
+                            UIBarButtonItem::alloc(mtm),
+                            Some(&img),
+                            Some(&menu),
+                        )
                     } else {
-                        unsafe {
+                        {
                             let word = segments
                                 .get(*selected)
                                 .map_or_else(|| title.clone(), |s| NSString::from_str(&s.title));
@@ -2572,6 +2589,7 @@ mod imp {
                     let target =
                         DayToolbarTarget::new(mtm, item.action, kind, item.id.clone(), root);
                     let b = match image {
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         Some(img) => unsafe {
                             UIBarButtonItem::initWithImage_style_target_action(
                                 UIBarButtonItem::alloc(mtm),
@@ -2581,6 +2599,7 @@ mod imp {
                                 Some(sel!(fire:)),
                             )
                         },
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         None => unsafe {
                             UIBarButtonItem::initWithTitle_style_target_action(
                                 UIBarButtonItem::alloc(mtm),
@@ -2593,22 +2612,20 @@ mod imp {
                     };
                     if let K::Toggle { on } = item.kind {
                         // iOS 15's selected look for a bar button: the pressed-in tint.
-                        unsafe { b.setSelected(on) };
+                        b.setSelected(on);
                     }
                     targets.push(target);
                     b
                 }
             };
-            unsafe {
-                bar.setEnabled(item.enabled);
-                bar.setAccessibilityLabel(Some(&title), mtm);
-                // `menuRepresentation` is iOS 16's, as is the overflow it feeds: iOS 15 has no
-                // item groups to fold (see `apply_items_styled`).
-                if os_at_least(16)
-                    && let Some(rep) = menu_representation(mtm, item, root, &bar)
-                {
-                    bar.setMenuRepresentation(Some(&rep));
-                }
+            bar.setEnabled(item.enabled);
+            bar.setAccessibilityLabel(Some(&title), mtm);
+            // `menuRepresentation` is iOS 16's, as is the overflow it feeds: iOS 15 has no
+            // item groups to fold (see `apply_items_styled`).
+            if os_at_least(16)
+                && let Some(rep) = menu_representation(mtm, item, root, &bar)
+            {
+                bar.setMenuRepresentation(Some(&rep));
             }
             out.push(bar);
         }
@@ -2643,9 +2660,9 @@ mod imp {
         }
         // A pull-down keeps its children and gains the title and icon it lacked; everything
         // else becomes one action that runs the same command the button runs.
-        if let Some(menu) = unsafe { bar.menu() } {
+        if let Some(menu) = bar.menu() {
             let image = menu_image(item.icon.as_ref());
-            return Some(Retained::into_super(unsafe {
+            return Some(Retained::into_super(
                 UIMenu::menuWithTitle_image_identifier_options_children(
                     &NSString::from_str(&title),
                     image.as_deref(),
@@ -2653,8 +2670,8 @@ mod imp {
                     UIMenuOptions::empty(),
                     &menu.children(),
                     mtm,
-                )
-            }));
+                ),
+            ));
         }
         let kind = if matches!(item.kind, K::Toggle { .. }) {
             TB_TOGGLE
@@ -2724,7 +2741,7 @@ mod imp {
                                 };
                                 host_view.is_some_and(|hv| {
                                     !std::ptr::eq(&raw const *hv, &raw const *nv)
-                                        && unsafe { nv.isDescendantOfView(&hv) }
+                                        && nv.isDescendantOfView(&hv)
                                 })
                             })
                         });
@@ -2737,7 +2754,7 @@ mod imp {
                     continue;
                 };
                 // Read UIKit directly: presentation notifications can trail the merge.
-                let expanded = !unsafe { parts.split_vc.isCollapsed() };
+                let expanded = !parts.split_vc.isCollapsed();
                 if same_nav(&parts.primary_nav, nav) {
                     return if expanded {
                         BarPlacement::Column(day_spec::ToolbarColumn::Sidebar)
@@ -2784,17 +2801,13 @@ mod imp {
         hides: bool,
         initially_hidden: bool,
     ) {
-        unsafe {
-            item.setHidesSearchBarWhenScrolling(hides || initially_hidden);
-            item.setLargeTitleDisplayMode(
-                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
+        item.setHidesSearchBarWhenScrolling(hides || initially_hidden);
+        item.setLargeTitleDisplayMode(objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always);
+        nav.navigationBar().setPrefersLargeTitles(true);
+        if os_at_least(16) {
+            item.setPreferredSearchBarPlacement(
+                objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
             );
-            nav.navigationBar().setPrefersLargeTitles(true);
-            if os_at_least(16) {
-                item.setPreferredSearchBarPlacement(
-                    objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
-                );
-            }
         }
     }
 
@@ -2807,10 +2820,7 @@ mod imp {
         NAV_TABS.with(|m| {
             m.borrow()
                 .values()
-                .find(|t| {
-                    unsafe { t.tabbar.view() }
-                        .is_some_and(|v| unsafe { v.isDescendantOfView(root) })
-                })
+                .find(|t| t.tabbar.view().is_some_and(|v| v.isDescendantOfView(root)))
                 .map(|t| t.tabbar.clone())
         })
     }
@@ -2827,7 +2837,7 @@ mod imp {
                         Some(parts) => parts.split_vc.view(),
                         None => s.nav.view(),
                     };
-                    view.is_some_and(|v| unsafe { v.isDescendantOfView(root) })
+                    view.is_some_and(|v| v.isDescendantOfView(root))
                 })
                 .flat_map(|s| {
                     let mut navs = vec![s.nav.clone()];
@@ -2893,15 +2903,13 @@ mod imp {
         controls
             .iter()
             .zip(bar_items)
-            .map(|(item, bar)| unsafe {
-                objc2_ui_kit::UIBarButtonItemGroup::optionalGroupWithCustomizationIdentifier_inDefaultCustomization_representativeItem_items(
+            .map(|(item, bar)| objc2_ui_kit::UIBarButtonItemGroup::optionalGroupWithCustomizationIdentifier_inDefaultCustomization_representativeItem_items(
                     &NSString::from_str(&item.id),
                     true,
                     None,
                     &objc2_foundation::NSArray::from_retained_slice(&[bar]),
                     mtm,
-                )
-            })
+                ))
             .collect()
     }
 
@@ -2918,7 +2926,7 @@ mod imp {
         let found = WINDOW_TOOLBARS.with(|t| {
             t.borrow()
                 .iter()
-                .find(|(_, w)| unsafe { nav_view.isDescendantOfView(&w.root) })
+                .find(|(_, w)| nav_view.isDescendantOfView(&w.root))
                 .map(|(root, w)| (*root, w.items.clone()))
         });
         let Some((root, items)) = found else {
@@ -2951,7 +2959,7 @@ mod imp {
             .collect();
         // The expanded list already labels its content. Keep the controller title for
         // collapsed navigation/back history, but omit the duplicate root title in its bar.
-        unsafe {
+        {
             let title = if column == Some(day_spec::ToolbarColumn::List) {
                 Some(NSString::from_str(""))
             } else {
@@ -2964,8 +2972,8 @@ mod imp {
         // something on it (docs/toolbars.md). `apply_chrome` has just set this page's items, so
         // ask the page rather than clearing them and hiding unconditionally — which is what made
         // `Placement::Bottom` draw nothing on the one platform that has a bottom bar.
-        let has_bottom = unsafe { vc.toolbarItems() }.is_some_and(|i| !i.is_empty());
-        unsafe { nav.setToolbarHidden_animated(!has_bottom, false) };
+        let has_bottom = vc.toolbarItems().is_some_and(|i| !i.is_empty());
+        nav.setToolbarHidden_animated(!has_bottom, false);
     }
 
     /// Lower one page's chrome: `window_items` first, then that page's own contributions, split
@@ -2976,7 +2984,7 @@ mod imp {
         root: usize,
         window_items: &[day_spec::ToolbarItem],
     ) {
-        let item = unsafe { vc.navigationItem() };
+        let item = vc.navigationItem();
         apply_items_to(mtm, &item, root, window_items);
         // A bottom bar belongs to the view controller, not to its navigation item; the
         // navigation controller reveals it in `apply_window_toolbar_to` once it has items.
@@ -2987,13 +2995,11 @@ mod imp {
             .collect();
         let mut targets = Vec::new();
         let bot = bottom_bar_items(mtm, root, &bottom, &mut targets, vc);
-        unsafe {
-            vc.setToolbarItems(
-                (!bot.is_empty())
-                    .then(|| objc2_foundation::NSArray::from_retained_slice(&bot))
-                    .as_deref(),
-            );
-        }
+        vc.setToolbarItems(
+            (!bot.is_empty())
+                .then(|| objc2_foundation::NSArray::from_retained_slice(&bot))
+                .as_deref(),
+        );
         PAGE_TOOLBARS.with(|m| {
             m.borrow_mut().entry(vc_key(vc)).or_default().targets = targets;
         });
@@ -3010,7 +3016,7 @@ mod imp {
         targets: &mut Vec<Retained<DayToolbarTarget>>,
         vc: &UIViewController,
     ) -> Vec<Retained<UIBarButtonItem>> {
-        let flexible = || unsafe { UIBarButtonItem::flexibleSpaceItem(mtm) };
+        let flexible = || UIBarButtonItem::flexibleSpaceItem(mtm);
         let status = items
             .iter()
             .position(|i| matches!(i.kind, day_spec::ToolbarItemKind::Label));
@@ -3106,23 +3112,21 @@ mod imp {
                     let (Some(row), Some(vc)) = (row.load(), vc.load()) else {
                         continue;
                     };
-                    let Some(bar) = (unsafe { vc.toolbarItems() }) else {
+                    let Some(bar) = vc.toolbarItems() else {
                         continue;
                     };
                     let mut list = bar.to_vec();
                     let Some(i) = list.iter().position(|b| {
-                        unsafe { b.customView() }
+                        b.customView()
                             .is_some_and(|v| std::ptr::eq(&raw const *v, &raw const *row))
                     }) else {
                         continue;
                     };
                     list[i] = bottom_status_item(mtm, &item.id, label, &vc);
-                    unsafe {
-                        vc.setToolbarItems_animated(
-                            Some(&objc2_foundation::NSArray::from_retained_slice(&list)),
-                            false,
-                        );
-                    }
+                    vc.setToolbarItems_animated(
+                        Some(&objc2_foundation::NSArray::from_retained_slice(&list)),
+                        false,
+                    );
                 }
                 true
             }
@@ -3131,7 +3135,7 @@ mod imp {
                     if let BottomView::Button(w) = view
                         && let Some(bar) = w.load()
                     {
-                        unsafe { bar.setEnabled(*on) };
+                        bar.setEnabled(*on);
                     }
                 }
                 true
@@ -3141,7 +3145,7 @@ mod imp {
                     if let BottomView::Button(w) = view
                         && let Some(bar) = w.load()
                     {
-                        unsafe { bar.setSelected(*on) };
+                        bar.setSelected(*on);
                     }
                 }
                 true
@@ -3161,13 +3165,11 @@ mod imp {
         text: &str,
         vc: &UIViewController,
     ) -> Retained<UIBarButtonItem> {
-        let lines = unsafe { objc2_ui_kit::UIStackView::new(mtm) };
-        unsafe {
-            lines.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Vertical);
-            // Fill, with the text centered in each line: a centered stack lets a line grow past
-            // its own width, so a long status ran under the buttons beside it.
-            lines.setAlignment(objc2_ui_kit::UIStackViewAlignment::Fill);
-        }
+        let lines = objc2_ui_kit::UIStackView::new(mtm);
+        lines.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Vertical);
+        // Fill, with the text centered in each line: a centered stack lets a line grow past
+        // its own width, so a long status ran under the buttons beside it.
+        lines.setAlignment(objc2_ui_kit::UIStackViewAlignment::Fill);
         fill_status(&lines, text);
         let outer: Retained<UIView> = Retained::into_super(lines.clone());
         remember_bottom(
@@ -3177,17 +3179,18 @@ mod imp {
                 objc2::rc::Weak::from_retained(&vc.retain()),
             ),
         );
-        unsafe { UIBarButtonItem::initWithCustomView(UIBarButtonItem::alloc(mtm), &lines) }
+        UIBarButtonItem::initWithCustomView(UIBarButtonItem::alloc(mtm), &lines)
     }
 
     /// Put `text` in a status view, one label a line, reusing the labels it already has.
     fn fill_status(stack: &objc2_ui_kit::UIStackView, text: &str) {
         let mtm = stack.mtm();
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let font = unsafe {
             objc2_ui_kit::UIFont::preferredFontForTextStyle(objc2_ui_kit::UIFontTextStyleFootnote)
         };
         let lines: Vec<&str> = text.lines().collect();
-        let existing: Vec<Retained<UIView>> = unsafe { stack.arrangedSubviews() }.to_vec();
+        let existing: Vec<Retained<UIView>> = stack.arrangedSubviews().to_vec();
         for (index, line) in lines.iter().enumerate() {
             let label = if let Some(label) = existing
                 .get(index)
@@ -3201,6 +3204,8 @@ mod imp {
                 } else {
                     UIColor::secondaryLabelColor()
                 };
+                // SAFETY: UILabel implements `setAdjustsFontForContentSizeCategory:` (BOOL, void);
+                // the rest is unaudited Apple API on live views, main thread (`mtm`).
                 unsafe {
                     label.setFont(Some(&font));
                     let _: () = msg_send![&*label, setAdjustsFontForContentSizeCategory: true];
@@ -3280,6 +3285,8 @@ mod imp {
         let secondary = take(&[P::Secondary], &all);
 
         let mut targets = Vec::new();
+        // SAFETY: UIBarButtonItem implements `setAccessibilityIdentifier:`; `NAV_ITEM_TARGETS`
+        // keeps the bar targets below. The rest is unaudited Apple API, main thread.
         unsafe {
             let lead = build_toolbar_items(mtm, root, &leading, &mut targets);
             // SUPPLEMENT the back button, never replace it. `leftBarButtonItems` takes the back
@@ -3444,22 +3451,23 @@ mod imp {
                 // a wide window, where the page brings no host of its own — that controller's
                 // top item IS the bar on screen; otherwise the page composed its own host and
                 // its top item is (docs/toolbars.md).
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 let shown = unsafe { tabbar.selectedViewController() };
                 let item = shown.and_then(|vc| {
                     let inner = vc
                         .downcast_ref::<objc2_ui_kit::UINavigationController>()
                         .map(objc2::Message::retain)
                         .or_else(|| {
-                            unsafe { vc.childViewControllers() }.iter().find_map(|c| {
+                            vc.childViewControllers().iter().find_map(|c| {
                                 c.downcast::<objc2_ui_kit::UINavigationController>().ok()
                             })
                         })?;
-                    unsafe { inner.topViewController() }.map(|top| unsafe { top.navigationItem() })
+                    inner.topViewController().map(|top| top.navigationItem())
                 });
                 if let Some(it) = item {
                     apply_items_to(mtm, &it, root, &controls);
                 } else {
-                    let nav_item = unsafe { tabbar.navigationItem() };
+                    let nav_item = tabbar.navigationItem();
                     apply_items_styled(mtm, &nav_item, root, &controls, false);
                 }
             }
@@ -3477,7 +3485,7 @@ mod imp {
         }
         undock_window_toolbar(root, &root_view);
         for nav in navs {
-            for vc in &unsafe { nav.viewControllers() } {
+            for vc in &nav.viewControllers() {
                 apply_window_toolbar_to(&nav, &vc);
             }
         }
@@ -3505,7 +3513,7 @@ mod imp {
         };
         bar.setScrollEdgeAppearance(Some(&edge));
         bar.setCompactScrollEdgeAppearance(Some(&edge));
-        unsafe { bar.setTranslucent(false) };
+        bar.setTranslucent(false);
     }
 
     /// The window's own bar, built or refreshed: a `UINavigationBar` across the top of the
@@ -3534,7 +3542,7 @@ mod imp {
             let bar = UINavigationBar::initWithFrame(UINavigationBar::alloc(mtm), CGRect::ZERO);
             configure_navigation_bar(&bar, mtm);
             let item = UINavigationItem::new(mtm);
-            unsafe {
+            {
                 bar.setItems(Some(&objc2_foundation::NSArray::from_retained_slice(&[
                     item,
                 ])));
@@ -3547,7 +3555,7 @@ mod imp {
         // a principal one as the title, `Primary` in a fixed group a narrow bar never folds,
         // the rest optional groups the overflow eats from the trailing end (plain items on
         // iOS 15). The item keeps the targets (`NAV_ITEM_TARGETS`), as a page's does.
-        if let Some(item) = unsafe { bar.topItem() } {
+        if let Some(item) = bar.topItem() {
             apply_items_to(mtm, &item, root, &controls);
         }
         WINDOW_TOOLBARS.with(|t| {
@@ -3590,10 +3598,10 @@ mod imp {
             if bar_placement(&nav) == BarPlacement::Nested {
                 continue;
             }
-            for vc in &unsafe { nav.viewControllers() } {
-                unsafe { vc.setToolbarItems(None) };
+            for vc in &nav.viewControllers() {
+                vc.setToolbarItems(None);
             }
-            unsafe { nav.setToolbarHidden_animated(true, false) };
+            nav.setToolbarHidden_animated(true, false);
         }
     }
 
@@ -3638,7 +3646,7 @@ mod imp {
                     if self.ivars().suppress.get() {
                         return;
                     }
-                    let text = unsafe { sc.searchBar().text() }.map_or_default(|t| t.to_string());
+                    let text = sc.searchBar().text().map_or_default(|t| t.to_string());
                     self.report_text(text);
                 });
             }
@@ -3652,7 +3660,7 @@ mod imp {
             #[unsafe(method(searchBarSearchButtonClicked:))]
             fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
                 day_spec::ffi_guard::contain((), || {
-                    let text = unsafe { bar.text() }.map_or_default(|t| t.to_string());
+                    let text = bar.text().map_or_default(|t| t.to_string());
                     self.report_text(text.clone());
                     self.send(day_spec::ToolbarValue::Submit(text));
                     let _ = bar.resignFirstResponder();
@@ -3675,6 +3683,8 @@ mod imp {
                 suppress: Cell::new(false),
                 last: RefCell::new(text.to_string()),
             });
+            // SAFETY: `this` is a fresh DayPageSearch with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
 
@@ -3698,12 +3708,12 @@ mod imp {
         /// Show `text` without reporting it back: the app's own write (`ToolbarPatch::Text`).
         fn show_text(&self, sc: &objc2_ui_kit::UISearchController, text: &str) {
             *self.ivars().last.borrow_mut() = text.to_string();
-            let bar = unsafe { sc.searchBar() };
-            if unsafe { bar.text() }.is_some_and(|t| t.to_string() == text) {
+            let bar = sc.searchBar();
+            if bar.text().is_some_and(|t| t.to_string() == text) {
                 return;
             }
             self.ivars().suppress.set(true);
-            unsafe { bar.setText(Some(&NSString::from_str(text))) };
+            bar.setText(Some(&NSString::from_str(text)));
             self.ivars().suppress.set(false);
         }
     }
@@ -3760,12 +3770,14 @@ mod imp {
             }
         };
         if let Some(tabbar) = tabs_host_under(root_view) {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let shown = unsafe { tabbar.selectedViewController() }?;
             let inner = shown
                 .downcast_ref::<objc2_ui_kit::UINavigationController>()
                 .map(objc2::Message::retain)
                 .or_else(|| {
-                    unsafe { shown.childViewControllers() }
+                    shown
+                        .childViewControllers()
                         .iter()
                         .find_map(|c| c.downcast::<objc2_ui_kit::UINavigationController>().ok())
                 })?;
@@ -3781,7 +3793,7 @@ mod imp {
                         Some(parts) => parts.split_vc.view(),
                         None => s.nav.view(),
                     };
-                    view.is_some_and(|v| unsafe { v.isDescendantOfView(root_view) })
+                    view.is_some_and(|v| v.isDescendantOfView(root_view))
                 })
                 .map(|s| {
                     let nav: Retained<DayNavController> = match &s.split {
@@ -3806,7 +3818,7 @@ mod imp {
 
     /// Take a page's field off its navigation item, if it is still the one there.
     fn detach_page_search(entry: &PageSearch) {
-        unsafe {
+        {
             if entry.sc.isActive() {
                 entry.sc.setActive(false);
             }
@@ -3861,7 +3873,7 @@ mod imp {
         else {
             return None;
         };
-        let nav_item = unsafe { vc.navigationItem() };
+        let nav_item = vc.navigationItem();
         let existing = PAGE_SEARCH.with(|m| {
             m.borrow()
                 .get(&vc_key(&vc))
@@ -3871,16 +3883,16 @@ mod imp {
             found
         } else {
             // A sidebar root carries its navigation surface's own search; that one stays.
-            if unsafe { nav_item.searchController() }.is_some() {
+            if nav_item.searchController().is_some() {
                 return None;
             }
             let handler = DayPageSearch::new(mtm, item.action, text);
-            let sc = unsafe {
-                objc2_ui_kit::UISearchController::initWithSearchResultsController(
-                    objc2_ui_kit::UISearchController::alloc(mtm),
-                    None,
-                )
-            };
+            let sc = objc2_ui_kit::UISearchController::initWithSearchResultsController(
+                objc2_ui_kit::UISearchController::alloc(mtm),
+                None,
+            );
+            // SAFETY: The updater and bar delegate are weak; `PAGE_SEARCH` keeps `handler` with
+            // `sc`. `setReturnKeyType:` takes the NSInteger `send_input_trait` needs.
             unsafe {
                 sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(&*handler)));
                 // The results replace the page's own content, so nothing is dimmed.
@@ -3925,7 +3937,7 @@ mod imp {
             (sc, handler)
         };
         handler.ivars().action.set(item.action);
-        unsafe {
+        {
             if nav_item.searchController().is_none() {
                 nav_item.setSearchController(Some(&sc));
             }
@@ -3959,14 +3971,14 @@ mod imp {
                     return;
                 };
                 let vc = vc.get(mtm);
-                let nav = unsafe { vc.navigationController() };
+                let nav = vc.navigationController();
                 let shown = vc.viewIfLoaded().is_some_and(|v| v.window().is_some());
                 match nav.and_then(|n| n.viewIfLoaded()) {
                     Some(nav_view) if shown => {
                         // The open bar is laid out first; the flag only governs what scrolling
                         // does from there.
                         nav_view.layoutIfNeeded();
-                        unsafe { vc.navigationItem().setHidesSearchBarWhenScrolling(true) };
+                        vc.navigationItem().setHidesSearchBarWhenScrolling(true);
                     }
                     _ if attempt < 100 => hide_page_search_when_drawn(vc.retain(), attempt + 1),
                     _ => {}
@@ -3977,6 +3989,8 @@ mod imp {
 
     /// `UISearchBar.searchTextField` (iOS 13), typed as the `UITextField` it is.
     fn search_text_field(bar: &objc2_ui_kit::UISearchBar) -> Option<Retained<UITextField>> {
+        // SAFETY: UISearchBar implements `searchTextField` (iOS 13+), returning a
+        // UISearchTextField, a UITextField subclass. Main thread.
         unsafe { msg_send![bar, searchTextField] }
     }
 
@@ -3988,7 +4002,7 @@ mod imp {
         let found = WINDOW_TOOLBARS.with(|t| {
             t.borrow()
                 .iter()
-                .find(|(_, w)| unsafe { nav_view.isDescendantOfView(&w.root) })
+                .find(|(_, w)| nav_view.isDescendantOfView(&w.root))
                 .map(|(root, w)| (*root, w.root.clone()))
         });
         if let Some((root, root_view)) = found {
@@ -4004,14 +4018,14 @@ mod imp {
         };
         match patch {
             day_spec::ToolbarPatch::Text { text, .. } => handler.show_text(&sc, text),
-            day_spec::ToolbarPatch::Focus { .. } => unsafe {
+            day_spec::ToolbarPatch::Focus { .. } => {
                 sc.setActive(true);
                 sc.searchBar().becomeFirstResponder();
-            },
-            day_spec::ToolbarPatch::Placeholder { text, .. } => unsafe {
+            }
+            day_spec::ToolbarPatch::Placeholder { text, .. } => {
                 sc.searchBar()
                     .setPlaceholder(Some(&NSString::from_str(text)));
-            },
+            }
             // UIKit's completion surface is not wired yet (as for a surface's own search).
             _ => {}
         }
@@ -4023,7 +4037,7 @@ mod imp {
     }
     impl Drop for FrameSource {
         fn drop(&mut self) {
-            unsafe { self.link.invalidate() };
+            self.link.invalidate();
         }
     }
     struct FrameState {
@@ -4041,11 +4055,11 @@ mod imp {
             #[unsafe(method(step:))]
             fn step(&self, link: &CADisplayLink) {
                 day_spec::ffi_guard::contain((), || {
-                    unsafe { link.setPaused(true) };
+                    link.setPaused(true);
                     let token = self.ivars().token.replace(0);
                     day_core::frame::native::deliver(token, day_spec::FrameStamp {
-                        timestamp: unsafe { link.timestamp() },
-                        target_timestamp: Some(unsafe { link.targetTimestamp() }),
+                        timestamp: link.timestamp(),
+                        target_timestamp: Some(link.targetTimestamp()),
                     });
                     if self.ivars().token.get() == 0 {
                         FRAMES.with(|s| s.borrow_mut().remove(&self.ivars().key));
@@ -4088,7 +4102,7 @@ mod imp {
                 _interaction: isize,
             ) -> bool {
                 day_spec::ffi_guard::contain((), || {
-                    if let Some(s) = unsafe { url.absoluteString() } {
+                    if let Some(s) = url.absoluteString() {
                         let s = s.to_string();
                         // Already reported by the tap recognizer, a beat earlier.
                         let echo = LAST_LINK_TAP.with(|l| {
@@ -4129,10 +4143,10 @@ mod imp {
             #[unsafe(method(tapped:))]
             fn tapped(&self, recognizer: &UIGestureRecognizer) {
                 day_spec::ffi_guard::contain((), || {
-                    let Some(view) = (unsafe { recognizer.view() }) else {
+                    let Some(view) = recognizer.view() else {
                         return;
                     };
-                    let point = unsafe { recognizer.locationInView(Some(&view)) };
+                    let point = recognizer.locationInView(Some(&view));
                     let Some(url) = link_at(&view, point) else {
                         return;
                     };
@@ -4156,6 +4170,8 @@ mod imp {
         let Some(mtm) = MainThreadMarker::new() else {
             return (11.0, 44.0);
         };
+        // SAFETY: The cell implements `defaultContentConfiguration` and `setContentConfiguration:`;
+        // the configuration, `setText:` and `directionalLayoutMargins`. Main thread.
         unsafe {
             let cell = objc2_ui_kit::UITableViewCell::initWithStyle_reuseIdentifier(
                 objc2_ui_kit::UITableViewCell::alloc(mtm),
@@ -4180,6 +4196,8 @@ mod imp {
 
     /// The link target of the character at `point` in text view `view`, if it carries one.
     fn link_at(view: &UIView, point: objc2_core_foundation::CGPoint) -> Option<String> {
+        // SAFETY: `view` is a live UITextView; the UITextInput sends match their declarations, and
+        // a null effective-range pointer is allowed. Main thread.
         unsafe {
             let range: Option<Retained<AnyObject>> = msg_send![view, characterRangeAtPoint: point];
             let range = range?;
@@ -4217,12 +4235,17 @@ mod imp {
                 return;
             }
             let this = Self::alloc(mtm).set_ivars(node);
+            // SAFETY: `this` is a fresh DayTextLink with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             let delegate: Retained<Self> = unsafe { msg_send![super(this), init] };
+            // SAFETY: UITextView's delegate is weak; `TEXT_LINKS` holds `delegate` until the view's
+            // release sweeps it. Main thread (`mtm`).
             unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
             if !taps {
                 TEXT_LINKS.with(|t| t.insert(ptr_of_view(tv), delegate));
                 return;
             }
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let tap = unsafe {
                 UITapGestureRecognizer::initWithTarget_action(
                     UITapGestureRecognizer::alloc(mtm),
@@ -4230,12 +4253,10 @@ mod imp {
                     Some(sel!(tapped:)),
                 )
             };
-            unsafe {
-                // The text view keeps the touch: its long-press preview and VoiceOver still work.
-                tap.setCancelsTouchesInView(false);
-                tap.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-                tv.addGestureRecognizer(&tap);
-            }
+            // The text view keeps the touch: its long-press preview and VoiceOver still work.
+            tap.setCancelsTouchesInView(false);
+            tap.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            tv.addGestureRecognizer(&tap);
             TEXT_LINKS.with(|t| t.insert(ptr_of_view(tv), delegate));
         }
     }
@@ -4376,15 +4397,16 @@ mod imp {
             NSBaselineOffsetAttributeName, NSKernAttributeName, NSMutableParagraphStyle,
             NSParagraphStyleAttributeName, NSWritingDirection,
         };
-        let s = unsafe {
-            NSMutableAttributedString::initWithAttributedString(
-                NSMutableAttributedString::alloc(),
-                text,
-            )
-        };
+        let s = NSMutableAttributedString::initWithAttributedString(
+            NSMutableAttributedString::alloc(),
+            text,
+        );
         let whole = NSRange::new(0, s.length());
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let points = unsafe { font.pointSize() };
         let style = NSMutableParagraphStyle::new();
+        // SAFETY: unaudited Apple API; `whole` spans `s`, the attribute values are the documented
+        // NSNumber and NSParagraphStyle types, all live on the main thread.
         unsafe {
             match crate::label_text::kern(look.para.letter_spacing, points) {
                 Some(k) => {
@@ -4455,21 +4477,19 @@ mod imp {
             } else {
                 NSLineBreakMode::ByTruncatingTail
             };
-            unsafe {
-                label.setNumberOfLines(lines.cast_signed());
-                if (styled || look.styled)
-                    && let (Some(text), Some(font)) = (label.attributedText(), label.font())
-                {
-                    label.setAttributedText(Some(&restyled(&text, &font, &look, align, mode)));
-                }
-                // After the attributed text, which brings its own alignment; either setter
-                // restyles the whole string, so only when the value moved.
-                if label.textAlignment() != align {
-                    label.setTextAlignment(align);
-                }
-                if label.lineBreakMode() != mode {
-                    label.setLineBreakMode(mode);
-                }
+            label.setNumberOfLines(lines.cast_signed());
+            if (styled || look.styled)
+                && let (Some(text), Some(font)) = (label.attributedText(), label.font())
+            {
+                label.setAttributedText(Some(&restyled(&text, &font, &look, align, mode)));
+            }
+            // After the attributed text, which brings its own alignment; either setter
+            // restyles the whole string, so only when the value moved.
+            if label.textAlignment() != align {
+                label.setTextAlignment(align);
+            }
+            if label.lineBreakMode() != mode {
+                label.setLineBreakMode(mode);
             }
         } else if let Some(tv) = view.downcast_ref::<UITextView>() {
             let mode = if lines > 0 {
@@ -4477,7 +4497,7 @@ mod imp {
             } else {
                 NSLineBreakMode::ByWordWrapping
             };
-            unsafe {
+            {
                 let container = tv.textContainer();
                 container.setMaximumNumberOfLines(lines);
                 container.setLineBreakMode(mode);
@@ -4530,8 +4550,10 @@ mod imp {
         }
         // `selectedRange` is what iOS 15 has; the SDK deprecates it for iOS 26's
         // `selectedRanges`, whose union it still is.
+        // SAFETY: UITextView implements `selectedRange`, returning an NSRange by value. Main
+        // thread.
         let range: NSRange = unsafe { msg_send![tv, selectedRange] };
-        let text = unsafe { tv.text() }.to_string();
+        let text = tv.text().to_string();
         let (start, end) = crate::label_text::byte_range(&text, range.location, range.length);
         let (was_start, was_end) = look.selection;
         // Once per change; a caret moving inside an empty selection is no change.
@@ -4553,6 +4575,8 @@ mod imp {
         // look among the instance methods).
         let class = <UITextView as objc2::ClassType>::class();
         let opts_out: bool =
+            // SAFETY: the UITextView class object answers `respondsToSelector:` (SEL, BOOL), as
+            // every NSObject class does.
             unsafe { msg_send![class, respondsToSelector: sel!(textViewUsingTextLayoutManager:)] };
         if opts_out {
             UITextView::textViewUsingTextLayoutManager(false, mtm)
@@ -4566,6 +4590,8 @@ mod imp {
     fn link_text_view(p: &LabelProps, id: NodeId, mtm: MainThreadMarker) -> Retained<UITextView> {
         let tv = label_text_view(mtm);
         let font = resolve_font(p.font);
+        // SAFETY: UITextView implements `setAdjustsFontForContentSizeCategory:` (BOOL) and
+        // `textContainer`, which takes `setLineFragmentPadding:` (CGFloat).
         unsafe {
             tv.setFont(Some(&font));
             let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: true];
@@ -4615,7 +4641,7 @@ mod imp {
 
     /// Whether `ancestor` is a strict ancestor of `view`.
     fn is_strict_ancestor(ancestor: &UIView, view: &UIView) -> bool {
-        !std::ptr::eq(ancestor, view) && unsafe { view.isDescendantOfView(ancestor) }
+        !std::ptr::eq(ancestor, view) && view.isDescendantOfView(ancestor)
     }
 
     define_class!(
@@ -4640,7 +4666,7 @@ mod imp {
                     if self.ivars().kind != day_spec::GestureKind::Rotate {
                         return false;
                     }
-                    let same_view = match (unsafe { a.view() }, unsafe { b.view() }) {
+                    let same_view = match (a.view(), b.view()) {
                         (Some(x), Some(y)) => std::ptr::eq(&raw const *x, &raw const *y),
                         _ => false,
                     };
@@ -4651,7 +4677,7 @@ mod imp {
                     other.downcast_ref::<UIPinchGestureRecognizer>().is_some()
                         || other
                             .downcast_ref::<UIPanGestureRecognizer>()
-                            .is_some_and(|p| unsafe { p.minimumNumberOfTouches() } >= 2)
+                            .is_some_and(|p| p.minimumNumberOfTouches() >= 2)
                 })
             }
 
@@ -4662,7 +4688,7 @@ mod imp {
             #[unsafe(method(gestureRecognizerShouldBegin:))]
             fn should_begin(&self, g: &UIGestureRecognizer) -> bool {
                 day_spec::ffi_guard::contain(true, || {
-                    let Some(view) = (unsafe { g.view() }) else {
+                    let Some(view) = g.view() else {
                         return true;
                     };
                     match self.ivars().kind {
@@ -4674,8 +4700,8 @@ mod imp {
                             let Some(pan) = obj.downcast_ref::<UIPanGestureRecognizer>() else {
                                 return true;
                             };
-                            let v = unsafe { pan.velocityInView(Some(&view)) };
-                            let t = unsafe { pan.translationInView(Some(&view)) };
+                            let v = pan.velocityInView(Some(&view));
+                            let t = pan.translationInView(Some(&view));
                             // The translation decides; the velocity breaks a tie at zero travel.
                             let probe = if t.x == 0.0 && t.y == 0.0 { v } else { t };
                             axis.leads(day_spec::Point::new(probe.x, probe.y))
@@ -4693,7 +4719,7 @@ mod imp {
             #[unsafe(method(gestureRecognizer:shouldBeRequiredToFailByGestureRecognizer:))]
             fn required_to_fail_by(&self, a: &UIGestureRecognizer, b: &UIGestureRecognizer) -> bool {
                 day_spec::ffi_guard::contain(false, || {
-                    let (Some(mine), Some(theirs)) = (unsafe { a.view() }, unsafe { b.view() })
+                    let (Some(mine), Some(theirs)) = (a.view(), b.view())
                     else {
                         return false;
                     };
@@ -4719,10 +4745,10 @@ mod imp {
             fn fire(&self, g: &UIGestureRecognizer) {
                 day_spec::ffi_guard::contain((), || {
                     let node = self.ivars().node;
-                    let view = unsafe { g.view() };
-                    let loc = unsafe { g.locationInView(view.as_deref()) };
+                    let view = g.view();
+                    let loc = g.locationInView(view.as_deref());
                     let at = day_spec::Point::new(loc.x, loc.y);
-                    let state = unsafe { g.state() };
+                    let state = g.state();
                     let phase = match state {
                         UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
                         UIGestureRecognizerState::Ended
@@ -4738,7 +4764,7 @@ mod imp {
                             return;
                         }
                         if let Some(pan) = obj.downcast_ref::<UIPanGestureRecognizer>() {
-                            let v = unsafe { pan.velocityInView(view.as_deref()) };
+                            let v = pan.velocityInView(view.as_deref());
                             emit(
                                 node,
                                 Event::GestureVelocity {
@@ -4753,7 +4779,7 @@ mod imp {
                             let translation = if let Some(pan) =
                                 obj.downcast_ref::<UIPanGestureRecognizer>()
                             {
-                                let t = unsafe { pan.translationInView(view.as_deref()) };
+                                let t = pan.translationInView(view.as_deref());
                                 day_spec::Point::new(t.x, t.y)
                             } else {
                                 day_spec::Point::ZERO
@@ -4773,7 +4799,7 @@ mod imp {
                             // exactly Event::Pinch's contract.
                             let scale = obj
                                 .downcast_ref::<UIPinchGestureRecognizer>()
-                                .map_or(1.0, |p| unsafe { p.scale() });
+                                .map_or(1.0, objc2_ui_kit::UIPinchGestureRecognizer::scale);
                             emit(
                                 node,
                                 Event::Pinch {
@@ -4789,7 +4815,7 @@ mod imp {
                             // exactly Event::Rotate's contract.
                             let rotation = obj
                                 .downcast_ref::<UIRotationGestureRecognizer>()
-                                .map_or(0.0, |r| unsafe { r.rotation() });
+                                .map_or(0.0, objc2_ui_kit::UIRotationGestureRecognizer::rotation);
                             emit(
                                 node,
                                 Event::Rotate {
@@ -4809,8 +4835,8 @@ mod imp {
                             let delta = if let Some(pan) =
                                 obj.downcast_ref::<UIPanGestureRecognizer>()
                             {
-                                let t = unsafe { pan.translationInView(view.as_deref()) };
-                                unsafe {
+                                let t = pan.translationInView(view.as_deref());
+                                {
                                     pan.setTranslation_inView(
                                         CGPoint::new(0.0, 0.0),
                                         view.as_deref(),
@@ -4852,6 +4878,8 @@ mod imp {
                 kind,
                 recognizer: RefCell::new(None),
             });
+            // SAFETY: `this` is a fresh DayGesture with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -4882,7 +4910,7 @@ mod imp {
 
     /// The kind of device behind a touch.
     fn touch_kind(touch: &objc2_ui_kit::UITouch) -> day_spec::PointerKind {
-        match unsafe { touch.r#type() } {
+        match touch.r#type() {
             objc2_ui_kit::UITouchType::Pencil => day_spec::PointerKind::Stylus,
             objc2_ui_kit::UITouchType::IndirectPointer => day_spec::PointerKind::Mouse,
             _ => day_spec::PointerKind::Touch,
@@ -4938,7 +4966,7 @@ mod imp {
 
     /// Whether UIKit would hit-test into `view` at all.
     fn hit_testable(view: &UIView) -> bool {
-        unsafe { !view.isHidden() && view.isUserInteractionEnabled() && view.alpha() >= 0.01 }
+        !view.isHidden() && view.isUserInteractionEnabled() && view.alpha() >= 0.01
     }
 
     /// Whether `p` (in `view`'s coordinates) lies in the slop of `view` or of a view under it.
@@ -4946,9 +4974,9 @@ mod imp {
         if HIT_SLOP.with(|t| t.contains(ptr_of(view))) && rect_contains(hit_area(view), p) {
             return true;
         }
-        unsafe { view.subviews() }.iter().any(|s| {
-            hit_testable(&s) && reaches_slop(&s, unsafe { view.convertPoint_toView(p, Some(&s)) })
-        })
+        view.subviews()
+            .iter()
+            .any(|s| hit_testable(&s) && reaches_slop(&s, view.convertPoint_toView(p, Some(&s))))
     }
 
     /// `pointInside:withEvent:` for Day's container and canvas views: the bounds grown by the
@@ -4957,9 +4985,8 @@ mod imp {
     fn day_point_inside(view: &UIView, p: CGPoint) -> bool {
         rect_contains(hit_area(view), p)
             || (slop_in_use()
-                && unsafe { view.subviews() }.iter().any(|s| {
-                    hit_testable(&s)
-                        && reaches_slop(&s, unsafe { view.convertPoint_toView(p, Some(&s)) })
+                && view.subviews().iter().any(|s| {
+                    hit_testable(&s) && reaches_slop(&s, view.convertPoint_toView(p, Some(&s)))
                 }))
     }
 
@@ -4967,8 +4994,8 @@ mod imp {
     /// recognizer or an interaction (context menu, drag source, drop target, pointer effect)
     /// is attached, or `keys` says it takes focus.
     fn takes_touches(view: &UIView, keys: bool) -> bool {
-        keys || unsafe { view.gestureRecognizers() }.is_some_and(|g| g.count() > 0)
-            || unsafe { view.interactions() }.count() > 0
+        keys || view.gestureRecognizers().is_some_and(|g| g.count() > 0)
+            || view.interactions().count() > 0
     }
 
     /// `hitTest:withEvent:` for Day's container and canvas views. The subviews front to back,
@@ -4984,10 +5011,10 @@ mod imp {
         if !hit_testable(view) || !day_point_inside(view, point) {
             return None;
         }
-        let subviews = unsafe { view.subviews() }.to_vec();
+        let subviews = view.subviews().to_vec();
         for sub in subviews.into_iter().rev() {
-            let p = unsafe { view.convertPoint_toView(point, Some(&sub)) };
-            if let Some(hit) = unsafe { sub.hitTest_withEvent(p, event) } {
+            let p = view.convertPoint_toView(point, Some(&sub));
+            if let Some(hit) = sub.hitTest_withEvent(p, event) {
                 return Some(hit);
             }
             if hit_testable(&sub)
@@ -4999,7 +5026,7 @@ mod imp {
                     p.x.clamp(b.origin.x, b.origin.x + (b.size.width - 0.5).max(0.0)),
                     p.y.clamp(b.origin.y, b.origin.y + (b.size.height - 0.5).max(0.0)),
                 );
-                return unsafe { sub.hitTest_withEvent(inside, event) }.or(Some(sub));
+                return sub.hitTest_withEvent(inside, event).or(Some(sub));
             }
         }
         (own && rect_contains(hit_area(view), point)).then(|| view.retain())
@@ -5009,12 +5036,12 @@ mod imp {
     /// view's pan, a back swipe, a pager's swipe. Those cancel the view's touches; an observer
     /// that runs alongside them still sees the moves, so it asks.
     fn ancestor_took_over(view: &UIView) -> bool {
-        let mut cur = unsafe { view.superview() };
+        let mut cur = view.superview();
         while let Some(v) = cur {
-            if let Some(recognizers) = unsafe { v.gestureRecognizers() } {
+            if let Some(recognizers) = v.gestureRecognizers() {
                 for r in &recognizers {
-                    let state = unsafe { r.state() };
-                    if unsafe { r.cancelsTouchesInView() }
+                    let state = r.state();
+                    if r.cancelsTouchesInView()
                         && (state == UIGestureRecognizerState::Began
                             || state == UIGestureRecognizerState::Changed)
                     {
@@ -5022,7 +5049,7 @@ mod imp {
                     }
                 }
             }
-            cur = unsafe { v.superview() };
+            cur = v.superview();
         }
         false
     }
@@ -5086,6 +5113,8 @@ mod imp {
 
             #[unsafe(method(reset))]
             fn reset(&self) {
+                // SAFETY: UIGestureRecognizer implements `reset` (no arguments, void); this is its
+                // override.
                 let _: () = unsafe { msg_send![super(self), reset] };
                 day_spec::ffi_guard::contain((), || self.finish(true));
             }
@@ -5110,15 +5139,15 @@ mod imp {
                 contacts: RefCell::new(Vec::new()),
                 next_id: Cell::new(0),
             });
+            // SAFETY: UIGestureRecognizer's designated `initWithTarget:action:` accepts a nil
+            // target and a null action; `this` is a fresh DayObserver with ivars set.
             let this: Retained<Self> = unsafe {
                 msg_send![super(this), initWithTarget: None::<&AnyObject>, action: None::<Sel>]
             };
-            unsafe {
-                this.setCancelsTouchesInView(false);
-                this.setDelaysTouchesBegan(false);
-                this.setDelaysTouchesEnded(false);
-                this.setDelegate(Some(ProtocolObject::from_ref(&*this)));
-            }
+            this.setCancelsTouchesInView(false);
+            this.setDelaysTouchesBegan(false);
+            this.setDelaysTouchesEnded(false);
+            this.setDelegate(Some(ProtocolObject::from_ref(&*this)));
             this
         }
 
@@ -5129,7 +5158,7 @@ mod imp {
             event: &objc2_ui_kit::UIEvent,
             step: u8,
         ) {
-            let view = unsafe { self.view() };
+            let view = self.view();
             match self.ivars().what {
                 Observe::Pointer => {
                     if step == 0
@@ -5142,17 +5171,17 @@ mod imp {
                 Observe::Touches => self.observe_touches(touches, event, step, view.as_deref()),
             }
             if step >= 2 {
-                let all = unsafe { event.touchesForGestureRecognizer(self) };
+                let all = event.touchesForGestureRecognizer(self);
                 let done = all.is_none_or(|all| {
                     all.iter().all(|t| {
-                        let p = unsafe { t.phase() };
+                        let p = t.phase();
                         p == objc2_ui_kit::UITouchPhase::Ended
                             || p == objc2_ui_kit::UITouchPhase::Cancelled
                     })
                 });
                 if done {
                     // Possible → Failed: UIKit resets the observer for the next sequence.
-                    unsafe { self.setState(UIGestureRecognizerState::Failed) };
+                    self.setState(UIGestureRecognizerState::Failed);
                 }
             }
         }
@@ -5169,11 +5198,11 @@ mod imp {
             let Some(touch) = touches.iter().next() else {
                 return;
             };
-            let at = unsafe { touch.locationInView(Some(view)) };
+            let at = touch.locationInView(Some(view));
             match step {
                 0 => {
                     // The first contact only, and a pointer's primary button only.
-                    let buttons = unsafe { event.buttonMask() };
+                    let buttons = event.buttonMask();
                     let primary = buttons.0 == 0
                         || buttons.contains(objc2_ui_kit::UIEventButtonMask::Primary);
                     if iv.pressed.get() || !primary {
@@ -5219,7 +5248,7 @@ mod imp {
                 .iter()
                 .map(|t| Retained::as_ptr(&t) as usize)
                 .collect();
-            let Some(all) = (unsafe { event.touchesForGestureRecognizer(self) }) else {
+            let Some(all) = event.touchesForGestureRecognizer(self) else {
                 return;
             };
             let mut report = Vec::new();
@@ -5244,16 +5273,16 @@ mod imp {
                         _ => day_spec::TouchPhase::Cancelled,
                     }
                 } else {
-                    match unsafe { touch.phase() } {
+                    match touch.phase() {
                         objc2_ui_kit::UITouchPhase::Ended => day_spec::TouchPhase::Ended,
                         objc2_ui_kit::UITouchPhase::Cancelled => day_spec::TouchPhase::Cancelled,
                         _ => day_spec::TouchPhase::Stationary,
                     }
                 };
-                let at = unsafe { touch.locationInView(view) };
-                let max = unsafe { touch.maximumPossibleForce() };
+                let at = touch.locationInView(view);
+                let max = touch.maximumPossibleForce();
                 let pressure = if max > 0.0 {
-                    (unsafe { touch.force() }) / max
+                    (touch.force()) / max
                 } else {
                     1.0
                 };
@@ -5311,6 +5340,7 @@ mod imp {
     fn watch_pointer(window: &UIWindow) {
         let mtm = window.mtm();
         let observer = DayObserver::new(mtm, WINDOW_NODE, Observe::Pointer);
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let hover = unsafe {
             objc2_ui_kit::UIHoverGestureRecognizer::initWithTarget_action(
                 objc2_ui_kit::UIHoverGestureRecognizer::alloc(mtm),
@@ -5318,12 +5348,10 @@ mod imp {
                 Some(sel!(hover:)),
             )
         };
-        unsafe {
-            hover.setCancelsTouchesInView(false);
-            hover.setDelegate(Some(ProtocolObject::from_ref(&*observer)));
-            window.addGestureRecognizer(&observer);
-            window.addGestureRecognizer(&hover);
-        }
+        hover.setCancelsTouchesInView(false);
+        hover.setDelegate(Some(ProtocolObject::from_ref(&*observer)));
+        window.addGestureRecognizer(&observer);
+        window.addGestureRecognizer(&hover);
         POINTER_WATCH.with(|w| w.borrow_mut().push(observer));
     }
 
@@ -5368,7 +5396,7 @@ mod imp {
             .with(|t| t.with(key, |g| g.interaction = true))
             .is_none()
         {
-            unsafe { view.setUserInteractionEnabled(true) };
+            view.setUserInteractionEnabled(true);
         }
     }
 
@@ -5383,7 +5411,7 @@ mod imp {
     }
 
     fn for_each_descendant(view: &UIView, f: &mut impl FnMut(&UIView)) {
-        for sub in unsafe { view.subviews() } {
+        for sub in view.subviews() {
             f(&sub);
             for_each_descendant(&sub, f);
         }
@@ -5406,10 +5434,8 @@ mod imp {
                 return;
             }
             GROUP_OFF.with(|t| t.remove(key));
-            unsafe {
-                root.setUserInteractionEnabled(g.interaction);
-                root.setTintAdjustmentMode(g.tint);
-            }
+            root.setUserInteractionEnabled(g.interaction);
+            root.setTintAdjustmentMode(g.tint);
             for_each_descendant(root, &mut |v| {
                 let vk = ptr_of(v);
                 let Some(mut held) = HELD_OFF.with(|t| t.get(vk)) else {
@@ -5422,7 +5448,7 @@ mod imp {
                 }
                 HELD_OFF.with(|t| t.remove(vk));
                 if let (Some(was), Some(control)) = (held.enabled, v.downcast_ref::<UIControl>()) {
-                    unsafe { control.setEnabled(was) };
+                    control.setEnabled(was);
                 }
                 if let Some(traits) = held.traits {
                     v.setAccessibilityTraits(traits, mtm);
@@ -5440,15 +5466,14 @@ mod imp {
                 key,
                 GroupOff {
                     groups: 1,
-                    interaction: unsafe { root.isUserInteractionEnabled() },
-                    tint: unsafe { root.tintAdjustmentMode() },
+                    interaction: root.isUserInteractionEnabled(),
+                    tint: root.tintAdjustmentMode(),
                 },
             )
         });
-        unsafe {
-            root.setUserInteractionEnabled(false);
-            root.setTintAdjustmentMode(objc2_ui_kit::UIViewTintAdjustmentMode::Dimmed);
-        }
+        root.setUserInteractionEnabled(false);
+        root.setTintAdjustmentMode(objc2_ui_kit::UIViewTintAdjustmentMode::Dimmed);
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let not_enabled = unsafe { objc2_ui_kit::UIAccessibilityTraitNotEnabled };
         let mut resign = Vec::new();
         if root.isFirstResponder() {
@@ -5471,8 +5496,8 @@ mod imp {
             };
             if let Some(control) = v.downcast_ref::<UIControl>() {
                 if !day_core_enables(v) {
-                    held.enabled = Some(unsafe { control.isEnabled() });
-                    unsafe { control.setEnabled(false) };
+                    held.enabled = Some(control.isEnabled());
+                    control.setEnabled(false);
                 }
             } else if v.isAccessibilityElement(mtm) {
                 let traits = v.accessibilityTraits(mtm);
@@ -5482,7 +5507,7 @@ mod imp {
             HELD_OFF.with(|t| t.insert(vk, held));
         });
         for v in resign {
-            let _ = unsafe { v.resignFirstResponder() };
+            let _ = v.resignFirstResponder();
         }
     }
 
@@ -5521,6 +5546,8 @@ mod imp {
                         Retained::autorelease_return(menu.clone())
                     },
                 );
+                // SAFETY: UIKit copies `provider`, which owns a retained menu and returns it at +0,
+                // as action providers must; a null preview provider is allowed.
                 Some(unsafe {
                     UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
                         None,
@@ -5536,6 +5563,8 @@ mod imp {
     impl DayContextMenu {
         fn new(mtm: MainThreadMarker, menu: Retained<UIMenu>) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(CtxMenuIvars { menu });
+            // SAFETY: `this` is a fresh DayContextMenu with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -5576,6 +5605,8 @@ mod imp {
                             Retained::autorelease_return(menu.clone())
                         },
                     );
+                    // SAFETY: UIKit copies `provider`, which owns a retained menu and returns it at
+                    // +0, as action providers must; a null preview provider is allowed.
                     Some(unsafe {
                         UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
                             None,
@@ -5592,6 +5623,8 @@ mod imp {
     impl DayContextMenuFn {
         fn new(mtm: MainThreadMarker, f: day_spec::ContextMenuFn) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(CtxMenuFnIvars { f });
+            // SAFETY: `this` is a fresh DayContextMenuFn with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -5652,6 +5685,8 @@ mod imp {
         p: &day_spec::props::ListItemProps,
         mtm: MainThreadMarker,
     ) -> Retained<UIView> {
+        // SAFETY: Class messages to UIListContentConfiguration, UIListContentView and
+        // UIImageSymbolConfiguration match their UIKit declarations. Main thread (`mtm`).
         unsafe {
             let stack = objc2_ui_kit::UIStackView::new(mtm);
             stack.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Horizontal);
@@ -5723,13 +5758,15 @@ mod imp {
         let Some(stack) = view.downcast_ref::<objc2_ui_kit::UIStackView>() else {
             return;
         };
-        let parts = unsafe { stack.arrangedSubviews() };
+        let parts = stack.arrangedSubviews();
         if parts.len() < 3 {
             return;
         }
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
+        // SAFETY: `parts[0]` is the UIListContentView `make_list_item` built; the configuration
+        // setters take the declared object, insets and UIAxis values.
         unsafe {
             let content = &parts.objectAtIndex(0);
             let config: Retained<AnyObject> =
@@ -5816,6 +5853,8 @@ mod imp {
     ) -> Retained<UIMenuElement> {
         let block = block2::RcBlock::new(move |_a: NonNull<UIAction>| handler());
         let image = menu_image(icon);
+        // SAFETY: UIAction copies `block`, which owns the `'static` handler and runs on the main
+        // thread. Main thread (`mtm`).
         let action = unsafe {
             UIAction::actionWithTitle_image_identifier_handler(
                 &NSString::from_str(title),
@@ -5826,7 +5865,7 @@ mod imp {
             )
         };
         if !enabled {
-            unsafe { action.setAttributes(UIMenuElementAttributes::Disabled) };
+            action.setAttributes(UIMenuElementAttributes::Disabled);
         }
         // UIKit's own on/off state, so the item gets the system check mark and reserves its
         // column when off — the same look UIKit gives a picker's selected row (docs/menus.md).
@@ -5879,6 +5918,7 @@ mod imp {
                             move || {
                                 if let Some(sel) = sel {
                                     let app = UIApplication::sharedApplication(mtm);
+                                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                                     unsafe {
                                         app.sendAction_to_from_forEvent(sel, None, None, None);
                                     }
@@ -5928,22 +5968,20 @@ mod imp {
                 .map(|g| {
                     let elems = ui_menu_elements(mtm, g);
                     let arr = objc2_foundation::NSArray::from_retained_slice(&elems);
-                    let inline = unsafe {
-                        UIMenu::menuWithTitle_image_identifier_options_children(
-                            &NSString::from_str(""),
-                            None,
-                            None,
-                            UIMenuOptions::DisplayInline,
-                            &arr,
-                            mtm,
-                        )
-                    };
+                    let inline = UIMenu::menuWithTitle_image_identifier_options_children(
+                        &NSString::from_str(""),
+                        None,
+                        None,
+                        UIMenuOptions::DisplayInline,
+                        &arr,
+                        mtm,
+                    );
                     Retained::into_super(inline)
                 })
                 .collect()
         };
         let arr = objc2_foundation::NSArray::from_retained_slice(&children);
-        unsafe { UIMenu::menuWithTitle_children(&NSString::from_str(title), &arr, mtm) }
+        UIMenu::menuWithTitle_children(&NSString::from_str(title), &arr, mtm)
     }
 
     // -----------------------------------------------------------------------
@@ -6037,7 +6075,7 @@ mod imp {
         fn is_collapsed(&self) -> bool {
             self.split
                 .as_ref()
-                .is_some_and(|parts| unsafe { parts.split_vc.isCollapsed() })
+                .is_some_and(|parts| parts.split_vc.isCollapsed())
         }
 
         /// The navigation controller that currently OWNS the stack (docs/size-classes.md).
@@ -6101,12 +6139,15 @@ mod imp {
         use objc2_ui_kit::UITraitEnvironment as _;
         let traits = view.traitCollection();
         if previous
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             .is_none_or(|old| unsafe { old.userInterfaceStyle() != traits.userInterfaceStyle() })
         {
             schedule_appearance_refresh();
         }
         let Some(previous) = previous else { return };
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let now = unsafe { traits.preferredContentSizeCategory() };
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let before = unsafe { previous.preferredContentSizeCategory() };
         if !now.isEqualToString(&before) {
             schedule_text_size_remeasure();
@@ -6131,8 +6172,10 @@ mod imp {
             /// moment it starts to matter (docs/size-classes.md).
             #[unsafe(method(didMoveToWindow))]
             fn did_move_to_window(&self) {
+                // SAFETY: UIView implements `didMoveToWindow` (no arguments, void); this is its
+                // override.
                 let _: () = unsafe { msg_send![super(self), didMoveToWindow] };
-                if unsafe { self.window() }.is_some() {
+                if self.window().is_some() {
                     self.setNeedsLayout();
                 }
             }
@@ -6142,6 +6185,8 @@ mod imp {
             /// between columns), and `layoutSubviews` alone never re-fires for that.
             #[unsafe(method(safeAreaInsetsDidChange))]
             fn safe_area_insets_did_change(&self) {
+                // SAFETY: UIView implements `safeAreaInsetsDidChange` (no arguments, void); this is
+                // its override.
                 let _: () = unsafe { msg_send![super(self), safeAreaInsetsDidChange] };
                 self.setNeedsLayout();
             }
@@ -6151,18 +6196,22 @@ mod imp {
                 &self,
                 previous: Option<&objc2_ui_kit::UITraitCollection>,
             ) {
+                // SAFETY: UIView implements `traitCollectionDidChange:` (nullable
+                // UITraitCollection, void); this override forwards its own argument.
                 let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
                 day_spec::ffi_guard::contain((), || note_host_traits(self, previous));
             }
 
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
+                // SAFETY: UIView implements `layoutSubviews` (no arguments, void); this is its
+                // override.
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 // The FrameChanged report dispatches day-core's relayout — contained (§8.5).
                 day_spec::ffi_guard::contain((), || {
                     // Out of any window the insets below are stale, and a report built from
                     // them would size the content for wherever this page last WAS.
-                    if unsafe { self.window() }.is_none() {
+                    if self.window().is_none() {
                         return;
                     }
                     // Where the content goes depends on what it IS (§7.7). A page whose content
@@ -6175,7 +6224,7 @@ mod imp {
                     // and would put its first row under it.
                     let bounds = self.bounds();
                     let insets = self.safeAreaInsets();
-                    let subs = unsafe { self.subviews() };
+                    let subs = self.subviews();
                     let content = subs.firstObject();
                     let full_bleed = content.as_ref().is_some_and(|c| scroll_leaf(c));
                     // Immersive pages opt out of the TOP inset only. The bottom
@@ -6186,7 +6235,7 @@ mod imp {
                         if full_bleed
                             && let Some(scroll) = content.as_ref().and_then(|c| first_content_scroll(c, 12))
                         {
-                            unsafe {
+                            {
                                 scroll.setContentInsetAdjustmentBehavior(
                                     objc2_ui_kit::UIScrollViewContentInsetAdjustmentBehavior::Never,
                                 );
@@ -6205,7 +6254,7 @@ mod imp {
                     }
                     let frame = content_frame(bounds, layout_insets, full_bleed);
                     if let Some(content) = content {
-                        unsafe { content.setFrame(frame) };
+                        content.setFrame(frame);
                         if *DIAG_NAV {
                             let a = content.frame();
                             log::debug!(
@@ -6216,8 +6265,8 @@ mod imp {
                         }
                     }
                     if *DIAG_NAV {
-                        let sup = unsafe { self.superview() }.map_or(bounds, |v| v.bounds());
-                        let winf = unsafe { self.convertRect_toView(bounds, None) };
+                        let sup = self.superview().map_or(bounds, |v| v.bounds());
+                        let winf = self.convertRect_toView(bounds, None);
                         log::debug!(
                             "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) bleed={} -> report {}x{} super={}x{} hidden={}",
                             self.ivars().node.0,
@@ -6242,6 +6291,8 @@ mod imp {
     impl DayNavPageView {
         fn new(mtm: MainThreadMarker, node: NodeId, immersive: bool) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(NavPageIvars { node, immersive });
+            // SAFETY: `this` is a fresh DayNavPageView with ivars set; UIView's `init` takes no
+            // arguments and returns the initialized view.
             let v: Retained<Self> = unsafe { msg_send![super(this), init] };
             // GROUPED, not plain. iOS gives content two grounds and they are a matched pair:
             // `systemGroupedBackground` behind, `secondarySystemGroupedBackground` for the cards
@@ -6249,7 +6300,7 @@ mod imp {
             // list uses, and the one that makes a split's two columns read as one surface rather
             // than two white sheets meeting at a seam. `SurfaceRole::SectionCard` takes the other
             // half; changing one without the other leaves grey on grey.
-            unsafe { v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor())) };
+            v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor()));
             v
         }
     }
@@ -6295,7 +6346,7 @@ mod imp {
         // Day's wrappers are shallow; a bound keeps a pathological tree from being walked twice
         // a frame during a resize.
         for _ in 0..6 {
-            let subs = unsafe { view.subviews() };
+            let subs = view.subviews();
             if subs.count() != 1 {
                 return false;
             }
@@ -6304,7 +6355,7 @@ mod imp {
             };
             // A view controller's view answers to its controller: a nav or split host here
             // means the bars are that host's pages' business.
-            let hosted = unsafe { child.nextResponder() }.is_some_and(|r| {
+            let hosted = child.nextResponder().is_some_and(|r| {
                 r.downcast_ref::<objc2_ui_kit::UINavigationController>()
                     .is_some()
                     || r.downcast_ref::<objc2_ui_kit::UISplitViewController>()
@@ -6344,7 +6395,7 @@ mod imp {
                 v.setNeedsLayout();
                 return;
             }
-            view = unsafe { v.superview() };
+            view = v.superview();
         }
     }
 
@@ -6404,8 +6455,8 @@ mod imp {
                             // fix).
                             let bar: Retained<UINavigationBar> = Retained::from(bar);
                             modal_after_idle(move || {
-                                for v in &unsafe { bar.subviews() } {
-                                    unsafe { v.setAlpha(1.0) };
+                                for v in &bar.subviews() {
+                                    v.setAlpha(1.0);
                                 }
                             });
                             false
@@ -6430,8 +6481,8 @@ mod imp {
             #[unsafe(method(gestureRecognizerShouldBegin:))]
             fn gesture_should_begin(&self, _g: &objc2_ui_kit::UIGestureRecognizer) -> bool {
                 day_spec::ffi_guard::contain(false, || {
-                    let count = unsafe { self.viewControllers() }.count();
-                    if count < 2 || unsafe { self.transitionCoordinator() }.is_some() {
+                    let count = self.viewControllers().count();
+                    if count < 2 || self.transitionCoordinator().is_some() {
                         return false;
                     }
                     if self.ivars().guarded.get() {
@@ -6466,11 +6517,13 @@ mod imp {
         impl DayNavController {
             #[unsafe(method_id(childViewControllerForStatusBarStyle))]
             fn status_bar_style_child(&self) -> Option<Retained<UIViewController>> {
-                unsafe { self.topViewController() }
+                self.topViewController()
             }
 
             #[unsafe(method_id(popViewControllerAnimated:))]
             fn pop_view_controller(&self, animated: bool) -> Option<Retained<UIViewController>> {
+                // SAFETY: UINavigationController implements `popViewControllerAnimated:` (BOOL,
+                // nullable UIViewController); this override forwards its own argument.
                 let popped: Option<Retained<UIViewController>> =
                     unsafe { msg_send![super(self), popViewControllerAnimated: animated] };
                 if let Some(p) = &popped {
@@ -6485,6 +6538,8 @@ mod imp {
                 vc: &UIViewController,
                 animated: bool,
             ) -> Option<Retained<objc2_foundation::NSArray<UIViewController>>> {
+                // SAFETY: UINavigationController implements `popToViewController:animated:`
+                // (returning a nullable NSArray); this override forwards its own arguments.
                 let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> = unsafe {
                     msg_send![super(self), popToViewController: vc, animated: animated]
                 };
@@ -6499,6 +6554,8 @@ mod imp {
                 &self,
                 animated: bool,
             ) -> Option<Retained<objc2_foundation::NSArray<UIViewController>>> {
+                // SAFETY: UINavigationController implements `popToRootViewControllerAnimated:`
+                // (BOOL, nullable NSArray); this override forwards its own argument.
                 let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> =
                     unsafe { msg_send![super(self), popToRootViewControllerAnimated: animated] };
                 if let Some(p) = popped.as_ref().filter(|p| p.count() > 0) {
@@ -6511,13 +6568,15 @@ mod imp {
             /// gate (`gestureRecognizerShouldBegin:` above).
             #[unsafe(method(viewDidLoad))]
             fn view_did_load(&self) {
+                // SAFETY: UIViewController implements `viewDidLoad` (no arguments, void); this is
+                // its override.
                 let _: () = unsafe { msg_send![super(self), viewDidLoad] };
-                if let Some(g) = unsafe { self.interactivePopGestureRecognizer() } {
+                if let Some(g) = self.interactivePopGestureRecognizer() {
                     let delegate =
                         ProtocolObject::<dyn objc2_ui_kit::UIGestureRecognizerDelegate>::from_ref(
                             self,
                         );
-                    unsafe { g.setDelegate(Some(delegate)) };
+                    g.setDelegate(Some(delegate));
                 }
             }
         }
@@ -6529,8 +6588,10 @@ mod imp {
                 host: std::cell::Cell::new(host),
                 guarded: std::cell::Cell::new(false),
             });
+            // SAFETY: `this` is a fresh DayNavController with ivars set; UINavigationController's
+            // `init` takes no arguments and returns the initialized controller.
             let this: Retained<Self> = unsafe { msg_send![super(this), init] };
-            let bar = unsafe { this.navigationBar() };
+            let bar = this.navigationBar();
             configure_navigation_bar(&bar, mtm);
             this
         }
@@ -6564,21 +6625,23 @@ mod imp {
         /// runs this, so dayscript's `nav_back: { native: true }` covers the code a tap runs.
         /// `true` when the affordance did something: popped, or handed a guarded back to Day.
         fn press_back(&self) -> bool {
-            let bar = unsafe { self.navigationBar() };
-            let Some(item) = (unsafe { bar.topItem() }) else {
+            let bar = self.navigationBar();
+            let Some(item) = bar.topItem() else {
                 return false;
             };
-            if unsafe { self.viewControllers() }.count() < 2 {
+            if self.viewControllers().count() < 2 {
                 return false;
             }
             // Asked the way the bar asks it — through the selector — so the guard's veto and
             // its `NavBack` run as they do for a tap.
+            // SAFETY: this class defines `navigationBar:shouldPopItem:` above (bar, item, BOOL);
+            // `bar` and `item` are live and retained here. Main thread.
             let agreed: bool =
                 unsafe { msg_send![self, navigationBar: &*bar, shouldPopItem: &*item] };
             if !agreed {
                 return true;
             }
-            unsafe { self.popViewControllerAnimated(!day_core::testing::fast_animations()) }
+            self.popViewControllerAnimated(!day_core::testing::fast_animations())
                 .is_some()
         }
     }
@@ -6617,7 +6680,7 @@ mod imp {
                     if self.ivars().suppress.get() {
                         return;
                     }
-                    let text = unsafe { sc.searchBar().text() }.map_or_default(|t| t.to_string());
+                    let text = sc.searchBar().text().map_or_default(|t| t.to_string());
                     emit(NodeId(self.ivars().node.get()), Event::SearchChanged(text));
                 });
             }
@@ -6632,7 +6695,7 @@ mod imp {
             #[unsafe(method(searchBarSearchButtonClicked:))]
             fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
                 day_spec::ffi_guard::contain((), || {
-                    let text = unsafe { bar.text() }.map_or_default(|t| t.to_string());
+                    let text = bar.text().map_or_default(|t| t.to_string());
                     emit(
                         NodeId(self.ivars().node.get()),
                         Event::SearchSubmitted(text),
@@ -6649,6 +6712,8 @@ mod imp {
                 node: std::cell::Cell::new(node.0),
                 suppress: std::cell::Cell::new(false),
             });
+            // SAFETY: `this` is a fresh DaySearchUpdater with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -6741,6 +6806,8 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(NavDelegateIvars {
                 host: std::cell::Cell::new(host),
             });
+            // SAFETY: `this` is a fresh DaySplitDelegate with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -6757,12 +6824,12 @@ mod imp {
                 log::debug!(
                     "DAYDIAG split {} primary={} secondary={} supplementary={:?}",
                     if expanded { "EXPANDED" } else { "COLLAPSED" },
-                    unsafe { parts.primary_nav.viewControllers() }.count(),
-                    unsafe { state.nav.viewControllers() }.count(),
+                    parts.primary_nav.viewControllers().count(),
+                    state.nav.viewControllers().count(),
                     parts
                         .supplementary_nav
                         .as_ref()
-                        .map(|n| unsafe { n.viewControllers() }.count()),
+                        .map(|n| n.viewControllers().count()),
                 );
             }
             // Nothing rebuilds columns here: the collapsed stack is only ever driven through
@@ -6784,11 +6851,9 @@ mod imp {
             // identity would move a page UIKit had already merged and put it up twice.
             let strand = (!expanded && parts.supplementary_nav.is_none()).then(|| {
                 let merged: Vec<Retained<UIViewController>> =
-                    unsafe { parts.primary_nav.viewControllers() }
-                        .iter()
-                        .collect();
+                    parts.primary_nav.viewControllers().iter().collect();
                 let stranded: Vec<Retained<UIViewController>> = if merged.len() <= 1 {
-                    unsafe { state.nav.viewControllers() }.iter().collect()
+                    state.nav.viewControllers().iter().collect()
                 } else {
                     Vec::new()
                 };
@@ -6828,10 +6893,10 @@ mod imp {
                 );
             }
             let rest = objc2_foundation::NSArray::from_retained_slice(&kept);
-            unsafe { secondary.setViewControllers(&rest) };
+            secondary.setViewControllers(&rest);
             merged.extend(stranded);
             let arr = objc2_foundation::NSArray::from_retained_slice(&merged);
-            unsafe { primary.setViewControllers_animated(&arr, false) };
+            primary.setViewControllers_animated(&arr, false);
         }
         // A turn later, once Day's launch sync has settled the chrome. The list's back button
         // takes its label from a bar still laid out at the expanded column's width, which
@@ -6916,14 +6981,14 @@ mod imp {
         // insets stay whatever they were where the page last lived, which is how a
         // landscape notch inset of 100pt survived into portrait.
         let relayout = |nav: &DayNavController| {
-            if let Some(v) = unsafe { nav.viewIfLoaded() } {
+            if let Some(v) = nav.viewIfLoaded() {
                 v.setNeedsLayout();
                 v.layoutIfNeeded();
             }
         };
         relayout(&primary_nav);
         relayout(&nav);
-        if let Some(v) = unsafe { split_vc.viewIfLoaded() } {
+        if let Some(v) = split_vc.viewIfLoaded() {
             v.setNeedsLayout();
             v.layoutIfNeeded();
         }
@@ -6941,9 +7006,9 @@ mod imp {
         // collapsed, and only the page that has the controller is touched.
         if search {
             for nav in [&primary_nav, &nav] {
-                for vc in &unsafe { nav.viewControllers() } {
-                    let item = unsafe { vc.navigationItem() };
-                    if unsafe { item.searchController() }.is_some() {
+                for vc in &nav.viewControllers() {
+                    let item = vc.navigationItem();
+                    if item.searchController().is_some() {
                         configure_sidebar_search(&item, nav, hides_on_scroll, initially_hidden);
                     }
                 }
@@ -6961,9 +7026,9 @@ mod imp {
 
     /// A blank, grouped-background controller: the seed a column takes while it has no page.
     fn blank_vc(mtm: MainThreadMarker) -> Retained<UIViewController> {
-        let vc = unsafe { UIViewController::new(mtm) };
-        if let Some(v) = unsafe { vc.view() } {
-            unsafe { v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor())) };
+        let vc = UIViewController::new(mtm);
+        if let Some(v) = vc.view() {
+            v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor()));
         }
         vc
     }
@@ -6990,28 +7055,26 @@ mod imp {
         list_width: Option<f64>,
         triple: bool,
     ) -> SplitBuild {
-        let split_vc = unsafe {
-            objc2_ui_kit::UISplitViewController::initWithStyle(
-                objc2_ui_kit::UISplitViewController::alloc(mtm),
-                if triple {
-                    objc2_ui_kit::UISplitViewControllerStyle::TripleColumn
-                } else {
-                    objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn
-                },
-            )
-        };
+        let split_vc = objc2_ui_kit::UISplitViewController::initWithStyle(
+            objc2_ui_kit::UISplitViewController::alloc(mtm),
+            if triple {
+                objc2_ui_kit::UISplitViewControllerStyle::TripleColumn
+            } else {
+                objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn
+            },
+        );
         let primary_nav = DayNavController::new(mtm, 0); // host ptr set by the caller
         let secondary_placeholder = triple.then(|| {
             let ph = blank_vc(mtm);
-            if unsafe { secondary.viewControllers() }.count() == 0 {
+            if secondary.viewControllers().count() == 0 {
                 let arr = objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(&ph));
-                unsafe { secondary.setViewControllers(&arr) };
+                secondary.setViewControllers(&arr);
             }
             ph
         });
         let supplementary_nav = triple.then(|| {
             let snav = DayNavController::new(mtm, 0);
-            unsafe {
+            {
                 let arr = objc2_foundation::NSArray::from_retained_slice(&[blank_vc(mtm)]);
                 snav.setViewControllers(&arr);
                 split_vc.setViewController_forColumn(
@@ -7024,32 +7087,29 @@ mod imp {
             }
             snav
         });
-        unsafe {
-            split_vc.setViewController_forColumn(
-                Some(&primary_nav),
-                objc2_ui_kit::UISplitViewControllerColumn::Primary,
-            );
-            split_vc.setViewController_forColumn(
-                Some(secondary),
-                objc2_ui_kit::UISplitViewControllerColumn::Secondary,
-            );
-            // Every column side by side when there is room; UIKit still collapses to one
-            // stack at compact width. `oneBesideSecondary` is "primary beside secondary" on
-            // a double-column host and "supplementary beside secondary" on a triple-column
-            // one, which is why the list-less destination gets a host of its own.
-            split_vc.setPreferredDisplayMode(if triple {
-                objc2_ui_kit::UISplitViewControllerDisplayMode::TwoBesideSecondary
-            } else {
-                objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary
-            });
-            // TILE, explicitly. Left automatic, UIKit picks an OVERLAY on a portrait iPad:
-            // the sidebar floats above a dimmed detail, and the detail keeps the full window
-            // width — so Day lays its content out for a width the user cannot see the left
-            // edge of. Tiling gives the detail column its own narrower bounds, which is what
-            // the page then reports through `FrameChanged` (docs/size-classes.md).
-            split_vc
-                .setPreferredSplitBehavior(objc2_ui_kit::UISplitViewControllerSplitBehavior::Tile);
-        }
+        split_vc.setViewController_forColumn(
+            Some(&primary_nav),
+            objc2_ui_kit::UISplitViewControllerColumn::Primary,
+        );
+        split_vc.setViewController_forColumn(
+            Some(secondary),
+            objc2_ui_kit::UISplitViewControllerColumn::Secondary,
+        );
+        // Every column side by side when there is room; UIKit still collapses to one
+        // stack at compact width. `oneBesideSecondary` is "primary beside secondary" on
+        // a double-column host and "supplementary beside secondary" on a triple-column
+        // one, which is why the list-less destination gets a host of its own.
+        split_vc.setPreferredDisplayMode(if triple {
+            objc2_ui_kit::UISplitViewControllerDisplayMode::TwoBesideSecondary
+        } else {
+            objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary
+        });
+        // TILE, explicitly. Left automatic, UIKit picks an OVERLAY on a portrait iPad:
+        // the sidebar floats above a dimmed detail, and the detail keeps the full window
+        // width — so Day lays its content out for a width the user cannot see the left
+        // edge of. Tiling gives the detail column its own narrower bounds, which is what
+        // the page then reports through `FrameChanged` (docs/size-classes.md).
+        split_vc.setPreferredSplitBehavior(objc2_ui_kit::UISplitViewControllerSplitBehavior::Tile);
         SplitBuild {
             split_vc,
             primary_nav,
@@ -7077,10 +7137,12 @@ mod imp {
         impl DayNavContainer {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
+                // SAFETY: UIView implements `layoutSubviews` (no arguments, void); this is its
+                // override.
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 let bounds = self.bounds();
-                for v in &unsafe { self.subviews() } {
-                    unsafe { v.setFrame(bounds) };
+                for v in &self.subviews() {
+                    v.setFrame(bounds);
                 }
             }
         }
@@ -7089,6 +7151,8 @@ mod imp {
     impl DayNavContainer {
         fn new(mtm: MainThreadMarker) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(());
+            // SAFETY: `this` is a fresh DayNavContainer (unit ivars); UIView's `init` takes no
+            // arguments and returns the initialized view.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -7098,20 +7162,18 @@ mod imp {
         let root_vc = WINDOW
             .with(|w| w.borrow().clone())
             .and_then(|w| w.rootViewController());
-        unsafe {
-            if let Some(root_vc) = &root_vc {
-                root_vc.addChildViewController(split_vc);
-            }
-            if let Some(v) = split_vc.view() {
-                // No mask, for the reason the stack host gives: the container lays it out.
-                v.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty());
-                v.setFrame(container.bounds());
-                container.addSubview(&v);
-                container.setNeedsLayout();
-            }
-            if let Some(root_vc) = &root_vc {
-                split_vc.didMoveToParentViewController(Some(root_vc));
-            }
+        if let Some(root_vc) = &root_vc {
+            root_vc.addChildViewController(split_vc);
+        }
+        if let Some(v) = split_vc.view() {
+            // No mask, for the reason the stack host gives: the container lays it out.
+            v.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty());
+            v.setFrame(container.bounds());
+            container.addSubview(&v);
+            container.setNeedsLayout();
+        }
+        if let Some(root_vc) = &root_vc {
+            split_vc.didMoveToParentViewController(Some(root_vc));
         }
     }
 
@@ -7171,21 +7233,19 @@ mod imp {
         }
         note_ui_transition();
         let empty = objc2_foundation::NSArray::<UIViewController>::new();
-        let sidebar = unsafe { old_primary.viewControllers() }.firstObject();
-        unsafe {
-            // Pages out of the old columns — a page mounts in one stack at a time — then the
-            // old host out of the window, then a fresh host with fresh column controllers.
-            old_primary.setViewControllers(&empty);
-            if let Some(snav) = &old_snav {
-                snav.setViewControllers(&empty);
-            }
-            old_secondary.setViewControllers(&empty);
-            old_split.willMoveToParentViewController(None);
-            if let Some(v) = old_split.viewIfLoaded() {
-                v.removeFromSuperview();
-            }
-            old_split.removeFromParentViewController();
+        let sidebar = old_primary.viewControllers().firstObject();
+        // Pages out of the old columns — a page mounts in one stack at a time — then the
+        // old host out of the window, then a fresh host with fresh column controllers.
+        old_primary.setViewControllers(&empty);
+        if let Some(snav) = &old_snav {
+            snav.setViewControllers(&empty);
         }
+        old_secondary.setViewControllers(&empty);
+        old_split.willMoveToParentViewController(None);
+        if let Some(v) = old_split.viewIfLoaded() {
+            v.removeFromSuperview();
+        }
+        old_split.removeFromParentViewController();
         let secondary = DayNavController::new(mtm, host);
         secondary
             .ivars()
@@ -7193,6 +7253,8 @@ mod imp {
             .set(old_secondary.ivars().guarded.get());
         let built = build_split(mtm, &secondary, Some(list_width), triple);
         built.primary_nav.ivars().host.set(host);
+        // SAFETY: the navigation and split delegates are weak; the host's `NAV_STATE` entry keeps
+        // `delegate` and `split_delegate` alive. Main thread (`mtm`).
         unsafe {
             secondary.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
             built
@@ -7255,7 +7317,7 @@ mod imp {
         placeholder: Option<&UIViewController>,
     ) -> Vec<Retained<UIViewController>> {
         let mut out = Vec::new();
-        for vc in &unsafe { nav.viewControllers() } {
+        for vc in &nav.viewControllers() {
             if let Some(nested) = vc.downcast_ref::<objc2_ui_kit::UINavigationController>() {
                 out.extend(day_pages(nested, placeholder));
             } else if !placeholder.is_some_and(|p| std::ptr::eq(p, &raw const *vc)) {
@@ -7346,8 +7408,8 @@ mod imp {
         // an empty stack — that transition never completes and holds `ui_idle` false.
         note_ui_transition();
         let animated = !target.is_empty() && !quiet && !day_core::testing::fast_animations();
-        unsafe { nav.setViewControllers_animated(&arr, animated) };
-        let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
+        nav.setViewControllers_animated(&arr, animated);
+        let Some(coordinator) = nav.transitionCoordinator() else {
             // No transition: the set applied on the spot.
             settled(host, generation);
             return;
@@ -7360,6 +7422,7 @@ mod imp {
                 move |ctx: NonNull<
                     ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
                 >| {
+                    // SAFETY: UIKit passes the completion a non-null transition context valid for the block call.
                     if !unsafe { ctx.as_ref().isCancelled() } || !retry {
                         settled(host, generation);
                         return;
@@ -7380,7 +7443,7 @@ mod imp {
                     });
                 },
             );
-            unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+            coordinator.animateAlongsideTransition_completion(None, Some(&completion));
         }
     }
 
@@ -7699,14 +7762,12 @@ mod imp {
                 if let Some(vc) = old.first()
                     && let Some((owner, below)) = owner_of(&active, vc)
                 {
-                    let pop = || unsafe {
-                        match &below {
-                            Some(b) => {
-                                let _ = owner.popToViewController_animated(b, false);
-                            }
-                            None => {
-                                let _ = owner.popToRootViewControllerAnimated(false);
-                            }
+                    let pop = || match &below {
+                        Some(b) => {
+                            let _ = owner.popToViewController_animated(b, false);
+                        }
+                        None => {
+                            let _ = owner.popToRootViewControllerAnimated(false);
                         }
                     };
                     match owner.downcast_ref::<DayNavController>() {
@@ -7718,14 +7779,10 @@ mod imp {
             } else {
                 let already_visible = !old.is_empty();
                 let arr = objc2_foundation::NSArray::from_retained_slice(&details);
-                unsafe {
-                    secondary.setViewControllers(&arr);
-                }
+                secondary.setViewControllers(&arr);
                 if !already_visible {
                     note_column_request(host);
-                    unsafe {
-                        svc.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Secondary);
-                    }
+                    svc.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Secondary);
                 }
             }
             return;
@@ -7812,8 +7869,7 @@ mod imp {
         Retained<objc2_ui_kit::UINavigationController>,
         Option<Retained<UIViewController>>,
     )> {
-        let stack: Vec<Retained<UIViewController>> =
-            unsafe { nav.viewControllers() }.iter().collect();
+        let stack: Vec<Retained<UIViewController>> = nav.viewControllers().iter().collect();
         for (i, entry) in stack.iter().enumerate() {
             if std::ptr::eq(&raw const **entry, vc) {
                 let below = (i > 0).then(|| stack[i - 1].clone());
@@ -7821,7 +7877,7 @@ mod imp {
             }
             if let Some(nested) = entry.downcast_ref::<objc2_ui_kit::UINavigationController>() {
                 let inner: Vec<Retained<UIViewController>> =
-                    unsafe { nested.viewControllers() }.iter().collect();
+                    nested.viewControllers().iter().collect();
                 if inner
                     .first()
                     .is_some_and(|r| std::ptr::eq(&raw const **r, vc))
@@ -7879,13 +7935,13 @@ mod imp {
                 .column_request
                 .get()
                 .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250))
-                || unsafe { parts.primary_nav.transitionCoordinator() }.is_some()
-                || unsafe { state.nav.transitionCoordinator() }.is_some()
+                || parts.primary_nav.transitionCoordinator().is_some()
+                || state.nav.transitionCoordinator().is_some()
                 || parts
                     .supplementary_nav
                     .as_ref()
-                    .is_some_and(|n| unsafe { n.transitionCoordinator() }.is_some())
-                || unsafe { parts.split_vc.transitionCoordinator() }.is_some()
+                    .is_some_and(|n| n.transitionCoordinator().is_some())
+                || parts.split_vc.transitionCoordinator().is_some()
         })
     }
 
@@ -7900,12 +7956,12 @@ mod imp {
     /// Assigning it again has UIKit lay the top page's back button out against the bar as it
     /// is now, so the label is the page's title rather than a "Back" chosen for a narrower bar.
     fn relabel_back(host: usize, nav: &objc2_ui_kit::UINavigationController) {
-        let pages = unsafe { nav.viewControllers() };
+        let pages = nav.viewControllers();
         if pages.count() < 2 || !RELABEL_BACK.with(|hosts| hosts.borrow_mut().remove(&host)) {
             return;
         }
         let below = pages.objectAtIndex(pages.count() - 2);
-        unsafe {
+        {
             let title = below.title();
             below.navigationItem().setTitle(None);
             below.navigationItem().setTitle(title.as_deref());
@@ -7960,13 +8016,11 @@ mod imp {
         if show {
             if owner_of(&primary, &list).is_none() {
                 note_column_request(host);
-                unsafe {
-                    split.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Supplementary);
-                }
+                split.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Supplementary);
             }
         } else {
             note_column_request(host);
-            with_day_pop(&primary, || unsafe {
+            with_day_pop(&primary, || {
                 let _ = primary.popToRootViewControllerAnimated(false);
             });
         }
@@ -7987,7 +8041,7 @@ mod imp {
         use objc2_ui_kit::{
             UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
         };
-        let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
+        let Some(coordinator) = nav.transitionCoordinator() else {
             confirm_user_pop(host, popped);
             return;
         };
@@ -8015,6 +8069,7 @@ mod imp {
             move |ctx: NonNull<
                 ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
             >| {
+                // SAFETY: UIKit passes the completion a non-null transition context valid for the block call.
                 if unsafe { ctx.as_ref().isCancelled() } {
                     if *DIAG_NAV {
                         log::debug!("DAYDIAG user pop cancelled");
@@ -8033,7 +8088,7 @@ mod imp {
                 });
             },
         );
-        unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+        coordinator.animateAlongsideTransition_completion(None, Some(&completion));
     }
 
     /// The user's pop has happened. Tell Day, one `NavBack` per Day page that left the stack
@@ -8115,7 +8170,7 @@ mod imp {
                         });
                         log::debug!(
                             "DAYDIAG didShow host={host:x} native={} mirror={mirror} active={active}",
-                            unsafe { nav.viewControllers() }.count(),
+                            nav.viewControllers().count(),
                         );
                     }
                 });
@@ -8128,6 +8183,8 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(NavDelegateIvars {
                 host: std::cell::Cell::new(host),
             });
+            // SAFETY: `this` is a fresh DayNavDelegate with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -8200,7 +8257,7 @@ mod imp {
                 vc.setNeedsUpdateOfHomeIndicatorAutoHidden();
             }
         });
-        unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
+        UIView::animateWithDuration_animations(0.25, &update, mtm());
     }
 
     /// Whether the screen `window` shows on is being recorded, mirrored or `AirPlayed`. iOS 17
@@ -8209,6 +8266,7 @@ mod imp {
     fn window_captured(window: &UIWindow) -> bool {
         if os_at_least(17) {
             window.windowScene().is_some_and(|scene| {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 let state = unsafe { scene.traitCollection().sceneCaptureState() };
                 state == objc2_ui_kit::UISceneCaptureState::Active
             })
@@ -8243,9 +8301,9 @@ mod imp {
                         continue;
                     };
                     log::debug!("uikit: screen captured, shielding protected window");
-                    let cover =
-                        unsafe { UIWindow::initWithWindowScene(UIWindow::alloc(mtm), &scene) };
+                    let cover = UIWindow::initWithWindowScene(UIWindow::alloc(mtm), &scene);
                     let vc = UIViewController::new(mtm);
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     unsafe {
                         if let Some(view) = vc.view() {
                             view.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
@@ -8306,7 +8364,7 @@ mod imp {
         if depth == 0 {
             return None;
         }
-        for child in &unsafe { view.subviews() } {
+        for child in &view.subviews() {
             if let Some(scroll) = first_content_scroll(&child, depth - 1) {
                 return Some(scroll);
             }
@@ -8354,11 +8412,13 @@ mod imp {
             /// and the large title and search field it carries come back collapsed.
             #[unsafe(method(viewWillAppear:))]
             fn view_will_appear(&self, animated: bool) {
+                // SAFETY: UIViewController implements `viewWillAppear:` (BOOL, void); this override
+                // forwards its own argument.
                 unsafe {
                     let _: () = msg_send![super(self), viewWillAppear: animated];
                 }
-                if let Some(nav) = unsafe { self.navigationController() } {
-                    let bar = unsafe { nav.navigationBar() };
+                if let Some(nav) = self.navigationController() {
+                    let bar = nav.navigationBar();
                     if immersive_page(self) {
                         let appearance = UINavigationBarAppearance::new(self.mtm());
                         appearance.configureWithTransparentBackground();
@@ -8366,6 +8426,7 @@ mod imp {
                         bar.setCompactAppearance(Some(&appearance));
                         bar.setScrollEdgeAppearance(Some(&appearance));
                         bar.setCompactScrollEdgeAppearance(Some(&appearance));
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         unsafe {
                             bar.setTranslucent(true);
                             bar.setBarStyle(objc2_ui_kit::UIBarStyle::Black);
@@ -8373,24 +8434,25 @@ mod imp {
                         }
                     } else {
                         configure_navigation_bar(&bar, self.mtm());
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         unsafe {
                             bar.setBarStyle(objc2_ui_kit::UIBarStyle::Default);
                             bar.setTintColor(None);
                         }
                     }
-                    unsafe { nav.setNeedsStatusBarAppearanceUpdate() };
+                    nav.setNeedsStatusBarAppearanceUpdate();
                 }
                 // Name the list before UIKit decides the bar's state for this appearance
                 // (`viewDidLayoutSubviews` is after that decision). Headers and a pinned
                 // footer make this a multi-child page, so UIKit's own single-scroll-view
                 // discovery through the wrapper hierarchy finds nothing.
-                if unsafe { self.navigationItem().searchController() }.is_some()
+                if self.navigationItem().searchController().is_some()
                     && let Some(view) = self.viewIfLoaded()
                     && let Some(scroll) = first_content_scroll(&view, 12)
                 {
                     let edge = objc2_ui_kit::NSDirectionalRectEdge::Top;
-                    if unsafe { self.contentScrollViewForEdge(edge) }.as_deref() != Some(&*scroll) {
-                        unsafe { self.setContentScrollView_forEdge(Some(&scroll), edge) };
+                    if self.contentScrollViewForEdge(edge).as_deref() != Some(&*scroll) {
+                        self.setContentScrollView_forEdge(Some(&scroll), edge);
                     }
                 }
                 let at_top = self
@@ -8409,6 +8471,8 @@ mod imp {
 
             #[unsafe(method(viewDidLayoutSubviews))]
             fn view_did_layout_subviews(&self) {
+                // SAFETY: UIViewController implements `viewDidLayoutSubviews` (no arguments, void);
+                // this is its override. The rest is unaudited Apple API.
                 unsafe {
                     let _: () = msg_send![super(self), viewDidLayoutSubviews];
                     let key = std::ptr::from_ref::<Self>(self) as usize;
@@ -8448,6 +8512,8 @@ mod imp {
 
             #[unsafe(method(viewWillDisappear:))]
             fn view_will_disappear(&self, animated: bool) {
+                // SAFETY: UIViewController implements `viewWillDisappear:` (BOOL, void); this
+                // override forwards its own argument.
                 unsafe {
                     let _: () = msg_send![super(self), viewWillDisappear: animated];
                     if let Some(view) = self.viewIfLoaded() {
@@ -8506,6 +8572,8 @@ mod imp {
         impl DayCoverVC {
             #[unsafe(method(viewWillDisappear:))]
             fn view_will_disappear(&self, animated: bool) {
+                // SAFETY: UIViewController implements `viewWillDisappear:` (BOOL, void); this
+                // override forwards its own argument.
                 unsafe {
                     let _: () = msg_send![super(self), viewWillDisappear: animated];
                     if let Some(view) = self.viewIfLoaded() {
@@ -8547,6 +8615,8 @@ mod imp {
                 sheet: Cell::new(sheet),
                 half: Cell::new(half),
             });
+            // SAFETY: `this` is a fresh DayCoverVC with ivars set; UIViewController's `init` takes
+            // no arguments and returns the initialized controller.
             unsafe { msg_send![super(this), init] }
         }
 
@@ -8560,6 +8630,8 @@ mod imp {
             if !self.ivars().sheet.get() {
                 return;
             }
+            // SAFETY: the presentation controller's delegate is weak and belongs to this VC, which
+            // the presentation retains while it lasts. Main thread (`mtm`).
             unsafe {
                 if let Some(pc) = self.presentationController() {
                     pc.setDelegate(Some(ProtocolObject::from_ref(self)));
@@ -8625,13 +8697,13 @@ mod imp {
             #[unsafe(method_id(undoMenuItemTitle))]
             fn undo_menu_item_title(&self) -> Retained<NSString> {
                 let label = self.ivars().state.borrow().undo_label.clone();
-                unsafe { self.undoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+                self.undoMenuTitleForUndoActionName(&NSString::from_str(&label))
             }
 
             #[unsafe(method_id(redoMenuItemTitle))]
             fn redo_menu_item_title(&self) -> Retained<NSString> {
                 let label = self.ivars().state.borrow().redo_label.clone();
-                unsafe { self.redoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+                self.redoMenuTitleForUndoActionName(&NSString::from_str(&label))
             }
         }
     );
@@ -8643,6 +8715,8 @@ mod imp {
                     let this = DayUndoManager::alloc(mtm).set_ivars(UndoIvars {
                         state: RefCell::new(day_spec::UndoState::default()),
                     });
+                    // SAFETY: `this` is a fresh DayUndoManager with ivars set; NSUndoManager's
+                    // `init` takes no arguments and returns the initialized manager.
                     unsafe { msg_send![super(this), init] }
                 })
                 .clone()
@@ -8661,7 +8735,7 @@ mod imp {
             /// Forward color to the visible content while keeping visibility window-owned.
             #[unsafe(method_id(childViewControllerForStatusBarStyle))]
             fn status_bar_style_child(&self) -> Option<Retained<UIViewController>> {
-                unsafe { self.childViewControllers().lastObject() }
+                self.childViewControllers().lastObject()
             }
 
             #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
@@ -8698,6 +8772,8 @@ mod imp {
                 &self,
                 previous: Option<&objc2_ui_kit::UITraitCollection>,
             ) {
+                // SAFETY: UIViewController implements `traitCollectionDidChange:` (nullable
+                // UITraitCollection, void); this override forwards its own argument.
                 let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
                 day_spec::ffi_guard::contain((), refresh_capture_shields);
             }
@@ -8732,6 +8808,8 @@ mod imp {
     impl DayRootVC {
         fn new(mtm: MainThreadMarker) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(());
+            // SAFETY: `this` is a fresh DayRootVC (unit ivars); UIViewController's `init` takes no
+            // arguments and returns the initialized controller.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -8762,12 +8840,16 @@ mod imp {
                 &self,
                 previous: Option<&objc2_ui_kit::UITraitCollection>,
             ) {
+                // SAFETY: UIView implements `traitCollectionDidChange:` (nullable
+                // UITraitCollection, void); this override forwards its own argument.
                 let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
                 day_spec::ffi_guard::contain((), || note_host_traits(self, previous));
             }
 
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
+                // SAFETY: UIView implements `layoutSubviews` (no arguments, void); this is its
+                // override.
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 // The WindowResized report dispatches day-core's relayout — contained (§8.5).
                 day_spec::ffi_guard::contain((), || {
@@ -8799,7 +8881,7 @@ mod imp {
                     // inset would center its items over the status bar.
                     if let Some(bar) = docked_window_toolbar(&root) {
                         let h = bar.sizeThatFits(bounds.size).height;
-                        unsafe {
+                        {
                             bar.setFrame(CGRect::new(
                                 CGPoint::new(0.0, insets.top),
                                 CGSize::new(bounds.size.width, h),
@@ -8825,7 +8907,7 @@ mod imp {
                     if target == WINDOW_NODE {
                         ROOT_BASE_FRAME.with(|f| f.set(inner));
                     }
-                    unsafe { root.setFrame(inner) };
+                    root.setFrame(inner);
                     if *DIAG_NAV {
                         log::debug!(
                             "DAYDIAG holder node={:?} bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
@@ -8854,6 +8936,8 @@ mod imp {
     impl DayHolderView {
         fn new(mtm: MainThreadMarker) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(());
+            // SAFETY: `this` is a fresh DayHolderView (unit ivars); UIView's `init` takes no
+            // arguments and returns the initialized view.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -8886,9 +8970,7 @@ mod imp {
                     modal_end_transition();
                 })
             };
-            unsafe {
-                presenting.dismissViewControllerAnimated_completion(true, Some(&completion));
-            }
+            presenting.dismissViewControllerAnimated_completion(true, Some(&completion));
             let mtm = objc2::MainThreadMarker::new().expect("cover ops run on main");
             let vc_probe = dispatch2::MainThreadBound::new(vc.clone(), mtm);
             let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(1500))
@@ -8933,14 +9015,12 @@ mod imp {
     }
     fn document_frames(host: &UIView, state: &DocumentHost) {
         for (i, (_, vc)) in state.pages.iter().enumerate() {
-            unsafe {
-                if let Some(view) = vc.view() {
-                    view.setFrame(host.bounds());
-                    if i != state.selected && !view.isHidden() {
-                        view.endEditing(false);
-                    }
-                    view.setHidden(i != state.selected);
+            if let Some(view) = vc.view() {
+                view.setFrame(host.bounds());
+                if i != state.selected && !view.isHidden() {
+                    view.endEditing(false);
                 }
+                view.setHidden(i != state.selected);
             }
         }
     }
@@ -9000,7 +9080,7 @@ mod imp {
             if let Some(host) = TABS_PAGE_HOST.with(|m| m.borrow().get(&p).copied()) {
                 return Some(host);
             }
-            cur = unsafe { view.superview() };
+            cur = view.superview();
         }
         None
     }
@@ -9025,9 +9105,7 @@ mod imp {
             #[unsafe(method(tabBarController:didSelectViewController:))]
             fn did_select_vc(&self, _tabbar: &UITabBarController, selected: &UIViewController) {
                 day_spec::ffi_guard::contain((), || {
-                    let sel = ptr_of(&view_of(
-                        &unsafe { selected.view() }.expect("selected page view"),
-                    ));
+                    let sel = ptr_of(&view_of(&selected.view().expect("selected page view")));
                     let found = NAV_TABS.with(|m| {
                         let m = m.borrow();
                         let t = m.get(&self.ivars().host.get())?;
@@ -9036,7 +9114,7 @@ mod imp {
                         }
                         t.pending_selection.set(None);
                         let idx = t.vcs.iter().position(|vc| {
-                            unsafe { vc.view() }.is_some_and(|v| ptr_of(&view_of(&v)) == sel)
+                            vc.view().is_some_and(|v| ptr_of(&view_of(&v)) == sel)
                         })?;
                         Some((t.menu_node.get(), idx as i64))
                     });
@@ -9068,7 +9146,7 @@ mod imp {
                 // UIKit calls this only for user taps, not programmatic selection — no echo
                 // guard needed; the panic containment is §8.5.
                 day_spec::ffi_guard::contain((), || {
-                    let id = unsafe { selected.identifier() }.to_string();
+                    let id = selected.identifier().to_string();
                     let found = NAV_TABS.with(|m| {
                         let m = m.borrow();
                         let t = m.get(&self.ivars().host.get())?;
@@ -9079,7 +9157,7 @@ mod imp {
                         let idx = t
                             .tabs
                             .iter()
-                            .position(|tab| unsafe { tab.identifier() }.to_string() == id)?;
+                            .position(|tab| tab.identifier().to_string() == id)?;
                         Some((t.menu_node.get(), idx as i64))
                     });
                     if let Some((n, idx)) = found.filter(|(n, _)| *n != 0) {
@@ -9112,6 +9190,8 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(NavTabsDelegateIvars {
                 host: std::cell::Cell::new(host),
             });
+            // SAFETY: `this` is a fresh DayNavTabsDelegate with ivars set; NSObject's `init` takes
+            // no arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -9132,27 +9212,25 @@ mod imp {
     /// page, so the wrapper is undone here, when it arrives, which leaves the tab as a compact
     /// window has it: the page, whose stack owns the bar.
     fn unwrap_tab_page(page_vc: &Retained<UIViewController>) {
-        let found =
-            NAV_TABS.with(|m| {
-                let mut m = m.borrow_mut();
-                m.iter_mut().find_map(|(host, t)| {
-                    let at =
-                        t.vcs.iter().position(|vc| {
-                            vc.downcast_ref::<objc2_ui_kit::UINavigationController>()
-                                .is_some_and(|n| {
-                                    unsafe { n.viewControllers() }.iter().next().is_some_and(
-                                        |root| Retained::as_ptr(&root) == Retained::as_ptr(page_vc),
-                                    )
-                                })
-                        })?;
-                    Some((*host, std::mem::replace(&mut t.vcs[at], page_vc.clone())))
-                })
-            });
+        let found = NAV_TABS.with(|m| {
+            let mut m = m.borrow_mut();
+            m.iter_mut().find_map(|(host, t)| {
+                let at = t.vcs.iter().position(|vc| {
+                    vc.downcast_ref::<objc2_ui_kit::UINavigationController>()
+                        .is_some_and(|n| {
+                            n.viewControllers().iter().next().is_some_and(|root| {
+                                Retained::as_ptr(&root) == Retained::as_ptr(page_vc)
+                            })
+                        })
+                })?;
+                Some((*host, std::mem::replace(&mut t.vcs[at], page_vc.clone())))
+            })
+        });
         let Some((host, wrapper)) = found else { return };
         // The page leaves the wrapper before it becomes the tab's own controller: UIKit takes a
         // controller with a parent as a tab only after asserting.
         if let Some(n) = wrapper.downcast_ref::<objc2_ui_kit::UINavigationController>() {
-            unsafe { n.setViewControllers(&objc2_foundation::NSArray::new()) };
+            n.setViewControllers(&objc2_foundation::NSArray::new());
         }
         nav_tabs_sync(host);
     }
@@ -9203,7 +9281,7 @@ mod imp {
                         .get(i)
                         .and_then(|o| o.as_deref())
                         .and_then(load_bundled_uiimage);
-                    unsafe { vc.setTitle(Some(&NSString::from_str(&title))) };
+                    vc.setTitle(Some(&NSString::from_str(&title)));
                     // REUSE the tab that already stands for this page. A `UITab` is a model
                     // object with an identity, not a per-render descriptor: its provider
                     // hands UIKit a view controller and UIKit then owns that controller as
@@ -9212,17 +9290,15 @@ mod imp {
                     // rows change — leaves two tabs claiming one controller, and UIKit
                     // asserts in `-[UITab viewController]` the moment it resolves the
                     // second. Only the title and the glyph are re-applied.
-                    let key = ptr_of(&view_of(&unsafe { vc.view() }.expect("page view")));
+                    let key = ptr_of(&view_of(&vc.view().expect("page view")));
                     if let Some(existing) = t
                         .tabs
                         .iter()
-                        .find(|tab| unsafe { tab.identifier() }.to_string() == key.to_string())
+                        .find(|tab| tab.identifier().to_string() == key.to_string())
                     {
-                        unsafe {
-                            existing.setTitle(&NSString::from_str(&title));
-                            existing.setImage(image.as_deref());
-                            existing.setBadgeValue(badge.as_deref());
-                        }
+                        existing.setTitle(&NSString::from_str(&title));
+                        existing.setImage(image.as_deref());
+                        existing.setBadgeValue(badge.as_deref());
                         return existing.clone();
                     }
                     let page = vc.clone();
@@ -9231,6 +9307,7 @@ mod imp {
                             NonNull::from(&*page)
                         },
                     );
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     let tab = unsafe {
                         objc2_ui_kit::UITab::initWithTitle_image_identifier_viewControllerProvider(
                             objc2_ui_kit::UITab::alloc(mtm),
@@ -9243,7 +9320,7 @@ mod imp {
                             Some(&provider),
                         )
                     };
-                    unsafe { tab.setBadgeValue(badge.as_deref()) };
+                    tab.setBadgeValue(badge.as_deref());
                     tab
                 })
                 .collect();
@@ -9256,7 +9333,7 @@ mod imp {
                 t.suppress.set(true);
             }
         });
-        unsafe { tabbar.setTabs(&objc2_foundation::NSArray::from_retained_slice(&tabs)) };
+        tabbar.setTabs(&objc2_foundation::NSArray::from_retained_slice(&tabs));
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow().get(&host) {
                 t.suppress.set(false);
@@ -9295,13 +9372,11 @@ mod imp {
                     .get(i)
                     .and_then(|o| o.as_deref())
                     .and_then(load_bundled_uiimage);
-                unsafe {
-                    tab.setTitle(&NSString::from_str(&title));
-                    tab.setImage(image.as_deref());
-                    tab.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
-                    if let Some(vc) = t.vcs.get(i) {
-                        vc.setTitle(Some(&NSString::from_str(&title)));
-                    }
+                tab.setTitle(&NSString::from_str(&title));
+                tab.setImage(image.as_deref());
+                tab.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
+                if let Some(vc) = t.vcs.get(i) {
+                    vc.setTitle(Some(&NSString::from_str(&title)));
                 }
             }
         });
@@ -9336,21 +9411,19 @@ mod imp {
                     .get(i)
                     .and_then(|o| o.as_deref())
                     .and_then(load_bundled_uiimage);
-                unsafe {
-                    vc.setTitle(Some(&NSString::from_str(&title)));
-                    // UIKit makes the item on first access; `None` only before the controller
-                    // has one at all, which a page that is already in `vcs` always does.
-                    if let Some(item) = vc.tabBarItem() {
-                        item.setTitle(Some(&NSString::from_str(&title)));
-                        item.setImage(image.as_deref());
-                        item.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
-                    }
+                vc.setTitle(Some(&NSString::from_str(&title)));
+                // UIKit makes the item on first access; `None` only before the controller
+                // has one at all, which a page that is already in `vcs` always does.
+                if let Some(item) = vc.tabBarItem() {
+                    item.setTitle(Some(&NSString::from_str(&title)));
+                    item.setImage(image.as_deref());
+                    item.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
                 }
             }
             Some((t.tabbar.clone(), t.vcs.clone()))
         });
         let Some((tabbar, vcs)) = built else { return };
-        let current = unsafe { tabbar.viewControllers() };
+        let current = tabbar.viewControllers();
         let unchanged = current.is_some_and(|cur| {
             cur.len() == vcs.len()
                 && cur
@@ -9361,17 +9434,15 @@ mod imp {
         if unchanged {
             return;
         }
-        let showing = unsafe { tabbar.selectedIndex() };
+        let showing = tabbar.selectedIndex();
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow().get(&host) {
                 t.suppress.set(true);
             }
         });
-        unsafe {
-            tabbar.setViewControllers(Some(&objc2_foundation::NSArray::from_retained_slice(&vcs)));
-            if showing < vcs.len() {
-                tabbar.setSelectedIndex(showing);
-            }
+        tabbar.setViewControllers(Some(&objc2_foundation::NSArray::from_retained_slice(&vcs)));
+        if showing < vcs.len() {
+            tabbar.setSelectedIndex(showing);
         }
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow().get(&host) {
@@ -9454,31 +9525,28 @@ mod imp {
                 kind: &NSString,
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> Retained<objc2_ui_kit::UICollectionReusableView> {
-                let view: Retained<objc2_ui_kit::UICollectionViewListCell> = unsafe {
-                    cv.dequeueReusableSupplementaryViewOfKind_withReuseIdentifier_forIndexPath(
+                let view: Retained<objc2_ui_kit::UICollectionViewListCell> = cv
+                    .dequeueReusableSupplementaryViewOfKind_withReuseIdentifier_forIndexPath(
                         kind,
                         &NSString::from_str(NAV_HEADER_ID),
                         index_path,
                     )
-                }
-                .downcast()
-                .expect("the registered header class IS UICollectionViewListCell");
+                    .downcast()
+                    .expect("the registered header class IS UICollectionViewListCell");
                 let title = self
                     .groups()
-                    .get(unsafe { index_path.section() } as usize)
+                    .get(index_path.section() as usize)
                     .and_then(|(t, _, _)| t.clone());
                 // The view's OWN default, which UIKit resolves for a header in this list's
                 // style. The adaptive class method `+headerConfiguration` would say the same
                 // thing, but it is iOS 18+, and on anything older the message is not ignored —
                 // it is `method not found` and an abort before the first frame.
-                let content = unsafe { view.defaultContentConfiguration() };
-                unsafe {
-                    // A leading run of rows before the first heading has none to draw. The
-                    // configuration still applies, so the header collapses to nothing rather than
-                    // reserving a blank band.
-                    content.setText(title.as_deref().map(NSString::from_str).as_deref());
-                    view.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
-                }
+                let content = view.defaultContentConfiguration();
+                // A leading run of rows before the first heading has none to draw. The
+                // configuration still applies, so the header collapses to nothing rather than
+                // reserving a blank band.
+                content.setText(title.as_deref().map(NSString::from_str).as_deref());
+                view.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
                 // ListCell -> Cell -> ReusableView: the supplementary method answers in the base.
                 objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(view))
             }
@@ -9490,19 +9558,15 @@ mod imp {
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> Retained<objc2_ui_kit::UICollectionViewCell> {
                 let mtm = self.mtm();
-                let cell: Retained<objc2_ui_kit::UICollectionViewListCell> = unsafe {
-                    cv.dequeueReusableCellWithReuseIdentifier_forIndexPath(
+                let cell: Retained<objc2_ui_kit::UICollectionViewListCell> = cv
+                    .dequeueReusableCellWithReuseIdentifier_forIndexPath(
                         &NSString::from_str(NAV_CELL_ID),
                         index_path,
                     )
-                }
-                .downcast()
-                .expect("the registered class IS UICollectionViewListCell");
+                    .downcast()
+                    .expect("the registered class IS UICollectionViewListCell");
                 let row = self
-                    .row_of(
-                        unsafe { index_path.section() } as usize,
-                        unsafe { index_path.item() } as usize,
-                    )
+                    .row_of(index_path.section() as usize, index_path.item() as usize)
                     .unwrap_or(0);
                 let title = self
                     .ivars()
@@ -9545,8 +9609,8 @@ mod imp {
                 // which is where the selected row's tinted label comes from. The class method
                 // resolves the environment but not the state, so the pill drew and the label
                 // stayed the resting color.
-                let content = unsafe { cell.defaultContentConfiguration() };
-                unsafe {
+                let content = cell.defaultContentConfiguration();
+                {
                     content.setText(Some(&title));
                     content.setImage(img.as_deref());
                     // A glyph needs a SIZE. An SF Symbol scales itself to the row's text style,
@@ -9602,10 +9666,8 @@ mod imp {
             ) {
                 day_spec::ffi_guard::contain((), || {
                     let _ = cv;
-                    let Some(row) = self.row_of(unsafe { index_path.section() } as usize, unsafe {
-                        index_path.item()
-                    }
-                        as usize)
+                    let Some(row) =
+                        self.row_of(index_path.section() as usize, index_path.item() as usize)
                     else {
                         return;
                     };
@@ -9636,10 +9698,7 @@ mod imp {
                 _point: CGPoint,
             ) -> Option<Retained<UIContextMenuConfiguration>> {
                 let row = self
-                    .row_of(
-                        unsafe { index_path.section() } as usize,
-                        unsafe { index_path.item() } as usize,
-                    )
+                    .row_of(index_path.section() as usize, index_path.item() as usize)
                     .unwrap_or(usize::MAX);
                 let items = self
                     .ivars()
@@ -9660,6 +9719,8 @@ mod imp {
                             Retained::autorelease_return(menu.clone())
                         },
                     );
+                    // SAFETY: UIKit copies `provider`, which owns a retained menu and returns it at
+                    // +0, as action providers must; a null preview provider is allowed.
                     Some(unsafe {
                         UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
                             None,
@@ -9680,32 +9741,29 @@ mod imp {
     /// The bundle Day's staged glyphs live in — the SwiftPM resource bundle the Apple stager
     /// writes its asset catalog into (`resources/apple.rs`).
     fn day_pieces_bundle() -> Option<Retained<objc2_foundation::NSBundle>> {
-        let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+        let main = objc2_foundation::NSBundle::mainBundle();
         let bname = NSString::from_str("DayPieces_DayPieces");
         let bext = NSString::from_str("bundle");
-        let url = unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }?;
-        unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+        let url = main.URLForResource_withExtension(Some(&bname), Some(&bext))?;
+        objc2_foundation::NSBundle::bundleWithURL(&url)
     }
 
     fn load_bundled_uiimage(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
         let nsname = NSString::from_str(name);
         if let Some(day_bundle) = day_pieces_bundle()
-            && let Some(img) = unsafe {
+            && let Some(img) =
                 objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
                     &nsname,
                     Some(&day_bundle),
                     None,
                 )
-            }
         {
             return Some(img);
         }
         if let Some(path) = day_spec::resource::resolve_image_file(name)
-            && let Some(img) = unsafe {
-                objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
-                    &path.to_string_lossy(),
-                ))
-            }
+            && let Some(img) = objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                &path.to_string_lossy(),
+            ))
         {
             return Some(img);
         }
@@ -9721,13 +9779,13 @@ mod imp {
             .map(|ic| {
                 let name = ic.as_deref()?;
                 let img = load_bundled_uiimage(name)?;
-                Some(unsafe {
+                Some(
                     img.imageWithRenderingMode(if std::path::Path::new(name).is_absolute() {
                         objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal
                     } else {
                         objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
-                    })
-                })
+                    }),
+                )
             })
             .collect()
     }
@@ -9751,6 +9809,8 @@ mod imp {
         mtm: MainThreadMarker,
         headers: bool,
     ) -> Retained<objc2_ui_kit::UICollectionViewLayout> {
+        // SAFETY: the layout copies `provider` and calls it on the main thread with a live
+        // environment; it returns the section autoreleased (+0), as section providers must.
         unsafe {
             let provider = block2::RcBlock::new(
                 move |_: isize,
@@ -9804,39 +9864,32 @@ mod imp {
     ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UICellAccessory>> {
         let mut items: Vec<Retained<objc2_ui_kit::UICellAccessory>> = Vec::new();
         if let Some(text) = text.filter(|s| !s.is_empty()) {
-            let label = unsafe {
-                objc2_ui_kit::UICellAccessoryLabel::initWithText(
-                    objc2_ui_kit::UICellAccessoryLabel::alloc(mtm),
-                    &NSString::from_str(text),
-                )
-            };
+            let label = objc2_ui_kit::UICellAccessoryLabel::initWithText(
+                objc2_ui_kit::UICellAccessoryLabel::alloc(mtm),
+                &NSString::from_str(text),
+            );
             items.push(objc2::rc::Retained::into_super(label));
         }
         if let Some(img) = badge {
-            let iv = unsafe {
-                objc2_ui_kit::UIImageView::initWithImage(
-                    objc2_ui_kit::UIImageView::alloc(mtm),
-                    Some(img),
-                )
-            };
+            let iv = objc2_ui_kit::UIImageView::initWithImage(
+                objc2_ui_kit::UIImageView::alloc(mtm),
+                Some(img),
+            );
             if let Some(c) = badge_tint {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 unsafe { iv.setTintColor(Some(&uiink(c))) };
             }
-            unsafe { iv.sizeToFit() };
-            let acc = unsafe {
-                objc2_ui_kit::UICellAccessoryCustomView::initWithCustomView_placement(
-                    objc2_ui_kit::UICellAccessoryCustomView::alloc(mtm),
-                    &iv,
-                    objc2_ui_kit::UICellAccessoryPlacement::Trailing,
-                )
-            };
+            iv.sizeToFit();
+            let acc = objc2_ui_kit::UICellAccessoryCustomView::initWithCustomView_placement(
+                objc2_ui_kit::UICellAccessoryCustomView::alloc(mtm),
+                &iv,
+                objc2_ui_kit::UICellAccessoryPlacement::Trailing,
+            );
             items.push(objc2::rc::Retained::into_super(acc));
         }
-        let chevron = unsafe {
-            objc2_ui_kit::UICellAccessoryDisclosureIndicator::init(
-                objc2_ui_kit::UICellAccessoryDisclosureIndicator::alloc(mtm),
-            )
-        };
+        let chevron = objc2_ui_kit::UICellAccessoryDisclosureIndicator::init(
+            objc2_ui_kit::UICellAccessoryDisclosureIndicator::alloc(mtm),
+        );
         items.push(objc2::rc::Retained::into_super(chevron));
         objc2_foundation::NSArray::from_retained_slice(&items)
     }
@@ -9868,7 +9921,7 @@ mod imp {
     /// Not animated and not scrolled to: this runs while the model syncs the selection, and both
     /// would read as the list moving under a tap the user already made.
     fn select_nav_path(cv: &objc2_ui_kit::UICollectionView, path: Option<(usize, usize)>) {
-        unsafe {
+        {
             let ip = path.map(|(section, item)| {
                 objc2_foundation::NSIndexPath::indexPathForItem_inSection(
                     item as isize,
@@ -9914,6 +9967,8 @@ mod imp {
                 sections: RefCell::new(sections.to_vec()),
                 headers: std::cell::Cell::new(sections.iter().any(std::option::Option::is_some)),
             });
+            // SAFETY: `this` is a fresh DayNavTableData with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
 
@@ -10090,6 +10145,8 @@ mod imp {
                             Retained::autorelease_return(menu.clone())
                         },
                     );
+                    // SAFETY: UIKit copies `provider`, which owns a retained menu and returns it at
+                    // +0, as action providers must; a null preview provider is allowed.
                     Some(unsafe {
                         UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
                             None,
@@ -10143,6 +10200,8 @@ mod imp {
                 row_height: std::cell::Cell::new(row_height),
                 selectable: std::cell::Cell::new(selectable),
             });
+            // SAFETY: `this` is a fresh DayTreeData with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
 
@@ -10195,6 +10254,8 @@ mod imp {
             };
             let src = self.ivars().source.borrow().clone();
             let Some(src) = src else { return };
+            // SAFETY: `init` on a fresh NSDiffableDataSourceSectionSnapshot allocation takes no
+            // arguments and returns the empty snapshot.
             let snap: Retained<objc2_ui_kit::NSDiffableDataSourceSectionSnapshot<NSObject>> = unsafe {
                 msg_send![
                     <objc2_ui_kit::NSDiffableDataSourceSectionSnapshot<NSObject> as objc2::AnyThread>::alloc(),
@@ -10213,12 +10274,16 @@ mod imp {
                 let arr = objc2_foundation::NSArray::from_retained_slice(
                     &kids
                         .iter()
+                        // SAFETY: NSNumber is an NSObject subclass, so viewing it as NSObject is an
+                        // upcast.
                         .map(|t| unsafe { Retained::cast_unchecked::<NSObject>(self.intern(*t)) })
                         .collect::<Vec<_>>(),
                 );
                 match parent {
                     None => snap.appendItems(&arr),
                     Some(p) => {
+                        // SAFETY: NSNumber is an NSObject subclass, so viewing it as NSObject is an
+                        // upcast.
                         let item = unsafe { Retained::cast_unchecked::<NSObject>(self.intern(p)) };
                         snap.appendItems_intoParentItem(&arr, Some(&item));
                     }
@@ -10233,11 +10298,13 @@ mod imp {
             let open: Vec<Retained<NSObject>> = present
                 .iter()
                 .filter(|t| self.ivars().expanded.borrow().contains(t))
+                // SAFETY: NSNumber is an NSObject subclass, so viewing it as NSObject is an upcast.
                 .map(|t| unsafe { Retained::cast_unchecked::<NSObject>(self.intern(*t)) })
                 .collect();
             if !open.is_empty() {
                 snap.expandItems(&objc2_foundation::NSArray::from_retained_slice(&open));
             }
+            // SAFETY: NSNumber is an NSObject subclass, so viewing it as NSObject is an upcast.
             let section = unsafe { Retained::cast_unchecked::<NSObject>(Self::section()) };
             ds.applySnapshot_toSection_animatingDifferences(&snap, &section, animated);
         }
@@ -10261,6 +10328,8 @@ mod imp {
         impl DayTreeListCell {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
+                // SAFETY: UICollectionViewListCell implements `layoutSubviews` (no arguments,
+                // void); this is its override.
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 day_spec::ffi_guard::contain((), || {
                     let content = self.contentView();
@@ -10301,6 +10370,8 @@ mod imp {
                 let mut frame = attrs.frame();
                 frame.size.height = self.ivars().row_height.get();
                 attrs.setFrame(frame);
+                // SAFETY: `attrs` is a live reference UIKit passed in, so retaining it is sound and
+                // never null.
                 unsafe {
                     Retained::retain(
                         std::ptr::from_ref::<objc2_ui_kit::UICollectionViewLayoutAttributes>(attrs).cast_mut(),
@@ -10342,6 +10413,8 @@ mod imp {
         impl DayListCell {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
+                // SAFETY: UITableViewCell implements `layoutSubviews` (no arguments, void); this is
+                // its override.
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 day_spec::ffi_guard::contain((), || {
                     let content = self.contentView();
@@ -10415,6 +10488,8 @@ mod imp {
                 });
                 match measured {
                     Some(size) => size,
+                    // SAFETY: UIView implements this fitting-size selector (CGSize and two
+                    // priorities in, CGSize out); the override forwards its own arguments.
                     None => unsafe {
                         msg_send![
                             super(self),
@@ -10466,6 +10541,8 @@ mod imp {
                 node,
                 content: std::cell::Cell::new(0),
             });
+            // SAFETY: UITableViewCell's designated `initWithStyle:reuseIdentifier:` takes the style
+            // enum and an NSString; `this` is a fresh DayListCell with ivars set.
             let this: Retained<Self> = unsafe {
                 msg_send![
                     super(this),
@@ -10566,6 +10643,8 @@ mod imp {
                 });
                 match measured {
                     Some(size) => size,
+                    // SAFETY: UIView implements this fitting-size selector (CGSize and two
+                    // priorities in, CGSize out); the override forwards its own arguments.
                     None => unsafe {
                         msg_send![
                             super(self),
@@ -10592,6 +10671,8 @@ mod imp {
                 node,
                 content: std::cell::Cell::new(0),
             });
+            // SAFETY: UITableViewHeaderFooterView's designated `initWithReuseIdentifier:` takes an
+            // NSString; `this` is a fresh DayListHeader with ivars set.
             let this: Retained<Self> =
                 unsafe { msg_send![super(this), initWithReuseIdentifier: ident] };
             this.ivars()
@@ -10658,6 +10739,8 @@ mod imp {
         impl DayListTable {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
+                // SAFETY: UITableView implements `layoutSubviews` (no arguments, void); this is its
+                // override.
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 day_spec::ffi_guard::contain((), || {
                     let key = std::ptr::from_ref(self) as usize;
@@ -10677,6 +10760,8 @@ mod imp {
             style: objc2_ui_kit::UITableViewStyle,
         ) -> Retained<objc2_ui_kit::UITableView> {
             let this = Self::alloc(mtm).set_ivars(());
+            // SAFETY: UITableView's designated `initWithFrame:style:` takes a CGRect and the style
+            // enum; `this` is a fresh DayListTable (unit ivars).
             let this: Retained<Self> = unsafe {
                 msg_send![
                     super(this),
@@ -10757,6 +10842,8 @@ mod imp {
                 if header_selector && !self.ivars().sections {
                     false
                 } else {
+                    // SAFETY: NSObject implements `respondsToSelector:` (SEL, BOOL); this override
+                    // forwards its own argument.
                     unsafe { msg_send![super(self), respondsToSelector: selector] }
                 }
             }
@@ -10784,7 +10871,7 @@ mod imp {
                 let table = std::ptr::from_ref(tv) as usize;
                 let node = self.ivars().node;
                 let header: Retained<objc2_ui_kit::UITableViewHeaderFooterView> =
-                    unsafe { tv.dequeueReusableHeaderFooterViewWithIdentifier(&ident) }
+                    tv.dequeueReusableHeaderFooterViewWithIdentifier(&ident)
                         .unwrap_or_else(|| {
                             Retained::into_super(DayListHeader::new(mtm, &ident, table, node))
                         });
@@ -10801,6 +10888,7 @@ mod imp {
 
             #[unsafe(method(tableView:heightForHeaderInSection:))]
             fn height_for_header(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> CGFloat {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 unsafe { objc2_ui_kit::UITableViewAutomaticDimension }
             }
 
@@ -10822,7 +10910,11 @@ mod imp {
                     let data = Retained::into_raw(self.retain()) as usize;
                     <Uikit as Platform>::post(Box::new(move || {
                         // Reclaim both +1s first, so every early return balances them.
+                        // SAFETY: `view` is the +1 `into_raw` above, reclaimed exactly once on the
+                        // main queue.
                         let view = unsafe { Retained::from_raw(view as *mut UIView) };
+                        // SAFETY: `data` is the +1 `into_raw` above, reclaimed exactly once on the
+                        // main queue.
                         let data = unsafe { Retained::from_raw(data as *mut DayListData) };
                         let (Some(view), Some(data)) = (view, data) else { return };
                         if view.window().is_some() {
@@ -10936,7 +11028,7 @@ mod imp {
                 let table = std::ptr::from_ref(tv) as usize;
                 let node = self.ivars().node;
                 let cell =
-                    unsafe { tv.dequeueReusableCellWithIdentifier(&ident) }.unwrap_or_else(|| {
+                    tv.dequeueReusableCellWithIdentifier(&ident).unwrap_or_else(|| {
                         Retained::into_super(DayListCell::new(mtm, &ident, table, node))
                     });
                 // Day builds/rebinds its row content inside the cell's contentView. The bind
@@ -11026,7 +11118,7 @@ mod imp {
                         (del.delete_row)(row);
                         let paths =
                             objc2_foundation::NSArray::from_retained_slice(&[index_path.retain()]);
-                        unsafe {
+                        {
                             tv.deleteRowsAtIndexPaths_withRowAnimation(
                                 &paths,
                                 objc2_ui_kit::UITableViewRowAnimation::Automatic,
@@ -11084,13 +11176,15 @@ mod imp {
                     let cell = Retained::into_raw(cell.retain()) as usize;
                     <Uikit as Platform>::post(Box::new(move || {
                         // Reclaim the +1 first, so every early return balances it.
+                        // SAFETY: `cell` is the +1 `into_raw` above, reclaimed exactly once on the
+                        // main queue.
                         let cell = unsafe {
                             Retained::from_raw(cell as *mut objc2_ui_kit::UITableViewCell)
                         };
                         let Some(cell) = cell else { return };
                         let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
                         let Some((table, data)) = entry else { return };
-                        if unsafe { table.indexPathForCell(&cell) }.is_some() {
+                        if table.indexPathForCell(&cell).is_some() {
                             return; // displayed again: its ids are the live row's
                         }
                         let recycle = data
@@ -11137,6 +11231,7 @@ mod imp {
                 // (docs/list.md "Header, footer and empty state"): the cell answers.
                 let row = self.source_row(index_path).unwrap_or_else(|| self.display_of(index_path));
                 if self.ivars().automatic || self.is_supplement(row) {
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     unsafe { objc2_ui_kit::UITableViewAutomaticDimension }
                 } else {
                     self.ivars().row_height.get()
@@ -11181,7 +11276,7 @@ mod imp {
             ) {
                 day_spec::ffi_guard::contain((), || {
                     let row = self.display_of(index_path);
-                    unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
+                    tv.deselectRowAtIndexPath_animated(index_path, true);
                     if self.ivars().selectable.get() {
                         emit(self.ivars().node, Event::SelectionChanged(row as i64));
                         emit(self.ivars().node, Event::ListActivated(row));
@@ -11238,6 +11333,8 @@ mod imp {
                                     let paths = objc2_foundation::NSArray::from_retained_slice(
                                         std::slice::from_ref(&path),
                                     );
+                                    // SAFETY: unaudited UIKit calls on the live table, then `done`, the non-null completion block UIKit
+                                    // passed this handler, called once.
                                     unsafe {
                                         tv.deleteRowsAtIndexPaths_withRowAnimation(
                                             &paths,
@@ -11249,6 +11346,8 @@ mod imp {
                                     }
                                 },
                             );
+                        // SAFETY: The action copies `handler`, which owns retained `tv` and `path`,
+                        // runs on the main thread and calls the completion once.
                         let action = unsafe {
                             objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
                                 objc2_ui_kit::UIContextualActionStyle::Destructive,
@@ -11264,7 +11363,7 @@ mod imp {
                                 &NSString::from_str("trash"),
                             )
                         {
-                            unsafe { action.setImage(Some(&img)) };
+                            action.setImage(Some(&img));
                         }
                         actions.push(action);
                     }
@@ -11388,12 +11487,10 @@ mod imp {
                         return objc2_foundation::NSArray::new();
                     }
                     let provider = objc2_foundation::NSItemProvider::new();
-                    let item = unsafe {
-                        objc2_ui_kit::UIDragItem::initWithItemProvider(
+                    let item = objc2_ui_kit::UIDragItem::initWithItemProvider(
                             objc2_ui_kit::UIDragItem::alloc(self.mtm()),
                             &provider,
-                        )
-                    };
+                        );
                     objc2_foundation::NSArray::from_retained_slice(&[item])
                 };
                 // Contained (§8.5): the verdict runs the app's guard closure; a panic refuses
@@ -11426,6 +11523,8 @@ mod imp {
                 held: RefCell::new(None),
                 applying: std::cell::Cell::new(None),
             });
+            // SAFETY: `this` is a fresh DayListData with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
 
@@ -11443,11 +11542,11 @@ mod imp {
 
         /// The display row (the index Day's source speaks) at a table index path.
         fn display_of(&self, ip: &objc2_foundation::NSIndexPath) -> usize {
-            let row = unsafe { ip.row() }.max(0) as usize;
+            let row = ip.row().max(0) as usize;
             if !self.ivars().sections {
                 return row;
             }
-            let section = unsafe { ip.section() }.max(0) as usize;
+            let section = ip.section().max(0) as usize;
             self.ivars()
                 .headers
                 .borrow()
@@ -11546,7 +11645,7 @@ mod imp {
             match &held.deltas {
                 Some(deltas) => self.apply_splice(table, deltas, held.after),
                 // reloadData can retire cells synchronously, whose recycle needs the tree.
-                None => unsafe { table.reloadData() },
+                None => table.reloadData(),
             }
             table.layoutIfNeeded();
             self.ivars().applying.set(None);
@@ -11573,9 +11672,9 @@ mod imp {
         /// The display rows the table currently holds: its rows, plus one header per section
         /// in a sectioned list.
         fn table_len(&self, table: &objc2_ui_kit::UITableView) -> usize {
-            let sections = unsafe { table.numberOfSections() }.max(0);
+            let sections = table.numberOfSections().max(0);
             let rows: isize = (0..sections)
-                .map(|s| unsafe { table.numberOfRowsInSection(s) }.max(0))
+                .map(|s| table.numberOfRowsInSection(s).max(0))
                 .sum();
             let headers = if self.ivars().sections { sections } else { 0 };
             (rows + headers) as usize
@@ -11620,7 +11719,7 @@ mod imp {
                 CGPoint::new(0.0, bounds.origin.y + inset.top + 0.5),
                 CGSize::new(bounds.size.width, height - 1.0),
             );
-            let paths = unsafe { table.indexPathsForRowsInRect(area) };
+            let paths = table.indexPathsForRowsInRect(area);
             let mut span: Option<(usize, usize)> = None;
             let mut sections = (isize::MAX, isize::MIN);
             let mut note = |row: usize| {
@@ -11629,18 +11728,18 @@ mod imp {
             if let Some(paths) = paths {
                 for ip in &paths {
                     note(self.display_of(&ip));
-                    let s = unsafe { ip.section() };
+                    let s = ip.section();
                     sections = (sections.0.min(s), sections.1.max(s));
                 }
             }
             if self.ivars().sections {
                 // A section header in view is a row of Day's too.
                 let headers = self.ivars().headers.borrow().clone();
-                let count = unsafe { table.numberOfSections() };
+                let count = table.numberOfSections();
                 let from = sections.0.min(count).saturating_sub(1).max(0);
                 let to = sections.1.max(from).min(count - 1);
                 for s in from..=to {
-                    let rect = unsafe { table.rectForHeaderInSection(s) };
+                    let rect = table.rectForHeaderInSection(s);
                     let shows = rect.size.height > 0.0
                         && rect.origin.y < area.origin.y + area.size.height
                         && rect.origin.y + rect.size.height > area.origin.y;
@@ -11747,7 +11846,7 @@ mod imp {
                 && Self::all_below_viewport(table, &batch.inserts)
                 && let Some(mtm) = MainThreadMarker::new()
             {
-                let update = block2::RcBlock::new(|| unsafe {
+                let update = block2::RcBlock::new(|| {
                     table.beginUpdates();
                     table.insertRowsAtIndexPaths_withRowAnimation(
                         &paths(&batch.inserts),
@@ -11759,27 +11858,20 @@ mod imp {
                 return;
             }
             let animation = objc2_ui_kit::UITableViewRowAnimation::Automatic;
-            unsafe {
-                table.beginUpdates();
-                if !batch.deletes.is_empty() {
-                    table
-                        .deleteRowsAtIndexPaths_withRowAnimation(&paths(&batch.deletes), animation);
-                }
-                if !batch.inserts.is_empty() {
-                    table
-                        .insertRowsAtIndexPaths_withRowAnimation(&paths(&batch.inserts), animation);
-                }
-                for (from, to) in &batch.moves {
-                    table.moveRowAtIndexPath_toIndexPath(
-                        &objc2_foundation::NSIndexPath::indexPathForRow_inSection(
-                            *from as isize,
-                            0,
-                        ),
-                        &objc2_foundation::NSIndexPath::indexPathForRow_inSection(*to as isize, 0),
-                    );
-                }
-                table.endUpdates();
+            table.beginUpdates();
+            if !batch.deletes.is_empty() {
+                table.deleteRowsAtIndexPaths_withRowAnimation(&paths(&batch.deletes), animation);
             }
+            if !batch.inserts.is_empty() {
+                table.insertRowsAtIndexPaths_withRowAnimation(&paths(&batch.inserts), animation);
+            }
+            for (from, to) in &batch.moves {
+                table.moveRowAtIndexPath_toIndexPath(
+                    &objc2_foundation::NSIndexPath::indexPathForRow_inSection(*from as isize, 0),
+                    &objc2_foundation::NSIndexPath::indexPathForRow_inSection(*to as isize, 0),
+                );
+            }
+            table.endUpdates();
         }
 
         /// Whether rows inserted at `inserts` (final rows of an insert-only batch) all land
@@ -11787,7 +11879,7 @@ mod imp {
         fn all_below_viewport(table: &objc2_ui_kit::UITableView, inserts: &[usize]) -> bool {
             let Some(last) = table
                 .indexPathsForVisibleRows()
-                .and_then(|paths| paths.iter().map(|ip| unsafe { ip.row() }).max())
+                .and_then(|paths| paths.iter().map(|ip| ip.row()).max())
             else {
                 return false;
             };
@@ -11795,7 +11887,7 @@ mod imp {
                 return false;
             };
             let last_path = objc2_foundation::NSIndexPath::indexPathForRow_inSection(last, 0);
-            let shown = unsafe { table.rectForRowAtIndexPath(&last_path) };
+            let shown = table.rectForRowAtIndexPath(&last_path);
             let bottom = table.contentOffset().y + table.bounds().size.height
                 - table.adjustedContentInset().bottom;
             *first_insert as isize > last && shown.origin.y + shown.size.height >= bottom - 0.5
@@ -11804,7 +11896,7 @@ mod imp {
         /// Reloads a table where it stands: the offset it had, clamped to the new content.
         fn reload_keeping_offset(table: &objc2_ui_kit::UITableView) {
             let offset = table.contentOffset();
-            unsafe { table.reloadData() };
+            table.reloadData();
             table.layoutIfNeeded();
             let inset = table.adjustedContentInset();
             let lowest = -inset.top;
@@ -11846,19 +11938,19 @@ mod imp {
                 None => Self::last_path(table).map(|ip| (ip, At::Bottom)),
             };
             match target {
-                Some((ip, position)) => unsafe {
+                Some((ip, position)) => {
                     table.scrollToRowAtIndexPath_atScrollPosition_animated(
                         &ip,
                         position,
                         to.animated,
                     );
-                },
+                }
                 // A header-only section: its header's rect.
                 None => {
                     if let Some(row) = to.row {
                         let section = self.ivars().headers.borrow().iter().position(|h| *h == row);
                         if let Some(s) = section {
-                            let rect = unsafe { table.rectForHeaderInSection(s as isize) };
+                            let rect = table.rectForHeaderInSection(s as isize);
                             table.scrollRectToVisible_animated(rect, to.animated);
                         }
                     } else {
@@ -11903,7 +11995,7 @@ mod imp {
                 .borrow()
                 .iter()
                 .position(|h| *h == row)?;
-            (unsafe { table.numberOfRowsInSection(section as isize) } > 0).then(|| {
+            (table.numberOfRowsInSection(section as isize) > 0).then(|| {
                 objc2_foundation::NSIndexPath::indexPathForRow_inSection(0, section as isize)
             })
         }
@@ -11912,9 +12004,9 @@ mod imp {
         fn last_path(
             table: &objc2_ui_kit::UITableView,
         ) -> Option<Retained<objc2_foundation::NSIndexPath>> {
-            let sections = unsafe { table.numberOfSections() };
+            let sections = table.numberOfSections();
             (0..sections).rev().find_map(|s| {
-                let rows = unsafe { table.numberOfRowsInSection(s) };
+                let rows = table.numberOfRowsInSection(s);
                 (rows > 0)
                     .then(|| objc2_foundation::NSIndexPath::indexPathForRow_inSection(rows - 1, s))
             })
@@ -11944,6 +12036,8 @@ mod imp {
                     return;
                 }
                 let cls = <objc2_ui_kit::UIView as objc2::ClassType>::class();
+                // SAFETY: `cls` is UIView, whose class methods `areAnimationsEnabled` and
+                // `setAnimationsEnabled:` take and return BOOL. Main thread.
                 unsafe {
                     let was: bool = msg_send![cls, areAnimationsEnabled];
                     let _: () = msg_send![cls, setAnimationsEnabled: false];
@@ -12002,6 +12096,7 @@ mod imp {
                       done: NonNull<block2::DynBlock<dyn Fn(objc2::runtime::Bool)>>| {
                     day_spec::ffi_guard::contain((), || {
                         perform(row, edge, index);
+                        // SAFETY: `done` is the non-null completion block UIKit passes this handler, callable once here.
                         unsafe { done.as_ref().call((objc2::runtime::Bool::YES,)) };
                     });
                 },
@@ -12011,6 +12106,8 @@ mod imp {
             } else {
                 objc2_ui_kit::UIContextualActionStyle::Normal
             };
+            // SAFETY: the action copies `handler`, which owns `perform` and plain values and runs
+            // on the main thread; it calls UIKit's completion once. Main thread (`mtm`).
             let action = unsafe {
                 objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
                     style,
@@ -12020,7 +12117,7 @@ mod imp {
                 )
             };
             if let Some(t) = a.tint {
-                unsafe { action.setBackgroundColor(Some(&uiink(t))) };
+                action.setBackgroundColor(Some(&uiink(t)));
             }
             // The glyph, where one is declared — UIKit shows it in place of the title on
             // standard-height rows (the title stays the accessibility name), the same
@@ -12030,7 +12127,7 @@ mod imp {
                     day_spec::sf_symbol_name(sym),
                 ))
             {
-                unsafe { action.setImage(Some(&img)) };
+                action.setImage(Some(&img));
             }
             action
         }
@@ -12196,6 +12293,7 @@ mod imp {
     impl DayScrollDelegate {
         /// The delegate a `scroll` piece's view was realized with, if it got one.
         fn of(sv: &UIScrollView) -> Option<Retained<Self>> {
+            // SAFETY: UIScrollView implements `delegate`, returning a nullable object. Main thread.
             let delegate: Option<Retained<AnyObject>> = unsafe { msg_send![sv, delegate] };
             delegate?.downcast::<Self>().ok()
         }
@@ -12280,7 +12378,7 @@ mod imp {
     /// view has a property for, and the delegate for what it reports or decides.
     fn make_scroll(p: &ScrollProps, id: NodeId, mtm: MainThreadMarker) -> Retained<UIScrollView> {
         use day_spec::props::{KeyboardDismiss, KeyboardTaps, ScrollIndicators, ScrollSnap};
-        let sv = unsafe { UIScrollView::new(mtm) };
+        let sv = UIScrollView::new(mtm);
         if p.indicators == ScrollIndicators::Hidden {
             sv.setShowsVerticalScrollIndicator(false);
             sv.setShowsHorizontalScrollIndicator(false);
@@ -12306,6 +12404,7 @@ mod imp {
             }
             ScrollSnap::Interval(points) => {
                 // The fast rate is what a grid-snapping view decelerates with (Photos' strip).
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 sv.setDecelerationRate(unsafe { objc2_ui_kit::UIScrollViewDecelerationRateFast });
                 (points.is_finite() && points > 0.0).then_some(points)
             }
@@ -12320,13 +12419,13 @@ mod imp {
         }
         if p.keyboard_taps == KeyboardTaps::Dismiss {
             let tap = DayKeyboardTap::new(mtm);
-            unsafe { sv.addGestureRecognizer(&tap) };
+            sv.addGestureRecognizer(&tap);
         }
         let zoom_content = p.zoom.map(|range| {
             sv.setMinimumZoomScale(range.min.min(range.max));
             sv.setMaximumZoomScale(range.max.max(range.min));
             let content = UIView::new(mtm);
-            unsafe { sv.addSubview(&content) };
+            sv.addSubview(&content);
             content
         });
         if p.track_offset || p.track_phase || interval.is_some() || zoom_content.is_some() {
@@ -12341,7 +12440,11 @@ mod imp {
                 last_scale: Cell::new(None),
                 phase: Cell::new(day_spec::ScrollPhase::Idle),
             });
+            // SAFETY: `delegate` is a fresh DayScrollDelegate with ivars set; NSObject's `init`
+            // takes no arguments and returns the initialized object.
             let delegate: Retained<DayScrollDelegate> = unsafe { msg_send![super(delegate), init] };
+            // SAFETY: the scroll view's delegate is weak; the association below retains `delegate`
+            // for the scroll view's lifetime. Main thread (`mtm`).
             unsafe {
                 sv.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
                 // SAFETY: both are live objects; the association retains the delegate for
@@ -12385,19 +12488,19 @@ mod imp {
                 event: &objc2_ui_kit::UIEvent,
             ) {
                 day_spec::ffi_guard::contain((), || {
-                    let all = unsafe { event.touchesForGestureRecognizer(self) };
+                    let all = event.touchesForGestureRecognizer(self);
                     let touch = touches.iter().next();
                     let several = all.is_some_and(|all| all.count() > 1);
                     let on_input = touch
                         .as_ref()
-                        .and_then(|t| unsafe { t.view() })
+                        .and_then(|t| t.view())
                         .is_some_and(|v| is_text_input(&v));
                     match touch {
                         Some(t) if KEYBOARD_UP.with(Cell::get) && !several && !on_input => {
-                            let at = unsafe { t.locationInView(None) };
+                            let at = t.locationInView(None);
                             self.ivars().start.set(at);
                         }
-                        _ => unsafe {
+                        _ => {
                             self.setState(objc2_ui_kit::UIGestureRecognizerState::Failed);
                         },
                     }
@@ -12414,10 +12517,10 @@ mod imp {
                     let Some(touch) = touches.iter().next() else {
                         return;
                     };
-                    let at = unsafe { touch.locationInView(None) };
+                    let at = touch.locationInView(None);
                     let start = self.ivars().start.get();
                     if (at.x - start.x).hypot(at.y - start.y) > 10.0 {
-                        unsafe { self.setState(objc2_ui_kit::UIGestureRecognizerState::Failed) };
+                        self.setState(objc2_ui_kit::UIGestureRecognizerState::Failed);
                     }
                 });
             }
@@ -12432,8 +12535,8 @@ mod imp {
                 // takes the keyboard down. Done here rather than through a target, which would
                 // have the recognizer hold itself.
                 day_spec::ffi_guard::contain((), || {
-                    unsafe { self.setState(objc2_ui_kit::UIGestureRecognizerState::Ended) };
-                    if let Some(window) = unsafe { self.view() }.and_then(|v| v.window()) {
+                    self.setState(objc2_ui_kit::UIGestureRecognizerState::Ended);
+                    if let Some(window) = self.view().and_then(|v| v.window()) {
                         let _ = window.endEditing(true);
                     }
                 });
@@ -12445,7 +12548,7 @@ mod imp {
                 _touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
                 _event: &objc2_ui_kit::UIEvent,
             ) {
-                day_spec::ffi_guard::contain((), || unsafe {
+                day_spec::ffi_guard::contain((), || {
                     self.setState(objc2_ui_kit::UIGestureRecognizerState::Failed);
                 });
             }
@@ -12457,13 +12560,13 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(KeyboardTapIvars {
                 start: Cell::new(CGPoint::new(0.0, 0.0)),
             });
+            // SAFETY: UIGestureRecognizer's designated `initWithTarget:action:` accepts a nil
+            // target and a null action; `this` is a fresh DayKeyboardTap with ivars set.
             let this: Retained<Self> = unsafe {
                 msg_send![super(this), initWithTarget: None::<&AnyObject>, action: None::<Sel>]
             };
-            unsafe {
-                this.setCancelsTouchesInView(true);
-                this.setDelaysTouchesBegan(true);
-            }
+            this.setCancelsTouchesInView(true);
+            this.setDelaysTouchesBegan(true);
             this
         }
     }
@@ -12498,6 +12601,8 @@ mod imp {
             // rebuilt here.
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
+                // SAFETY: UIView implements `layoutSubviews` (no arguments, void); this is its
+                // override.
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 day_spec::ffi_guard::contain((), || {
                     relayout_surface(self);
@@ -12513,6 +12618,8 @@ mod imp {
                 &self,
                 previous: Option<&objc2_ui_kit::UITraitCollection>,
             ) {
+                // SAFETY: UIView implements `traitCollectionDidChange:` (nullable
+                // UITraitCollection, void); this override forwards its own argument.
                 let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
                 day_spec::ffi_guard::contain((), || refresh_surface_inks(self, previous));
             }
@@ -12524,6 +12631,8 @@ mod imp {
 
             #[unsafe(method(becomeFirstResponder))]
             fn become_first_responder(&self) -> bool {
+                // SAFETY: UIResponder implements `becomeFirstResponder` (no arguments, BOOL); this
+                // is its override.
                 let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
                 if became {
                     let ptr = std::ptr::from_ref::<DayFocusableContainer>(self).cast::<UIView>() as usize;
@@ -12536,6 +12645,8 @@ mod imp {
 
             #[unsafe(method(resignFirstResponder))]
             fn resign_first_responder(&self) -> bool {
+                // SAFETY: UIResponder implements `resignFirstResponder` (no arguments, BOOL); this
+                // is its override.
                 let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
                 if resigned {
                     let ptr = std::ptr::from_ref::<DayFocusableContainer>(self).cast::<UIView>() as usize;
@@ -12576,9 +12687,13 @@ mod imp {
 
             #[unsafe(method(didUpdateFocusInContext:withAnimationCoordinator:))]
             fn did_update_focus(&self, context: &AnyObject, coordinator: &AnyObject) {
+                // SAFETY: UIView implements `didUpdateFocusInContext:withAnimationCoordinator:`
+                // (two objects, void); this override forwards its own arguments.
                 unsafe {
                     let _: () = msg_send![super(self), didUpdateFocusInContext: context, withAnimationCoordinator: coordinator];
                 }
+                // SAFETY: `context` is the UIFocusUpdateContext UIKit passed in; it implements
+                // `nextFocusedItem`, returning a nullable object.
                 let next: Option<Retained<AnyObject>> = unsafe { msg_send![context, nextFocusedItem] };
                 let this: &AnyObject = self.as_ref();
                 if next.is_some_and(|n| std::ptr::eq(&raw const *n, this)) && !self.isFirstResponder() {
@@ -12594,9 +12709,12 @@ mod imp {
             ) {
                 let rest = release_keys(self, presses);
                 if rest.len() == presses.len() {
+                    // SAFETY: UIResponder implements `pressesEnded:withEvent:` (NSSet, nullable
+                    // event, void); this override forwards its own arguments.
                     let _: () = unsafe { msg_send![super(self), pressesEnded: presses, withEvent: event] };
                 } else if !rest.is_empty() {
                     let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    // SAFETY: as above, with `rest`, a live subset of `presses`.
                     let _: () = unsafe { msg_send![super(self), pressesEnded: &*rest, withEvent: event] };
                 }
             }
@@ -12609,9 +12727,12 @@ mod imp {
             ) {
                 let rest = release_keys(self, presses);
                 if rest.len() == presses.len() {
+                    // SAFETY: UIResponder implements `pressesCancelled:withEvent:` (NSSet, nullable
+                    // event, void); this override forwards its own arguments.
                     let _: () = unsafe { msg_send![super(self), pressesCancelled: presses, withEvent: event] };
                 } else if !rest.is_empty() {
                     let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    // SAFETY: as above, with `rest`, a live subset of `presses`.
                     let _: () = unsafe { msg_send![super(self), pressesCancelled: &*rest, withEvent: event] };
                 }
             }
@@ -12627,6 +12748,8 @@ mod imp {
                 if self.canBecomeFirstResponder() && !self.isFirstResponder() {
                     let _ = self.becomeFirstResponder();
                 }
+                // SAFETY: UIResponder implements `touchesBegan:withEvent:` (NSSet, nullable event,
+                // void); this override forwards its own arguments.
                 let _: () = unsafe { msg_send![super(self), touchesBegan: touches, withEvent: event] };
             }
 
@@ -12649,7 +12772,7 @@ mod imp {
                     }
                     let mut any = false;
                     for press in presses {
-                        let Some(key) = (unsafe { press.key(self.mtm()) }) else {
+                        let Some(key) = press.key(self.mtm()) else {
                             continue;
                         };
                         let Some(name) = key_name(&key) else {
@@ -12659,11 +12782,11 @@ mod imp {
                             node,
                             Event::Key(day_spec::KeyEvent::named(
                                 name,
-                                key_modifiers(unsafe { key.modifierFlags() }),
+                                key_modifiers(key.modifierFlags()),
                             )),
                         );
                         hold_key(ptr, HeldKey {
-                            code: unsafe { key.keyCode() }.0,
+                            code: key.keyCode().0,
                             name: name.to_owned(),
                             text: false,
                             inserts: 0,
@@ -12673,6 +12796,8 @@ mod imp {
                     any
                 });
                 if !handled {
+                    // SAFETY: UIResponder implements `pressesBegan:withEvent:` (NSSet, nullable
+                    // event, void); this override forwards its own arguments.
                     let _: () =
                         unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
                 }
@@ -12682,6 +12807,8 @@ mod imp {
     impl DayFocusableContainer {
         fn new(mtm: MainThreadMarker) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(());
+            // SAFETY: `this` is a fresh DayFocusableContainer (unit ivars); UIView's `init` takes
+            // no arguments and returns the initialized view.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -12706,6 +12833,8 @@ mod imp {
     impl DayGradientContainer {
         fn new(mtm: MainThreadMarker) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(());
+            // SAFETY: `this` is a fresh DayGradientContainer (unit ivars); its superclass chain's
+            // `init` takes no arguments and returns the initialized view.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -12762,6 +12891,8 @@ mod imp {
                 if takes_keyboard && adopted {
                     true
                 } else {
+                    // SAFETY: NSObject implements `conformsToProtocol:` (Protocol, BOOL); this
+                    // override forwards its own argument.
                     unsafe { msg_send![super(self), conformsToProtocol: protocol] }
                 }
             }
@@ -12853,6 +12984,8 @@ mod imp {
 
             #[unsafe(method(becomeFirstResponder))]
             fn become_first_responder(&self) -> bool {
+                // SAFETY: UIResponder implements `becomeFirstResponder` (no arguments, BOOL); this
+                // is its override.
                 let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
                 if became {
                     let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
@@ -12865,6 +12998,8 @@ mod imp {
 
             #[unsafe(method(resignFirstResponder))]
             fn resign_first_responder(&self) -> bool {
+                // SAFETY: UIResponder implements `resignFirstResponder` (no arguments, BOOL); this
+                // is its override.
                 let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
                 if resigned {
                     let ptr = std::ptr::from_ref::<DayCanvasView>(self).cast::<UIView>() as usize;
@@ -12910,9 +13045,12 @@ mod imp {
             ) {
                 let rest = release_keys(self, presses);
                 if rest.len() == presses.len() {
+                    // SAFETY: UIResponder implements `pressesEnded:withEvent:` (NSSet, nullable
+                    // event, void); this override forwards its own arguments.
                     let _: () = unsafe { msg_send![super(self), pressesEnded: presses, withEvent: event] };
                 } else if !rest.is_empty() {
                     let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    // SAFETY: as above, with `rest`, a live subset of `presses`.
                     let _: () = unsafe { msg_send![super(self), pressesEnded: &*rest, withEvent: event] };
                 }
             }
@@ -12925,9 +13063,12 @@ mod imp {
             ) {
                 let rest = release_keys(self, presses);
                 if rest.len() == presses.len() {
+                    // SAFETY: UIResponder implements `pressesCancelled:withEvent:` (NSSet, nullable
+                    // event, void); this override forwards its own arguments.
                     let _: () = unsafe { msg_send![super(self), pressesCancelled: presses, withEvent: event] };
                 } else if !rest.is_empty() {
                     let rest = objc2_foundation::NSSet::from_retained_slice(&rest);
+                    // SAFETY: as above, with `rest`, a live subset of `presses`.
                     let _: () = unsafe { msg_send![super(self), pressesCancelled: &*rest, withEvent: event] };
                 }
             }
@@ -12943,6 +13084,8 @@ mod imp {
                 if !self.isFirstResponder() {
                     let _ = self.becomeFirstResponder();
                 }
+                // SAFETY: UIResponder implements `touchesBegan:withEvent:` (NSSet, nullable event,
+                // void); this override forwards its own arguments.
                 let _: () = unsafe { msg_send![super(self), touchesBegan: touches, withEvent: event] };
             }
 
@@ -12970,13 +13113,13 @@ mod imp {
                         let full = day_spec::keys::text(node);
                         let mut rest = Vec::new();
                         for press in presses {
-                            let key = unsafe { press.key(self.mtm()) };
+                            let key = press.key(self.mtm());
                             let claimed = match &key {
                                 Some(key) if full => full_route_press(key),
                                 Some(key) => key_name(key).map(|name| {
                                     day_spec::KeyEvent::named(
                                         name,
-                                        key_modifiers(unsafe { key.modifierFlags() }),
+                                        key_modifiers(key.modifierFlags()),
                                     )
                                 }),
                                 None => None,
@@ -12985,7 +13128,7 @@ mod imp {
                                 rest.push(press.retain());
                                 continue;
                             };
-                            let code = unsafe { key.keyCode() }.0;
+                            let code = key.keyCode().0;
                             if let Some(event) = claimed {
                                 hold_key(ptr, HeldKey {
                                     code,
@@ -12997,7 +13140,7 @@ mod imp {
                             } else {
                                 // A key that types, on the full route: its text arrives
                                 // through `insertText:`, its release here.
-                                let typed = unsafe { key.charactersIgnoringModifiers() }.to_string();
+                                let typed = key.charactersIgnoringModifiers().to_string();
                                 if full && !typed.is_empty() && !typed.chars().any(char::is_control) {
                                     hold_key(ptr, HeldKey {
                                         code,
@@ -13012,10 +13155,13 @@ mod imp {
                         rest
                     });
                 if unclaimed.len() == presses.len() {
+                    // SAFETY: UIResponder implements `pressesBegan:withEvent:` (NSSet, nullable
+                    // event, void); this override forwards its own arguments.
                     let _: () =
                         unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
                 } else if !unclaimed.is_empty() {
                     let rest = objc2_foundation::NSSet::from_retained_slice(&unclaimed);
+                    // SAFETY: as above, with `rest`, a live subset of `presses`.
                     let _: () =
                         unsafe { msg_send![super(self), pressesBegan: &*rest, withEvent: event] };
                 }
@@ -13026,11 +13172,11 @@ mod imp {
     impl DayCanvasView {
         fn new(mtm: MainThreadMarker) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(CanvasIvars);
+            // SAFETY: `this` is a fresh DayCanvasView with ivars set; UIView's `init` takes no
+            // arguments and returns the initialized view.
             let v: Retained<Self> = unsafe { msg_send![super(this), init] };
-            unsafe {
-                v.setBackgroundColor(Some(&UIColor::clearColor()));
-                v.setOpaque(false);
-            }
+            v.setBackgroundColor(Some(&UIColor::clearColor()));
+            v.setOpaque(false);
             v
         }
     }
@@ -13041,28 +13187,28 @@ mod imp {
     /// every other view.
     fn native_text(h: &UIView) -> Option<String> {
         if let Some(label) = h.downcast_ref::<UILabel>() {
-            return Some(unsafe { label.text() }.map_or_default(|s| s.to_string()));
+            return Some(label.text().map_or_default(|s| s.to_string()));
         }
         if let Some(tf) = h.downcast_ref::<UITextField>() {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             if unsafe { is_secure_text_entry(tf) } {
                 return None;
             }
-            return Some(unsafe { tf.text() }.map_or_default(|s| s.to_string()));
+            return Some(tf.text().map_or_default(|s| s.to_string()));
         }
         // A text area, or a label with links or `.selectable()` (both read-only text views).
         if let Some(tv) = h.downcast_ref::<UITextView>() {
-            return Some(unsafe { tv.text() }.to_string());
+            return Some(tv.text().to_string());
         }
         let btn = h.downcast_ref::<UIButton>()?;
         // A configured button titles through its configuration (`apply_button_style`), and
         // falls back to the state title when that is empty, as UIKit draws it.
-        let title = unsafe {
-            btn.configuration()
-                .and_then(|config| config.title())
-                .filter(|t| !t.is_empty())
-                .or_else(|| btn.currentTitle())
-        }
-        .map_or_default(|s| s.to_string());
+        let title = btn
+            .configuration()
+            .and_then(|config| config.title())
+            .filter(|t| !t.is_empty())
+            .or_else(|| btn.currentTitle())
+            .map_or_default(|s| s.to_string());
         (!title.is_empty()).then_some(title)
     }
 
@@ -13071,9 +13217,9 @@ mod imp {
     /// `f32` goes through its shortest decimal so 0.1 reads back as 0.1, not 0.10000000149.
     fn native_number(h: &UIView) -> Option<f64> {
         let v = if let Some(sl) = h.downcast_ref::<UISlider>() {
-            unsafe { sl.value() }
+            sl.value()
         } else {
-            unsafe { h.downcast_ref::<UIProgressView>()?.progress() }
+            h.downcast_ref::<UIProgressView>()?.progress()
         };
         v.to_string().parse().ok()
     }
@@ -13127,7 +13273,7 @@ mod imp {
         } else {
             title
         };
-        unsafe {
+        {
             // A configuration with an empty title can fall back to the legacy state title.
             // Clear that title before installing content, particularly for icon-only controls.
             btn.setTitle_forState(None, UIControlState::Normal);
@@ -13170,7 +13316,7 @@ mod imp {
     /// the treatment iOS gives a chosen filter chip, and deselecting restores the button's own
     /// style. A touch never toggles `isSelected`, so nothing has to be put back after a press.
     fn set_button_selected(btn: &UIButton, on: bool, mtm: MainThreadMarker) {
-        unsafe {
+        {
             btn.setSelected(on);
             let title = btn
                 .configuration()
@@ -13208,7 +13354,7 @@ mod imp {
         use day_spec::props::ButtonStyleSpec as S;
         use objc2_ui_kit::UIButtonConfiguration;
         BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));
-        unsafe {
+        {
             let config = match style {
                 // The plain system button hugs its title already, so Compact is Automatic.
                 S::Automatic | S::Compact | S::Plain => {
@@ -13231,7 +13377,7 @@ mod imp {
     }
 
     fn uicolor(c: day_spec::Color) -> Retained<UIColor> {
-        unsafe { UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a) }
+        UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a)
     }
 
     /// A `CGColor` for the layer properties and context calls that take one.
@@ -13502,11 +13648,11 @@ mod imp {
                     _ => None,
                 };
                 // SAFETY: setting a view property on the main thread.
-                unsafe { v.setBackgroundColor(color.as_deref()) };
+                v.setBackgroundColor(color.as_deref());
             }
             Some(_) => {
                 // SAFETY: setting a view property on the main thread.
-                unsafe { v.setBackgroundColor(None) };
+                v.setBackgroundColor(None);
                 if own.is_none() && fill_layer.is_none() {
                     let sub = CAGradientLayer::new();
                     sub.setName(Some(&NSString::from_str("day.fill")));
@@ -13721,6 +13867,8 @@ mod imp {
     /// when they differ from the defaults, so a plain stroke costs no extra messages.
     fn apply_stroke_style(p: &objc2_ui_kit::UIBezierPath, style: &day_spec::StrokeStyle) {
         use day_spec::{LineCap, LineJoin};
+        // SAFETY: `pattern` holds `pattern.len()` CGFloats and outlives the call, which copies
+        // them; the rest is unaudited Apple API on the live path `p`, main thread.
         unsafe {
             p.setLineWidth(style.width);
             if style.is_plain() {
@@ -13753,46 +13901,36 @@ mod imp {
     fn draw_gradient_in(ctx: &CGContext, paint: &day_spec::Paint, bounds: day_spec::Rect) {
         let opts = objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
             | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation;
-        unsafe {
-            match paint {
-                day_spec::Paint::Linear(g) => {
-                    let Some(grad) = cggradient(&day_spec::resolved_stops(&g.stops)) else {
-                        return;
-                    };
-                    let (s, e) = (g.start.resolve(bounds), g.end.resolve(bounds));
-                    CGContext::draw_linear_gradient(
-                        Some(ctx),
-                        Some(&grad),
-                        CGPoint::new(s.x, s.y),
-                        CGPoint::new(e.x, e.y),
-                        opts,
-                    );
-                }
-                day_spec::Paint::Radial(g) => {
-                    let Some(grad) = cggradient(&day_spec::resolved_stops(&g.stops)) else {
-                        return;
-                    };
-                    CGContext::save_g_state(Some(ctx));
-                    CGContext::translate_ctm(Some(ctx), bounds.origin.x, bounds.origin.y);
-                    CGContext::scale_ctm(Some(ctx), bounds.size.width, bounds.size.height);
-                    let c = CGPoint::new(g.center.x, g.center.y);
-                    CGContext::draw_radial_gradient(
-                        Some(ctx),
-                        Some(&grad),
-                        c,
-                        0.0,
-                        c,
-                        g.radius,
-                        opts,
-                    );
-                    CGContext::restore_g_state(Some(ctx));
-                }
-                day_spec::Paint::Conic(g) => {
-                    let c = g.center.resolve(bounds);
-                    draw_conic(ctx, g, CGPoint::new(c.x, c.y));
-                }
-                day_spec::Paint::Solid(_) => {}
+        match paint {
+            day_spec::Paint::Linear(g) => {
+                let Some(grad) = cggradient(&day_spec::resolved_stops(&g.stops)) else {
+                    return;
+                };
+                let (s, e) = (g.start.resolve(bounds), g.end.resolve(bounds));
+                CGContext::draw_linear_gradient(
+                    Some(ctx),
+                    Some(&grad),
+                    CGPoint::new(s.x, s.y),
+                    CGPoint::new(e.x, e.y),
+                    opts,
+                );
             }
+            day_spec::Paint::Radial(g) => {
+                let Some(grad) = cggradient(&day_spec::resolved_stops(&g.stops)) else {
+                    return;
+                };
+                CGContext::save_g_state(Some(ctx));
+                CGContext::translate_ctm(Some(ctx), bounds.origin.x, bounds.origin.y);
+                CGContext::scale_ctm(Some(ctx), bounds.size.width, bounds.size.height);
+                let c = CGPoint::new(g.center.x, g.center.y);
+                CGContext::draw_radial_gradient(Some(ctx), Some(&grad), c, 0.0, c, g.radius, opts);
+                CGContext::restore_g_state(Some(ctx));
+            }
+            day_spec::Paint::Conic(g) => {
+                let c = g.center.resolve(bounds);
+                draw_conic(ctx, g, CGPoint::new(c.x, c.y));
+            }
+            day_spec::Paint::Solid(_) => {}
         }
     }
 
@@ -13957,6 +14095,8 @@ mod imp {
 
     fn draw_op(op: &day_spec::DrawOp, state: &crate::canvas_state::CanvasState) {
         use day_spec::DrawOp;
+        // SAFETY: Inside `drawRect:` with UIKit's current context; `sizeWithAttributes:` and
+        // `drawAtPoint:withAttributes:` are UIKit's NSString drawing methods.
         unsafe {
             match op {
                 // One path for the whole batch, then one fill or stroke — the AppKit twin
@@ -13975,10 +14115,10 @@ mod imp {
                     }
                 }
                 DrawOp::Stamp(st) => {
-                    let batch = unsafe { objc2_ui_kit::UIBezierPath::bezierPath() };
+                    let batch = objc2_ui_kit::UIBezierPath::bezierPath();
                     for p in &st.at {
                         if let Some(copy) = bezier(&st.shape.translated(p.x, p.y)) {
-                            unsafe { batch.appendPath(&copy) };
+                            batch.appendPath(&copy);
                         }
                     }
                     let color = match &st.paint {
@@ -13988,12 +14128,12 @@ mod imp {
                     match &st.stroke {
                         None => {
                             uicolor(color).setFill();
-                            unsafe { batch.fill() };
+                            batch.fill();
                         }
                         Some(style) => {
                             uicolor(color).setStroke();
                             apply_stroke_style(&batch, style);
-                            unsafe { batch.stroke() };
+                            batch.stroke();
                         }
                     }
                 }
@@ -14203,6 +14343,8 @@ mod imp {
             .collect();
         let locations: Vec<f64> = stops.iter().map(|(o, _)| *o).collect();
         let space = objc2_core_graphics::CGColorSpace::new_device_rgb();
+        // SAFETY: `components` holds 4 values per stop and `locations` one, both `stops.len()` long
+        // and alive for the call, which copies them; `space` is device RGB.
         unsafe {
             objc2_core_graphics::CGGradient::with_color_components(
                 space.as_deref(),
@@ -14216,75 +14358,72 @@ mod imp {
     fn bezier(shape: &day_spec::Shape) -> Option<Retained<objc2_ui_kit::UIBezierPath>> {
         use day_spec::Shape;
         use objc2_ui_kit::UIBezierPath;
-        unsafe {
-            Some(match shape {
-                Shape::Rect(r) => UIBezierPath::bezierPathWithRect(cg(*r)),
-                Shape::RoundedRect(r, rad) => {
-                    UIBezierPath::bezierPathWithRoundedRect_cornerRadius(cg(*r), *rad)
+        Some(match shape {
+            Shape::Rect(r) => UIBezierPath::bezierPathWithRect(cg(*r)),
+            Shape::RoundedRect(r, rad) => {
+                UIBezierPath::bezierPathWithRoundedRect_cornerRadius(cg(*r), *rad)
+            }
+            Shape::Ellipse(r) => UIBezierPath::bezierPathWithOvalInRect(cg(*r)),
+            Shape::Arc { rect, start, sweep } => {
+                let (start_deg, sweep_deg) = (start.degrees(), sweep.degrees());
+                let center = CGPoint::new(
+                    rect.origin.x + rect.size.width / 2.0,
+                    rect.origin.y + rect.size.height / 2.0,
+                );
+                let radius = rect.size.width.min(rect.size.height) / 2.0;
+                UIBezierPath::bezierPathWithArcCenter_radius_startAngle_endAngle_clockwise(
+                    center,
+                    radius,
+                    start_deg.to_radians(),
+                    (start_deg + sweep_deg).to_radians(),
+                    true,
+                )
+            }
+            Shape::Line(a, b) => {
+                let p = UIBezierPath::bezierPath();
+                p.moveToPoint(CGPoint::new(a.x, a.y));
+                p.addLineToPoint(CGPoint::new(b.x, b.y));
+                p
+            }
+            Shape::Path(path) => {
+                use day_spec::PathSeg;
+                if path.segs.is_empty() {
+                    return None;
                 }
-                Shape::Ellipse(r) => UIBezierPath::bezierPathWithOvalInRect(cg(*r)),
-                Shape::Arc { rect, start, sweep } => {
-                    let (start_deg, sweep_deg) = (start.degrees(), sweep.degrees());
-                    let center = CGPoint::new(
-                        rect.origin.x + rect.size.width / 2.0,
-                        rect.origin.y + rect.size.height / 2.0,
-                    );
-                    let radius = rect.size.width.min(rect.size.height) / 2.0;
-                    UIBezierPath::bezierPathWithArcCenter_radius_startAngle_endAngle_clockwise(
-                        center,
-                        radius,
-                        start_deg.to_radians(),
-                        (start_deg + sweep_deg).to_radians(),
-                        true,
-                    )
-                }
-                Shape::Line(a, b) => {
-                    let p = UIBezierPath::bezierPath();
-                    p.moveToPoint(CGPoint::new(a.x, a.y));
-                    p.addLineToPoint(CGPoint::new(b.x, b.y));
-                    p
-                }
-                Shape::Path(path) => {
-                    use day_spec::PathSeg;
-                    if path.segs.is_empty() {
-                        return None;
+                let p = UIBezierPath::bezierPath();
+                for seg in &path.segs {
+                    match seg {
+                        PathSeg::Move(a) => p.moveToPoint(CGPoint::new(a.x, a.y)),
+                        PathSeg::Line(a) => p.addLineToPoint(CGPoint::new(a.x, a.y)),
+                        PathSeg::Quad(c, a) => p.addQuadCurveToPoint_controlPoint(
+                            CGPoint::new(a.x, a.y),
+                            CGPoint::new(c.x, c.y),
+                        ),
+                        PathSeg::Cubic(c1, c2, a) => p.addCurveToPoint_controlPoint1_controlPoint2(
+                            CGPoint::new(a.x, a.y),
+                            CGPoint::new(c1.x, c1.y),
+                            CGPoint::new(c2.x, c2.y),
+                        ),
+                        PathSeg::Close => p.closePath(),
                     }
-                    let p = UIBezierPath::bezierPath();
-                    for seg in &path.segs {
-                        match seg {
-                            PathSeg::Move(a) => p.moveToPoint(CGPoint::new(a.x, a.y)),
-                            PathSeg::Line(a) => p.addLineToPoint(CGPoint::new(a.x, a.y)),
-                            PathSeg::Quad(c, a) => p.addQuadCurveToPoint_controlPoint(
-                                CGPoint::new(a.x, a.y),
-                                CGPoint::new(c.x, c.y),
-                            ),
-                            PathSeg::Cubic(c1, c2, a) => p
-                                .addCurveToPoint_controlPoint1_controlPoint2(
-                                    CGPoint::new(a.x, a.y),
-                                    CGPoint::new(c1.x, c1.y),
-                                    CGPoint::new(c2.x, c2.y),
-                                ),
-                            PathSeg::Close => p.closePath(),
-                        }
-                    }
-                    // The fill rule travels ON the path, which is also how `addClip` reads it.
-                    p.setUsesEvenOddFillRule(path.rule == day_spec::FillRule::EvenOdd);
-                    p
                 }
-                Shape::Polygon(pts) => {
-                    if pts.len() < 2 {
-                        return None;
-                    }
-                    let p = UIBezierPath::bezierPath();
-                    p.moveToPoint(CGPoint::new(pts[0].x, pts[0].y));
-                    for pt in &pts[1..] {
-                        p.addLineToPoint(CGPoint::new(pt.x, pt.y));
-                    }
-                    p.closePath();
-                    p
+                // The fill rule travels ON the path, which is also how `addClip` reads it.
+                p.setUsesEvenOddFillRule(path.rule == day_spec::FillRule::EvenOdd);
+                p
+            }
+            Shape::Polygon(pts) => {
+                if pts.len() < 2 {
+                    return None;
                 }
-            })
-        }
+                let p = UIBezierPath::bezierPath();
+                p.moveToPoint(CGPoint::new(pts[0].x, pts[0].y));
+                for pt in &pts[1..] {
+                    p.addLineToPoint(CGPoint::new(pt.x, pt.y));
+                }
+                p.closePath();
+                p
+            }
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -14315,36 +14454,31 @@ mod imp {
                 let name = NSString::from_str(named);
                 // Processed image (§18.3): load by name from the DayPieces `Assets.car` — the
                 // SwiftPM `.process` catalog compiled by actool into DayPieces_DayPieces.bundle.
-                let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+                let main = objc2_foundation::NSBundle::mainBundle();
                 let bname = NSString::from_str("DayPieces_DayPieces");
                 let bext = NSString::from_str("bundle");
-                if let Some(url) =
-                    unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }
-                    && let Some(day_bundle) =
-                        unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
-                    && let Some(img) = unsafe {
+                if let Some(url) = main.URLForResource_withExtension(Some(&bname), Some(&bext))
+                    && let Some(day_bundle) = objc2_foundation::NSBundle::bundleWithURL(&url)
+                    && let Some(img) =
                         objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
                             &name,
                             Some(&day_bundle),
                             None,
                         )
-                    }
                 {
                     return Some(img);
                 }
                 // Fallback: a loose file staged in the bundle (assets/ or images/), or dev.
                 let path = day_spec::resource::resolve_image_file(named)?;
-                unsafe {
-                    objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
-                        &path.to_string_lossy(),
-                    ))
-                }
+                objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                    &path.to_string_lossy(),
+                ))
             }
             // Bytes the app already holds — a download, a picked file, a paste — with no staged
             // resource behind them.
             day_spec::ImageSource::Bytes(bytes) => {
                 let data = objc2_foundation::NSData::with_bytes(bytes);
-                unsafe { objc2_ui_kit::UIImage::imageWithData(&data) }
+                objc2_ui_kit::UIImage::imageWithData(&data)
             }
             // Already decoded: share the one UIImage rather than parsing the same bytes twice.
             day_spec::ImageSource::Decoded(id) => {
@@ -14365,15 +14499,13 @@ mod imp {
         let bounds = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w, h));
         // The format's scale is pinned to 1: the renderer would otherwise multiply by the
         // screen's scale and hand back an image twice the size that was asked for.
-        let format = unsafe { objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat() };
-        unsafe { format.setScale(1.0) };
-        let renderer = unsafe {
-            objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds_format(
-                objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
-                bounds,
-                &format,
-            )
-        };
+        let format = objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat();
+        format.setScale(1.0);
+        let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds_format(
+            objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+            bounds,
+            &format,
+        );
         let src: Retained<objc2_ui_kit::UIImage> = Retained::from(image);
         // SAFETY: the renderer runs the block synchronously, inside this call.
         unsafe {
@@ -14428,7 +14560,7 @@ mod imp {
     fn paint_ops(ops: &[day_spec::DrawOp]) {
         // SAFETY: reading the current graphics context on the thread that set it.
         let mut state = crate::canvas_state::CanvasState::default();
-        let Some(cg) = (unsafe { objc2_ui_kit::UIGraphicsGetCurrentContext() }) else {
+        let Some(cg) = objc2_ui_kit::UIGraphicsGetCurrentContext() else {
             for op in ops {
                 state.track(op);
                 draw_op(op, &state);
@@ -14679,7 +14811,7 @@ mod imp {
     ) -> Retained<objc2_ui_kit::UIGraphicsImageRenderer> {
         use objc2::AllocAnyThread as _;
         // SAFETY: plain UIKit object construction on the UI thread.
-        unsafe {
+        {
             let format = objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat();
             format.setScale(scale);
             format.setOpaque(false);
@@ -14825,7 +14957,7 @@ mod imp {
         // controller-backed its hierarchy check raises an NSException — which is foreign to
         // Rust and aborts the process. This happens to the PRIMARY root while a fullscreen
         // cover is presented (UIKit detaches the underlay), so refuse rather than raise.
-        if unsafe { view.window() }.is_none() {
+        if view.window().is_none() {
             return Err("view is not in a window".into());
         }
         let bounds = view.bounds();
@@ -14910,12 +15042,11 @@ mod imp {
         ) -> Option<Retained<UIPointerStyle>> {
             let mtm = MainThreadMarker::from(self);
             let cursor = self.ivars().cursor.borrow().clone();
-            let rect = unsafe { region.rect() };
-            let view = unsafe { interaction.view() };
+            let rect = region.rect();
+            let view = interaction.view();
             let preview = || {
-                view.as_deref().map(|v| unsafe {
-                    UITargetedPreview::initWithView(UITargetedPreview::alloc(mtm), v)
-                })
+                view.as_deref()
+                    .map(|v| UITargetedPreview::initWithView(UITargetedPreview::alloc(mtm), v))
             };
             Some(match cursor {
                 Cursor::None => UIPointerStyle::hiddenPointerStyle(mtm),
@@ -14946,12 +15077,14 @@ mod imp {
                     let p = preview()?;
                     let effect: Retained<UIPointerEffect> =
                         Retained::into_super(UIPointerHighlightEffect::effectWithPreview(&p));
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
                 }
                 Cursor::Move => {
                     let p = preview()?;
                     let effect: Retained<UIPointerEffect> =
                         Retained::into_super(UIPointerLiftEffect::effectWithPreview(&p));
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
                 }
                 // Everything else keeps the system pointer; iPadOS has no such shapes.
@@ -14965,6 +15098,8 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(PointerIvars {
                 cursor: RefCell::new(cursor),
             });
+            // SAFETY: `this` is a fresh DayPointerDelegate with ivars set; NSObject's `init` takes
+            // no arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -15292,6 +15427,7 @@ mod imp {
             UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
             UIAccessibilityTraitImage, UIAccessibilityTraitTabBar,
         };
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             Some(match role {
                 // UIKit has no trait for one tab: it is a button, and the selected trait
@@ -15313,6 +15449,7 @@ mod imp {
             UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
             UIAccessibilityTraitImage, UIAccessibilityTraitTabBar,
         };
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             if t & UIAccessibilityTraitAdjustable != 0 {
                 Role::Slider
@@ -15335,6 +15472,7 @@ mod imp {
     /// size in Settings ▸ Accessibility ▸ Display & Text Size ▸ Larger Text.
     fn ui_text_style(f: Font) -> Option<&'static objc2_ui_kit::UIFontTextStyle> {
         use objc2_ui_kit::*;
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             Some(match f {
                 Font::LargeTitle => UIFontTextStyleLargeTitle,
@@ -15384,6 +15522,7 @@ mod imp {
             if traits.is_empty() {
                 return base;
             }
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 let desc = base.fontDescriptor();
                 match desc.fontDescriptorWithSymbolicTraits(desc.symbolicTraits() | traits) {
@@ -15393,9 +15532,10 @@ mod imp {
             }
         };
         let Some(family) = font.family.as_deref() else {
-            let base = unsafe { UIFont::systemFontOfSize_weight(size, ui_weight(weight)) };
+            let base = UIFont::systemFontOfSize_weight(size, ui_weight(weight));
             // The weight is already exact; only the slant is left to the descriptor.
             return if font.italic {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 unsafe {
                     let desc = base.fontDescriptor();
                     match desc.fontDescriptorWithSymbolicTraits(
@@ -15410,24 +15550,27 @@ mod imp {
             };
         };
         let ns_family = NSString::from_str(family);
-        let known = unsafe { UIFont::fontNamesForFamilyName(&ns_family) }.count() > 0;
+        let known = UIFont::fontNamesForFamilyName(&ns_family).count() > 0;
         if known {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let keys: [&NSString; 1] = [unsafe { UIFontDescriptorFamilyAttribute }];
             let objs: [&AnyObject; 1] = [ns_family.as_ref() as &AnyObject];
             let attrs = objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let desc = unsafe { UIFontDescriptor::fontDescriptorWithFontAttributes(&attrs) };
             let desc = if traits.is_empty() {
                 desc
             } else {
-                unsafe { desc.fontDescriptorWithSymbolicTraits(traits) }.unwrap_or(desc)
+                desc.fontDescriptorWithSymbolicTraits(traits)
+                    .unwrap_or(desc)
             };
-            return unsafe { UIFont::fontWithDescriptor_size(&desc, size) };
+            return UIFont::fontWithDescriptor_size(&desc, size);
         }
-        if let Some(f) = unsafe { UIFont::fontWithName_size(&ns_family, size) } {
+        if let Some(f) = UIFont::fontWithName_size(&ns_family, size) {
             return with_traits(f);
         }
         log::warn!("unknown font family {family:?} — drawing canvas text in the system font");
-        unsafe { UIFont::systemFontOfSize_weight(size, ui_weight(weight)) }
+        UIFont::systemFontOfSize_weight(size, ui_weight(weight))
     }
 
     /// The attribute dictionary canvas text draws and measures with (the same one, so
@@ -15469,6 +15612,7 @@ mod imp {
     fn ui_weight(w: day_spec::FontWeight) -> objc2_ui_kit::UIFontWeight {
         use day_spec::FontWeight as W;
         use objc2_ui_kit::*;
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             match w {
                 W::UltraLight => UIFontWeightUltraLight,
@@ -15513,6 +15657,7 @@ mod imp {
     fn resolve_font(spec: day_spec::FontSpec) -> Retained<objc2_ui_kit::UIFont> {
         use objc2_ui_kit::*;
         let base: Retained<UIFont> = match spec.style {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             Font::System(pt) => unsafe {
                 // A custom size, weighted, then run through UIFontMetrics so it also honors Dynamic
                 // Type (accessibility text scale) instead of being a fixed pixel size.
@@ -15524,6 +15669,7 @@ mod imp {
             // listed in UIAppFonts), then scaled through UIFontMetrics like Font::System so it
             // tracks Dynamic Type. Unknown families fall back to the system font, loudly. A
             // weight override maps to the bold trait below (the family decides what it has).
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             Font::Custom(name, pt) => unsafe {
                 let raw = if let Some(f) = UIFont::fontWithName_size(&NSString::from_str(name), pt)
                 {
@@ -15538,7 +15684,7 @@ mod imp {
                 };
                 UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
             },
-            style => unsafe {
+            style => {
                 let ts = ui_text_style(style).expect("semantic style");
                 match spec.weight {
                     // No weight override → preferredFont, which is Dynamic Type (auto-scales live).
@@ -15552,7 +15698,7 @@ mod imp {
                         UIFontMetrics::metricsForTextStyle(ts).scaledFontForFont(&raw)
                     }
                 }
-            },
+            }
         };
         // Symbolic-trait tweaks on the resolved font: italic, plus synthesized bold for a custom
         // family with a heavy weight override (system fonts got their weight above).
@@ -15570,6 +15716,7 @@ mod imp {
         let font = if extra.is_empty() {
             base
         } else {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 let desc = base.fontDescriptor();
                 let traits = desc.symbolicTraits() | extra;
@@ -15584,6 +15731,7 @@ mod imp {
         // its own figures rather than being silently swapped for the system typeface. The result
         // still goes through UIFontMetrics below, so Dynamic Type keeps working.
         let font = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 let w = spec.weight.map_or(UIFontWeightRegular, ui_weight);
                 let raw = UIFont::monospacedDigitSystemFontOfSize_weight(font.pointSize(), w);
@@ -15595,6 +15743,7 @@ mod imp {
         // Monospace, by the same rule and for the same reason (docs/text-runs.md): a whole face
         // on UIKit too, kept inside UIFontMetrics so inline code still scales with Dynamic Type.
         let font = if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 let w = spec.weight.map_or(UIFontWeightRegular, ui_weight);
                 let raw = UIFont::monospacedSystemFontOfSize_weight(font.pointSize(), w);
@@ -15614,6 +15763,7 @@ mod imp {
         let font = if unscaled {
             font
         } else {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe { font.fontWithSize(spec.resolved_points(font.pointSize())) }
         };
         with_font_features(font, spec)
@@ -15641,6 +15791,7 @@ mod imp {
         if wanted.is_empty() {
             return font;
         }
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             let desc = font.fontDescriptor();
             let mut settings: Vec<Retained<AnyObject>> = desc
@@ -15682,10 +15833,9 @@ mod imp {
         use objc2::AllocAnyThread as _;
         use objc2_foundation::{NSMutableAttributedString, NSRange};
         let ns = NSString::from_str(text);
-        let s = unsafe {
-            NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns)
-        };
+        let s = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
         let whole = NSRange::new(0, ns.length());
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             s.addAttribute_value_range(objc2_ui_kit::NSFontAttributeName, base_font, whole);
             // Always a foreground: a UITextView draws an attributed range with no color
@@ -15698,6 +15848,7 @@ mod imp {
             let Some(range) = utf16_range(text, &r.range) else {
                 continue;
             };
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 s.addAttribute_value_range(
                     objc2_ui_kit::NSFontAttributeName,
@@ -15784,6 +15935,8 @@ mod imp {
 
     fn apply_font(label: &UILabel, spec: day_spec::FontSpec) {
         let font = resolve_font(spec);
+        // SAFETY: `label` is a live UILabel, which implements
+        // `setAdjustsFontForContentSizeCategory:` (BOOL, void). Main thread.
         unsafe {
             label.setFont(Some(&font));
             // Re-scale live when the user changes the accessibility text size (works for fonts derived
@@ -15804,8 +15957,8 @@ mod imp {
     /// renderer, or a props payload of the wrong type (`day_spec::props_of` reports the
     /// mismatch before the arm degrades here).
     pub(crate) fn placeholder_view(kind: PieceKind) -> Handle {
-        let label = unsafe { UILabel::new(mtm()) };
-        unsafe { label.setText(Some(&NSString::from_str(&format!("⟨{kind}⟩")))) };
+        let label = UILabel::new(mtm());
+        label.setText(Some(&NSString::from_str(&format!("⟨{kind}⟩"))));
         view_of(&label)
     }
 
@@ -15816,9 +15969,9 @@ mod imp {
         /// user allowing notifications the count is simply not drawn (docs/badge.md).
         ///
         /// `UNUserNotificationCenter.setBadgeCount:` (iOS 16+) rather than the deprecated
-        /// `UIApplication.applicationIconBadgeNumber`. Hand-rolled through `msg_send!` on two
-        /// nav hosts instead of taking `objc2-user-notifications` as a toolkit dependency — the
-        /// same budget `day-part-permissions` keeps for this exact class.
+        /// `UIApplication.applicationIconBadgeNumber`, which only iOS 15 still uses. Hand-rolled
+        /// through `msg_send!` on two nav hosts instead of taking `objc2-user-notifications` as a
+        /// toolkit dependency — the same budget `day-part-permissions` keeps for this exact class.
         fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
             use day_spec::AppBadge;
             let count: isize = match badge {
@@ -15828,9 +15981,15 @@ mod imp {
                 // caller never asked for, so these clear instead (Cap says they are unsupported).
                 AppBadge::Text(_) | AppBadge::Dot => return,
             };
+            if !os_at_least(16) {
+                set_legacy_app_badge(count);
+                return;
+            }
             let Some(cls) = objc2::runtime::AnyClass::get(c"UNUserNotificationCenter") else {
                 return;
             };
+            // SAFETY: UNUserNotificationCenter answers `currentNotificationCenter`, and on iOS 16+
+            // (checked above) `setBadgeCount:withCompletionHandler:`, which takes a nil block.
             unsafe {
                 let center: *mut objc2::runtime::AnyObject =
                     msg_send![cls, currentNotificationCenter];
@@ -16100,7 +16259,7 @@ mod imp {
                 // cover fallback is the honest answer there.
                 Cap::MultiWindow => {
                     let app = UIApplication::sharedApplication(mtm());
-                    if unsafe { app.supportsMultipleScenes() } {
+                    if app.supportsMultipleScenes() {
                         Support::Native
                     } else {
                         Support::Unsupported
@@ -16138,7 +16297,7 @@ mod imp {
                             // `tertiarySystemFill` is translucent, and on the grouped ground it
                             // read as grey on grey. Dynamic either way: UIKit re-resolves it on
                             // trait-collection (light/dark) changes automatically.
-                            unsafe {
+                            {
                                 v.setBackgroundColor(Some(
                                     &UIColor::secondarySystemGroupedBackgroundColor(),
                                 ));
@@ -16165,19 +16324,15 @@ mod imp {
                         return placeholder_view(kind);
                     };
                     if p.documents.is_some() {
-                        let controller = unsafe { UIViewController::new(mtm) };
-                        let host = unsafe { UIView::new(mtm) };
-                        unsafe {
-                            controller.setView(Some(&host));
-                        }
+                        let controller = UIViewController::new(mtm);
+                        let host = UIView::new(mtm);
+                        controller.setView(Some(&host));
                         if let Some(root) = WINDOW
                             .with(|w| w.borrow().clone())
                             .and_then(|w| w.rootViewController())
                         {
-                            unsafe {
-                                root.addChildViewController(&controller);
-                                controller.didMoveToParentViewController(Some(&root));
-                            }
+                            root.addChildViewController(&controller);
+                            controller.didMoveToParentViewController(Some(&root));
                         }
                         DOCUMENT_HOSTS.with(|m| {
                             m.borrow_mut().insert(
@@ -16206,7 +16361,7 @@ mod imp {
                     // that wears both chromes itself, so there is no split to build and no
                     // presentation for Day to drive — the controller decides, and reports once.
                     if p.presentation == day_spec::props::NavPresentation::Tabs {
-                        let tabbar = unsafe { UITabBarController::new(mtm) };
+                        let tabbar = UITabBarController::new(mtm);
                         // `mode` is annotated `ios(18.0)` but responds on 15.5 and 17.5, which is
                         // measured, not assumed (docs/size-classes.md). Guard on whether the
                         // object ANSWERS the nav host rather than on a version number: that is
@@ -16214,20 +16369,16 @@ mod imp {
                         // shipped what, and it degrades to a plain tab bar — an iOS 17 app's own
                         // shape — instead of dying, on any runtime that really lacks it.
                         if tabbar.respondsToSelector(objc2::sel!(setMode:)) {
-                            unsafe {
-                                tabbar.setMode(objc2_ui_kit::UITabBarControllerMode::TabSidebar);
-                            }
+                            tabbar.setMode(objc2_ui_kit::UITabBarControllerMode::TabSidebar);
                         }
                         if let Some(root_vc) = &root_vc {
-                            unsafe {
-                                root_vc.addChildViewController(&tabbar);
-                                tabbar.didMoveToParentViewController(Some(root_vc));
-                            }
+                            root_vc.addChildViewController(&tabbar);
+                            tabbar.didMoveToParentViewController(Some(root_vc));
                         }
-                        let host = view_of(&unsafe { tabbar.view() }.expect("tabbar view"));
+                        let host = view_of(&tabbar.view().expect("tabbar view"));
                         let hp = ptr_of(&host);
                         let delegate = DayNavTabsDelegate::new(mtm, hp);
-                        unsafe { tabbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                        tabbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
                         NAV_TABS.with(|m| {
                             m.borrow_mut().insert(
                                 hp,
@@ -16256,19 +16407,17 @@ mod imp {
                     let (host, split) = if p.presentation == day_spec::props::NavPresentation::Stack
                     {
                         if let Some(root_vc) = root_vc {
-                            unsafe {
-                                root_vc.addChildViewController(&nav);
-                                nav.didMoveToParentViewController(Some(&root_vc));
-                            }
+                            root_vc.addChildViewController(&nav);
+                            nav.didMoveToParentViewController(Some(&root_vc));
                         }
-                        let host = view_of(&unsafe { nav.view() }.expect("nav view"));
+                        let host = view_of(&nav.view().expect("nav view"));
                         // Day owns this frame. UIKit gives every controller's view a W+H
                         // autoresizing mask, and a masked child of a superview that grows FROM
                         // ZERO gets its own size plus the delta — a host Day had already sized
                         // to 420×810 came out 840×1620 under a tab page that took its bounds
                         // after Day's pass, with the list's trailing edge and the bar title off
                         // the phone. No mask: a frame set once is the frame.
-                        unsafe {
+                        {
                             host.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty());
                         };
                         (host, None)
@@ -16298,12 +16447,12 @@ mod imp {
                         // Day's handle is a container the split's view fills, so a rebuild
                         // leaves the handle — and the tree — untouched.
                         let container: Retained<UIView> =
-                            Retained::into_super(unsafe { DayNavContainer::new(mtm) });
+                            Retained::into_super(DayNavContainer::new(mtm));
                         mount_split(&split_vc, &container);
                         let host = container.clone();
                         primary_nav.ivars().host.set(ptr_of(&host));
                         let split_delegate = DaySplitDelegate::new(mtm, ptr_of(&host));
-                        unsafe {
+                        {
                             split_vc.setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)));
                         };
                         (
@@ -16325,6 +16474,8 @@ mod imp {
                     let delegate = DayNavDelegate::new(mtm, ptr_of(&host));
                     // One delegate for every column: they are the same Day host, and only one
                     // of them owns the stack at a time.
+                    // SAFETY: The navigation delegates are weak; `delegate` goes into this host's
+                    // `NAV_STATE` entry below, which keeps it alive. Main thread.
                     unsafe {
                         nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
                         if let Some(parts) = split.as_ref() {
@@ -16356,13 +16507,12 @@ mod imp {
                         // `.searchable()` surface simply had no field on iOS at all.
                         .map(|sp| {
                             let updater = DaySearchUpdater::new(mtm, id);
-                            let sc = unsafe {
+                            let sc =
                                 objc2_ui_kit::UISearchController::initWithSearchResultsController(
                                     objc2_ui_kit::UISearchController::alloc(mtm),
                                     None,
-                                )
-                            };
-                            unsafe {
+                                );
+                            {
                                 sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(
                                     &*updater,
                                 )));
@@ -16411,14 +16561,14 @@ mod imp {
                         return placeholder_view(kind);
                     };
                     let outer = DayNavPageView::new(mtm, id, p.immersive);
-                    let content = unsafe { UIView::new(mtm) };
-                    unsafe { outer.addSubview(&content) };
+                    let content = UIView::new(mtm);
+                    outer.addSubview(&content);
+                    // SAFETY: DayPageVC has no ivars; UIViewController's `init` on the fresh
+                    // allocation takes no arguments and returns the initialized controller.
                     let vc: Retained<UIViewController> =
                         Retained::into_super(unsafe { msg_send![DayPageVC::alloc(mtm), init] });
-                    unsafe {
-                        vc.setView(Some(&outer));
-                        vc.setTitle(Some(&NSString::from_str(&p.title)));
-                    }
+                    vc.setView(Some(&outer));
+                    vc.setTitle(Some(&NSString::from_str(&p.title)));
                     let handle = view_of(&content);
                     PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
@@ -16430,13 +16580,13 @@ mod imp {
                 // CoverPatch::Present shows it modally over the whole window.
                 Some(Builtin::Cover) => {
                     let outer = DayNavPageView::new(mtm, id, false);
-                    let content = unsafe { UIView::new(mtm) };
-                    unsafe { outer.addSubview(&content) };
+                    let content = UIView::new(mtm);
+                    outer.addSubview(&content);
                     let cover_props = props.downcast_ref::<CoverProps>();
                     let half = cover_props.is_some_and(|p| p.half);
                     let sheet = half || cover_props.is_some_and(|p| p.sheet);
                     let vc = DayCoverVC::new(mtm, id, sheet, half);
-                    unsafe {
+                    {
                         vc.setView(Some(&outer));
                         // A large sheet is the page sheet at its full detent: the wider
                         // panel iPadOS gives a document (docs/cover.md "Large sheet").
@@ -16481,13 +16631,13 @@ mod imp {
                     // supplementary.
                     let layout =
                         nav_list_layout(mtm, p.sections.iter().any(std::option::Option::is_some));
-                    let table = unsafe {
-                        objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
-                            objc2_ui_kit::UICollectionView::alloc(mtm),
-                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(320.0, 400.0)),
-                            &layout,
-                        )
-                    };
+                    let table = objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
+                        objc2_ui_kit::UICollectionView::alloc(mtm),
+                        CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(320.0, 400.0)),
+                        &layout,
+                    );
+                    // SAFETY: UICollectionViewListCell is a cell class, as registration needs; data
+                    // source and delegate are weak, and `NAV_MENUS` keeps `data`.
                     unsafe {
                         table.registerClass_forCellWithReuseIdentifier(
                             Some(
@@ -16545,7 +16695,7 @@ mod imp {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
                     };
-                    let config = unsafe {
+                    let config =
                         objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
                             objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
                             if p.section_headers {
@@ -16553,22 +16703,17 @@ mod imp {
                             } else {
                                 objc2_ui_kit::UICollectionLayoutListAppearance::Plain
                             },
-                        )
-                    };
-                    unsafe {
-                        config.setShowsSeparators(false);
-                        config.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
-                    }
-                    let layout = unsafe {
-                        objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(&config)
-                    };
-                    let cv = unsafe {
-                        objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
-                            objc2_ui_kit::UICollectionView::alloc(mtm),
-                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
-                            &layout,
-                        )
-                    };
+                        );
+                    config.setShowsSeparators(false);
+                    config.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
+                    let layout = objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(&config);
+                    let cv = objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
+                        objc2_ui_kit::UICollectionView::alloc(mtm),
+                        CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
+                        &layout,
+                    );
+                    // SAFETY: DayTreeListCell is a UICollectionViewCell subclass, as registration
+                    // requires; the rest is unaudited Apple API, main thread.
                     unsafe {
                         cv.registerClass_forCellWithReuseIdentifier(
                             Some(<DayTreeListCell as objc2::ClassType>::class()),
@@ -16581,6 +16726,8 @@ mod imp {
                         }
                     }
                     let data = DayTreeData::new(mtm, id, p.selectable, row_height);
+                    // SAFETY: the collection view's delegate is weak; `TREE_STATE` keeps `data`
+                    // under this view's key until release. Main thread (`mtm`).
                     unsafe {
                         cv.setDelegate(Some(ProtocolObject::from_ref(&*data)));
                     }
@@ -16593,15 +16740,16 @@ mod imp {
                               item: core::ptr::NonNull<AnyObject>|
                               -> *mut objc2_ui_kit::UICollectionViewCell {
                             day_spec::ffi_guard::contain(core::ptr::null_mut(), || {
+                                // SAFETY: the cell provider receives non-null pointers that are valid for the call.
                                 let cv = unsafe { cvp.as_ref() };
+                                // SAFETY: the cell provider receives non-null pointers that are valid for the call.
                                 let ip = unsafe { ip.as_ref() };
+                                // SAFETY: the cell provider receives non-null pointers that are valid for the call.
                                 let item = unsafe { item.as_ref() };
-                                let cell = unsafe {
-                                    cv.dequeueReusableCellWithReuseIdentifier_forIndexPath(
-                                        &NSString::from_str("day.tree.cell"),
-                                        ip,
-                                    )
-                                };
+                                let cell = cv.dequeueReusableCellWithReuseIdentifier_forIndexPath(
+                                    &NSString::from_str("day.tree.cell"),
+                                    ip,
+                                );
                                 let Ok(cell) = cell.downcast::<DayTreeListCell>() else {
                                     return core::ptr::null_mut();
                                 };
@@ -16629,7 +16777,10 @@ mod imp {
                                 if expandable {
                                     // Day-owned disclosure (module comment): the accessory
                                     // only reports; the patch does the toggling.
+                                    // SAFETY: UICollectionView calls its cell provider on the main thread.
                                     let mtm = unsafe { MainThreadMarker::new_unchecked() };
+                                    // SAFETY: `init` on a fresh UICellAccessoryOutlineDisclosure
+                                    // returns the accessory; main thread.
                                     let disc: Retained<
                                         objc2_ui_kit::UICellAccessoryOutlineDisclosure,
                                     > = unsafe {
@@ -16641,7 +16792,7 @@ mod imp {
                                         ]
                                     };
                                     if header {
-                                        unsafe {
+                                        {
                                             disc.setStyle(objc2_ui_kit::UICellAccessoryOutlineDisclosureStyle::Header);
                                         };
                                     }
@@ -16653,11 +16804,15 @@ mod imp {
                                             };
                                             let ds = data.ivars().ds.borrow().clone();
                                             let Some(ds) = ds else { return };
+                                            // SAFETY: NSNumber is an NSObject subclass, so viewing
+                                            // it as NSObject is an upcast.
                                             let section = unsafe {
                                                 Retained::cast_unchecked::<NSObject>(
                                                     DayTreeData::section(),
                                                 )
                                             };
+                                            // SAFETY: NSNumber is an NSObject subclass, so viewing
+                                            // it as NSObject is an upcast.
                                             let item = unsafe {
                                                 Retained::cast_unchecked::<NSObject>(
                                                     data.intern(tok),
@@ -16674,7 +16829,9 @@ mod imp {
                                             );
                                         });
                                     });
-                                    unsafe { disc.setActionHandler(Some(&handler)) };
+                                    disc.setActionHandler(Some(&handler));
+                                    // SAFETY: UICellAccessoryOutlineDisclosure is a UICellAccessory
+                                    // subclass, so this is an upcast.
                                     let acc = unsafe {
                                         Retained::cast_unchecked::<objc2_ui_kit::UICellAccessory>(
                                             disc,
@@ -16695,6 +16852,8 @@ mod imp {
                             })
                         },
                     );
+                    // SAFETY: The data source copies `provider` (it captures only `key`, runs on
+                    // the main thread); `TREE_STATE` keeps `data`, which keeps `ds`.
                     let ds = unsafe {
                         objc2_ui_kit::UICollectionViewDiffableDataSource::<NSObject, NSObject>::initWithCollectionView_cellProvider(
                             objc2_ui_kit::UICollectionViewDiffableDataSource::alloc(mtm),
@@ -16732,6 +16891,8 @@ mod imp {
                         p.delete_label.clone(),
                         p.sections,
                     );
+                    // SAFETY: Data source, delegate and drag delegate are weak; the association
+                    // below retains `data` for the table's lifetime.
                     unsafe {
                         if p.sections {
                             // Section headers (docs/list.md "Sections"): self-sizing, and flush
@@ -16799,7 +16960,7 @@ mod imp {
                     // plain scroll view Day always made.
                     let sv = match day_spec::props_of::<ScrollProps>(kind, "uikit", props) {
                         Some(p) => make_scroll(p, id, mtm),
-                        None => unsafe { UIScrollView::new(mtm) },
+                        None => UIScrollView::new(mtm),
                     };
                     view_of(&sv)
                 }
@@ -16817,13 +16978,15 @@ mod imp {
                         track_label(&view, p, id);
                         return view;
                     }
-                    let label = unsafe { UILabel::new(mtm) };
-                    unsafe { label.setText(Some(&NSString::from_str(&p.text))) };
+                    let label = UILabel::new(mtm);
+                    label.setText(Some(&NSString::from_str(&p.text)));
                     apply_font(&label, p.font);
                     // An explicit color wins; otherwise the ROLE chooses which adaptive system
                     // color applies, so a de-emphasized label stays legible in both appearances.
                     match (p.color, p.role) {
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         (Some(c), _) => unsafe { label.setTextColor(Some(&uiink(c))) },
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         (None, day_spec::props::TextRole::Secondary) => unsafe {
                             label.setTextColor(Some(&UIColor::secondaryLabelColor()));
                         },
@@ -16832,7 +16995,7 @@ mod imp {
                     if !p.runs.is_empty() {
                         let s =
                             attributed_label(&p.text, &resolve_font(p.font), label_ink(p), &p.runs);
-                        unsafe { label.setAttributedText(Some(&s)) };
+                        label.setAttributedText(Some(&s));
                     }
                     // Line limit, truncation, spacing, line height, alignment (docs/text.md).
                     let view = view_of(&label);
@@ -16844,15 +17007,17 @@ mod imp {
                         return placeholder_view(kind);
                     };
                     let target = DayTarget::new(mtm, id);
-                    let btn = unsafe { UIButton::buttonWithType(UIButtonType::System, mtm) };
+                    let btn = UIButton::buttonWithType(UIButtonType::System, mtm);
                     apply_button_style(&btn, &p.title, p.style, mtm);
                     if p.icon.is_some() {
                         apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
                     }
-                    unsafe { btn.setEnabled(p.enabled) };
+                    btn.setEnabled(p.enabled);
                     if p.selected {
                         set_button_selected(&btn, true, mtm);
                     }
+                    // SAFETY: UIControl does not retain targets; `TARGETS` keeps `target` under
+                    // this view until release. `fire:` takes the sender.
                     unsafe {
                         let tobj: &AnyObject = target.as_ref();
                         btn.addTarget_action_forControlEvents(
@@ -16870,7 +17035,9 @@ mod imp {
                         return placeholder_view(kind);
                     };
                     let target = DayTarget::new(mtm, id);
-                    let sw = unsafe { UISwitch::new(mtm) };
+                    let sw = UISwitch::new(mtm);
+                    // SAFETY: UIControl does not retain targets; `TARGETS` keeps `target` under
+                    // this view until release. `fire:` takes the sender.
                     unsafe {
                         sw.setOn(p.on);
                         sw.setEnabled(p.enabled);
@@ -16890,7 +17057,9 @@ mod imp {
                         return placeholder_view(kind);
                     };
                     let target = DayTarget::new(mtm, id);
-                    let sl = unsafe { UISlider::new(mtm) };
+                    let sl = UISlider::new(mtm);
+                    // SAFETY: UIControl does not retain targets; `TARGETS` keeps `target` under
+                    // this view until release. Both actions take the sender.
                     unsafe {
                         sl.setMinimumValue(p.min as f32);
                         sl.setMaximumValue(p.max as f32);
@@ -16919,7 +17088,9 @@ mod imp {
                         return placeholder_view(kind);
                     };
                     let target = DayTarget::new(mtm, id);
-                    let tf = unsafe { UITextField::new(mtm) };
+                    let tf = UITextField::new(mtm);
+                    // SAFETY: The delegate is weak and targets unretained; `TARGETS` keeps `target`
+                    // under this view until release. Actions take the sender.
                     unsafe {
                         tf.setText(Some(&NSString::from_str(&p.text)));
                         tf.setPlaceholder(Some(&NSString::from_str(&p.placeholder)));
@@ -16955,11 +17126,11 @@ mod imp {
                     view
                 }
                 Some(Builtin::Divider) => {
-                    let v = unsafe { UIView::new(mtm) };
-                    unsafe { v.setBackgroundColor(Some(&UIColor::separatorColor())) };
+                    let v = UIView::new(mtm);
+                    v.setBackgroundColor(Some(&UIColor::separatorColor()));
                     // A rule takes no touches until a recognizer asks for them, so a press
                     // on it reaches what is behind it (docs/gestures.md "Pass-through").
-                    unsafe { v.setUserInteractionEnabled(false) };
+                    v.setUserInteractionEnabled(false);
                     view_of(&v)
                 }
                 Some(Builtin::Progress) => {
@@ -16970,12 +17141,12 @@ mod imp {
                         return crate::controls::spinner::make(self, p, id);
                     }
                     if let Some(v) = p.value {
-                        let pv = unsafe { UIProgressView::new(mtm) };
-                        unsafe { pv.setProgress(v as f32) };
+                        let pv = UIProgressView::new(mtm);
+                        pv.setProgress(v as f32);
                         view_of(&pv)
                     } else {
-                        let ai = unsafe { UIActivityIndicatorView::new(mtm) };
-                        unsafe { ai.startAnimating() };
+                        let ai = UIActivityIndicatorView::new(mtm);
+                        ai.startAnimating();
                         view_of(&ai)
                     }
                 }
@@ -16988,38 +17159,35 @@ mod imp {
                     let Some(p) = day_spec::props_of::<ImageProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
                     };
-                    let iv = unsafe { objc2_ui_kit::UIImageView::new(mtm) };
+                    let iv = objc2_ui_kit::UIImageView::new(mtm);
                     // Scaling (§18.3): AspectFit / AspectFill (crop, clipped) / ScaleToFill.
                     let mode = match p.content_mode {
                         ContentMode::Fit => objc2_ui_kit::UIViewContentMode::ScaleAspectFit,
                         ContentMode::Fill => objc2_ui_kit::UIViewContentMode::ScaleAspectFill,
                         ContentMode::Stretch => objc2_ui_kit::UIViewContentMode::ScaleToFill,
                     };
-                    unsafe {
-                        iv.setContentMode(mode);
-                        iv.setClipsToBounds(true);
-                    }
+                    iv.setContentMode(mode);
+                    iv.setClipsToBounds(true);
                     // Named is the staged-asset path; Bytes and Decoded arrive from
                     // `day::decode_image` (docs/images.md), so an `image()` piece can show a
                     // download or a pasted PNG with no staged resource behind it.
                     if let Some(img) = uikit_image_for(&p.source) {
-                        unsafe { iv.setImage(Some(&img)) };
+                        iv.setImage(Some(&img));
                     }
                     // Vector-glyph tint (docs/vectors.md): template rendering + the view's tint —
                     // UIKit recolors the alpha mask natively. A template with no tint of its own
                     // inherits the tint around it (a cell's, a bar's): the iOS idiom, and what
                     // the nav menu's own rows do.
                     if (p.tint.is_some() || p.template)
-                        && let Some(img) = unsafe { iv.image() }
+                        && let Some(img) = iv.image()
                     {
-                        let templ = unsafe {
-                            img.imageWithRenderingMode(
-                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                            )
-                        };
-                        unsafe { iv.setImage(Some(&templ)) };
+                        let templ = img.imageWithRenderingMode(
+                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                        );
+                        iv.setImage(Some(&templ));
                     }
                     if let Some(t) = p.tint {
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         unsafe { iv.setTintColor(Some(&uiink(t))) };
                     }
                     IMAGE_MODES.with(|t| {
@@ -17108,15 +17276,16 @@ mod imp {
                                         })
                                     })
                                     .unwrap_or(c.is_some());
-                                if let Some(img) = unsafe { iv.image() } {
+                                if let Some(img) = iv.image() {
                                     let mode = if template {
                                         objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
                                     } else {
                                         objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal
                                     };
-                                    let next = unsafe { img.imageWithRenderingMode(mode) };
-                                    unsafe { iv.setImage(Some(&next)) };
+                                    let next = img.imageWithRenderingMode(mode);
+                                    iv.setImage(Some(&next));
                                 }
+                                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                                 unsafe {
                                     iv.setTintColor(c.map(uiink).as_deref());
                                 };
@@ -17127,7 +17296,7 @@ mod imp {
                             day_spec::props::ImagePatch::Source(source) => {
                                 if matches!(source, day_spec::ImageSource::Named(name) if name.is_empty())
                                 {
-                                    unsafe { iv.setImage(None) };
+                                    iv.setImage(None);
                                     return;
                                 }
                                 // A source that will not load leaves the view showing what it
@@ -17140,15 +17309,13 @@ mod imp {
                                         .with(|t| t.get(ptr_of(iv)))
                                         .is_some_and(ImageMode::renders_template);
                                     let img = if template {
-                                        unsafe {
-                                            img.imageWithRenderingMode(
-                                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                                            )
-                                        }
+                                        img.imageWithRenderingMode(
+                                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                                        )
                                     } else {
                                         img
                                     };
-                                    unsafe { iv.setImage(Some(&img)) };
+                                    iv.setImage(Some(&img));
                                 }
                             }
                         }
@@ -17181,9 +17348,11 @@ mod imp {
                             return;
                         };
                         let mtm = MainThreadMarker::new().expect("UIKit updates on main");
-                        let control = unsafe { scroll.refreshControl() }.unwrap_or_else(|| {
-                            let control = unsafe { objc2_ui_kit::UIRefreshControl::new(mtm) };
+                        let control = scroll.refreshControl().unwrap_or_else(|| {
+                            let control = objc2_ui_kit::UIRefreshControl::new(mtm);
                             let target = DayTarget::new(mtm, node);
+                            // SAFETY: UIControl does not retain targets; `TARGETS` keeps `target`
+                            // under this view until release. `fire:` takes the sender.
                             unsafe {
                                 control.addTarget_action_forControlEvents(
                                     Some(&target),
@@ -17197,12 +17366,10 @@ mod imp {
                             TARGETS.with(|m| m.borrow_mut().insert(ptr_of(h), target));
                             control
                         });
-                        unsafe {
-                            if p.refreshing {
-                                control.beginRefreshing();
-                            } else {
-                                control.endRefreshing();
-                            }
+                        if p.refreshing {
+                            control.beginRefreshing();
+                        } else {
+                            control.endRefreshing();
                         }
                         return;
                     }
@@ -17243,7 +17410,7 @@ mod imp {
                                         && let Some(mtm) = MainThreadMarker::new()
                                     {
                                         data.ivars().headers.set(headers);
-                                        unsafe {
+                                        {
                                             cv.setCollectionViewLayout(&nav_list_layout(
                                                 mtm, headers,
                                             ));
@@ -17256,15 +17423,13 @@ mod imp {
                                         let paths: Vec<Retained<objc2_foundation::NSIndexPath>> =
                                             rows.iter()
                                                 .filter_map(|r| data.path_of(*r))
-                                                .map(|(section, item)| unsafe {
-                                                    objc2_foundation::NSIndexPath::indexPathForItem_inSection(
+                                                .map(|(section, item)| objc2_foundation::NSIndexPath::indexPathForItem_inSection(
                                                         item as isize,
                                                         section as isize,
-                                                    )
-                                                })
+                                                    ))
                                                 .collect();
                                         if !paths.is_empty() {
-                                            unsafe {
+                                            {
                                                 cv.reconfigureItemsAtIndexPaths(
                                                     &objc2_foundation::NSArray::from_retained_slice(
                                                         &paths,
@@ -17273,7 +17438,7 @@ mod imp {
                                             };
                                         }
                                     } else {
-                                        unsafe { cv.reloadData() };
+                                        cv.reloadData();
                                         // Resolved from this data source, which the borrow
                                         // above holds: `select_nav_row` would borrow the same
                                         // map again.
@@ -17319,27 +17484,24 @@ mod imp {
                             else {
                                 return;
                             };
-                            unsafe {
-                                for ip in cv.indexPathsForVisibleItems() {
-                                    let Some(index) =
-                                        data.row_of(ip.section() as usize, ip.item() as usize)
-                                    else {
-                                        continue;
-                                    };
-                                    let value =
-                                        progress.iter().find(|(i, _)| *i == index).map(|(_, v)| *v);
-                                    if previous.iter().find(|(i, _)| *i == index).map(|(_, v)| *v)
-                                        == value
-                                    {
-                                        continue;
-                                    }
-                                    if let Some(cell) = cv.cellForItemAtIndexPath(&ip)
-                                        && let Some(cell) = cell
-                                            .downcast_ref::<objc2_ui_kit::UICollectionViewListCell>(
-                                        )
-                                    {
-                                        crate::nav_progress::update(cell, value, self.mtm());
-                                    }
+                            for ip in cv.indexPathsForVisibleItems() {
+                                let Some(index) =
+                                    data.row_of(ip.section() as usize, ip.item() as usize)
+                                else {
+                                    continue;
+                                };
+                                let value =
+                                    progress.iter().find(|(i, _)| *i == index).map(|(_, v)| *v);
+                                if previous.iter().find(|(i, _)| *i == index).map(|(_, v)| *v)
+                                    == value
+                                {
+                                    continue;
+                                }
+                                if let Some(cell) = cv.cellForItemAtIndexPath(&ip)
+                                    && let Some(cell) = cell
+                                        .downcast_ref::<objc2_ui_kit::UICollectionViewListCell>()
+                                {
+                                    crate::nav_progress::update(cell, value, self.mtm());
                                 }
                             }
                         });
@@ -17363,18 +17525,18 @@ mod imp {
                                 dismiss_disabled,
                             } => {
                                 if let (Some(c), Some(view)) = (background, vc.view()) {
-                                    unsafe {
+                                    {
                                         view.setBackgroundColor(Some(&uiink(*c)));
                                     };
                                 }
                                 // Inert under .fullScreen, but honored if the presentation
                                 // style ever becomes a sheet.
-                                unsafe { vc.setModalInPresentation(*dismiss_disabled) };
+                                vc.setModalInPresentation(*dismiss_disabled);
                                 cover_present(vc);
                             }
-                            CoverPatch::DismissDisabled(d) => unsafe {
+                            CoverPatch::DismissDisabled(d) => {
                                 vc.setModalInPresentation(*d);
-                            },
+                            }
                             CoverPatch::Dismiss => cover_dismiss(vc, node),
                         }
                     }
@@ -17393,14 +17555,12 @@ mod imp {
                             .with(|m| m.borrow().get(&ptr_of(h)).and_then(|st| st.search.clone()));
                         if let Some((sc, updater)) = search {
                             if matches!(sp, day_spec::props::SearchPatch::Focus) {
-                                unsafe {
-                                    sc.setActive(true);
-                                    sc.searchBar().becomeFirstResponder();
-                                }
+                                sc.setActive(true);
+                                sc.searchBar().becomeFirstResponder();
                             }
                             if let day_spec::props::SearchPatch::Text(t) = sp {
                                 updater.ivars().suppress.set(true);
-                                unsafe { sc.searchBar().setText(Some(&NSString::from_str(t))) };
+                                sc.searchBar().setText(Some(&NSString::from_str(t)));
                                 updater.ivars().suppress.set(false);
                             }
                             // Scope and suggestion patches have no UIKit surface yet.
@@ -17528,9 +17688,9 @@ mod imp {
                         // instant a (scripted) dialog dismissal starts races the dismissal
                         // transition and wedges the navigation controller.
                         match act {
-                            Act::Title(vc, t) => unsafe {
+                            Act::Title(vc, t) => {
                                 vc.setTitle(Some(&NSString::from_str(&t)));
-                            },
+                            }
                             // The host the destination calls for (`SplitParts::list_shown`).
                             Act::Column => rehost_split(ptr_of(h)),
                             Act::TripleList { show } => {
@@ -17549,20 +17709,21 @@ mod imp {
                         match p {
                             // Applied below with everything else the look decides.
                             LabelPatch::Paragraph(para) => set_label_paragraph(h, *para),
-                            LabelPatch::Text(t) => unsafe {
+                            LabelPatch::Text(t) => {
                                 label.setText(Some(&NSString::from_str(t)));
-                            },
+                            }
                             LabelPatch::Font(f) => apply_font(label, *f),
                             LabelPatch::Runs(text, runs) => {
-                                let base = unsafe { label.font() };
+                                let base = label.font();
                                 if let Some(f) = base {
                                     let s = attributed_label(text, &f, own_ink(h), runs);
-                                    unsafe { label.setAttributedText(Some(&s)) };
+                                    label.setAttributedText(Some(&s));
                                 }
                             }
                             // `None` restores the adaptive default (labelColor tracks dark mode).
                             LabelPatch::Color(c) => {
                                 set_own_ink(h, *c);
+                                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                                 unsafe {
                                     match c {
                                         Some(c) => label.setTextColor(Some(&uiink(*c))),
@@ -17579,11 +17740,13 @@ mod imp {
                         // `set_selectable` swap); the same patches route there.
                         match p {
                             LabelPatch::Paragraph(para) => set_label_paragraph(h, *para),
-                            LabelPatch::Text(t) => unsafe {
+                            LabelPatch::Text(t) => {
                                 tv.setText(Some(&NSString::from_str(t)));
-                            },
+                            }
                             LabelPatch::Font(f) => {
                                 let font = resolve_font(*f);
+                                // SAFETY: `tv` is a live UITextView; it implements the BOOL setter
+                                // `setAdjustsFontForContentSizeCategory:`. Main thread.
                                 unsafe {
                                     tv.setFont(Some(&font));
                                     let _: () =
@@ -17594,18 +17757,16 @@ mod imp {
                                 // A selectable label is a UITextView, which renders attributed
                                 // text the same way — and, unlike UILabel, could hit-test its
                                 // links (Phase 4).
-                                if let Some(f) = unsafe { tv.font() } {
+                                if let Some(f) = tv.font() {
                                     let s = attributed_label(text, &f, own_ink(h), runs);
-                                    unsafe { tv.setAttributedText(Some(&s)) };
+                                    tv.setAttributedText(Some(&s));
                                 }
                             }
                             LabelPatch::Color(c) => {
                                 set_own_ink(h, *c);
-                                unsafe {
-                                    match c {
-                                        Some(c) => tv.setTextColor(Some(&uiink(*c))),
-                                        None => tv.setTextColor(Some(&UIColor::labelColor())),
-                                    }
+                                match c {
+                                    Some(c) => tv.setTextColor(Some(&uiink(*c))),
+                                    None => tv.setTextColor(Some(&UIColor::labelColor())),
                                 }
                             }
                         }
@@ -17628,9 +17789,10 @@ mod imp {
                             ButtonPatch::Content(c) => {
                                 apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only);
                             }
-                            ButtonPatch::Title(t) => unsafe {
-                                // A configured (bordered/prominent) button titles via its
-                                // configuration; a plain one via the state title.
+                            ButtonPatch::Title(t) =>
+                            // A configured (bordered/prominent) button titles via its
+                            // configuration; a plain one via the state title.
+                            {
                                 if let Some(config) = btn.configuration() {
                                     config.setTitle(Some(&NSString::from_str(t)));
                                     btn.setConfiguration(Some(&config));
@@ -17640,19 +17802,17 @@ mod imp {
                                         UIControlState::Normal,
                                     );
                                 }
-                            },
-                            ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
+                            }
+                            ButtonPatch::Enabled(e) => btn.setEnabled(*e),
                             ButtonPatch::Selected(on) => set_button_selected(btn, *on, mtm()),
                             ButtonPatch::Style(s) => {
                                 // Re-apply with the current title: a configured button carries
                                 // its title in the configuration, which this replaces.
-                                let title = unsafe {
-                                    btn.configuration()
-                                        .and_then(|c| c.title())
-                                        .or_else(|| btn.titleForState(UIControlState::Normal))
-                                        .map(|s| s.to_string())
-                                }
-                                .unwrap_or_default();
+                                let title = btn
+                                    .configuration()
+                                    .and_then(|c| c.title())
+                                    .or_else(|| btn.titleForState(UIControlState::Normal))
+                                    .map_or_default(|s| s.to_string());
                                 apply_button_style(btn, &title, *s, mtm());
                                 if let Some(c) = BUTTON_CONTENT.with(|m| m.get(ptr_of(btn))) {
                                     apply_button_content(
@@ -17673,11 +17833,11 @@ mod imp {
                     ) {
                         match p {
                             TogglePatch::On(on) => {
-                                if unsafe { sw.isOn() } != *on {
-                                    unsafe { sw.setOn(*on) };
+                                if sw.isOn() != *on {
+                                    sw.setOn(*on);
                                 }
                             }
-                            TogglePatch::Enabled(e) => unsafe { sw.setEnabled(*e) },
+                            TogglePatch::Enabled(e) => sw.setEnabled(*e),
                         }
                     }
                 }
@@ -17688,11 +17848,11 @@ mod imp {
                     ) {
                         match p {
                             SliderPatch::Value(v) => {
-                                if (f64::from(unsafe { sl.value() }) - v).abs() > 0.001 {
-                                    unsafe { sl.setValue(*v as f32) };
+                                if (f64::from(sl.value()) - v).abs() > 0.001 {
+                                    sl.setValue(*v as f32);
                                 }
                             }
-                            SliderPatch::Enabled(e) => unsafe { sl.setEnabled(*e) },
+                            SliderPatch::Enabled(e) => sl.setEnabled(*e),
                         }
                     }
                 }
@@ -17707,9 +17867,9 @@ mod imp {
                     if let Some(ProgressPatch::Value(Some(val))) =
                         patch.downcast_ref::<ProgressPatch>()
                         && let Some(pv) = (**h).downcast_ref::<UIProgressView>()
-                        && (f64::from(unsafe { pv.progress() }) - val).abs() > 0.0001
+                        && (f64::from(pv.progress()) - val).abs() > 0.0001
                     {
-                        unsafe { pv.setProgress(*val as f32) };
+                        pv.setProgress(*val as f32);
                     }
                 }
                 kinds::PICKER => crate::picker::update_any(self, h, patch),
@@ -17721,19 +17881,19 @@ mod imp {
                     ) {
                         match p {
                             TextFieldPatch::Text { text, from_native } => {
-                                let cur = unsafe { tf.text() }.map_or_default(|s| s.to_string());
+                                let cur = tf.text().map_or_default(|s| s.to_string());
                                 if !*from_native && cur != *text {
-                                    unsafe { tf.setText(Some(&NSString::from_str(text))) };
+                                    tf.setText(Some(&NSString::from_str(text)));
                                 }
                             }
-                            TextFieldPatch::Placeholder(t) => unsafe {
+                            TextFieldPatch::Placeholder(t) => {
                                 tf.setPlaceholder(Some(&NSString::from_str(t)));
-                            },
-                            TextFieldPatch::Enabled(e) => unsafe { tf.setEnabled(*e) },
+                            }
+                            TextFieldPatch::Enabled(e) => tf.setEnabled(*e),
                             // UITextInput positions count UTF-16 units. A field holds a
                             // selection only while it edits (docs/textfield.md "Selection"),
                             // and taking focus puts the caret at the end anyway.
-                            TextFieldPatch::Select(sel) => unsafe {
+                            TextFieldPatch::Select(sel) => {
                                 if tf.isFirstResponder() {
                                     let text = tf.text().map_or_default(|s| s.to_string());
                                     let (start, end) = sel.utf16(&text);
@@ -17748,7 +17908,7 @@ mod imp {
                                         tf.setSelectedTextRange(Some(&range));
                                     }
                                 }
-                            },
+                            }
                         }
                     }
                 }
@@ -17788,6 +17948,8 @@ mod imp {
                             };
                             let ds = data.ivars().ds.borrow().clone();
                             let Some(ds) = ds else { return };
+                            // SAFETY: `TREE_STATE` still has `key` (checked above) and loses it at
+                            // release, so `key` is the live UICollectionView.
                             let cv =
                                 unsafe { (key as *const objc2_ui_kit::UICollectionView).as_ref() };
                             let Some(cv) = cv else { return };
@@ -17798,11 +17960,13 @@ mod imp {
                                 }
                             }
                             for t in &tokens {
+                                // SAFETY: NSNumber is an NSObject subclass, so viewing it as
+                                // NSObject is an upcast.
                                 let item = unsafe {
                                     Retained::cast_unchecked::<NSObject>(data.intern(*t))
                                 };
                                 if let Some(ip) = ds.indexPathForItemIdentifier(&item) {
-                                    unsafe {
+                                    {
                                         cv.selectItemAtIndexPath_animated_scrollPosition(
                                             Some(&ip),
                                             false,
@@ -17821,13 +17985,17 @@ mod imp {
                             };
                             let ds = data.ivars().ds.borrow().clone();
                             let Some(ds) = ds else { return };
+                            // SAFETY: `TREE_STATE` still has `key` (checked above) and loses it at
+                            // release, so `key` is the live UICollectionView.
                             let cv =
                                 unsafe { (key as *const objc2_ui_kit::UICollectionView).as_ref() };
                             let Some(cv) = cv else { return };
+                            // SAFETY: NSNumber is an NSObject subclass, so viewing it as NSObject
+                            // is an upcast.
                             let item =
                                 unsafe { Retained::cast_unchecked::<NSObject>(data.intern(token)) };
                             if let Some(ip) = ds.indexPathForItemIdentifier(&item) {
-                                unsafe {
+                                {
                                     cv.scrollToItemAtIndexPath_atScrollPosition_animated(
                                         &ip,
                                         objc2_ui_kit::UICollectionViewScrollPosition::CenteredVertically,
@@ -17893,11 +18061,9 @@ mod imp {
                             let Some(ip) = data.path_of(row.min(count - 1)) else {
                                 return;
                             };
-                            unsafe {
-                                table.scrollToRowAtIndexPath_atScrollPosition_animated(
-                                    &ip, position, true,
-                                );
-                            }
+                            table.scrollToRowAtIndexPath_atScrollPosition_animated(
+                                &ip, position, true,
+                            );
                         }));
                     }
                     Some(ListPatch::Editing(on)) => {
@@ -17907,7 +18073,7 @@ mod imp {
                         <Uikit as Platform>::post(Box::new(move || {
                             let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
                             if let Some((table, _)) = entry {
-                                unsafe { table.setEditing_animated(on, true) };
+                                table.setEditing_animated(on, true);
                             }
                         }));
                     }
@@ -17936,10 +18102,8 @@ mod imp {
         }
         fn release(&mut self, h: Handle) {
             if let Some(state) = DOCUMENT_HOSTS.with(|m| m.borrow_mut().remove(&ptr_of(&h))) {
-                unsafe {
-                    state.controller.willMoveToParentViewController(None);
-                    state.controller.removeFromParentViewController();
-                }
+                state.controller.willMoveToParentViewController(None);
+                state.controller.removeFromParentViewController();
             }
 
             // Backstop for a released window root whose scene never disconnected
@@ -17959,14 +18123,14 @@ mod imp {
                 // out after this; its data source lives on as the table's associated object.
                 log::debug!(
                     "day-toolkit-uikit: list released while still in a window ({} rows)",
-                    unsafe { table.numberOfRowsInSection(0) }
+                    table.numberOfRowsInSection(0)
                 );
             }
             TREE_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
             if let Some((old, _)) = CTX_MENU_FNS.with(|t| t.borrow_mut().remove(&ptr_of(&h))) {
-                unsafe { h.removeInteraction(ProtocolObject::from_ref(&*old)) };
+                h.removeInteraction(ProtocolObject::from_ref(&*old));
             }
             NAV_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
@@ -18008,14 +18172,14 @@ mod imp {
             // future, so a new table can never be forgotten here again. The RefCell maps
             // above predate the mechanism and are still cleared by hand.
             day_spec::sidetable::sweep(ptr_of(&h));
-            unsafe { h.removeFromSuperview() };
+            h.removeFromSuperview();
         }
 
         fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
             // A zooming scroll's children go in the one view UIKit scales (docs/scroll.md
             // "Zoom").
             if let Some(content) = zoom_content(parent) {
-                unsafe { content.addSubview(child) };
+                content.addSubview(child);
                 return;
             }
             let document = DOCUMENT_HOSTS.with(|m| {
@@ -18025,20 +18189,16 @@ mod imp {
                 };
                 if PAGE_PANE.with(|t| t.get(ptr_of(child))) == Some(day_spec::props::Pane::Sidebar)
                 {
-                    unsafe {
-                        parent.addSubview(child);
-                        child.setHidden(true);
-                    }
+                    parent.addSubview(child);
+                    child.setHidden(true);
                     return true;
                 }
                 if let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned()) {
-                    unsafe {
-                        state.controller.addChildViewController(&vc);
-                        if let Some(view) = vc.view() {
-                            parent.addSubview(&view);
-                        }
-                        vc.didMoveToParentViewController(Some(&state.controller));
+                    state.controller.addChildViewController(&vc);
+                    if let Some(view) = vc.view() {
+                        parent.addSubview(&view);
                     }
+                    vc.didMoveToParentViewController(Some(&state.controller));
                     state.pages.push((ptr_of(child), vc));
                     document_frames(parent, state);
                 }
@@ -18096,8 +18256,11 @@ mod imp {
                     // reported a size class for this window.
                     let wide = NAV_TABS.with(|m| {
                         m.borrow().get(&ptr_of(parent)).is_some_and(|t| {
+                            // SAFETY: UITabBar implements `traitCollection` (UITraitEnvironment);
+                            // `NAV_TABS` retains `t.tabbar`. Main thread.
                             let tc: Option<Retained<objc2_ui_kit::UITraitCollection>> =
                                 unsafe { objc2::msg_send![&*t.tabbar, traitCollection] };
+                            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                             tc.is_some_and(|tc| unsafe {
                                 tc.horizontalSizeClass()
                                     == objc2_ui_kit::UIUserInterfaceSizeClass::Regular
@@ -18105,7 +18268,7 @@ mod imp {
                         })
                     });
                     let entry: Retained<UIViewController> = if wide {
-                        let wrapper = unsafe {
+                        let wrapper = {
                             let n =
                                 objc2_ui_kit::UINavigationController::initWithRootViewController(
                                     objc2_ui_kit::UINavigationController::alloc(mtm),
@@ -18162,15 +18325,13 @@ mod imp {
                     // over the sidebar, and the bar keeps an empty large-title band over a list
                     // whose insets never counted it (the list's top and its pinned section header
                     // sat under the opaque bar).
-                    unsafe {
-                        vc.navigationItem().setLargeTitleDisplayMode(
-                            objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
-                        );
-                        vc.setExtendedLayoutIncludesOpaqueBars(true);
-                        snav.setExtendedLayoutIncludesOpaqueBars(true);
-                    }
+                    vc.navigationItem().setLargeTitleDisplayMode(
+                        objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
+                    );
+                    vc.setExtendedLayoutIncludesOpaqueBars(true);
+                    snav.setExtendedLayoutIncludesOpaqueBars(true);
                     let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
-                    unsafe { snav.setViewControllers(&arr) };
+                    snav.setViewControllers(&arr);
                 }
                 return;
             }
@@ -18182,28 +18343,26 @@ mod imp {
                 let state = m.get_mut(&ptr_of(parent))?;
                 let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
                 if is_sidebar && let Some((sc, _)) = state.search.as_ref() {
-                    let item = unsafe { vc.navigationItem() };
-                    unsafe {
-                        item.setSearchController(Some(sc));
+                    let item = vc.navigationItem();
+                    item.setSearchController(Some(sc));
+                    configure_sidebar_search(
+                        &item,
+                        &state.nav,
+                        state.search_hides_on_scroll,
+                        state.search_initially_hidden,
+                    );
+                    if let Some(parts) = state.split.as_ref() {
                         configure_sidebar_search(
                             &item,
-                            &state.nav,
+                            &parts.primary_nav,
                             state.search_hides_on_scroll,
                             state.search_initially_hidden,
                         );
-                        if let Some(parts) = state.split.as_ref() {
-                            configure_sidebar_search(
-                                &item,
-                                &parts.primary_nav,
-                                state.search_hides_on_scroll,
-                                state.search_initially_hidden,
-                            );
-                        }
-                        vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);
-                        vc.setExtendedLayoutIncludesOpaqueBars(true);
                     }
+                    vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);
+                    vc.setExtendedLayoutIncludesOpaqueBars(true);
                 } else if !is_sidebar {
-                    unsafe {
+                    {
                         vc.navigationItem().setLargeTitleDisplayMode(
                             objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
                         );
@@ -18211,7 +18370,7 @@ mod imp {
                 }
                 if is_sidebar && let Some(parts) = state.split.as_ref() {
                     let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
-                    unsafe { parts.primary_nav.setViewControllers(&arr) };
+                    parts.primary_nav.setViewControllers(&arr);
                     return Some(None);
                 }
                 Some(Some(vc))
@@ -18247,16 +18406,14 @@ mod imp {
                         .or_else(|| enclosing_view_controller(parent));
                     match (host_vc, page_vc) {
                         (Some(host_vc), Some(page_vc)) => {
-                            unsafe {
-                                // Order is UIKit's: leave the old parent, join the new one, THEN
-                                // the view move, then confirm. `didMove` last is what the
-                                // containment contract asks for.
-                                host_vc.willMoveToParentViewController(None);
-                                host_vc.removeFromParentViewController();
-                                page_vc.addChildViewController(&host_vc);
-                                parent.addSubview(child);
-                                host_vc.didMoveToParentViewController(Some(&page_vc));
-                            }
+                            // Order is UIKit's: leave the old parent, join the new one, THEN
+                            // the view move, then confirm. `didMove` last is what the
+                            // containment contract asks for.
+                            host_vc.willMoveToParentViewController(None);
+                            host_vc.removeFromParentViewController();
+                            page_vc.addChildViewController(&host_vc);
+                            parent.addSubview(child);
+                            host_vc.didMoveToParentViewController(Some(&page_vc));
                             // A navigation host brings its own bar; a tab bar does not.
                             let tab_bar =
                                 NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(child)));
@@ -18264,7 +18421,7 @@ mod imp {
                                 unwrap_tab_page(&page_vc);
                             }
                         }
-                        _ => unsafe { parent.addSubview(child) },
+                        _ => parent.addSubview(child),
                     }
                 }
             }
@@ -18272,7 +18429,7 @@ mod imp {
 
         fn remove(&mut self, parent: &Handle, child: &Handle) {
             // Conditional forms can disappear without a controller transition (e.g. login).
-            unsafe { child.endEditing(false) };
+            child.endEditing(false);
             let document = DOCUMENT_HOSTS.with(|m| {
                 let mut m = m.borrow_mut();
                 let Some(state) = m.get_mut(&ptr_of(parent)) else {
@@ -18284,19 +18441,15 @@ mod imp {
                     .position(|(key, _)| *key == ptr_of(child))
                 {
                     let (_, vc) = state.pages.remove(at);
-                    unsafe {
-                        vc.willMoveToParentViewController(None);
-                        if let Some(view) = vc.view() {
-                            view.removeFromSuperview();
-                        }
-                        vc.removeFromParentViewController();
+                    vc.willMoveToParentViewController(None);
+                    if let Some(view) = vc.view() {
+                        view.removeFromSuperview();
                     }
+                    vc.removeFromParentViewController();
                     state.selected = state.selected.min(state.pages.len().saturating_sub(1));
                     document_frames(parent, state);
                 } else {
-                    unsafe {
-                        child.removeFromSuperview();
-                    }
+                    child.removeFromSuperview();
                 }
                 true
             });
@@ -18311,24 +18464,24 @@ mod imp {
                 pop_page(ptr_of(parent), vc);
             }
             if !nav_child {
-                unsafe { child.removeFromSuperview() };
+                child.removeFromSuperview();
                 reask_content_frame(parent);
             }
         }
 
         fn move_child(&mut self, parent: &Handle, child: &Handle, _to: usize) {
             if let Some(content) = zoom_content(parent) {
-                unsafe { content.addSubview(child) };
+                content.addSubview(child);
                 return;
             }
-            unsafe { parent.addSubview(child) };
+            parent.addSubview(child);
         }
 
         fn set_cursor(&mut self, h: &Handle, cursor: Cursor) {
             let key = Retained::as_ptr(h) as usize;
             if cursor == Cursor::Default {
                 if let Some((_, interaction)) = self.pointers.remove(&key) {
-                    unsafe { h.removeInteraction(ProtocolObject::from_ref(&*interaction)) };
+                    h.removeInteraction(ProtocolObject::from_ref(&*interaction));
                 }
                 return;
             }
@@ -18338,16 +18491,14 @@ mod imp {
             if let Some((delegate, interaction)) = self.pointers.get(&key) {
                 *delegate.ivars().cursor.borrow_mut() = cursor;
                 // Re-request the style if the pointer is already over the view.
-                unsafe { interaction.invalidate() };
+                interaction.invalidate();
             } else {
                 let delegate = DayPointerDelegate::new(mtm, cursor);
-                let interaction = unsafe {
-                    UIPointerInteraction::initWithDelegate(
-                        UIPointerInteraction::alloc(mtm),
-                        Some(ProtocolObject::from_ref(&*delegate)),
-                    )
-                };
-                unsafe { h.addInteraction(ProtocolObject::from_ref(&*interaction)) };
+                let interaction = UIPointerInteraction::initWithDelegate(
+                    UIPointerInteraction::alloc(mtm),
+                    Some(ProtocolObject::from_ref(&*delegate)),
+                );
+                h.addInteraction(ProtocolObject::from_ref(&*interaction));
                 self.pointers.insert(key, (delegate, interaction));
             }
         }
@@ -18444,7 +18595,7 @@ mod imp {
         fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {
             // A backing that already is a text view (an earlier swap): flip the flag in place.
             if let Some(tv) = (**h).downcast_ref::<UITextView>() {
-                unsafe { tv.setSelectable(selectable) };
+                tv.setSelectable(selectable);
                 // A link label's view already has its delegate; this covers any other.
                 if let Some(look) = LABEL_LOOKS.with(|t| t.get(ptr_of(h)))
                     && look.reports
@@ -18464,6 +18615,8 @@ mod imp {
                 return None; // a plain UILabel is already unselectable
             }
             let tv = label_text_view(mtm());
+            // SAFETY: UILabel and UITextView implement the font-scaling, `textAlignment`
+            // (NSInteger) and accessibility-identifier accessors with these types.
             unsafe {
                 tv.setFont(label.font().as_deref());
                 tv.setTextColor(label.textColor().as_deref());
@@ -18526,7 +18679,7 @@ mod imp {
 
         fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
             let fit = |w: f64, hh: f64| {
-                let s = unsafe { h.sizeThatFits(CGSize::new(w, hh)) };
+                let s = h.sizeThatFits(CGSize::new(w, hh));
                 Size::new(s.width.ceil(), s.height.ceil())
             };
             match kind {
@@ -18564,13 +18717,11 @@ mod imp {
                 // UIKit sizes its own row content: the stack fitted at the row's width.
                 kinds::LIST_ITEM => {
                     let width = p.width.unwrap_or(1.0e4);
-                    let s = unsafe {
-                        h.systemLayoutSizeFittingSize_withHorizontalFittingPriority_verticalFittingPriority(
+                    let s = h.systemLayoutSizeFittingSize_withHorizontalFittingPriority_verticalFittingPriority(
                             CGSize::new(width, 0.0),
                             if p.width.is_some() { 1000.0 } else { 50.0 },
                             50.0,
-                        )
-                    };
+                        );
                     Size::new(p.width.unwrap_or(s.width.ceil()), s.height.ceil())
                 }
                 kinds::PROGRESS => {
@@ -18607,19 +18758,18 @@ mod imp {
             if !day_spec::kind_has_baseline(kind) {
                 return None;
             }
-            let font = unsafe {
-                if let Some(l) = (**h).downcast_ref::<UILabel>() {
-                    l.font()
-                } else if let Some(f) = (**h).downcast_ref::<UITextField>() {
-                    f.font()
-                } else if let Some(v) = (**h).downcast_ref::<UITextView>() {
-                    v.font()
-                } else if let Some(b) = (**h).downcast_ref::<UIButton>() {
-                    b.titleLabel().and_then(|l| l.font())
-                } else {
-                    None
-                }
-            }?;
+            let font = (if let Some(l) = (**h).downcast_ref::<UILabel>() {
+                l.font()
+            } else if let Some(f) = (**h).downcast_ref::<UITextField>() {
+                f.font()
+            } else if let Some(v) = (**h).downcast_ref::<UITextView>() {
+                v.font()
+            } else if let Some(b) = (**h).downcast_ref::<UIButton>() {
+                b.titleLabel().and_then(|l| l.font())
+            } else {
+                None
+            })?;
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let (ascender, line_height) = unsafe { (font.ascender(), font.lineHeight()) };
             // A fixed line height (docs/text.md "Line height"): the glyphs sit centered in the
             // first line box, half the difference from the natural height down.
@@ -18627,6 +18777,7 @@ mod imp {
                 .with(|t| t.get(ptr_of(h)))
                 .and_then(|look| crate::label_text::line_height(look.para.line_height));
             if let Some(multiple) = fixed {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 let line = multiple * unsafe { font.pointSize() };
                 return Some((line - line_height) / 2.0 + ascender);
             }
@@ -18643,7 +18794,7 @@ mod imp {
                 CGSize::new(frame.size.width, frame.size.height),
             );
             let v = h;
-            animate_channel(h, Channel::Frame, anim, || unsafe {
+            animate_channel(h, Channel::Frame, anim, || {
                 // `frame` is undefined under a transform (`set_transform`): setting it fits the
                 // transformed box into the rect, which cancels the scale and the offset. Size
                 // and center are independent of the transform, so a transformed view takes
@@ -18676,7 +18827,7 @@ mod imp {
         }
 
         fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
-            animate_channel(h, Channel::Opacity, anim, || unsafe {
+            animate_channel(h, Channel::Opacity, anim, || {
                 h.setAlpha(opacity as CGFloat);
             });
         }
@@ -18689,7 +18840,7 @@ mod imp {
             anim: Option<&AnimSpec>,
         ) {
             let tf = cgaffine(t);
-            animate_channel(h, Channel::Transform, anim, || unsafe {
+            animate_channel(h, Channel::Transform, anim, || {
                 h.setTransform(tf);
             });
         }
@@ -18699,7 +18850,7 @@ mod imp {
                 return;
             };
             let Some(zoomed) = zoom_content(sv) else {
-                unsafe { sv.setContentSize(CGSize::new(content.width, content.height)) };
+                sv.setContentSize(CGSize::new(content.width, content.height));
                 return;
             };
             // Day lays the content out at its natural size; UIKit scales the view by the zoom
@@ -18712,7 +18863,7 @@ mod imp {
                 CGSize::new(content.width, content.height),
             ));
             zoomed.setCenter(CGPoint::new(w / 2.0, h / 2.0));
-            unsafe { sv.setContentSize(CGSize::new(w, h)) };
+            sv.setContentSize(CGSize::new(w, h));
         }
 
         /// UIKit's own row: the table's layout margins at the sides (16 or 20pt, by width), and
@@ -18722,7 +18873,7 @@ mod imp {
             let Some(table) = (**h).downcast_ref::<objc2_ui_kit::UITableView>() else {
                 return day_spec::RowMetrics::default();
             };
-            let sides = unsafe { table.layoutMargins() };
+            let sides = table.layoutMargins();
             let (vertical, height) = NATIVE_ROW.with(|r| *r.get_or_init(native_row));
             day_spec::RowMetrics {
                 insets: day_spec::Insets {
@@ -18747,7 +18898,7 @@ mod imp {
             let Some((section, item)) = path else {
                 return true; // An empty menu already fits.
             };
-            unsafe {
+            {
                 cv.layoutIfNeeded();
                 let path = objc2_foundation::NSIndexPath::indexPathForItem_inSection(
                     item as isize,
@@ -18801,7 +18952,7 @@ mod imp {
 
         fn scroll_to(&mut self, h: &Handle, target: Rect, animated: bool) {
             if let Some(sv) = (**h).downcast_ref::<UIScrollView>() {
-                unsafe {
+                {
                     sv.scrollRectToVisible_animated(
                         CGRect::new(
                             CGPoint::new(target.origin.x, target.origin.y),
@@ -18825,16 +18976,14 @@ mod imp {
             // Focus IS the keyboard on iOS: becoming first responder raises it, resigning
             // dismisses it. Resign only while this view still owns it, so a stale release
             // can't drop a sibling's keyboard.
-            unsafe {
-                if !focused {
-                    if h.isFirstResponder() {
-                        h.resignFirstResponder();
-                    }
-                    return;
+            if !focused {
+                if h.isFirstResponder() {
+                    h.resignFirstResponder();
                 }
-                if h.becomeFirstResponder() {
-                    return;
-                }
+                return;
+            }
+            if h.becomeFirstResponder() {
+                return;
             }
             // A refusal can be TRANSIENT — the outgoing responder is still tearing its keyboard
             // down, and UIKit will not hand focus over mid-transition — so retry once on the
@@ -18856,7 +19005,7 @@ mod imp {
                     };
                     let view = view.get(mtm);
                     if !view.isFirstResponder() {
-                        let _ = unsafe { view.becomeFirstResponder() };
+                        let _ = view.becomeFirstResponder();
                     }
                 });
             });
@@ -18893,13 +19042,11 @@ mod imp {
                     return;
                 }
                 let observer = DayObserver::new(mtm, node, what);
-                unsafe {
-                    if what == Observe::Touches {
-                        h.setMultipleTouchEnabled(true);
-                    }
-                    allow_interaction(h);
-                    h.addGestureRecognizer(&observer);
+                if what == Observe::Touches {
+                    h.setMultipleTouchEnabled(true);
                 }
+                allow_interaction(h);
+                h.addGestureRecognizer(&observer);
                 OBSERVERS.with(|t| {
                     let mut list = t.take(key).unwrap_or_default();
                     list.push(observer);
@@ -18908,6 +19055,8 @@ mod imp {
                 return;
             }
             let target = DayGesture::new(mtm, node, kind);
+            // SAFETY: recognizers do not retain their target or delegate; `GESTURES` keeps `target`
+            // under this view below. Main thread (`mtm`); `fire:` takes the recognizer.
             unsafe {
                 let recognizer: Retained<UIGestureRecognizer> = match kind {
                     day_spec::GestureKind::Drag => {
@@ -19034,6 +19183,7 @@ mod imp {
                 UIContentSizeCategoryLarge, UIFont, UIFontMetrics, UITraitCollection,
             };
             let scale = match ui_text_style(style) {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 Some(ts) => unsafe {
                     let now = UIFont::preferredFontForTextStyle(ts).pointSize();
                     let large = UITraitCollection::traitCollectionWithPreferredContentSizeCategory(
@@ -19046,7 +19196,7 @@ mod imp {
                     .pointSize();
                     now / default
                 },
-                None => unsafe { UIFontMetrics::defaultMetrics().scaledValueForValue(1.0) },
+                None => UIFontMetrics::defaultMetrics().scaledValueForValue(1.0),
             };
             if scale.is_finite() && scale > 0.0 {
                 scale
@@ -19083,13 +19233,11 @@ mod imp {
                 return;
             }
             let rtl = direction == day_spec::LayoutDirection::Rtl;
-            unsafe {
-                h.setSemanticContentAttribute(if rtl {
-                    UISemanticContentAttribute::ForceRightToLeft
-                } else {
-                    UISemanticContentAttribute::ForceLeftToRight
-                });
-            }
+            h.setSemanticContentAttribute(if rtl {
+                UISemanticContentAttribute::ForceRightToLeft
+            } else {
+                UISemanticContentAttribute::ForceLeftToRight
+            });
             if kind == kinds::LABEL {
                 LABEL_LOOKS.with(|t| t.with(ptr_of(h), |l| l.rtl = Some(rtl)));
                 apply_paragraph(h);
@@ -19125,21 +19273,17 @@ mod imp {
         fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
             let key = ptr_of(h);
             if let Some((old, _)) = CTX_MENU_FNS.with(|t| t.borrow_mut().remove(&key)) {
-                unsafe { h.removeInteraction(ProtocolObject::from_ref(&*old)) };
+                h.removeInteraction(ProtocolObject::from_ref(&*old));
             }
             let mtm = mtm();
             let delegate = DayContextMenuFn::new(mtm, f);
             let proto = ProtocolObject::from_ref(&*delegate);
-            let interaction = unsafe {
-                UIContextMenuInteraction::initWithDelegate(
-                    UIContextMenuInteraction::alloc(mtm),
-                    proto,
-                )
-            };
-            unsafe {
-                allow_interaction(h);
-                h.addInteraction(ProtocolObject::from_ref(&*interaction));
-            }
+            let interaction = UIContextMenuInteraction::initWithDelegate(
+                UIContextMenuInteraction::alloc(mtm),
+                proto,
+            );
+            allow_interaction(h);
+            h.addInteraction(ProtocolObject::from_ref(&*interaction));
             CTX_MENU_FNS.with(|t| t.borrow_mut().insert(key, (interaction, delegate)));
         }
 
@@ -19170,10 +19314,11 @@ mod imp {
             };
             let element: Retained<UIMenuElement> = Retained::into_super(deferred);
             let arr = objc2_foundation::NSArray::from_retained_slice(&[element]);
-            let menu =
-                unsafe { UIMenu::menuWithTitle_children(&NSString::from_str(""), &arr, mtm) };
+            let menu = UIMenu::menuWithTitle_children(&NSString::from_str(""), &arr, mtm);
             // The press opens the menu instead of reporting a tap: drop the realize-time
             // `fire:` target so `Pressed` can never ride along.
+            // SAFETY: a nil target with a nil action removes every TouchUpInside target, as
+            // UIControl documents; `btn` is live on the main thread.
             unsafe {
                 btn.removeTarget_action_forControlEvents(
                     None,
@@ -19197,16 +19342,12 @@ mod imp {
             let menu = build_ui_menu(mtm, "", items);
             let delegate = DayContextMenu::new(mtm, menu);
             let proto = ProtocolObject::from_ref(&*delegate);
-            let interaction = unsafe {
-                UIContextMenuInteraction::initWithDelegate(
-                    UIContextMenuInteraction::alloc(mtm),
-                    proto,
-                )
-            };
-            unsafe {
-                allow_interaction(h);
-                h.addInteraction(ProtocolObject::from_ref(&*interaction));
-            }
+            let interaction = UIContextMenuInteraction::initWithDelegate(
+                UIContextMenuInteraction::alloc(mtm),
+                proto,
+            );
+            allow_interaction(h);
+            h.addInteraction(ProtocolObject::from_ref(&*interaction));
             CTX_MENUS.with(|t| t.insert(key, (interaction, delegate)));
         }
 
@@ -19245,6 +19386,8 @@ mod imp {
                     };
                     let ds = data.ivars().ds.borrow().clone();
                     let Some(ds) = ds else { return };
+                    // SAFETY: `init` on a fresh NSDiffableDataSourceSnapshot allocation takes no
+                    // arguments and returns the empty snapshot.
                     let flat: Retained<
                         objc2_ui_kit::NSDiffableDataSourceSnapshot<NSObject, NSObject>,
                     > = unsafe {
@@ -19253,6 +19396,8 @@ mod imp {
                             init
                         ]
                     };
+                    // SAFETY: NSNumber is an NSObject subclass, so viewing it as NSObject is an
+                    // upcast.
                     let section =
                         unsafe { Retained::cast_unchecked::<NSObject>(DayTreeData::section()) };
                     flat.appendSectionsWithIdentifiers(
@@ -19268,7 +19413,7 @@ mod imp {
             LIST_STATE.with(|m| {
                 if let Some((table, data)) = m.borrow().get(&ptr_of(host)) {
                     data.ivars().source.replace(Some(source));
-                    unsafe { table.reloadData() };
+                    table.reloadData();
                 }
             });
         }
@@ -19276,6 +19421,8 @@ mod imp {
         fn adopt(&mut self, raw: RawHandle) -> Handle {
             // A recycling UITableViewCell's contentView — Day fills/rebinds its row content there.
             let ptr = raw.cast::<UIView>();
+            // SAFETY: `raw` is the content view of a live cell that `bind` handed out on the main
+            // thread; retaining it takes Day's own reference.
             unsafe { Retained::retain(ptr) }.expect("adopt: null list cell content")
         }
 
@@ -19302,24 +19449,34 @@ mod imp {
             }
         }
         fn resize_popover(&mut self, content: &Handle, size: Size) {
+            // SAFETY: `content` is a live UIView; the shim (context.m) only reads its associated
+            // popover and does nothing when there is none. Main thread.
             unsafe { day_uikit_resize_popover(Retained::as_ptr(content), size.width, size.height) };
         }
         fn close_popover(&mut self, content: &Handle) {
+            // SAFETY: `content` is a live UIView; the shim (context.m) dismisses and drops its
+            // associated popover, if any. Main thread.
             unsafe { day_uikit_close_popover(Retained::as_ptr(content)) };
         }
         fn show_toast(&mut self, host: &Handle, text: &str) {
             let message = NSString::from_str(text);
+            // SAFETY: `host` and `message` are live for the call; the shim (context.m) retains what
+            // it keeps. Main thread.
             unsafe { day_uikit_toast(Retained::as_ptr(host), Retained::as_ptr(&message)) };
             self.announce(text, false);
         }
         fn set_tooltip(&mut self, h: &Handle, text: &str) {
             let text = NSString::from_str(text);
+            // SAFETY: `h` and `text` are live for the call; the shim (context.m) retains the
+            // tooltip interaction it adds. Main thread.
             unsafe { day_uikit_tooltip(Retained::as_ptr(h), Retained::as_ptr(&text)) };
         }
         fn needs_touch_tooltip(&self) -> bool {
             true
         }
         fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
+            // SAFETY: `h` is a live UIView; the UIAccessibility setters and getter use the declared
+            // NSString, BOOL and UIAccessibilityTraits types.
             unsafe {
                 if let Some(id) = &a11y.identifier {
                     let ns = NSString::from_str(id);
@@ -19448,6 +19605,8 @@ mod imp {
         }
 
         fn read_native(&self, h: &Handle) -> day_spec::NativeSnapshot {
+            // SAFETY: `h` is a live UIView; the UIAccessibility getters return the declared
+            // UIAccessibilityTraits and nullable NSString types. Main thread.
             unsafe {
                 let traits: objc2_ui_kit::UIAccessibilityTraits =
                     msg_send![&**h, accessibilityTraits];
@@ -19502,17 +19661,22 @@ mod imp {
                         key,
                         token: Cell::new(0),
                     });
+                    // SAFETY: `this` is a fresh DayFrameTarget with ivars set; NSObject's `init`
+                    // takes no arguments and returns the initialized object.
                     let target: Retained<DayFrameTarget> = unsafe { msg_send![super(this), init] };
                     // Bind to the window's screen, including external displays on iPad.
-                    let screen = unsafe { host.window().map(|w| w.screen()) };
+                    let screen = host.window().map(|w| w.screen());
                     let link = if let Some(screen) = screen {
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         unsafe { screen.displayLinkWithTarget_selector(&target, sel!(step:)) }
                     } else {
                         None
                     }
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     .unwrap_or_else(|| unsafe {
                         CADisplayLink::displayLinkWithTarget_selector(&target, sel!(step:))
                     });
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     unsafe {
                         link.addToRunLoop_forMode(
                             &objc2_foundation::NSRunLoop::mainRunLoop(),
@@ -19522,7 +19686,7 @@ mod imp {
                     FrameSource { link, target }
                 });
                 source.target.ivars().token.set(token);
-                unsafe { source.link.setPaused(false) };
+                source.link.setPaused(false);
             });
             Box::new(move || {
                 day_core::frame::native::cancel(token);
@@ -19539,18 +19703,19 @@ mod imp {
 
         fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
             OPS.with(|t| t.insert(ptr_of(h), ops.to_vec()));
-            unsafe { h.setNeedsDisplay() };
+            h.setNeedsDisplay();
         }
 
         /// Decode bytes with `UIImage(data:)` (docs/images.md), which reads every container
         /// ImageIO knows — PNG, JPEG, HEIF, GIF, TIFF, BMP and WebP on iOS 14+.
         fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
             let data = objc2_foundation::NSData::with_bytes(bytes);
-            let event = match unsafe { objc2_ui_kit::UIImage::imageWithData(&data) } {
+            let event = match objc2_ui_kit::UIImage::imageWithData(&data) {
                 Some(image) => {
                     // `size` is in POINTS; multiplying by the image's own scale is what turns it
                     // into the pixel dimensions a caller asked for. Bytes decode at scale 1, so
                     // the two agree here — but the multiplication is what keeps that true.
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     let (size, scale) = unsafe { (image.size(), image.scale()) };
                     let format = day_spec::ImageFormat::sniff(bytes);
                     let info = day_spec::BitmapInfo {
@@ -19677,28 +19842,31 @@ mod imp {
         fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
             use objc2_ui_kit::*;
             let mut out = Vec::new();
-            for family in &unsafe { UIFont::familyNames() } {
+            for family in &UIFont::familyNames() {
                 let name = family.to_string();
                 if name.starts_with('.') {
                     continue;
                 }
                 let mut faces = Vec::new();
-                for font_name in &unsafe { UIFont::fontNamesForFamilyName(&family) } {
-                    let Some(font) = (unsafe { UIFont::fontWithName_size(&font_name, 12.0) })
-                    else {
+                for font_name in &UIFont::fontNamesForFamilyName(&family) {
+                    let Some(font) = UIFont::fontWithName_size(&font_name, 12.0) else {
                         continue;
                     };
                     // SAFETY: a font UIKit handed back; the descriptor is its own.
                     let desc = unsafe { font.fontDescriptor() };
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     let traits = unsafe { desc.symbolicTraits() };
                     let italic = traits.contains(UIFontDescriptorSymbolicTraits::TraitItalic);
                     // SAFETY: the keys are UIKit's own descriptor-attribute constants.
                     let face: Option<Retained<AnyObject>> =
                         unsafe { msg_send![&desc, objectForKey: UIFontDescriptorFaceAttribute] };
+                    // SAFETY: UIFontDescriptor implements `objectForKey:` (an attribute key,
+                    // nullable object); the key is UIKit's own constant.
                     let trait_dict: Option<Retained<AnyObject>> =
                         unsafe { msg_send![&desc, objectForKey: UIFontDescriptorTraitsAttribute] };
                     let weight_trait = trait_dict.and_then(|d| {
                         let d = d.downcast::<objc2_foundation::NSDictionary>().ok()?;
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         let key: &NSString = unsafe { UIFontWeightTrait };
                         let n = d.objectForKey(key as &AnyObject)?;
                         n.downcast::<objc2_foundation::NSNumber>()
@@ -19742,12 +19910,16 @@ mod imp {
             let uifont = canvas_uifont(size, font);
             let attrs = canvas_text_attrs(&uifont, day_spec::Color::BLACK);
             let ns = NSString::from_str(text);
+            // SAFETY: `sizeWithAttributes:` is UIKit's NSString drawing method (attributes
+            // dictionary in, CGSize out); `ns` and `attrs` are live. Main thread.
             let sz: CGSize = unsafe { msg_send![&ns, sizeWithAttributes: &*attrs] };
             // SAFETY: a font UIKit handed back; these are plain metric reads.
             let (ascent, cap) = unsafe { (uifont.ascender(), uifont.capHeight()) };
             // The INK box (see the AppKit twin): `usesDeviceMetrics` turns the layout box into
             // the glyphs' own bounds, reported baseline-relative with y up.
             let unbounded = CGSize::new(f64::MAX, f64::MAX);
+            // SAFETY: UIKit's NSString `boundingRectWithSize:options:attributes:context:` (nullable
+            // context, CGRect out); `ns` and `attrs` are live.
             let ink: CGRect = unsafe {
                 msg_send![
                     &ns,
@@ -19810,37 +19982,36 @@ mod imp {
             }
             // iPhone (single visible scene) — and the Preferences kind everywhere on
             // mobile, where settings are modal, not a detached window (docs/windows.md).
-            if !unsafe { app.supportsMultipleScenes() } || kind.is_panel() {
+            if !app.supportsMultipleScenes() || kind.is_panel() {
                 return day_spec::WindowOpenReply::Unsupported;
             }
             // Ask UIKit for a new scene; its willConnect completes the open through
             // `finish_window_open` (the Pending path).
-            let activity = unsafe {
-                objc2_foundation::NSUserActivity::initWithActivityType(
-                    objc2_foundation::NSUserActivity::alloc(),
-                    &NSString::from_str(DAY_WINDOW_ACTIVITY),
-                )
-            };
+            let activity = objc2_foundation::NSUserActivity::initWithActivityType(
+                objc2_foundation::NSUserActivity::alloc(),
+                &NSString::from_str(DAY_WINDOW_ACTIVITY),
+            );
             let key = NSString::from_str("day.node");
             let num = objc2_foundation::NSNumber::new_u64(id.0);
             let obj: Retained<AnyObject> = num.into_super().into_super().into();
             let dict: Retained<objc2_foundation::NSDictionary<NSString, AnyObject>> =
                 objc2_foundation::NSDictionary::from_retained_objects(&[&*key], &[obj]);
             // The API takes the untyped dictionary; the typed one IS that object.
+            // SAFETY: the typed dictionary is the same NSDictionary object with its generics
+            // erased, and the reference borrows `dict`, which outlives it.
             let untyped =
                 unsafe { &*Retained::as_ptr(&dict).cast::<objc2_foundation::NSDictionary>() };
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe { activity.addUserInfoEntriesFromDictionary(untyped) };
             // The non-deprecated activateSceneSessionForRequest: needs iOS 17; this form
             // covers the whole deployment range.
             #[allow(deprecated)]
-            unsafe {
-                app.requestSceneSessionActivation_userActivity_options_errorHandler(
-                    None,
-                    Some(&activity),
-                    None,
-                    None,
-                );
-            }
+            app.requestSceneSessionActivation_userActivity_options_errorHandler(
+                None,
+                Some(&activity),
+                None,
+                None,
+            );
             PENDING_WINDOWS.with(|p| p.borrow_mut().push((id, options.title.clone())));
             day_spec::WindowOpenReply::Pending
         }
@@ -19852,7 +20023,7 @@ mod imp {
                     .iter()
                     .find(|e| std::ptr::eq(&raw const *e.root_view, &raw const **host))
                     .and_then(|e| e.window.windowScene())
-                    .map(|ws| unsafe { ws.session() })
+                    .map(|ws| ws.session())
             });
             if let Some(session) = session {
                 request_scene_destruction(m, &session);
@@ -19867,19 +20038,17 @@ mod imp {
                     .iter()
                     .find(|e| std::ptr::eq(&raw const *e.root_view, &raw const **host))
                     .and_then(|e| e.window.windowScene())
-                    .map(|ws| unsafe { ws.session() })
+                    .map(|ws| ws.session())
             });
             if let Some(session) = session {
                 // See open_window: the deprecated form covers pre-iOS-17 deployment.
                 #[allow(deprecated)]
-                unsafe {
-                    app.requestSceneSessionActivation_userActivity_options_errorHandler(
-                        Some(&session),
-                        None,
-                        None,
-                        None,
-                    );
-                }
+                app.requestSceneSessionActivation_userActivity_options_errorHandler(
+                    Some(&session),
+                    None,
+                    None,
+                    None,
+                );
             }
         }
 
@@ -19892,7 +20061,7 @@ mod imp {
                     .find(|e| std::ptr::eq(&raw const *e.root_view, &raw const **host))
                     .and_then(|e| e.window.windowScene())
                 {
-                    unsafe { ws.setTitle(Some(&NSString::from_str(title))) };
+                    ws.setTitle(Some(&NSString::from_str(title)));
                 }
             });
         }
@@ -19963,7 +20132,7 @@ mod imp {
             };
             let screen = scene.screen();
             let b = screen.bounds();
-            let insets = unsafe { window.safeAreaInsets() };
+            let insets = window.safeAreaInsets();
             let frame = day_spec::Rect::new(0.0, 0.0, b.size.width, b.size.height);
             let work_area = day_spec::Rect::new(
                 insets.left,
@@ -20038,14 +20207,12 @@ mod imp {
                     } else {
                         UIAlertControllerStyle::Alert
                     };
-                    let ac = unsafe {
-                        UIAlertController::alertControllerWithTitle_message_preferredStyle(
-                            Some(&title),
-                            message.as_deref(),
-                            style,
-                            m,
-                        )
-                    };
+                    let ac = UIAlertController::alertControllerWithTitle_message_preferredStyle(
+                        Some(&title),
+                        message.as_deref(),
+                        style,
+                        m,
+                    );
                     for (i, b) in buttons.iter().enumerate() {
                         let astyle = match b.role {
                             ButtonRole::Cancel => UIAlertActionStyle::Cancel,
@@ -20063,15 +20230,13 @@ mod imp {
                             );
                             present_forget(req);
                         });
-                        let action = unsafe {
-                            UIAlertAction::actionWithTitle_style_handler(
-                                Some(&NSString::from_str(&b.label)),
-                                astyle,
-                                Some(&handler),
-                                m,
-                            )
-                        };
-                        unsafe { ac.addAction(&action) };
+                        let action = UIAlertAction::actionWithTitle_style_handler(
+                            Some(&NSString::from_str(&b.label)),
+                            astyle,
+                            Some(&handler),
+                            m,
+                        );
+                        ac.addAction(&action);
                     }
                     // On iPad an action sheet presents as a POPOVER, and a popover without an
                     // anchor is an NSGenericException at transition time — the app dies. The
@@ -20080,20 +20245,18 @@ mod imp {
                     // pad convention for source-less sheets. On iPhone the popover controller
                     // is unused and this is inert.
                     if *sheet
-                        && let Some(pop) = unsafe { ac.popoverPresentationController() }
+                        && let Some(pop) = ac.popoverPresentationController()
                         && let Some(w) = WINDOW.with(|win| win.borrow().clone())
                     {
                         let b = w.bounds();
-                        unsafe {
-                            pop.setSourceView(Some(w.as_ref()));
-                            pop.setSourceRect(CGRect::new(
-                                CGPoint::new(b.size.width / 2.0, b.size.height / 2.0),
-                                CGSize::new(0.0, 0.0),
-                            ));
-                            pop.setPermittedArrowDirections(
-                                objc2_ui_kit::UIPopoverArrowDirection::empty(),
-                            );
-                        }
+                        pop.setSourceView(Some(w.as_ref()));
+                        pop.setSourceRect(CGRect::new(
+                            CGPoint::new(b.size.width / 2.0, b.size.height / 2.0),
+                            CGSize::new(0.0, 0.0),
+                        ));
+                        pop.setPermittedArrowDirections(
+                            objc2_ui_kit::UIPopoverArrowDirection::empty(),
+                        );
                     }
                     PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
                     modal_enqueue(ModalOp::Present(req, ac.into_super()));
@@ -20105,29 +20268,27 @@ mod imp {
                     cancel,
                     ..
                 } => {
-                    let ac = unsafe {
-                        UIAlertController::alertControllerWithTitle_message_preferredStyle(
-                            Some(&title),
-                            message.as_deref(),
-                            UIAlertControllerStyle::Alert,
-                            m,
-                        )
-                    };
+                    let ac = UIAlertController::alertControllerWithTitle_message_preferredStyle(
+                        Some(&title),
+                        message.as_deref(),
+                        UIAlertControllerStyle::Alert,
+                        m,
+                    );
                     let (ph, init) = (NSString::from_str(placeholder), NSString::from_str(initial));
                     let cfg =
                         block2::RcBlock::new(move |tf: NonNull<objc2_ui_kit::UITextField>| {
+                            // SAFETY: UIKit passes the configuration handler a non-null text field valid for the call.
                             let tf = unsafe { tf.as_ref() };
-                            unsafe {
-                                tf.setPlaceholder(Some(&ph));
-                                tf.setText(Some(&init));
-                            }
+                            tf.setPlaceholder(Some(&ph));
+                            tf.setText(Some(&init));
                         });
-                    unsafe { ac.addTextFieldWithConfigurationHandler(Some(&cfg)) };
+                    ac.addTextFieldWithConfigurationHandler(Some(&cfg));
                     let ac_ok = ac.clone();
                     let ok_handler = block2::RcBlock::new(move |_: NonNull<UIAlertAction>| {
-                        let text = unsafe { ac_ok.textFields() }
+                        let text = ac_ok
+                            .textFields()
                             .and_then(|fs| fs.firstObject())
-                            .and_then(|f| unsafe { f.text() })
+                            .and_then(|f| f.text())
                             .map_or_default(|s| s.to_string());
                         emit(
                             WINDOW_NODE,
@@ -20148,20 +20309,18 @@ mod imp {
                         );
                         present_forget(req);
                     });
-                    unsafe {
-                        ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
-                            Some(&NSString::from_str(ok)),
-                            UIAlertActionStyle::Default,
-                            Some(&ok_handler),
-                            m,
-                        ));
-                        ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
-                            Some(&NSString::from_str(cancel)),
-                            UIAlertActionStyle::Cancel,
-                            Some(&cancel_handler),
-                            m,
-                        ));
-                    }
+                    ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
+                        Some(&NSString::from_str(ok)),
+                        UIAlertActionStyle::Default,
+                        Some(&ok_handler),
+                        m,
+                    ));
+                    ac.addAction(&UIAlertAction::actionWithTitle_style_handler(
+                        Some(&NSString::from_str(cancel)),
+                        UIAlertActionStyle::Cancel,
+                        Some(&cancel_handler),
+                        m,
+                    ));
                     PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
                     modal_enqueue(ModalOp::Present(req, ac.into_super()));
                 }
@@ -20177,13 +20336,11 @@ mod imp {
                             "public.item",
                         )]);
                     #[allow(deprecated)]
-                    let picker = unsafe {
-                        UIDocumentPickerViewController::initWithDocumentTypes_inMode(
-                            UIDocumentPickerViewController::alloc(m),
-                            &types,
-                            UIDocumentPickerMode::Import,
-                        )
-                    };
+                    let picker = UIDocumentPickerViewController::initWithDocumentTypes_inMode(
+                        UIDocumentPickerViewController::alloc(m),
+                        &types,
+                        UIDocumentPickerMode::Import,
+                    );
                     // Import mode copies every selection into the sandbox; the delegate's
                     // `didPickDocumentsAtURLs` reports each copy (docs/files.md).
                     picker.setAllowsMultipleSelection(*multiple);
@@ -20207,17 +20364,14 @@ mod imp {
                     if dayscript_driven() {
                         return; // pending request resolved by the scripted `respond`
                     }
-                    let url = unsafe {
-                        objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(src_path))
-                    };
+                    let url =
+                        objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(src_path));
                     #[allow(deprecated)]
-                    let picker = unsafe {
-                        UIDocumentPickerViewController::initWithURL_inMode(
-                            UIDocumentPickerViewController::alloc(m),
-                            &url,
-                            UIDocumentPickerMode::ExportToService,
-                        )
-                    };
+                    let picker = UIDocumentPickerViewController::initWithURL_inMode(
+                        UIDocumentPickerViewController::alloc(m),
+                        &url,
+                        UIDocumentPickerMode::ExportToService,
+                    );
                     present_doc_picker(req, m, picker);
                 }
             }
@@ -20236,8 +20390,7 @@ mod imp {
             anchor: Option<&Self::Handle>,
         ) -> bool {
             use objc2_ui_kit::UIActivityViewController;
-            let Some(url) =
-                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(&spec.url)) })
+            let Some(url) = objc2_foundation::NSURL::URLWithString(&NSString::from_str(&spec.url))
             else {
                 return false;
             };
@@ -20246,6 +20399,8 @@ mod imp {
             else {
                 return false;
             };
+            // SAFETY: the sheet copies `finished`, which captures nothing and runs on the main
+            // thread; the rest is unaudited Apple API on live controllers, main thread.
             unsafe {
                 while let Some(next) = parent.presentedViewController() {
                     parent = next;
@@ -20272,7 +20427,7 @@ mod imp {
                          _error: *mut objc2_foundation::NSError| {
                             // SAFETY: UIKit passes the chosen activity's type, a valid NSString,
                             // or null when the sheet was cancelled.
-                            let Some(activity) = (unsafe { activity.as_ref() }) else {
+                            let Some(activity) = activity.as_ref() else {
                                 return;
                             };
                             if !completed.as_bool() {
@@ -20311,8 +20466,7 @@ mod imp {
         }
 
         fn open_url(&mut self, url: &str) {
-            let Some(nsurl) =
-                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) })
+            let Some(nsurl) = objc2_foundation::NSURL::URLWithString(&NSString::from_str(url))
             else {
                 return;
             };
@@ -20321,6 +20475,7 @@ mod imp {
             // silently does nothing, with no exception and no log line to explain it. The options
             // dictionary is empty (the defaults are what a plain link wants) and the completion
             // block is nil, which this fire-and-forget call is allowed to pass.
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 UIApplication::sharedApplication(mtm()).openURL_options_completionHandler(
                     &nsurl,
@@ -20338,12 +20493,12 @@ mod imp {
                 .with(|w| w.borrow().clone())
                 .and_then(|w| w.rootViewController());
             if let Some(vc) = root_vc {
-                unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
+                vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures();
             }
             let covers: Vec<Retained<DayCoverVC>> =
                 COVER_STATE.with(|m| m.borrow().values().map(|s| s.vc.clone()).collect());
             for vc in covers {
-                unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
+                vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures();
             }
         }
 
@@ -20375,7 +20530,7 @@ mod imp {
                     vc.setNeedsStatusBarAppearanceUpdate();
                 }
             });
-            unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
+            UIView::animateWithDuration_animations(0.25, &update, mtm());
         }
 
         /// The app-wide style, on every window without one of its own: UIKit has no app-level
@@ -20387,7 +20542,7 @@ mod imp {
             if SCENES.with(|s| s.borrow().is_empty()) {
                 WINDOW.with(|w| {
                     if let Some(window) = w.borrow().as_ref() {
-                        unsafe { window.setOverrideUserInterfaceStyle(style) };
+                        window.setOverrideUserInterfaceStyle(style);
                     }
                 });
             }
@@ -20453,11 +20608,14 @@ mod imp {
             if let Some((window, own_override)) = primary {
                 use objc2_ui_kit::UITraitEnvironment as _;
                 if own_override && let Some(scene) = window.windowScene() {
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     return unsafe { scene.screen().traitCollection().userInterfaceStyle() }
                         == Style::Dark;
                 }
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 return unsafe { window.traitCollection().userInterfaceStyle() } == Style::Dark;
             }
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 objc2_ui_kit::UITraitCollection::currentTraitCollection().userInterfaceStyle()
                     == Style::Dark
@@ -20475,10 +20633,8 @@ mod imp {
                     .iter()
                     .filter_map(|(h, s)| {
                         let nav = s.active_nav();
-                        let shown = nav
-                            .viewIfLoaded()
-                            .is_some_and(|v| unsafe { v.window() }.is_some());
-                        (shown && unsafe { nav.viewControllers() }.count() > 1).then_some((*h, nav))
+                        let shown = nav.viewIfLoaded().is_some_and(|v| v.window().is_some());
+                        (shown && nav.viewControllers().count() > 1).then_some((*h, nav))
                     })
                     .collect()
             });
@@ -20487,7 +20643,7 @@ mod imp {
                 let mut v = nav.viewIfLoaded();
                 while let Some(cur) = v {
                     n += 1;
-                    v = unsafe { cur.superview() };
+                    v = cur.superview();
                 }
                 n
             };
@@ -20500,10 +20656,9 @@ mod imp {
                             format!(
                                 "host={h:x} collapsed={} count={} shown={} transitioning={}",
                                 s.is_collapsed(),
-                                unsafe { nav.viewControllers() }.count(),
-                                nav.viewIfLoaded()
-                                    .is_some_and(|v| unsafe { v.window() }.is_some()),
-                                unsafe { nav.transitionCoordinator() }.is_some(),
+                                nav.viewControllers().count(),
+                                nav.viewIfLoaded().is_some_and(|v| v.window().is_some()),
+                                nav.transitionCoordinator().is_some(),
                             )
                         })
                         .collect()
@@ -20694,7 +20849,7 @@ mod imp {
                 });
             },
         );
-        unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+        coordinator.animateAlongsideTransition_completion(None, Some(&completion));
         // The floor under a completion that never arrives (an interrupted resize): a flag left
         // standing would swallow the user's next back. Generation-gated, so it only clears the
         // transition it was scheduled for.
@@ -20742,8 +20897,8 @@ mod imp {
         let in_flight = NAV_STATE.with(|m| {
             m.borrow().values().any(|s| {
                 let nav = s.active_nav();
-                unsafe { nav.transitionCoordinator() }.is_some()
-                    && unsafe { nav.viewIfLoaded() }.is_some_and(|v| v.window().is_some())
+                nav.transitionCoordinator().is_some()
+                    && nav.viewIfLoaded().is_some_and(|v| v.window().is_some())
             })
         });
         if in_flight && attempt < 120 {
@@ -20778,10 +20933,10 @@ mod imp {
         match tab {
             // `setSelectedTab`, not `setSelectedIndex`: the tab is the identity now, and an
             // index only ever meant "the nth ROOT tab".
-            Some(tab) => unsafe { tabbar.setSelectedTab(Some(&tab)) },
+            Some(tab) => tabbar.setSelectedTab(Some(&tab)),
             // No tabs means the pre-`UITab` shape (`nav_tabs_sync_classic`), where the index
             // IS the address.
-            None if i < pages => unsafe { tabbar.setSelectedIndex(i) },
+            None if i < pages => tabbar.setSelectedIndex(i),
             None => {}
         }
         NAV_TABS.with(|m| {
@@ -20834,7 +20989,7 @@ mod imp {
                 };
                 modal_begin_transition();
                 let completion = block2::RcBlock::new(modal_end_transition);
-                unsafe {
+                {
                     top.presentViewController_animated_completion(
                         &vc,
                         !day_core::testing::fast_animations(),
@@ -20902,7 +21057,7 @@ mod imp {
                     .expect("attached checked above");
                 modal_begin_transition();
                 let completion = block2::RcBlock::new(modal_end_transition);
-                unsafe {
+                {
                     presenting.dismissViewControllerAnimated_completion(true, Some(&completion));
                 };
             }
@@ -20944,13 +21099,11 @@ mod imp {
                     vc.configure_sheet(mtm);
                 }
                 let completion = block2::RcBlock::new(modal_end_transition);
-                unsafe {
-                    top.presentViewController_animated_completion(
-                        &vc,
-                        !day_core::testing::fast_animations(),
-                        Some(&completion),
-                    );
-                }
+                top.presentViewController_animated_completion(
+                    &vc,
+                    !day_core::testing::fast_animations(),
+                    Some(&completion),
+                );
             }
             ModalOp::Run(f) => {
                 f();
@@ -20976,9 +21129,9 @@ mod imp {
         m: MainThreadMarker,
         picker: Retained<UIDocumentPickerViewController>,
     ) {
-        unsafe { picker.setAllowsMultipleSelection(false) };
+        picker.setAllowsMultipleSelection(false);
         let delegate = DayDocPicker::new(m, req);
-        unsafe { picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+        picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         PRESENT_PICKERS.with(|p| p.borrow_mut().insert(req, (picker.clone(), delegate)));
         modal_enqueue(ModalOp::Present(req, picker.into_super()));
     }
@@ -21021,7 +21174,7 @@ mod imp {
                     let mut paths = Vec::new();
                     for i in 0..urls.count() {
                         let url = urls.objectAtIndex(i);
-                        if let Some(p) = unsafe { url.path() } {
+                        if let Some(p) = url.path() {
                             paths.push(p.to_string());
                         }
                     }
@@ -21061,6 +21214,8 @@ mod imp {
     impl DayDocPicker {
         fn new(mtm: MainThreadMarker, req: u64) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(DocPickerIvars { req });
+            // SAFETY: `this` is a fresh DayDocPicker with ivars set; NSObject's `init` takes no
+            // arguments and returns the initialized object.
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -21126,8 +21281,11 @@ mod imp {
                         state.can_copy
                     } else if action == sel!(paste:) {
                         state.can_paste
+                            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                             && unsafe { let pb = objc2_ui_kit::UIPasteboard::generalPasteboard(); !pb.pasteboardTypes().is_empty() }
                     } else {
+                        // SAFETY: UIResponder implements `canPerformAction:withSender:` (SEL,
+                        // nullable sender, BOOL); this override forwards its own arguments.
                         unsafe {
                             msg_send![super(self), canPerformAction: action, withSender: sender]
                         }
@@ -21166,6 +21324,8 @@ mod imp {
             }
             #[unsafe(method(setWindow:))]
             fn set_window(&self, window: *mut UIWindow) {
+                // SAFETY: UIKit passes `setWindow:` a window pointer that is null or valid for the call; it is
+                // retained before the call returns.
                 let retained = unsafe { window.as_ref() }.map(Retained::from);
                 WINDOW.with(|w| *w.borrow_mut() = retained);
             }
@@ -21179,6 +21339,8 @@ mod imp {
                 // Keyboard avoidance (docs/focus.md): one app-level observer; the handler
                 // resolves the KEY window's scene, so it follows whichever Day window the
                 // field lives in. WillChangeFrame covers show, hide, and height changes.
+                // SAFETY: `self` is the app delegate, alive for the process; the center does not
+                // retain it. `keyboardWillChange:` takes the notification.
                 unsafe {
                     objc2_foundation::NSNotificationCenter::defaultCenter()
                         .addObserver_selector_name_object(
@@ -21190,6 +21352,8 @@ mod imp {
                 };
                 // The system reduce-motion switch (docs/accessibility.md): app-scoped like
                 // the setting itself; the handler re-reads it into day-core's gate.
+                // SAFETY: `self` is the app delegate, alive for the process; the center does not
+                // retain it. `reduceMotionChanged:` takes the notification.
                 unsafe {
                     objc2_foundation::NSNotificationCenter::defaultCenter()
                         .addObserver_selector_name_object(
@@ -21201,6 +21365,8 @@ mod imp {
                 };
                 // The system text size (Dynamic Type) changing under a running app: labels
                 // take the new size by themselves, Day's measurements of them do not.
+                // SAFETY: `self` is the app delegate, alive for the process; the center does not
+                // retain it. `textSizeChanged:` takes the notification.
                 unsafe {
                     objc2_foundation::NSNotificationCenter::defaultCenter()
                         .addObserver_selector_name_object(
@@ -21213,6 +21379,8 @@ mod imp {
                 // Screen recording and mirroring starting or stopping (docs/windows.md): the
                 // content-protection shields follow it. Any screen will do: the handler
                 // re-reads every scene's own capture state.
+                // SAFETY: `self` is the app delegate, alive for the process; the center does not
+                // retain it. `screenCaptureChanged:` takes the notification.
                 unsafe {
                     objc2_foundation::NSNotificationCenter::defaultCenter()
                         .addObserver_selector_name_object(
@@ -21235,12 +21403,14 @@ mod imp {
                 _options: &objc2_ui_kit::UISceneConnectionOptions,
             ) -> Retained<objc2_ui_kit::UISceneConfiguration> {
                 use objc2::ClassType as _;
-                let role = unsafe { session.role() };
+                let role = session.role();
                 let config = objc2_ui_kit::UISceneConfiguration::configurationWithName_sessionRole(
                     None,
                     &role,
                     self.mtm(),
                 );
+                // SAFETY: DaySceneDelegate is an NSObject class adopting UIWindowSceneDelegate,
+                // which is what the configuration instantiates for the scene.
                 unsafe { config.setDelegateClass(Some(DaySceneDelegate::class())) };
                 config
             }
@@ -21306,15 +21476,17 @@ mod imp {
                     }) else {
                         return;
                     };
-                    let Some(info) = (unsafe { notification.userInfo() }) else {
+                    let Some(info) = notification.userInfo() else {
                         return;
                     };
                     let Some(val) = info
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         .objectForKey(unsafe { objc2_ui_kit::UIKeyboardFrameEndUserInfoKey })
                         .and_then(|o| o.downcast::<objc2_foundation::NSValue>().ok())
                     else {
                         return;
                     };
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     let kb = unsafe { val.CGRectValue() };
                     avoid_keyboard_in_covers(kb);
                     // The holder fills the window, so the root's frame is in window == screen
@@ -21331,9 +21503,9 @@ mod imp {
                         clippy::float_cmp,
                         reason = "unchanged-value check against the exact height set last time"
                     )]
-                    let resized = unsafe { root.frame() }.size.height != new_h;
+                    let resized = root.frame().size.height != new_h;
                     if resized {
-                        unsafe { root.setFrame(f) };
+                        root.setFrame(f);
                         // The shrink is the keyboard's, so the size class keeps the window's
                         // own height, as the trait collection does (docs/size-classes.md).
                         let size = Size::new(f.size.width, f.size.height);
@@ -21574,7 +21746,7 @@ mod imp {
     /// quick action's type string. One rail either way: `day_core::request_route`, buffered
     /// until the first mount (docs/deep-links.md).
     fn deliver_open_url(url: &objc2_foundation::NSURL) {
-        if let Some(s) = unsafe { url.absoluteString() } {
+        if let Some(s) = url.absoluteString() {
             if url.isFileURL() {
                 day_core::request_open_files(vec![s.to_string()]);
             } else {
@@ -21588,6 +21760,8 @@ mod imp {
         // non-null, but a plain launch (no URL) hands back nil and the binding panics —
         // caught by the dayscript walkthrough on first run.
         let contexts: Option<Retained<objc2_foundation::NSSet<objc2_ui_kit::UIOpenURLContext>>> =
+            // SAFETY: UISceneConnectionOptions implements `URLContexts`, returning an NSSet of
+            // UIOpenURLContext that can be nil in practice, hence the Option. Main thread.
             unsafe { objc2::msg_send![options, URLContexts] };
         for ctx in contexts.into_iter().flatten() {
             deliver_open_url(&ctx.URL());
@@ -21600,9 +21774,9 @@ mod imp {
     /// The day root node a secondary-scene connection carries (`DAY_WINDOW_ACTIVITY`
     /// userActivity, `day.node` userInfo), if any.
     fn scene_activity_node(options: &objc2_ui_kit::UISceneConnectionOptions) -> Option<NodeId> {
-        for activity in unsafe { options.userActivities() } {
-            if unsafe { activity.activityType() }.to_string() == DAY_WINDOW_ACTIVITY
-                && let Some(info) = unsafe { activity.userInfo() }
+        for activity in options.userActivities() {
+            if activity.activityType().to_string() == DAY_WINDOW_ACTIVITY
+                && let Some(info) = activity.userInfo()
                 && let Some(num) = info
                     .objectForKey(&*objc2_foundation::NSString::from_str("day.node"))
                     .and_then(|o| o.downcast::<objc2_foundation::NSNumber>().ok())
@@ -21671,9 +21845,7 @@ mod imp {
     /// Ask the system to drop a scene session (no undo UI, no animation preference).
     fn request_scene_destruction(mtm: MainThreadMarker, session: &objc2_ui_kit::UISceneSession) {
         let app = UIApplication::sharedApplication(mtm);
-        unsafe {
-            app.requestSceneSessionDestruction_options_errorHandler(session, None, None);
-        }
+        app.requestSceneSessionDestruction_options_errorHandler(session, None, None);
     }
 
     /// Mobile backends deliver the FULL lifecycle (docs/lifecycle.md), including the background,
@@ -21700,8 +21872,8 @@ mod imp {
         }
         let mut dirs: Vec<std::path::PathBuf> = Vec::new();
         // The DayPieces bundle's fonts/ directory (SwiftPM `.copy` resource inside the app).
-        let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
-        if let Some(res) = unsafe { main.resourcePath() } {
+        let main = objc2_foundation::NSBundle::mainBundle();
+        if let Some(res) = main.resourcePath() {
             dirs.push(
                 std::path::PathBuf::from(res.to_string())
                     .join("DayPieces_DayPieces.bundle")
@@ -21713,11 +21885,11 @@ mod imp {
         }
         for dir in dirs {
             for path in day_spec::fonts::font_files_in(&dir) {
-                let url = unsafe {
-                    objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(
-                        &path.to_string_lossy(),
-                    ))
-                };
+                let url = objc2_foundation::NSURL::fileURLWithPath(&NSString::from_str(
+                    &path.to_string_lossy(),
+                ));
+                // SAFETY: `url` is a live NSURL (toll-free CFURLRef) for the call; scope 1 is
+                // kCTFontManagerScopeProcess, and a null error pointer is allowed.
                 unsafe {
                     let _ = CTFontManagerRegisterFontsForURL(
                         Retained::as_ptr(&url).cast::<std::ffi::c_void>(),
@@ -21745,6 +21917,7 @@ mod imp {
             let argv_ptr = NonNull::new(argv.as_mut_ptr()).unwrap();
             let delegate = NSString::from_str("DayAppDelegate");
             #[allow(deprecated)]
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 UIApplicationMain(1 as c_int, argv_ptr, None, Some(&delegate));
             }

@@ -62,6 +62,8 @@ define_class!(
 impl WellTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+        // SAFETY: `this` is a fresh DayColorWellUIKitTarget with ivars set; NSObject's `init` takes
+        // no arguments and returns the initialized object.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -91,6 +93,8 @@ fn make(_backend: &mut Uikit, p: &ColorProps, id: NodeId) -> Retained<UIView> {
         well.setTitle(Some(&NSString::from_str(&p.title)));
     }
     let target = WellTarget::new(mtm, id);
+    // SAFETY: UIControl does not retain its target; `TARGETS` holds `target` until `release` drops
+    // it with the well. Main thread (`mtm`); `fire:` takes the sender.
     unsafe {
         well.addTarget_action_forControlEvents(
             Some(&target as &WellTarget as &AnyObject),

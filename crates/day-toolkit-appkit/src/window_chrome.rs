@@ -70,6 +70,8 @@ pub(super) fn alloc_window(
 ) -> Retained<NSWindow> {
     if frameless {
         let this = DayFramelessWindow::alloc(mtm).set_ivars(());
+        // SAFETY: NSWindow's designated initializer on a fresh DayFramelessWindow allocation (no
+        // ivars), with matching argument types; returns it +1.
         let window: Retained<DayFramelessWindow> = unsafe {
             msg_send![
                 super(this),
@@ -81,6 +83,7 @@ pub(super) fn alloc_window(
         };
         return Retained::into_super(window);
     }
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -103,7 +106,7 @@ pub(super) fn apply(window: &NSWindow, content: &NSView, options: &WindowOptions
         window.setTitlebarAppearsTransparent(true);
         window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
     }
-    unsafe { window.setHasShadow(options.shadow) };
+    window.setHasShadow(options.shadow);
     match options.background {
         WindowBackground::Opaque => {}
         WindowBackground::Transparent => {
@@ -209,6 +212,8 @@ thread_local! {
 struct DragMonitor(Retained<objc2::runtime::AnyObject>);
 impl Drop for DragMonitor {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the monitor `addLocalMonitorForEventsMatchingMask:handler:` returned,
+        // removed once, on the main thread.
         unsafe { NSEvent::removeMonitor(&self.0) };
     }
 }
@@ -246,8 +251,9 @@ fn is_interactive(view: &NSView) -> bool {
 /// What a double click on a title bar does, per the user's choice in System Settings ▸ Desktop &
 /// Dock: zoom (the default), minimize, or nothing.
 fn double_click(window: &NSWindow) {
-    let defaults = unsafe { objc2_foundation::NSUserDefaults::standardUserDefaults() };
-    let action = unsafe { defaults.stringForKey(&NSString::from_str("AppleActionOnDoubleClick")) }
+    let defaults = objc2_foundation::NSUserDefaults::standardUserDefaults();
+    let action = defaults
+        .stringForKey(&NSString::from_str("AppleActionOnDoubleClick"))
         .map(|s| s.to_string());
     match action.as_deref() {
         Some("None") => {}
@@ -255,8 +261,7 @@ fn double_click(window: &NSWindow) {
         // Older systems spelled the minimize choice as its own boolean.
         Some(_) => window.performZoom(None),
         None => {
-            if unsafe { defaults.boolForKey(&NSString::from_str("AppleMiniaturizeOnDoubleClick")) }
-            {
+            if defaults.boolForKey(&NSString::from_str("AppleMiniaturizeOnDoubleClick")) {
                 window.performMiniaturize(None);
             } else {
                 window.performZoom(None);
@@ -271,6 +276,7 @@ fn install_monitor() {
             return;
         }
         let block = block2::RcBlock::new(|raw: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit hands a local event monitor a non-null NSEvent that is valid for the block call.
             let event = unsafe { raw.as_ref() };
             ffi_guard::contain(raw.as_ptr(), || {
                 let Some(mtm) = MainThreadMarker::new() else {
@@ -285,14 +291,14 @@ fn install_monitor() {
                 REGIONS.with(|r| r.borrow_mut().retain(|v| v.window().is_some()));
                 // `hitTest:` takes a point in the receiver's superview's coordinates, and a content
                 // view's superview spans the window: the event's window location as it is.
-                let mut view = content.hitTest(unsafe { event.locationInWindow() });
+                let mut view = content.hitTest(event.locationInWindow());
                 while let Some(v) = view {
                     // A control inside the region keeps its own click.
                     if is_interactive(&v) {
                         return raw.as_ptr();
                     }
                     if REGIONS.with(|r| r.borrow().iter().any(|x| ptr_of(x) == ptr_of(&v))) {
-                        if unsafe { event.clickCount() } == 2 {
+                        if event.clickCount() == 2 {
                             double_click(&window);
                         } else {
                             log::debug!("appkit: window drag from a drag region");
@@ -300,11 +306,14 @@ fn install_monitor() {
                         }
                         return std::ptr::null_mut();
                     }
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     view = unsafe { v.superview() };
                 }
                 raw.as_ptr()
             })
         });
+        // SAFETY: AppKit copies `block` and keeps it until the monitor is removed; local monitors
+        // run on the main thread, and the block captures nothing.
         *slot.borrow_mut() = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(
                 objc2_app_kit::NSEventMask::LeftMouseDown,
@@ -351,6 +360,8 @@ pub(super) fn monitors(mtm: MainThreadMarker) -> Vec<day_spec::Monitor> {
         .enumerate()
         .map(|(i, s)| {
             // The CGDirectDisplayID: stable while the display stays attached.
+            // SAFETY: NSDictionary's `objectForKey:` on the screen's live device description,
+            // returning a retained object or nil; main thread.
             let number: Option<Retained<objc2::runtime::AnyObject>> = unsafe {
                 let desc = s.deviceDescription();
                 msg_send![&desc, objectForKey: &*NSString::from_str("NSScreenNumber")]
@@ -358,6 +369,8 @@ pub(super) fn monitors(mtm: MainThreadMarker) -> Vec<day_spec::Monitor> {
             let id = number.map_or_else(
                 || i.to_string(),
                 |n| {
+                    // SAFETY: a device description's NSScreenNumber is an NSNumber, which answers
+                    // `unsignedIntValue` with a u32.
                     let v: u32 = unsafe { msg_send![&n, unsignedIntValue] };
                     v.to_string()
                 },
@@ -391,7 +404,7 @@ pub(super) fn apply_property(window: &NSWindow, change: &day_spec::WindowChange)
                 // window lays out under the bar already.
                 let top = match (window.contentView(), is_overlay(window)) {
                     (Some(content), false) => (content.frame().size.height
-                        - unsafe { window.contentLayoutRect() }.size.height)
+                        - window.contentLayoutRect().size.height)
                         .max(0.0),
                     _ => 0.0,
                 };
@@ -404,10 +417,8 @@ pub(super) fn apply_property(window: &NSWindow, change: &day_spec::WindowChange)
         C::Limits { min, max } => {
             let min = min.unwrap_or(Size::new(0.0, 0.0));
             let max = max.unwrap_or(Size::new(f64::MAX, f64::MAX));
-            unsafe {
-                window.setContentMinSize(NSSize::new(min.width, min.height));
-                window.setContentMaxSize(NSSize::new(max.width, max.height));
-            }
+            window.setContentMinSize(NSSize::new(min.width, min.height));
+            window.setContentMaxSize(NSSize::new(max.width, max.height));
         }
         C::Level(level) => window.setLevel(match level {
             // NSFloatingWindowLevel, the level of palettes and utility panels.
@@ -420,7 +431,7 @@ pub(super) fn apply_property(window: &NSWindow, change: &day_spec::WindowChange)
             window.setCollectionBehavior(if *on { b | all } else { b & !all });
         }
         // macOS has no taskbar; the window list it does have is the Window menu.
-        C::SkipTaskbar(skip) => unsafe { window.setExcludedFromWindowsMenu(*skip) },
+        C::SkipTaskbar(skip) => window.setExcludedFromWindowsMenu(*skip),
         C::Resizable(on) => set_mask(NSWindowStyleMask::Resizable, *on),
         C::Minimizable(on) => set_mask(NSWindowStyleMask::Miniaturizable, *on),
         C::Closable(on) => set_mask(NSWindowStyleMask::Closable, *on),
@@ -435,6 +446,7 @@ pub(super) fn apply_property(window: &NSWindow, change: &day_spec::WindowChange)
         C::Visible(true) => window.makeKeyAndOrderFront(None),
         C::Visible(false) => window.orderOut(None),
         C::Appearance(dark) => {
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let name = dark.map(|d| unsafe {
                 if d {
                     objc2_app_kit::NSAppearanceNameDarkAqua
@@ -442,8 +454,7 @@ pub(super) fn apply_property(window: &NSWindow, change: &day_spec::WindowChange)
                     objc2_app_kit::NSAppearanceNameAqua
                 }
             });
-            let appearance =
-                name.and_then(|n| unsafe { objc2_app_kit::NSAppearance::appearanceNamed(n) });
+            let appearance = name.and_then(objc2_app_kit::NSAppearance::appearanceNamed);
             window.setAppearance(appearance.as_deref());
             crate::color::refresh_layers_soon();
         }

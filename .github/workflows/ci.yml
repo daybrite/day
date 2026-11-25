@@ -637,6 +637,9 @@ jobs:
     name: toolkit (${{ matrix.toolkit }})
     runs-on: ${{ matrix.os }}
     needs: [day-cli-macos, day-cli-linux, day-cli-windows, showcase-ref]
+    permissions:
+      contents: read
+      actions: read # download this run's CLI through the GitHub REST API
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
@@ -696,10 +699,14 @@ jobs:
           # prints `export K="v"` lines; $GITHUB_ENV takes `K=v`.
           ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" cargo ndk-env -t arm64-v8a --platform 24 \
             | sed -n 's/^export \([A-Za-z_][A-Za-z0-9_]*\)="\(.*\)"$/\1=\2/p' >> "$GITHUB_ENV"
+      # Passing the token selects the REST API. A hosted Mac could fetch the checkout
+      # but could not resolve the Actions results service to look up the CLI.
       - uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
           path: ${{ runner.temp }}/day-cli
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
       - name: Locate the day CLI (exports DAY_BIN)
         run: |
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"

@@ -57,6 +57,8 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
         let s = if text.is_null() {
             String::new()
         } else {
+            // SAFETY: non-null here; the shim passes a QByteArray's NUL-terminated data, alive for
+            // this call.
             unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned()
@@ -66,6 +68,8 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
 }
 
 fn make(_backend: &mut Qt, p: &TextProps, id: NodeId) -> QtHandle {
+    // SAFETY: a constructor on the GUI thread; the strings outlive the call and `on_text` carries
+    // only the node id (crate note "Unsafe calls").
     let ptr = unsafe {
         day_textarea_new(
             cstr(&p.placeholder).as_ptr(),
@@ -75,8 +79,11 @@ fn make(_backend: &mut Qt, p: &TextProps, id: NodeId) -> QtHandle {
         )
     };
     // Qt has no spell-check; editable + selectable are applied together (they interact).
+    // SAFETY: `ptr` is the text area just created (crate note "Unsafe calls").
     unsafe { day_textarea_set_attrs(ptr, i32::from(p.editable), i32::from(p.selectable)) };
     if p.submit_on_enter {
+        // SAFETY: `ptr` is the text area just created; `on_submit` carries only the node id (crate
+        // note "Unsafe calls").
         unsafe { day_textarea_set_submit(ptr, id.0, on_submit) };
     }
     DIMS.with(|m| m.insert(ptr as usize, (p.min_lines, p.max_lines)));
@@ -84,6 +91,8 @@ fn make(_backend: &mut Qt, p: &TextProps, id: NodeId) -> QtHandle {
 }
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &TextPatch) {
+    // SAFETY: `h` is the text area `make` returned, still live; strings borrowed for each call
+    // (crate note "Unsafe calls").
     unsafe {
         match patch {
             TextPatch::SetText(t) => day_textarea_set_text(h.0, cstr(t).as_ptr()),
@@ -100,6 +109,8 @@ fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     let avail_w = p.width.unwrap_or(300.0).max(120.0);
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: `h` is the text area `make` returned; out-pointers name locals (crate note "Unsafe
+    // calls").
     unsafe { day_textarea_measure(h.0, avail_w, min_lines, max_lines, &raw mut w, &raw mut hh) };
     Size::new(w.max(120.0), hh.max(24.0))
 }

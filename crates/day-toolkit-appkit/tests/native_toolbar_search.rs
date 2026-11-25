@@ -44,6 +44,7 @@ fn main() {
         }
     }));
 
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -53,6 +54,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     let host = window.contentView().expect("window has a content view");
 
@@ -95,11 +97,14 @@ fn main() {
     };
     let type_text = |text: &str| {
         let range = objc2_foundation::NSRange::new(usize::MAX, 0);
+        // SAFETY: NSTextView implements `insertText:replacementRange:` (id, NSRange); the field
+        // editor is live while the field is focused, on the main thread.
         unsafe {
             let () = msg_send![&*editor(), insertText: &*NSString::from_str(text), replacementRange: range];
         }
     };
     let press_return = || {
+        // SAFETY: NSTextView's `doCommandBySelector:` takes one SEL; the field editor is live.
         let _: () = unsafe { msg_send![&*editor(), doCommandBySelector: sel!(insertNewline:)] };
     };
 
@@ -153,6 +158,7 @@ fn main() {
 
     // A Return key-down through the window's own event routing, with a default button in the
     // window: the field claims the key, so the button never sees it.
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let button = unsafe {
         NSButton::buttonWithTitle_target_action(&NSString::from_str("OK"), None, None, mtm)
     };
@@ -182,6 +188,7 @@ fn main() {
     );
     assert!(field.currentEditor().is_some());
 
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     unsafe { window.endEditingFor(None) };
     assert!(toolkit.edit_toolbar(
         &host,

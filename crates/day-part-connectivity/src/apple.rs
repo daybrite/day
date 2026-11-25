@@ -58,6 +58,8 @@ pub fn status() -> Option<NetworkStatus> {
         sin_addr: 0,
         sin_zero: [0; 8],
     };
+    // SAFETY: `zero` is a valid sockaddr_in the create call copies; `target` is null-checked,
+    // used once, and released exactly once (it is a +1 Create reference).
     unsafe {
         let target = SCNetworkReachabilityCreateWithAddress(std::ptr::null(), &raw const zero);
         if target.is_null() {

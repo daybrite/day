@@ -61,6 +61,8 @@ define_class!(
 impl DateTimeTarget {
     fn new(mtm: MainThreadMarker, node: NodeId, time: bool) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node, time });
+        // SAFETY: NSObject's `init` on a fresh DateTimeTarget allocation with its ivars set;
+        // returns it +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -92,12 +94,15 @@ fn make_picker(
     p.setDatePickerElements(elements);
     let gmt = NSTimeZone::timeZoneForSecondsFromGMT(0);
     p.setTimeZone(Some(&gmt));
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     if let Some(cal) = NSCalendar::calendarWithIdentifier(unsafe { NSCalendarIdentifierGregorian })
     {
         cal.setTimeZone(&gmt);
         p.setCalendar(Some(&cal));
     }
     let target = DateTimeTarget::new(mtm, node, time);
+    // SAFETY: the picker holds its target weakly; TARGETS keeps `target` alive until `release`
+    // drops the picker. The target implements `fire:`; main thread.
     unsafe {
         p.setTarget(Some(&target));
         p.setAction(Some(sel!(fire:)));

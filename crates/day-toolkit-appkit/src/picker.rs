@@ -64,6 +64,8 @@ impl PickerTarget {
             node,
             separators_before,
         });
+        // SAFETY: NSObject's `init` on a fresh PickerTarget allocation with its ivars set; returns
+        // it +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -83,6 +85,8 @@ fn make_menu(mtm: MainThreadMarker, p: &PickerProps, target: &PickerTarget) -> R
     let popup =
         NSPopUpButton::initWithFrame_pullsDown(NSPopUpButton::alloc(mtm), zero_rect(), false);
     fill_menu(&popup, &p.options, &p.separators_before, p.selected);
+    // SAFETY: the popup holds its target weakly; the caller stores `target` in TARGETS until the
+    // control is released. `target` implements `fire:`; main thread.
     unsafe {
         popup.setTarget(Some(target));
         popup.setAction(Some(sel!(fire:)));
@@ -99,6 +103,7 @@ fn fill_menu(popup: &NSPopUpButton, options: &[String], separators: &[usize], se
         if index > 0 && separators.contains(&index) {
             menu.addItem(&objc2_app_kit::NSMenuItem::separatorItem(mtm));
         }
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let item = unsafe {
             objc2_app_kit::NSMenuItem::initWithTitle_action_keyEquivalent(
                 objc2_app_kit::NSMenuItem::alloc(mtm),
@@ -130,6 +135,8 @@ fn make_segmented(
     if p.selected < p.options.len() {
         seg.setSelectedSegment(p.selected as isize);
     }
+    // SAFETY: the control holds its target weakly; the caller stores `target` in TARGETS until the
+    // control is released. `target` implements `fire:`; main thread.
     unsafe {
         seg.setTarget(Some(target));
         seg.setAction(Some(sel!(fire:)));
@@ -144,6 +151,7 @@ fn make_inline(mtm: MainThreadMarker, p: &PickerProps, target: &PickerTarget) ->
     stack.setAlignment(objc2_app_kit::NSLayoutAttribute::Leading);
     for (i, opt) in p.options.iter().enumerate() {
         // Radio buttons sharing a superview + action auto-group (mutually exclusive).
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let radio = unsafe {
             NSButton::radioButtonWithTitle_target_action(
                 &NSString::from_str(opt),
@@ -294,6 +302,7 @@ fn set_options(h: &Retained<NSView>, opts: &[String]) {
                 b.setTitle(&NSString::from_str(o));
             } else {
                 let Some(first) = existing.first() else { break };
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 let radio = unsafe {
                     NSButton::radioButtonWithTitle_target_action(
                         &NSString::from_str(o),

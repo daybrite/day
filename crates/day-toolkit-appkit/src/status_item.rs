@@ -80,8 +80,8 @@ define_class!(
                 };
                 let app = NSApplication::sharedApplication(mtm);
                 let right = app.currentEvent().is_some_and(|e| {
-                    (unsafe { e.r#type() }) == objc2_app_kit::NSEventType::RightMouseUp
-                        || unsafe { e.modifierFlags() }
+                    (e.r#type()) == objc2_app_kit::NSEventType::RightMouseUp
+                        || e.modifierFlags()
                             .contains(objc2_app_kit::NSEventModifierFlags::Control)
                 });
                 let found = SHOWN.with(|s| {
@@ -97,6 +97,7 @@ define_class!(
                     // Attach, open, detach: `performClick:` runs the menu's tracking loop
                     // synchronously, and leaving the menu attached would turn the next left
                     // click into another menu.
+                    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                     unsafe {
                         item.setMenu(Some(&menu));
                         if let Some(button) = item.button(mtm) {
@@ -117,6 +118,8 @@ fn new_target(mtm: MainThreadMarker, id: &str) -> Retained<StatusTarget> {
         id: RefCell::new(id.to_owned()),
         tracking: Cell::new(0),
     });
+    // SAFETY: NSObject's `init` on a fresh StatusTarget allocation with its ivars set; returns it
+    // +1.
     unsafe { msg_send![super(this), init] }
 }
 
@@ -124,6 +127,8 @@ fn new_target(mtm: MainThreadMarker, id: &str) -> Retained<StatusTarget> {
 fn raster_image(raster: &day_spec::StatusImage) -> Option<Retained<objc2_app_kit::NSImage>> {
     use objc2::AllocAnyThread as _;
     use objc2_app_kit::{NSBitmapFormat, NSBitmapImageRep, NSImage};
+    // SAFETY: null planes make AppKit allocate and own the pixel buffer; the geometry (8-bit RGBA,
+    // width * 4 bytes per row, 32 bits per pixel) matches what is copied in below.
     let rep = unsafe {
         NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
             NSBitmapImageRep::alloc(), std::ptr::null_mut(), raster.width() as isize,
@@ -137,21 +142,23 @@ fn raster_image(raster: &day_spec::StatusImage) -> Option<Retained<objc2_app_kit
         return None;
     }
     // StatusImage validated exact dimensions/length; explicit bytesPerRow means no padding.
+    // SAFETY: `data` is the rep's own width * height * 4-byte buffer, and StatusImage guarantees
+    // `pixels()` has exactly that length; the two never overlap.
     unsafe { std::ptr::copy_nonoverlapping(raster.pixels().as_ptr(), data, raster.pixels().len()) };
     let rep = rep
         .bitmapImageRepByRetaggingWithColorSpace(&objc2_app_kit::NSColorSpace::sRGBColorSpace())?;
     let size = raster.size();
     let fit = (18.0 / size.height).min(1.0);
     let size = NSSize::new(size.width * fit, size.height * fit);
-    unsafe { rep.setSize(size) };
+    rep.setSize(size);
     let image = NSImage::initWithSize(NSImage::alloc(), size);
-    unsafe { image.addRepresentation(&rep) };
+    image.addRepresentation(&rep);
     Some(image)
 }
 
 /// Apply `spec` to an existing item.
 fn configure(mtm: MainThreadMarker, shown: &mut Shown, spec: &day_spec::StatusItemSpec) {
-    let Some(button) = (unsafe { shown.item.button(mtm) }) else {
+    let Some(button) = shown.item.button(mtm) else {
         return;
     };
     // Menu-only or tooltip updates do not reallocate the pixels. The image belongs to the
@@ -159,7 +166,7 @@ fn configure(mtm: MainThreadMarker, shown: &mut Shown, spec: &day_spec::StatusIt
     if shown.spec.raster != spec.raster
         || shown.spec.icon != spec.icon
         || shown.spec.template != spec.template
-        || unsafe { button.image() }.is_none()
+        || button.image().is_none()
     {
         let image = spec.raster.as_ref().and_then(raster_image).or_else(|| {
             let image = spec
@@ -167,18 +174,16 @@ fn configure(mtm: MainThreadMarker, shown: &mut Shown, spec: &day_spec::StatusIt
                 .as_ref()
                 .and_then(|icon| crate::toolbar::image_for(icon, &spec.tooltip, mtm));
             if let Some(image) = &image {
-                unsafe { image.setSize(NSSize::new(18.0, 18.0)) };
+                image.setSize(NSSize::new(18.0, 18.0));
             }
             image
         });
         if let Some(image) = &image {
-            unsafe { image.setTemplate(spec.template) };
+            image.setTemplate(spec.template);
         }
-        unsafe { button.setImage(image.as_deref()) };
+        button.setImage(image.as_deref());
     }
-    unsafe {
-        button.setImagePosition(objc2_app_kit::NSCellImagePosition::ImageLeft);
-    }
+    button.setImagePosition(objc2_app_kit::NSCellImagePosition::ImageLeft);
     button.setTitle(&NSString::from_str(&spec.title));
     let tip = (!spec.tooltip.is_empty()).then(|| NSString::from_str(&spec.tooltip));
     button.setToolTip(tip.as_deref());
@@ -190,11 +195,9 @@ fn configure(mtm: MainThreadMarker, shown: &mut Shown, spec: &day_spec::StatusIt
     // Without a click action the item IS its menu: attach it for good, so a click, the keyboard
     // and VoiceOver's "show menu" all open it natively. With one, the menu is attached only for
     // the duration of a right click (`clicked:`), or every left click would open it too.
-    unsafe {
-        shown
-            .item
-            .setMenu((spec.activate == 0).then_some(&*shown.menu));
-    }
+    shown
+        .item
+        .setMenu((spec.activate == 0).then_some(&*shown.menu));
     shown.spec = spec.clone();
 }
 
@@ -203,11 +206,11 @@ pub(super) fn set_items(mtm: MainThreadMarker, items: &[day_spec::StatusItemSpec
     SHOWN.with(|s| {
         let mut shown = s.borrow_mut();
         // Gone from the list: take it out of the menu bar.
-        let bar = unsafe { NSStatusBar::systemStatusBar() };
+        let bar = NSStatusBar::systemStatusBar();
         shown.retain(|x| {
             let keep = items.iter().any(|i| i.id == x.spec.id);
             if !keep {
-                unsafe { bar.removeStatusItem(&x.item) };
+                bar.removeStatusItem(&x.item);
             }
             keep
         });
@@ -218,12 +221,13 @@ pub(super) fn set_items(mtm: MainThreadMarker, items: &[day_spec::StatusItemSpec
                 }
                 continue;
             }
-            let item =
-                unsafe { bar.statusItemWithLength(objc2_app_kit::NSVariableStatusItemLength) };
+            let item = bar.statusItemWithLength(objc2_app_kit::NSVariableStatusItemLength);
             // macOS remembers where the user dragged the item, keyed by this name.
-            unsafe { item.setAutosaveName(Some(&NSString::from_str(&spec.id))) };
+            item.setAutosaveName(Some(&NSString::from_str(&spec.id)));
             let target = new_target(mtm, &spec.id);
-            if let Some(button) = unsafe { item.button(mtm) } {
+            if let Some(button) = item.button(mtm) {
+                // SAFETY: the button holds its target weakly; Shown keeps `target` until the item
+                // is removed. `target` implements `clicked:`; main thread.
                 unsafe {
                     button.setTarget(Some(&target));
                     button.setAction(Some(sel!(clicked:)));
@@ -255,7 +259,7 @@ pub(super) fn set_progress(mtm: MainThreadMarker, progress: day_spec::AppProgres
     let tile = app.dockTile();
     let value = match progress {
         P::None => {
-            unsafe { tile.setContentView(None) };
+            tile.setContentView(None);
             PROGRESS.with(|p| *p.borrow_mut() = None);
             tile.display();
             return;
@@ -267,26 +271,22 @@ pub(super) fn set_progress(mtm: MainThreadMarker, progress: day_spec::AppProgres
         let size = tile.size();
         let icon_view = objc2_app_kit::NSImageView::new(mtm);
         icon_view.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), size));
-        unsafe { icon_view.setImage(app.applicationIconImage().as_deref()) };
+        icon_view.setImage(app.applicationIconImage().as_deref());
         let bar = objc2_app_kit::NSProgressIndicator::new(mtm);
-        unsafe {
-            bar.setStyle(objc2_app_kit::NSProgressIndicatorStyle::Bar);
-            bar.setMinValue(0.0);
-            bar.setMaxValue(1.0);
-        }
+        bar.setStyle(objc2_app_kit::NSProgressIndicatorStyle::Bar);
+        bar.setMinValue(0.0);
+        bar.setMaxValue(1.0);
         bar.setFrame(NSRect::new(
             NSPoint::new(size.width * 0.1, size.height * 0.06),
             NSSize::new(size.width * 0.8, size.height * 0.14),
         ));
         icon_view.addSubview(&bar);
-        unsafe { tile.setContentView(Some(&icon_view)) };
+        tile.setContentView(Some(&icon_view));
         PROGRESS.with(|p| *p.borrow_mut() = Some(bar.clone()));
         bar
     });
-    unsafe {
-        bar.setIndeterminate(value.is_none());
-        bar.setDoubleValue(value.unwrap_or(0.0));
-    }
+    bar.setIndeterminate(value.is_none());
+    bar.setDoubleValue(value.unwrap_or(0.0));
     tile.display();
 }
 
@@ -313,21 +313,23 @@ mod tests {
             pixels[..4].copy_from_slice(&[255, 0, 0, 128]);
             let source = day_spec::StatusImage::rgba(120, 36, 2.0, pixels.clone()).unwrap();
             let image = raster_image(&source).unwrap();
-            assert_eq!(unsafe { image.size() }, NSSize::new(60.0, 18.0));
-            let reps = unsafe { image.representations() };
+            assert_eq!(image.size(), NSSize::new(60.0, 18.0));
+            let reps = image.representations();
             let rep = reps
                 .objectAtIndex(0)
                 .downcast::<objc2_app_kit::NSBitmapImageRep>()
                 .unwrap();
-            assert_eq!(unsafe { rep.pixelsWide() }, 120);
-            assert_eq!(unsafe { rep.pixelsHigh() }, 36);
+            assert_eq!(rep.pixelsWide(), 120);
+            assert_eq!(rep.pixelsHigh(), 36);
             assert_eq!(
+                // SAFETY: `bitmapData` points at the rep's 120 * 36 * 4-byte buffer (asserted
+                // above), live while `rep` is.
                 unsafe { std::slice::from_raw_parts(rep.bitmapData(), pixels.len()) },
                 pixels
             );
             let taller = day_spec::StatusImage::rgba(120, 72, 2.0, vec![0; 120 * 72 * 4]).unwrap();
             assert_eq!(
-                unsafe { raster_image(&taller).unwrap().size() },
+                raster_image(&taller).unwrap().size(),
                 NSSize::new(30.0, 18.0)
             );
         });

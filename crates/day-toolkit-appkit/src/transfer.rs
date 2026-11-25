@@ -23,6 +23,8 @@ fn native(mime: &str) -> Retained<NSString> {
         return NSString::from_str("public.file-url");
     }
     let s = NSString::from_str(mime);
+    // SAFETY: `s` is a live NSString (toll-free a CFString) and the tag class a framework constant;
+    // the Create rule returns +1 or null, which `from_raw` takes over.
     unsafe {
         Retained::from_raw(UTTypeCreatePreferredIdentifierForTag(
             kUTTagClassMIMEType,
@@ -36,6 +38,8 @@ fn mime(uti: &NSString) -> Option<String> {
     if uti.to_string() == "public.file-url" {
         return Some("text/uri-list".into());
     }
+    // SAFETY: `uti` is a live NSString (toll-free a CFString) and the tag class a framework
+    // constant; the Copy rule returns +1 or null, which `from_raw` takes over.
     unsafe {
         Retained::from_raw(UTTypeCopyPreferredTagWithClass(
             std::ptr::from_ref::<NSString>(uti).cast(),
@@ -135,15 +139,13 @@ pub fn dragged(view: &DayFlipped, event: &NSEvent) -> bool {
             ProtocolObject::from_ref(&*pb),
         );
         let bounds = view.bounds();
-        let preview = unsafe {
-            objc2_app_kit::NSImage::initWithSize(objc2_app_kit::NSImage::alloc(), bounds.size)
-        };
-        if let Some(rep) = unsafe { view.bitmapImageRepForCachingDisplayInRect(bounds) } {
-            unsafe {
-                view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
-                preview.addRepresentation(&rep);
-            }
+        let preview =
+            objc2_app_kit::NSImage::initWithSize(objc2_app_kit::NSImage::alloc(), bounds.size);
+        if let Some(rep) = view.bitmapImageRepForCachingDisplayInRect(bounds) {
+            view.cacheDisplayInRect_toBitmapImageRep(bounds, &rep);
+            preview.addRepresentation(&rep);
         }
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe {
             item.setDraggingFrame_contents(bounds, Some(&preview));
         }
@@ -156,18 +158,21 @@ pub fn dragged(view: &DayFlipped, event: &NSEvent) -> bool {
     true
 }
 fn location(view: &NSView, info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>) -> Location {
-    let p = unsafe { view.convertPoint_fromView(info.draggingLocation(), None) };
-    let pb = unsafe { info.draggingPasteboard() };
+    let p = view.convertPoint_fromView(info.draggingLocation(), None);
+    let pb = info.draggingPasteboard();
     let types = pb
         .types()
         .map_or_default(|a| a.iter().filter_map(|s| mime(&s)).collect());
-    let allowed = if unsafe { info.draggingSourceOperationMask() }.contains(NSDragOperation::Copy) {
+    let allowed = if info
+        .draggingSourceOperationMask()
+        .contains(NSDragOperation::Copy)
+    {
         vec![Operation::Copy]
     } else {
         vec![]
     };
     Location {
-        local: unsafe { info.draggingSource() }.is_some(),
+        local: info.draggingSource().is_some(),
         position: Point::new(p.x, p.y),
         types,
         allowed,
@@ -195,10 +200,11 @@ pub fn receive(view: &NSView, info: &ProtocolObject<dyn objc2_app_kit::NSDraggin
         if target.proposal(&at) == Operation::None {
             return false;
         }
-        let pb = unsafe { info.draggingPasteboard() };
+        let pb = info.draggingPasteboard();
         // Read file objects through AppKit even when a Day bundle is also present, so
         // AppKit can acquire sandbox access. Raw public.file-url bytes are only locators;
         // NSURL must resolve Finder's file-reference URLs to ordinary file-path URLs.
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         let _file_urls = unsafe {
             pb.readObjectsForClasses_options(&NSArray::from_slice(&[NSURL::class()]), None)
         };

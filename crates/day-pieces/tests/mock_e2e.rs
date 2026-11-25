@@ -452,6 +452,8 @@ fn boot_with_env(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((k, v)) = env {
+        // SAFETY: ENV_LOCK is held, and every env write in this test binary takes it; tests that
+        // skip the lock only read the env through std, which locks it.
         unsafe { std::env::set_var(k, v) };
     }
     day_core::uninstall_tree();
@@ -463,6 +465,7 @@ fn boot_with_env(
     };
     day_core::launch_with(mock, options, root);
     if let Some((k, _)) = env {
+        // SAFETY: ENV_LOCK is still held; same reasoning as the `set_var` above.
         unsafe { std::env::remove_var(k) };
     }
     probe

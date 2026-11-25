@@ -42,14 +42,18 @@ unsafe extern "system" {
 /// Resolve `GetNetworkConnectivityHint` at runtime (absent before Windows 10 2004 / build 19041).
 fn lookup() -> Option<GetNetworkConnectivityHintFn> {
     let dll: Vec<u16> = "iphlpapi.dll\0".encode_utf16().collect();
+    // SAFETY: `dll` is a NUL-terminated UTF-16 name that outlives the call.
     let module = unsafe { LoadLibraryW(dll.as_ptr()) };
     if module.is_null() {
         return None;
     }
+    // SAFETY: `module` is loaded and never freed; the name is a NUL-terminated C string literal.
     let proc = unsafe { GetProcAddress(module, c"GetNetworkConnectivityHint".as_ptr().cast()) };
     if proc.is_null() {
         return None;
     }
+    // SAFETY: a non-null export of that name has the `GetNetworkConnectivityHint` signature, and
+    // the never-freed module keeps it valid for the process.
     Some(unsafe { std::mem::transmute::<*mut c_void, GetNetworkConnectivityHintFn>(proc) })
 }
 
@@ -62,6 +66,7 @@ pub fn status() -> Option<NetworkStatus> {
         over_data_limit: 0,
         roaming: 0,
     };
+    // SAFETY: `hint` is a live, writable `NL_NETWORK_CONNECTIVITY_HINT` the call fills in.
     if unsafe { get_hint(&raw mut hint) } != 0 {
         return None; // NETIO error status
     }

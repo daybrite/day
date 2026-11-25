@@ -51,6 +51,8 @@ fn style_code(s: PickerStyle) -> c_int {
 }
 
 fn make(_backend: &mut Qt, p: &PickerProps, id: NodeId) -> QtHandle {
+    // SAFETY: a constructor on the GUI thread; the strings outlive the call and `on_select` carries
+    // only the node id (crate note "Unsafe calls").
     let w = unsafe {
         day_picker_new(
             style_code(p.style),
@@ -63,6 +65,7 @@ fn make(_backend: &mut Qt, p: &PickerProps, id: NodeId) -> QtHandle {
     // Every style wraps its combo or buttons in one DayPicker widget, and disabling it
     // disables them all.
     if !p.enabled {
+        // SAFETY: `w` is the DayPicker just created (crate note "Unsafe calls").
         unsafe { crate::ffi::day_qt_set_enabled(w, 0) };
     }
     QtHandle(w)
@@ -70,8 +73,12 @@ fn make(_backend: &mut Qt, p: &PickerProps, id: NodeId) -> QtHandle {
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &PickerPatch) {
     match patch {
+        // SAFETY: `h` is the DayPicker `make` returned, still live (crate note "Unsafe calls").
         PickerPatch::Selected(i) => unsafe { day_picker_set_selected(h.0, *i as c_int) },
+        // SAFETY: `h` is the DayPicker `make` returned; the options are borrowed for the call
+        // (crate note "Unsafe calls").
         PickerPatch::Options(opts) => unsafe { day_picker_set_options(h.0, joined(opts).as_ptr()) },
+        // SAFETY: `h` is a live widget (crate note "Unsafe calls").
         PickerPatch::Enabled(on) => unsafe {
             crate::ffi::day_qt_set_enabled(h.0, c_int::from(*on));
         },
@@ -81,6 +88,7 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &PickerPatch) {
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe calls").
     unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(60.0), hh.max(22.0))
 }
@@ -134,6 +142,7 @@ pub(crate) fn selected_text(w: *mut c_void) -> Option<Option<String>> {
     let text = unsafe { std::ffi::CStr::from_ptr(out) }
         .to_string_lossy()
         .into_owned();
+    // SAFETY: `out` is the non-null shim string read above, freed here once and not used after.
     unsafe { day_qt_string_free(out) };
     Some(Some(if kind == 1 {
         strip_mnemonic(&text)

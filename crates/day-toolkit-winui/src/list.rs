@@ -89,6 +89,8 @@ pub(super) fn new(node: NodeId, props: &ListProps) -> *mut c_void {
         RowHeight::Uniform(h) => h.max(1.0),
         RowHeight::Automatic => 44.0,
     };
+    // SAFETY: a new list host on the UI thread; every callback is `extern "C"` and lives for the
+    // program.
     let host = unsafe {
         ffi::day_winui_list_new(
             pitch,
@@ -142,6 +144,7 @@ pub(super) fn release(host: usize) {
         if let (Some(source), Some(pinned)) = (&e.source, e.pinned) {
             (source.release)(pinned.cell as *mut c_void);
         }
+        // SAFETY: `host` is this list's live handle: `release` runs this before `day_xaml_delete`.
         unsafe { ffi::day_winui_list_forget(host as *mut c_void) };
     }
 }
@@ -157,6 +160,7 @@ pub(super) fn frame(host: &WinHandle, frame: Rect) {
         changed
     });
     if changed {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_winui_list_frame(host.0, frame.size.width, frame.size.height) };
         schedule(host.0 as usize, false);
     }
@@ -213,6 +217,8 @@ fn scroll(host: usize, row: Option<usize>, align: RowAlign, animated: bool) {
         if current != node || node.is_none() {
             return;
         }
+        // SAFETY: `host` is still this list (its entry holds `node`), on the UI thread
+        // (crate note "Unsafe calls").
         unsafe {
             ffi::day_winui_list_scroll_to(
                 host as *mut c_void,
@@ -272,6 +278,8 @@ fn fill(host: usize, node: NodeId) {
                 .filter(|r| is_header(*r))
                 .map(|r| r as i32)
                 .collect();
+            // SAFETY: `host` is still this list (its entry holds `node`), on the UI thread;
+            // `headers` outlives the call, which copies it.
             unsafe { ffi::day_winui_list_headers(raw, headers.as_ptr(), headers.len() as i32) };
         }
         if let Some(is_supplement) = &source.is_supplement {
@@ -279,11 +287,18 @@ fn fill(host: usize, node: NodeId) {
                 .filter(|r| is_supplement(*r))
                 .map(|r| r as i32)
                 .collect();
+            // SAFETY: `host` is still this list (its entry holds `node`), on the UI thread;
+            // `plain` outlives the call, which copies it.
             unsafe { ffi::day_winui_list_plain(raw, plain.as_ptr(), plain.len() as i32) };
         }
+        // SAFETY: `host` is still this list (its entry holds `node`), on the UI thread
+        // (crate note "Unsafe calls").
         unsafe { ffi::day_winui_list_reload(raw, len as i32) };
     }
+    // SAFETY: `host` is still this list (its entry holds `node`), on the UI thread
+    // (crate note "Unsafe calls").
     unsafe { ffi::day_winui_list_layout(raw) };
+    // SAFETY: `host` is still this list; a null buffer with capacity 0 only counts the cells.
     let count = unsafe { ffi::day_winui_list_cells(raw, std::ptr::null_mut(), 0) }.max(0) as usize;
     let mut cells = vec![
         ffi::DayWinuiListCell {
@@ -295,6 +310,7 @@ fn fill(host: usize, node: NodeId) {
         };
         count
     ];
+    // SAFETY: `cells` holds `count` entries and the shim writes at most `count` of them.
     unsafe { ffi::day_winui_list_cells(raw, cells.as_mut_ptr(), count as i32) };
     let live: HashMap<usize, _> = cells
         .iter()
@@ -334,6 +350,8 @@ fn fill(host: usize, node: NodeId) {
             RowHeight::Uniform(h) if !is_bare(&source, row) => h.max(1.0),
             _ => (source.cell_height)(c.cell).max(1.0),
         };
+        // SAFETY: `host` is still this list and `c.cell` one of its cells, as the shim just listed
+        // them.
         unsafe { ffi::day_winui_list_cell_size(raw, c.cell, c.generation, c.width, measured) };
         active.insert(
             c.cell as usize,
@@ -366,6 +384,8 @@ fn fill(host: usize, node: NodeId) {
         // (docs/list.md "Visible rows"), after every scroll step, resize and reload.
         if let (Some(first), Some(last)) = (first, last) {
             let (mut extent, mut offset, mut viewport) = (0.0, 0.0, 0.0);
+            // SAFETY: `host` is still this list (its entry holds `node`), on the UI thread;
+            // the three out-pointers are locals.
             unsafe {
                 ffi::day_winui_list_metrics(
                     raw,
@@ -408,6 +428,7 @@ pub(super) fn settled() -> bool {
     };
     hosts
         .into_iter()
+        // SAFETY: `host` is a key of `LISTS`, so a live list, on the UI thread.
         .all(|host| unsafe { ffi::day_winui_list_settling(host as *mut c_void) } == 0)
 }
 
@@ -415,6 +436,7 @@ pub(super) fn settled() -> bool {
 fn pin(host: usize, node: NodeId, source: &ListSource, reload: bool) {
     let raw = host as *mut c_void;
     let (mut cell, mut width) = (std::ptr::null_mut(), 0.0);
+    // SAFETY: `host` is still this list; `cell` and `width` are locals the shim writes.
     let want = unsafe { ffi::day_winui_list_pinned(raw, &raw mut cell, &raw mut width) };
     if want < 0 || cell.is_null() || width <= 0.0 || want as usize >= (source.len)() {
         return;
@@ -434,6 +456,8 @@ fn pin(host: usize, node: NodeId, source: &ListSource, reload: bool) {
         (source.layout_cell)(cell, width);
     }
     let height = (source.cell_height)(cell).max(1.0);
+    // SAFETY: `host` is still this list (its entry holds `node`), on the UI thread
+    // (crate note "Unsafe calls").
     unsafe { ffi::day_winui_list_pinned_bound(raw, want, width, height) };
     LISTS.with(|m| {
         if let Some(e) = m.borrow_mut().get_mut(&host).filter(|e| e.node == node) {
@@ -454,6 +478,8 @@ fn paint_selection(host: usize) {
             .map(|e| e.selected.iter().map(|r| *r as i32).collect::<Vec<_>>())
     });
     if let Some(rows) = rows {
+        // SAFETY: `host` is a key of `LISTS`, so a live list; `rows` outlives the call, which
+        // copies it.
         unsafe {
             ffi::day_winui_list_select(host as *mut c_void, rows.as_ptr(), rows.len() as i32);
         };
@@ -535,6 +561,8 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
         }
         let row = row as usize;
         let token = (source.token_at)(row);
+        // SAFETY: `host` and `cell` come from the shim for this callback, and `host` is still in
+        // `LISTS`.
         unsafe { ffi::day_winui_list_actions_begin(host, cell) };
         if let Some(swipe) = &source.swipe {
             for (edge, code) in [(SwipeEdge::Leading, 0), (SwipeEdge::Trailing, 1)] {
@@ -543,6 +571,8 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
                         .tint
                         .map(day_spec::Ink::resolved)
                         .map(|c| [c.r, c.g, c.b, c.a]);
+                    // SAFETY: `host` and `cell` come from the shim for this callback, and `host` is
+                    // still in `LISTS`; the strings and `color` outlive the call.
                     unsafe {
                         ffi::day_winui_list_action_add(
                             host,
@@ -569,6 +599,8 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
                         .map(|e| e.props.delete_label.clone())
                 })
                 .unwrap_or_default();
+            // SAFETY: `host` and `cell` come from the shim for this callback, and `host` is still
+            // in `LISTS`; the strings and `color` outlive the call.
             unsafe {
                 ffi::day_winui_list_action_add(
                     host,
@@ -583,6 +615,8 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
                 );
             };
         }
+        // SAFETY: `host` and `cell` come from the shim for this callback, and `host` is still in
+        // `LISTS`.
         unsafe { ffi::day_winui_list_actions_end(host, cell) };
     });
 }

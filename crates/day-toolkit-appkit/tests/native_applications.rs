@@ -83,6 +83,7 @@ fn main() {
     toolkit.set_event_sink(Box::new(move |node, event| {
         captured.borrow_mut().push((node, event));
     }));
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -92,6 +93,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     let node = NodeId(901);
     let list = toolkit.realize(
@@ -233,6 +235,8 @@ fn main() {
             token_at: Rc::new(|_| 1),
             bind_row: Rc::new(move |_, raw| {
                 if allow.get() {
+                    // SAFETY: `raw` is the live cell view the list hands to `bind_row` for the
+                    // call; main thread.
                     let cell = unsafe { &*(raw as *const objc2_app_kit::NSView) };
                     let child = objc2_app_kit::NSView::new(mtm);
                     cell.addSubview(&child);
@@ -296,6 +300,7 @@ fn main() {
     assert!(popup.itemAtIndex(2).unwrap().isSeparatorItem());
     assert_eq!(popup.selectedItem().unwrap().tag(), 1);
     popup.selectItemWithTag(2);
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     unsafe {
         popup.sendAction_to(popup.action(), popup.target().as_deref());
     }

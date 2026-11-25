@@ -48,6 +48,7 @@ extern "C" fn on_pick(id: u64, r: f64, g: f64, b: f64, a: f64) {
 
 fn make(_backend: &mut Xaml, p: &ColorProps, id: NodeId) -> WinHandle {
     let title = CString::new(p.title.as_str()).unwrap_or_default();
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     WinHandle(unsafe {
         day_colorpicker_xaml_new(
             p.color.r,
@@ -64,12 +65,14 @@ fn make(_backend: &mut Xaml, p: &ColorProps, id: NodeId) -> WinHandle {
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &ColorPatch) {
     let ColorPatch::SetColor(c) = patch;
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { day_colorpicker_xaml_set(h.0, c.r, c.g, c.b, c.a) };
 }
 
 fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(88.0), hh.max(32.0))
 }

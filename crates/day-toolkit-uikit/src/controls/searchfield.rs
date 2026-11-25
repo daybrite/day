@@ -49,6 +49,8 @@ define_class!(
 impl SearchTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(SearchIvars { node });
+        // SAFETY: `this` is a fresh DayUIKitSearchTarget with ivars set; NSObject's `init` takes no
+        // arguments and returns the initialized object.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -69,6 +71,8 @@ fn make(_backend: &mut Uikit, p: &SearchProps, id: NodeId) -> Retained<UIView> {
         field.setText(Some(&NSString::from_str(&p.text)));
     }
     let target = SearchTarget::new(mtm, id);
+    // SAFETY: UIControl does not retain its target; `TARGETS` holds `target` until `release` drops
+    // it with the field. Main thread (`mtm`); `fire:` takes the sender.
     unsafe {
         field.addTarget_action_forControlEvents(
             Some(&target),

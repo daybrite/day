@@ -108,6 +108,9 @@ rust-version = "1.100"
 # lint below with its reason, or an `#[expect(clippy::…, reason = "…")]` at the one site.
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+# Every `unsafe` block and `unsafe impl` states why it is sound in a `// SAFETY:` comment. This
+# restriction lint is the one addition to `pedantic`; it keeps the comments from lapsing.
+undocumented_unsafe_blocks = "warn"
 # Day converts between float layout units and the integer pixel, index and FFI types of eight
 # native toolkits. `as` is the only operator for float-to-integer, and these four lints cannot
 # tell that from a narrowing integer cast, so they would need an exception at nearly every site.

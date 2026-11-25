@@ -182,10 +182,11 @@ pub fn animate(
         curve: ptr::null_mut(),
         run_curve: None,
     });
-    // SAFETY: the node's context is read; every object created is owned by `animation`.
     let ctx = if node.is_null() {
         ptr::null_mut()
     } else {
+        // SAFETY: `node` is a non-null handle the caller holds live, on the UI thread; the call
+        // only reads its context. Every object created below is owned by `animation`.
         unsafe { OH_ArkUI_GetContextByNode(node) }
     };
     let Some(api) = api().filter(|_| !ctx.is_null()) else {

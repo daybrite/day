@@ -557,7 +557,7 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 ///
 /// # `-objc_stubs_small`, and why a reproducibility fix rides along here
 ///
-/// ld's default (`-objc_stubs_fast`) gives every `objc_msgSend$<nav host>` stub a GOT slot of
+/// ld's default (`-objc_stubs_fast`) gives every `objc_msgSend$<selector>` stub a GOT slot of
 /// its own for `_objc_msgSend`, so a binary carrying both kinds of call ends up with two slots
 /// bound to that one symbol: one the ordinary `__stubs` entry reads, one the `__objc_stubs` entry
 /// reads. The two are interchangeable (same symbol, same value), so nothing decides which
@@ -567,14 +567,14 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 /// no cause anyone can read off it. Measured on the `day new` scaffold: of 736 archive members
 /// exactly one differed, and only in that suffix.
 ///
-/// `-objc_stubs_small` emits one shared `_objc_msgSend` stub for the nav host stubs to branch to,
+/// `-objc_stubs_small` emits one shared `_objc_msgSend` stub for the selector stubs to branch to,
 /// so there is one slot and nothing left to order. It costs a branch per objc dispatch on a path
 /// Day barely uses, and it buys a byte-identical relink from any directory.
 ///
 /// The suffix itself is left alone: it names local symbols `strip -S` removes before the
 /// comparison, so it never reaches the payload on its own, only through the tie-break this flag
 /// deletes.
-fn oso_prefix_setting(project_root: &Path) -> String {
+pub(crate) fn apple_linker_setting(project_root: &Path) -> String {
     let root = std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     format!(
         "OTHER_LDFLAGS=$(inherited) {} -Wl,-objc_stubs_small",
@@ -842,7 +842,7 @@ pub fn build_macos_xcode(
     }
     cmd.arg(format!("SYMROOT={}", symroot.display()))
         .arg(format!("DAY_BIN={}", day_bin.display()))
-        .arg(oso_prefix_setting(&project.root));
+        .arg(apple_linker_setting(&project.root));
     // Day.toml is authoritative even if an older project has target-level signing settings.
     if let Some(path) = crate::sandbox::entitlements(project, profile)? {
         cmd.arg(per_target(
@@ -1488,7 +1488,7 @@ pub fn build_ios_for(
             ])
             .arg(format!("SYMROOT={}", symroot.display()))
             .arg(format!("DAY_BIN={}", day_bin.display()))
-            .arg(oso_prefix_setting(&project.root));
+            .arg(apple_linker_setting(&project.root));
         // As on macOS: the cargo half runs in the xcode-backend process, which reads this.
         if let Some(setting) = crate::patch::day_src_setting() {
             cmd.arg(setting);
@@ -3717,8 +3717,10 @@ id = "org.example.Legacy-Mac"
         // SAFETY: env access is serialized by ENV_LOCK and the var is restored before returning.
         unsafe { std::env::set_var("DAY_ANDROID_ABI", "x86_64,arm64-v8a,x86_64") };
         assert_eq!(android_build_abis(), vec!["arm64-v8a", "x86_64"]);
+        // SAFETY: as above; ENV_LOCK is still held.
         unsafe { std::env::set_var("DAY_ANDROID_ABI", "x86_64") };
         assert_eq!(android_build_abis(), vec!["x86_64"]);
+        // SAFETY: as above; ENV_LOCK is still held.
         unsafe { std::env::remove_var("DAY_ANDROID_ABI") };
     }
 }
@@ -3770,7 +3772,7 @@ mod system_dialog_tests {
 
 #[cfg(test)]
 mod xcode_setting_tests {
-    use super::{oso_prefix_setting, xcode_list_item};
+    use super::{apple_linker_setting, xcode_list_item};
 
     /// Xcode splits a list setting at whitespace, so the linker's `-oso_prefix` path has to be one
     /// quoted element, or a project under `Day Project Root/` hands the linker three arguments.
@@ -3781,7 +3783,7 @@ mod xcode_setting_tests {
         let root = std::fs::canonicalize(&dir).expect("canonical path");
         assert!(root.display().to_string().contains(' '));
 
-        let setting = oso_prefix_setting(&dir);
+        let setting = apple_linker_setting(&dir);
         let quoted = xcode_list_item(&format!("-Wl,-oso_prefix,{}/", root.display()));
         assert_eq!(
             setting,

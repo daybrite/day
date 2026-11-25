@@ -92,13 +92,11 @@ pub fn image_for(icon: &Icon, label: &str, mtm: MainThreadMarker) -> Option<Reta
             let _ = mtm;
             let path = day_spec::resource::resolve_vector_svg(name)
                 .or_else(|| day_spec::resource::resolve_image_file(name))?;
-            let img = unsafe {
-                NSImage::initWithContentsOfFile(
-                    NSImage::alloc(),
-                    &NSString::from_str(&path.to_string_lossy()),
-                )
-            }?;
-            unsafe { img.setTemplate(true) };
+            let img = NSImage::initWithContentsOfFile(
+                NSImage::alloc(),
+                &NSString::from_str(&path.to_string_lossy()),
+            )?;
+            img.setTemplate(true);
             Some(img)
         }
     }
@@ -159,7 +157,7 @@ define_class!(
                     KIND_SEGMENTED => {
                         let index = sender
                             .downcast_ref::<objc2_app_kit::NSSegmentedControl>()
-                            .map_or(0, |c| unsafe { c.selectedSegment() });
+                            .map_or(0, objc2_app_kit::NSSegmentedControl::selectedSegment);
                         if index >= 0 {
                             emit(
                                 day_spec::WINDOW_NODE,
@@ -186,6 +184,8 @@ impl ItemTarget {
             kind,
             text: std::cell::RefCell::new(text.to_owned()),
         });
+        // SAFETY: NSObject's `init` on a fresh ItemTarget allocation with its ivars set; returns it
+        // +1.
         unsafe { msg_send![super(this), init] }
     }
 
@@ -243,12 +243,14 @@ define_class!(
         ) -> objc2::runtime::Bool {
             ffi_guard::contain(objc2::runtime::Bool::NO, || {
                 if command == sel!(insertNewline:)
-                    && let Some(target) = unsafe { self.target() }
+                    && let Some(target) = self.target()
                     && let Some(target) = target.downcast_ref::<ItemTarget>()
                 {
                     target.submit(self.stringValue().to_string());
                     return objc2::runtime::Bool::YES;
                 }
+                // SAFETY: forwards NSSearchField's `textView:doCommandBySelector:` (NSTextView, SEL
+                // -> BOOL) with AppKit's own arguments.
                 unsafe { msg_send![super(self), textView: tv, doCommandBySelector: command] }
             })
         }
@@ -258,6 +260,7 @@ define_class!(
 impl SearchField {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(());
+        // SAFETY: NSView's `init` on a fresh SearchField allocation (no ivars); returns it +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -313,6 +316,8 @@ define_class!(
 impl BarDelegate {
     fn new(mtm: MainThreadMarker, key: usize) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(BarIvars { key });
+        // SAFETY: NSObject's `init` on a fresh BarDelegate allocation with its ivars set; returns
+        // it +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -398,11 +403,13 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
             // space pushes the show/hide button to the sidebar's trailing edge, which is where
             // Notes and Xcode put theirs.
             if has(C::Sidebar) {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 out.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() });
                 column_items(&mut out, items, C::Sidebar, false);
             }
             // AppKit tracks the sidebar's divider itself, so everything after this sits over
             // what is to the right of the sidebar (docs/toolbars.md).
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             out.push(unsafe {
                 objc2_app_kit::NSToolbarSidebarTrackingSeparatorItemIdentifier.copy()
             });
@@ -447,12 +454,14 @@ fn column_items(
         out.push(identifier_of(i));
     }
     if spread && has_lead && has_trail {
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         out.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() });
     }
     for i in mine.iter().filter(|i| i.placement == P::Principal) {
         out.push(identifier_of(i));
     }
     if spread && !has_lead && has_trail {
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         out.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() });
     }
     for i in mine.iter().filter(|i| trail.contains(&i.placement)) {
@@ -470,11 +479,13 @@ fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
     // split's divider, and the `toggleSidebar:` action `NSSplitViewController` implements. Day's
     // button is never built: one affordance, the platform's.
     if item.id == day_spec::SIDEBAR_TOGGLE_ID {
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         return unsafe { objc2_app_kit::NSToolbarToggleSidebarItemIdentifier.copy() };
     }
     match item.kind {
         // macOS toolbars have no separator: a fixed gap is the stand-in, and the one
         // the system itself uses between groups.
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         ToolbarItemKind::Separator => unsafe { NSToolbarSpaceItemIdentifier.copy() },
         _ => NSString::from_str(&item.id),
     }
@@ -490,14 +501,12 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
     if ident == LIST_SEPARATOR_ID {
         let _ = mtm;
         let split = crate::list_split_view(key)?;
-        return Some(Retained::into_super(unsafe {
-            objc2_app_kit::NSTrackingSeparatorToolbarItem::
+        return Some(Retained::into_super(objc2_app_kit::NSTrackingSeparatorToolbarItem::
                 trackingSeparatorToolbarItemWithIdentifier_splitView_dividerIndex(
                     &NSString::from_str(LIST_SEPARATOR_ID),
                     &split,
                     1,
-                )
-        }));
+                )));
     }
     let (item, target) = BARS.with(|b| {
         b.with(key, |w| {
@@ -534,6 +543,8 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
                 // from the run loop after the keystroke, later for a short string.
                 field.setSendsSearchStringImmediately(true);
                 field.setSendsWholeSearchString(false);
+                // SAFETY: the field holds its target weakly; WinToolbar::targets keeps it while the
+                // item is in the bar. The target implements `fire:`; main thread.
                 unsafe {
                     field.setTarget(Some(&**t));
                     field.setAction(Some(sel!(fire:)));
@@ -557,6 +568,7 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
             let bar_item = NSToolbarItem::initWithItemIdentifier(NSToolbarItem::alloc(mtm), &id);
             // A push-on/push-off button is how a toolbar shows a sticky state on macOS; the
             // system draws the "on" bezel for us.
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let button = unsafe {
                 NSButton::buttonWithTitle_target_action(
                     &label,
@@ -566,7 +578,7 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
                 )
             };
             button.setBezelStyle(NSBezelStyle::Toolbar);
-            unsafe { button.setButtonType(objc2_app_kit::NSButtonType::PushOnPushOff) };
+            button.setButtonType(objc2_app_kit::NSButtonType::PushOnPushOff);
             if let Some(icon) = &item.icon
                 && let Some(img) = image_for(icon, &item.label, mtm)
             {
@@ -587,15 +599,15 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
             let bar_item = NSToolbarItem::initWithItemIdentifier(NSToolbarItem::alloc(mtm), &id);
             // The real thing: one NSSegmentedControl, `selectOne` tracking, which is what macOS
             // uses for a grouped either/or in a toolbar (Finder's view switcher, Mail's filters).
-            let control = unsafe {
-                objc2_app_kit::NSSegmentedControl::initWithFrame(
-                    objc2_app_kit::NSSegmentedControl::alloc(mtm),
-                    objc2_foundation::NSRect::new(
-                        objc2_foundation::NSPoint::new(0.0, 0.0),
-                        objc2_foundation::NSSize::new((segments.len() as f64) * 44.0, 24.0),
-                    ),
-                )
-            };
+            let control = objc2_app_kit::NSSegmentedControl::initWithFrame(
+                objc2_app_kit::NSSegmentedControl::alloc(mtm),
+                objc2_foundation::NSRect::new(
+                    objc2_foundation::NSPoint::new(0.0, 0.0),
+                    objc2_foundation::NSSize::new((segments.len() as f64) * 44.0, 24.0),
+                ),
+            );
+            // SAFETY: `setToolTip:forSegment:` takes (NSString, NSInteger); the weakly held target
+            // implements `fire:` and lives in WinToolbar::targets. Main thread.
             unsafe {
                 control.setSegmentCount(segments.len() as isize);
                 control.setSegmentStyle(objc2_app_kit::NSSegmentStyle::Automatic);
@@ -647,6 +659,7 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
                 bar_item.setImage(Some(&img));
             }
             if bar_item.image().is_none() {
+                // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                 let button = unsafe {
                     NSButton::buttonWithTitle_target_action(
                         &label,
@@ -656,12 +669,14 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
                     )
                 };
                 button.setBezelStyle(NSBezelStyle::Automatic);
-                unsafe { button.setEnabled(item.enabled) };
+                button.setEnabled(item.enabled);
                 bar_item.setView(Some(button.as_ref() as &NSView));
             }
             // macOS 11's bordered items are the modern toolbar button look.
             bar_item.setBordered(true);
             if let Some(t) = &target {
+                // SAFETY: the item holds its target weakly; WinToolbar::targets keeps it while the
+                // item is in the bar. The target implements `fire:`; main thread.
                 unsafe {
                     bar_item.setTarget(Some(&**t as &AnyObject));
                     bar_item.setAction(Some(sel!(fire:)));
@@ -834,6 +849,7 @@ impl AppKit {
                 ToolbarPatch::Focus { .. } => {
                     if let Some(search) = bar_item.downcast_ref::<NSSearchToolbarItem>() {
                         search.beginSearchInteraction();
+                        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
                         unsafe {
                             search.searchField().selectText(None);
                         }
@@ -862,7 +878,7 @@ impl AppKit {
                     if let Some(view) = bar_item.view()
                         && let Some(seg) = view.downcast_ref::<objc2_app_kit::NSSegmentedControl>()
                     {
-                        unsafe { seg.setSelectedSegment(*index as isize) };
+                        seg.setSelectedSegment(*index as isize);
                     }
                 }
                 ToolbarPatch::Enabled { on, .. } => {
@@ -870,9 +886,7 @@ impl AppKit {
                     if let Some(view) = bar_item.view()
                         && let Some(control) = view.downcast_ref::<NSControl>()
                     {
-                        unsafe {
-                            control.setEnabled(*on);
-                        }
+                        control.setEnabled(*on);
                     }
                 }
                 // No completion affordance on NSSearchField (see the realize above).
@@ -941,7 +955,9 @@ fn reconcile(toolbar: &NSToolbar, key: usize) {
 fn insert_at(toolbar: &NSToolbar, id: &str, at: &mut usize) {
     // A synthesized tracking separator can move around a kept model item. AppKit permits
     // repeated spaces, but inserting any other identifier while it is still present throws.
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let repeatable = id == unsafe { NSToolbarFlexibleSpaceItemIdentifier.to_string() }
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         || id == unsafe { NSToolbarSpaceItemIdentifier.to_string() };
     if !repeatable
         && let Some(existing) = toolbar

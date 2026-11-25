@@ -91,6 +91,7 @@ pub(super) fn standard_appearance(appearance: &NSAppearance) -> Option<Retained<
     let names = objc2_foundation::NSArray::from_slice(&[
         // SAFETY: AppKit's constant appearance names.
         unsafe { objc2_app_kit::NSAppearanceNameAqua },
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe { objc2_app_kit::NSAppearanceNameDarkAqua },
     ]);
     appearance
@@ -103,6 +104,7 @@ fn is_dark(appearance: &NSAppearance) -> bool {
     let names = objc2_foundation::NSArray::from_slice(&[
         // SAFETY: AppKit's constant appearance names.
         unsafe { objc2_app_kit::NSAppearanceNameAqua },
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe { objc2_app_kit::NSAppearanceNameDarkAqua },
     ]);
     let best = appearance.bestMatchFromAppearancesWithNames(&names);

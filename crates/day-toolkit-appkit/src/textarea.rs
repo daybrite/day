@@ -105,6 +105,8 @@ impl TATarget {
             placeholder,
             submit_on_enter,
         });
+        // SAFETY: NSObject's `init` on a fresh TATarget allocation with its ivars set; returns it
+        // +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -140,6 +142,8 @@ fn key(v: &Retained<NSView>) -> usize {
 fn apply_attrs(tv: &NSTextView, editable: bool, selectable: bool, spell: bool) {
     tv.setEditable(editable);
     tv.setSelectable(selectable);
+    // SAFETY: NSTextView's spelling, autocorrection and grammar setters each take one BOOL; `tv` is
+    // live, on the main thread.
     unsafe {
         let _: () = msg_send![tv, setContinuousSpellCheckingEnabled: spell];
         let _: () = msg_send![tv, setAutomaticSpellingCorrectionEnabled: spell];
@@ -170,12 +174,14 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
     tv.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
     tv.setMinSize(NSSize::new(0.0, 0.0));
     tv.setMaxSize(NSSize::new(1.0e7, 1.0e7));
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     if let Some(tc) = unsafe { tv.textContainer() } {
         tc.setWidthTracksTextView(true);
     }
     if !p.text.is_empty() {
         tv.setString(&NSString::from_str(&p.text));
     }
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let line_h = unsafe { tv.layoutManager() }
         .map_or(FONT_SIZE * 1.3, |lm| lm.defaultLineHeightForFont(&font));
 
@@ -223,6 +229,8 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &TextPatch) {
             }
             TextPatch::SetEditable(v) => st.tv.setEditable(*v),
             TextPatch::SetSelectable(v) => st.tv.setSelectable(*v),
+            // SAFETY: NSTextView's spelling, autocorrection and grammar setters each take one BOOL;
+            // `st.tv` is live, on the main thread.
             TextPatch::SetSpellCheck(v) => unsafe {
                 let _: () = msg_send![&st.tv, setContinuousSpellCheckingEnabled: *v];
                 let _: () = msg_send![&st.tv, setAutomaticSpellingCorrectionEnabled: *v];
@@ -243,6 +251,7 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
             } else {
                 f64::MAX
             };
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             let (Some(tc), Some(lm)) = (unsafe { st.tv.textContainer() }, unsafe {
                 st.tv.layoutManager()
             }) else {

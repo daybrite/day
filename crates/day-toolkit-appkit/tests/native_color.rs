@@ -58,6 +58,7 @@ fn main() {
     }
     /// `color` resolved under aqua (`false`) or dark aqua (`true`).
     fn resolve_in(dark: bool, color: &NSColor) -> Option<Color> {
+        // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
         let name = unsafe {
             if dark {
                 NSAppearanceNameDarkAqua
@@ -84,6 +85,7 @@ fn main() {
     let _app = NSApplication::sharedApplication(mtm);
     let mut toolkit = AppKit::new();
     toolkit.set_event_sink(Box::new(|_, _| {}));
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -93,6 +95,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     window.orderFront(None);
     let content = window.contentView().expect("content view");
@@ -210,6 +213,7 @@ fn main() {
     // The border is the layer's, which Core Animation draws over the sublayers: the child's
     // layer is one of them.
     let layer = framed.layer().expect("layer");
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let sublayers = unsafe { layer.sublayers() }.map_or(0, |s| s.count());
     check(
         sublayers > 0 && child.layer().is_some(),

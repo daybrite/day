@@ -234,6 +234,8 @@ mod imp {
                 let mut buf = [0u8; 2048];
                 let mut line: Vec<u8> = Vec::new();
                 loop {
+                    // SAFETY: `read_fd` is the pipe's read end, owned by this thread for the
+                    // process; `buf` has `buf.len()` writable bytes.
                     let n = unsafe { read(read_fd, buf.as_mut_ptr().cast::<c_void>(), buf.len()) };
                     if n <= 0 {
                         break;
@@ -241,6 +243,7 @@ mod imp {
                     for &b in &buf[..n as usize] {
                         if b == b'\n' {
                             line.push(0);
+                            // SAFETY: `tag` and `line` are NUL-terminated and outlive the call.
                             unsafe {
                                 __android_log_write(
                                     prio,

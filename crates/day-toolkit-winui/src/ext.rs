@@ -58,9 +58,11 @@ fn class_for_kind(kind: Option<PieceKind>) -> &'static str {
 pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
     let (handle, kind) = day_core::with_tree(|t| (t.node_handle_any(node), t.node_kind(node)));
     let h = handle?.downcast::<crate::Handle>().ok()?;
+    // SAFETY: the handle belongs to a live node of day-core's tree, read on the UI thread.
     let abi = unsafe { day_toolkit_xaml_sys::day_xaml_unbox(h.0) };
     // A secure text field is the one kind with two classes (docs/textfield.md).
     let class = if kind == Some(kinds::TEXT_FIELD)
+        // SAFETY: the handle belongs to a live node of day-core's tree, read on the UI thread.
         && unsafe { day_toolkit_xaml_sys::day_xaml_field_is_secure(h.0) } != 0
     {
         "PasswordBox"

@@ -101,6 +101,7 @@ struct Shared<T>(T);
 // SecTrust and SecIdentity (immutable after evaluation and import), and completion handler
 // blocks, which URLSession accepts on any thread and which are called exactly once.
 unsafe impl<T> Send for Shared<T> {}
+// SAFETY: as for `Send` above: the same objects, documented as usable from any thread.
 unsafe impl<T> Sync for Shared<T> {}
 
 /// The transport for one client.
@@ -844,8 +845,7 @@ impl Routes {
         let method = space.authenticationMethod();
         let is = |constant: &NSString| method.isEqualToString(constant);
 
-        // SAFETY (each constant below): Foundation's authentication method strings, immutable
-        // for the life of the process.
+        // SAFETY: Foundation's immutable authentication method string, set before any Rust runs.
         if is(unsafe { NSURLAuthenticationMethodServerTrust }) {
             let Some(transfer) = self.transfer(task) else {
                 return default();
@@ -859,6 +859,7 @@ impl Routes {
             let Some(trust) = NonNull::new(trust) else {
                 return default();
             };
+            // SAFETY: `trust` is the non-null SecTrustRef read just above, alive with `space`.
             let trust = unsafe { CFRetained::retain(trust) };
             let mut error: *mut CFError = std::ptr::null_mut();
             // SAFETY: `trust` is valid; `error` receives a +1 CFError or stays null.
@@ -887,6 +888,7 @@ impl Routes {
             );
         }
 
+        // SAFETY: Foundation's immutable authentication method string, set before any Rust runs.
         if is(unsafe { NSURLAuthenticationMethodClientCertificate }) {
             return match self.identity_credential() {
                 Some(credential) => {
@@ -896,12 +898,16 @@ impl Routes {
             };
         }
 
+        // SAFETY: Foundation's immutable authentication method string, set before any Rust runs.
         let scheme = if is(unsafe { NSURLAuthenticationMethodHTTPBasic }) {
             Scheme::Basic
+            // SAFETY: as above, for each constant in this chain.
         } else if is(unsafe { NSURLAuthenticationMethodHTTPDigest }) {
             Scheme::Digest
+            // SAFETY: as above.
         } else if is(unsafe { NSURLAuthenticationMethodNTLM }) {
             Scheme::Ntlm
+            // SAFETY: as above.
         } else if is(unsafe { NSURLAuthenticationMethodNegotiate }) {
             Scheme::Negotiate
         } else {

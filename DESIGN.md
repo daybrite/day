@@ -454,11 +454,21 @@ and platform contracts remain in the linked documentation.
 | `crates/day-platform-macos` | Qt macOS window-tab bridge; forwards the toolkit delegate and routes document add/close requests | day-core, day-reactive, day-spec; macOS-only Objective-C bindings |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts, day-script-protocol (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
-Two structural rules carried over from pane, both still enforced:
+Two structural rules carried over from pane. The first has been narrowed as the backends grew;
+the second is enforced.
 
-1. **Backends depend only on `day-spec`.** They never see the Piece model or the reactive graph.
-   This keeps the spec surface small, keeps backends implementable in ~2–4k lines each, and makes
-   the mock toolkit a true stand-in.
+> [!NOTE]
+> **Revised 2026-11.** Rule 1 first read "backends depend only on `day-spec`", sized at about
+> 2–4k lines per backend. Backends now also call a few `day-core` and `day-reactive` hooks,
+> listed below, and run 8–28k lines of Rust each, plus a native shim where the toolkit needs one.
+
+1. **Backends implement `day-spec` and never build pieces.** A backend implements the
+   `Toolkit` and `Platform` traits and never sees the Piece model in `day-pieces` (AppKit uses it
+   only in its tests). It reaches `day-core` through a narrow set of hooks: frame tickets
+   (`day_core::frame`), the grouped thread-local root (`tls_group`), window and menu bookkeeping,
+   launch arguments, and environment notices such as text size, motion, appearance and keyboard
+   overlap. From `day-reactive` it uses the thread-local slots and `on_main`. Keeping the contract
+   in `day-spec` is what lets the mock toolkit stand in for every backend.
 2. **One backend per binary.** The active toolkit is selected by cargo feature at app link time
    (`day launch -t macos-gtk` builds with `--features day/gtk`). The running `ToolkitId` is a
    process constant, which [§6](#6-styling-and-per-target-variation) exploits for zero-cost per-target styling. Cross-toolkit code paths
@@ -956,7 +966,9 @@ caller's `.any()`, never the constructor's.
 > [docs/text-runs.md](docs/text-runs.md), [docs/list.md](docs/list.md),
 > [docs/scroll.md](docs/scroll.md), [docs/pager.md](docs/pager.md),
 > [docs/gestures.md](docs/gestures.md), [docs/forms.md](docs/forms.md),
-> [docs/surfaces.md](docs/surfaces.md) and [docs/color.md](docs/color.md).
+> [docs/surfaces.md](docs/surfaces.md) and [docs/color.md](docs/color.md). Tooltips, anchored
+> popovers and toasts (`.tooltip`, `.popover`, `toast`) joined the vocabulary the same month on
+> all eight toolkits and retired the tooltip tweak ([docs/dialogs.md](docs/dialogs.md#tooltips)).
 
 `TabSet<K>` owns ordered document keys and selection. `document_tabs` keeps each document
 resident across reorder and `.native(...)` presentation changes; `.on_close` separates a close
@@ -1135,6 +1147,7 @@ split(first, second)               // two panes and the divider the user drags (
                                    //   a drawn, dragged divider elsewhere
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)
 alert(…)   confirm(…)   prompt(…)   open_file(…)   open_files(…)   open_folder(…)   save_file(…)
+x.tooltip(text)   x.popover(open, build)   toast(text)   // contextual feedback (docs/dialogs.md)
 app_menu(entries | derive_fn)   dock_menu(…)   // live: titles, enabled, checked re-read
 menu_item(t).enabled(e).checked(c)   sub_menu(t, …)   menu_role(…)   menu_separator()
 open_window(res::window_options().key(k).kind(WindowKind::X).size(w, h), build)
@@ -1300,13 +1313,16 @@ and `.any()`.
 Call `toast(text)` from a UI action for a transient message in the current window. See
 [contextual feedback](docs/dialogs.md#tooltips) for all three presentations.
 
-Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
-`search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`, `async_image`,
-`color_picker` ([docs/colorpicker.md](docs/colorpicker.md)), `stepper` — a numeric field with
-increment/decrement arrows, [docs/stepper.md](docs/stepper.md) —
-`swiftui` — hosted SwiftUI views, [docs/swiftui.md](docs/swiftui.md)) and headless services under
-`parts/` (device identity and battery (`day-part-device::{info,battery}`), connectivity, sensors,
-clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
+Beyond the vocabulary above, day-pieces also ships `combo_box`, `search_field`, `async_image`,
+`color_picker` ([docs/colorpicker.md](docs/colorpicker.md)) and `stepper` (a numeric field with
+increment/decrement arrows, [docs/stepper.md](docs/stepper.md)). Optional widgets are ordinary
+crates: in this workspace `day-piece-settings`, `day-piece-text-editor` and `day-piece-swiftui`
+(hosted SwiftUI views, [docs/swiftui.md](docs/swiftui.md)); in their own repositories the web
+view, media, map, Lottie, camera and charts pieces. Headless services are the in-tree
+`crates/day-part-*` crates (device identity and battery (`day-part-device::{info,battery}`),
+connectivity, sensors, clipboard, preferences, haptics, sound, wakelock, http, filesystem,
+keychain, biometrics, location, local notifications, permissions, downloads) and external parts
+such as auth, push and Bluetooth. [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 The native stepper accepts committed values only from its `stepper:value` custom event
 (or the legacy bridge's empty tag) and `TextChanged`/`ValueCommitted`. Synthetic typing
@@ -1566,8 +1582,9 @@ not Copy; helpers accept it by value.
 
 `.id`, `.id_of`, `.wrapper_id`, menu/toolbar builders, command presentation identities,
 tree `.row_id`, settings rows, steppers, and color pickers accept typed IDs only. The old
-keyed modifier and string adapters do not exist. Rating stars use `.star_id(|n| id!(stars, n))`
-independently of the row's `.id`; chart legends use `.entry_id(|key| id!(legend, key))`.
+keyed modifier and string adapters do not exist. Document tabs name their strip with
+`.strip_id(id!(documents))` independently of the piece's `.id`; chart legends use
+`.entry_id(|key| id!(legend, key))`.
 Route keys, model keys, OS identifiers, and external-document DOM identities remain separate.
 
 Each macro expansion registers its family, static/keyed shape, and package/version. Native
@@ -6980,7 +6997,11 @@ triggers retain their existing behavior.
    do not establish lint cleanliness.
    The lint policy is the root manifest's `[workspace.lints]` table, which every member
    inherits: Clippy's `pedantic` group, less a short list of named lints that each carry their
-   reason, with `clippy.toml` holding the product names `doc_markdown` accepts as prose. The
+   reason, plus the restriction lint `undocumented_unsafe_blocks` (every `unsafe` block and
+   `unsafe impl` carries a `// SAFETY:` comment; the AppKit, UIKit, Qt, WinUI and DOM backends
+   state the contract their routine native calls share in an "Unsafe calls" crate note, which
+   those sites' one-line comments cite), with `clippy.toml`
+   holding the product names `doc_markdown` accepts as prose. The
    jobs deny warnings, so a pedantic finding fails the same way a compiler warning does. A
    site-level exception is `#[expect(clippy::<lint>, reason = "…")]`, never `#[allow]`.
    Clippy is a required status but NOT in
@@ -7537,14 +7558,14 @@ of day's, and turned an advisory container diff into a spurious hard failure.
   commit packed elsewhere shipped arm64 — and `entry/libs/<abi>/` was never cleared, so a stale
   arch could ride along. The override now wins, and the libs tree is cleared before staging. A
   distribution pack must not change shape because a device was attached.
-- `ios-uikit` — three causes stacked, and each was only visible once the one above it was gone.
-  The `LC_UUID`/debug-map strip was necessary but not sufficient; underneath it, every one of the
-  201 `__objc_stubs` entries pointed at a different `__got` slot than in the other build. The
-  binary carries TWO slots for `_objc_msgSend` — one for the classic `__stubs` path, one for the
-  `__objc_stubs` section Xcode 14 added — with byte-identical GOT contents, and which consumer
-  gets which slot is not stable. The two builds were equivalent; the linker flipped a coin.
-  `-fno-objc-msgsend-nav host-stubs` leaves one slot, so there is no coin. Note this also means
-  the same-runner comparison passing for iOS was a ~50/50 result, not evidence.
+- `ios-uikit` — after removing the UUID and debug map, two rebuilds still differed in 201
+  Objective-C selector stubs. The linker had emitted two global offset table entries for
+  `_objc_msgSend` and assigned them differently between builds. Xcode compiles Objective-C and
+  Swift sources with `-fno-objc-msgsend-selector-stubs`. Objects supplied by Cargo and binary
+  dependencies can still contain selector calls. Device archives and unsigned IPAs use the same
+  `-objc_stubs_small` final-link setting as `day build`, so those calls share the ordinary
+  `_objc_msgSend` stub. The iOS scaffold check verifies that the packaged executable has one
+  binding for that symbol in its global offset table, then rebuilds it in a second directory.
 - `linux-gtk` / `linux-qt` — two symbols differ only in their `.llvm.<moduleId>` suffix, which
   cascades into `NT_GNU_BUILD_ID` and a two-byte `.strtab` change.
 

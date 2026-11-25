@@ -933,6 +933,7 @@ impl<T: 'static> Source<T> for Store<T> {
 // triggers those ids name are touched only on the main thread; writes from other threads go
 // through `transact`, whose announcements are queued and delivered by `pump`.
 unsafe impl<T: Send + Sync> Send for Store<T> {}
+// SAFETY: the handle is `Copy`, so sharing `&Store` gives no more than sending a copy (above).
 unsafe impl<T: Send + Sync> Sync for Store<T> {}
 
 // ---------------------------------------------------------------------------

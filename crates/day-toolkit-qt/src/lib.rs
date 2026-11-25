@@ -4,6 +4,33 @@
 //! day-toolkit-qt — the Qt 6 Widgets backend (linux-qt / macos-qt; DESIGN.md §9), over
 //! the day-toolkit-qt-sys C++ shim. `Handle = QtHandle(*mut QWidget)`; absolute geometry; toggle is a
 //! `QCheckBox` (Qt Widgets has no native switch — an explicitly documented divergence).
+//!
+//! # Unsafe calls
+//!
+//! Nearly every `unsafe` block here calls the C++ shim (`ffi::day_qt_*` in day-toolkit-qt-sys,
+//! and the pieces' own `day_combo_*`, `day_picker_*`, … shims). A `// SAFETY:` comment that
+//! cites this note relies on the contract below and names only what the site adds to it:
+//!
+//! - **GUI thread.** Every `Toolkit` and `Platform` method, every shim callback and every posted
+//!   closure runs on the thread that runs the `QApplication` event loop, and only that thread
+//!   calls the shim. The exceptions are `day_qt_post` and `day_qt_post_delayed`, which queue to
+//!   that thread from anywhere.
+//! - **Live handles of the right class.** A widget pointer (a `QtHandle`, a window, a toolbar,
+//!   a menu) came from the shim's own constructor and is still alive: a piece's widget until
+//!   `release` passes it to `day_qt_delete` (Qt frees its children with it), a window while it
+//!   is `self.window` or in `self.secondary`, a menu while the widget it was attached to lives.
+//!   Most entry points `static_cast` the pointer to the class their constructor makes, so each
+//!   call goes to a handle of that kind: `day_qt_list_*` to a list host, `day_qt_tabs_*` to a
+//!   tab widget, `day_qt_window_*` and `day_qt_toolbar_*(win, …)` to a `DayWindow`, a piece's
+//!   setters to the widget its `make` returned. Calls on any `QWidget` take any handle, and
+//!   the entry points documented as checking (`qobject_cast`) ignore a widget of another class.
+//! - **Borrowed strings and buffers.** Strings are NUL-terminated UTF-8: `cstr` builds a
+//!   `CString`, and a temporary one lives to the end of the statement that makes the call.
+//!   Slices and out-pointers name Rust memory that outlives the call. The shim copies what it
+//!   keeps and never frees what Rust passes in.
+//! - **Callbacks.** A function pointer handed to the shim is an `extern "C" fn` with the
+//!   signature the shim declares; the context it carries is plain data (a node id or a handle
+//!   value), never a pointer the shim dereferences.
 
 mod controls;
 
@@ -219,6 +246,8 @@ pub fn emit(id: NodeId, ev: Event) {
 fn emit_deferred(id: NodeId, ev: Event) {
     let boxed: Box<dyn FnOnce() + Send> = Box::new(move || emit(id, ev));
     let data = Box::into_raw(Box::new(boxed)).cast::<c_void>();
+    // SAFETY: `data` is a leaked `Box<Box<dyn FnOnce() + Send>>` that `run_posted` reclaims once;
+    // the queue hand-off is thread-safe (crate note "Unsafe calls").
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
@@ -235,6 +264,7 @@ fn apply_button_content(
     icon_only: bool,
 ) {
     let (name, fallback) = toolbar::icon_args(icon);
+    // SAFETY: `h` is a live QPushButton; strings borrowed for the call (crate note "Unsafe calls").
     unsafe {
         ffi::day_qt_button_set_content(
             h,
@@ -738,6 +768,8 @@ fn schedule_list_fill(host_key: usize) {
 fn schedule_list_scroll_end(host_key: usize) {
     Qt::post(Box::new(move || {
         if let Some(host) = LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| st.host)) {
+            // SAFETY: `host` is the list host of a live LIST_STATE entry (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_list_scroll_to_end(host) };
         }
     }));
@@ -748,6 +780,8 @@ fn schedule_list_scroll_end(host_key: usize) {
 fn schedule_list_scroll_row(host_key: usize, row: usize) {
     Qt::post(Box::new(move || {
         if let Some(host) = LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| st.host)) {
+            // SAFETY: `host` is the list host of a live LIST_STATE entry (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_list_scroll_to_row(host, row as c_int) };
         }
     }));
@@ -794,6 +828,8 @@ fn flush_rows(host_key: usize) {
         let triples = RowWork::triples(&deltas);
         let count = c_int::try_from(deltas.len()).unwrap_or(c_int::MAX);
         let len = c_int::try_from(len).unwrap_or(c_int::MAX);
+        // SAFETY: `host` is the live list host taken from LIST_STATE; `triples` holds `3 * count`
+        // ints that outlive the call (crate note "Unsafe calls").
         let applied = unsafe { ffi::day_qt_list_splice_all(host, triples.as_ptr(), count, len) };
         if applied == 0 {
             log::debug!("qt list: a splice did not fit the view's rows; reloaded instead");
@@ -817,6 +853,8 @@ extern "C" fn on_list_viewport_resized(host: *mut c_void) {
             let Some((host, cell_width)) = state else {
                 return;
             };
+            // SAFETY: `host` is the list host of a live LIST_STATE entry (crate note "Unsafe
+            // calls").
             let vw = unsafe { ffi::day_qt_list_viewport_width(host) };
             if cell_width > 0 && vw > 0.0 && (vw as c_int) != cell_width {
                 schedule_list_populate(host_key);
@@ -895,6 +933,8 @@ fn list_sync(host_key: usize) {
         let rowh = st.row_height.max(1.0);
         // The model holds the whole count, built or not: the scroll bar is how the user
         // reaches rows that do not exist yet. One delta, however many rows.
+        // SAFETY: `st.host` is the list host this LIST_STATE entry holds (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_list_set_count(st.host, n as c_int) };
         let rebind_all = std::mem::take(&mut st.rebind_all);
         // A sectioned list's header rows (docs/list.md "Sections") move only with the source:
@@ -907,6 +947,8 @@ fn list_sync(host_key: usize) {
                 .filter(|i| is_header(*i))
                 .map(|i| i as c_int)
                 .collect();
+            // SAFETY: `st.host` is a live list host; `rows` holds `rows.len()` ints for the call
+            // (crate note "Unsafe calls").
             unsafe { ffi::day_qt_list_set_headers(st.host, rows.as_ptr(), rows.len() as c_int) };
             st.headers_for = Some(n);
         }
@@ -921,19 +963,27 @@ fn list_sync(host_key: usize) {
         {
             supplements = supplement_rows(n, f.as_ref());
             let raw: Vec<c_int> = supplements.iter().map(|i| *i as c_int).collect();
+            // SAFETY: `st.host` is a live list host; `raw` holds `raw.len()` ints for the call
+            // (crate note "Unsafe calls").
             unsafe { ffi::day_qt_list_set_supplements(st.host, raw.as_ptr(), raw.len() as c_int) };
             st.supplements_for = Some(n);
         }
         let (mut w, mut h) = (0.0_f64, 0.0_f64);
+        // SAFETY: `st.host` is a live list host; out-pointers name locals (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_widget_size(st.host, &raw mut w, &raw mut h) };
         // Rows lay out to the VIEWPORT's width, not the host's: under a legacy scroll bar the
         // two differ by the bar, and a row framed to the host slides its trailing column under
         // it. The viewport reports nothing until Qt has laid the view out; the host stands in.
+        // SAFETY: `st.host` is the list host this LIST_STATE entry holds (crate note "Unsafe
+        // calls").
         let vw = unsafe { ffi::day_qt_list_viewport_width(st.host) };
         let width = if vw > 0.0 { vw } else { w }.max(1.0) as c_int;
         // The rows on screen. The view reports none until Qt has laid it out — the framed
         // height stands in until then.
         let (mut first, mut last) = (0 as c_int, -1 as c_int);
+        // SAFETY: `st.host` is a live list host; out-pointers name locals (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_list_visible_rows(st.host, &raw mut first, &raw mut last) };
         let (first, last) = if last >= first {
             (first.max(0) as usize, last.max(0) as usize + 1)
@@ -951,6 +1001,8 @@ fn list_sync(host_key: usize) {
         let band = first.saturating_sub(LIST_OVERSCAN)..(last + LIST_OVERSCAN).min(n);
         let (parked, need) = st.pool.retarget(band);
         for cell in &parked {
+            // SAFETY: `st.host` is a live list host and `cell` a pooled cell widget it placed
+            // (crate note "Unsafe calls").
             unsafe { ffi::day_qt_list_park_cell(st.host, *cell as *mut c_void) };
         }
         if rebind_all && (st.automatic || is_header.is_some() || is_supplement.is_some()) {
@@ -958,10 +1010,14 @@ fn list_sync(host_key: usize) {
             // re-seed the window from the token cache below, before anything is laid out. A
             // sectioned list's headers go too, and the supplementary rows: a reload can move
             // them.
+            // SAFETY: `st.host` is the list host this LIST_STATE entry holds (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_list_clear_heights(st.host) };
         }
         for row in supplements {
             if let Some(h) = st.supplement_heights.get(&(source.token_at)(row)) {
+                // SAFETY: `st.host` is the list host this LIST_STATE entry holds (crate note
+                // "Unsafe calls").
                 unsafe {
                     ffi::day_qt_list_set_row_height(st.host, row as c_int, h.ceil() as c_int);
                 };
@@ -972,11 +1028,15 @@ fn list_sync(host_key: usize) {
             let header = is_header.as_ref().is_some_and(|f| f(row));
             let cell = match st.pool.take_free(header) {
                 Some(spare) => spare as *mut c_void,
+                // SAFETY: a plain constructor; the new cell is Day's until the view places it
+                // (crate note "Unsafe calls").
                 None => unsafe { ffi::day_qt_container_new() },
             };
             st.pool.bind(row, cell as usize);
             // The view owns the cell's place from here: positioned over its row through every
             // scroll and relayout, painted over the row's selection.
+            // SAFETY: `st.host` is a live list host and `cell` a live cell widget (crate note
+            // "Unsafe calls").
             unsafe { ffi::day_qt_list_place_cell(st.host, row as c_int, cell) };
             work.push((row, cell));
         }
@@ -1001,13 +1061,19 @@ fn list_sync(host_key: usize) {
             let host = st.host;
             let pin = *st
                 .pin
+                // SAFETY: `host` is the live list host; the view owns the pin cell it returns
+                // (crate note "Unsafe calls").
                 .get_or_insert_with(|| unsafe { ffi::day_qt_list_pin_cell(host) } as usize);
+            // SAFETY: `host` is the list host this LIST_STATE entry holds (crate note "Unsafe
+            // calls").
             let target = unsafe { ffi::day_qt_list_header_for(host, first_visible as c_int) };
             let target = usize::try_from(target).ok();
             if rebind_all || target != st.pin_row {
                 st.pin_row = target;
                 match target {
                     Some(row) => pin_bind = Some((row, pin as *mut c_void)),
+                    // SAFETY: `host` is the list host this LIST_STATE entry holds (crate note
+                    // "Unsafe calls").
                     None => unsafe { ffi::day_qt_list_pin_bound(host, -1, 0) },
                 }
             }
@@ -1015,6 +1081,8 @@ fn list_sync(host_key: usize) {
         if rebind_all && st.automatic {
             for (row, _) in &work {
                 if let Some(h) = st.heights.get(&(source.token_at)(*row)) {
+                    // SAFETY: `st.host` is the list host this LIST_STATE entry holds (crate note
+                    // "Unsafe calls").
                     unsafe {
                         ffi::day_qt_list_set_row_height(st.host, *row as c_int, h.ceil() as c_int);
                     };
@@ -1098,6 +1166,8 @@ fn list_sync(host_key: usize) {
         // The view places the cell itself; before its first layout pass the frame is empty and
         // the row pitch stands in.
         let (mut x, mut y, mut cw, mut ch) = (0 as c_int, 0 as c_int, 0 as c_int, 0 as c_int);
+        // SAFETY: `host` is the live list host of this pass; out-pointers name locals (crate note
+        // "Unsafe calls").
         unsafe {
             ffi::day_qt_list_cell_frame(
                 host,
@@ -1111,6 +1181,7 @@ fn list_sync(host_key: usize) {
         if cw <= 0 || ch <= 0 {
             (x, y, cw, ch) = (0, (i as f64 * rowh) as c_int, width, rowh as c_int);
         }
+        // SAFETY: `cell` is a live cell widget this pass bound (crate note "Unsafe calls").
         unsafe { ffi::day_qt_set_geometry(cell, x, y, cw, ch) };
         // First use builds the row; a pooled cell takes the new row with a slot write.
         (source.bind_row)(i, cell);
@@ -1134,6 +1205,8 @@ fn list_sync(host_key: usize) {
             let laid = (source.cell_height)(cell);
             if laid > 0.0 {
                 let laid_px = laid.ceil() as c_int;
+                // SAFETY: `cell` is a live cell widget and `host` the live list host (crate note
+                // "Unsafe calls").
                 unsafe {
                     ffi::day_qt_set_geometry(cell, x, y, cw, laid_px);
                     ffi::day_qt_list_set_row_height(host, i as c_int, laid_px);
@@ -1155,6 +1228,7 @@ fn list_sync(host_key: usize) {
     // The pinned copy of the current header: one more cell bound to that header's row, laid to
     // the viewport's width and placed by the view (`DayListView::placePin`).
     if let Some((row, pin)) = pin_bind {
+        // SAFETY: `pin` is the live pin cell the list host made (crate note "Unsafe calls").
         unsafe { ffi::day_qt_set_geometry(pin, 0, 0, width, rowh as c_int) };
         (source.bind_pinned)(row, pin);
         if width != host_width {
@@ -1162,6 +1236,7 @@ fn list_sync(host_key: usize) {
         }
         let laid = (source.cell_height)(pin);
         let height = if laid > 0.0 { laid.ceil() } else { rowh } as c_int;
+        // SAFETY: `host` is the live list host of this pass (crate note "Unsafe calls").
         unsafe { ffi::day_qt_list_pin_bound(host, row as c_int, height) };
     }
 }
@@ -1186,6 +1261,8 @@ fn list_report_viewport(host_key: usize) {
         return;
     };
     let (mut first, mut last, mut end) = (0 as c_int, 0 as c_int, 0.0_f64);
+    // SAFETY: `host` is the list host of a live LIST_STATE entry; out-pointers name locals (crate
+    // note "Unsafe calls").
     if unsafe { ffi::day_qt_list_viewport(host, &raw mut first, &raw mut last, &raw mut end) } == 0
     {
         return;
@@ -1242,6 +1319,7 @@ fn list_update_estimate(host_key: usize) {
         Some((st.host, avg))
     });
     if let Some((host, avg)) = update {
+        // SAFETY: `host` is the list host of a live LIST_STATE entry (crate note "Unsafe calls").
         unsafe { ffi::day_qt_list_set_estimate(host, avg) };
     }
 }
@@ -1257,6 +1335,8 @@ fn schedule_list_row_height(host_key: usize, cell: usize, height: f64) {
             // The pinned header re-laid: only the pin changes height (docs/list.md "Sections").
             if st.pin == Some(cell) {
                 let row = st.pin_row?;
+                // SAFETY: `st.host` is the list host this LIST_STATE entry holds (crate note
+                // "Unsafe calls").
                 unsafe {
                     ffi::day_qt_list_pin_bound(st.host, row as c_int, height.ceil() as c_int);
                 };
@@ -1280,6 +1360,7 @@ fn schedule_list_row_height(host_key: usize, cell: usize, height: f64) {
         let Some((host, row, kind)) = found else {
             return;
         };
+        // SAFETY: `host` is the list host of a live LIST_STATE entry (crate note "Unsafe calls").
         unsafe { ffi::day_qt_list_set_row_height(host, row as c_int, height.ceil() as c_int) };
         match kind {
             Some((Some(token), true)) => list_remember_supplement(host_key, token, height),
@@ -1308,6 +1389,8 @@ extern "C" fn on_context_menu_summon(
         if items.is_empty() {
             return std::ptr::null_mut();
         }
+        // SAFETY: a fresh, parentless QMenu; the shim takes it and parents it to the widget (crate
+        // note "Unsafe calls").
         let menu = unsafe { ffi::day_qt_menu_new() };
         build_qt_menu(menu, &items);
         menu
@@ -1331,6 +1414,8 @@ extern "C" fn on_button_menu(
         }) else {
             return std::ptr::null_mut();
         };
+        // SAFETY: a fresh, parentless QMenu; the shim takes it and parents it to the button (crate
+        // note "Unsafe calls").
         let menu = unsafe { ffi::day_qt_menu_new() };
         build_qt_menu(menu, &items);
         menu
@@ -1345,6 +1430,8 @@ extern "C" fn on_toggle(id: u64, on: c_int) {
 }
 extern "C" fn on_text(id: u64, s: *const c_char) {
     ffi_guard::contain((), || {
+        // SAFETY: the shim passes a NUL-terminated UTF-8 buffer (a QByteArray's data) that outlives
+        // this call.
         let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
         emit(NodeId(id), Event::TextChanged(text));
     });
@@ -1363,6 +1450,8 @@ extern "C" fn on_text_scale() {
 }
 extern "C" fn on_link(id: u64, s: *const c_char) {
     ffi_guard::contain((), || {
+        // SAFETY: the shim passes a NUL-terminated UTF-8 buffer (a QByteArray's data) that outlives
+        // this call.
         let url = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
         emit(NodeId(id), Event::LinkActivated(url));
     });
@@ -1466,9 +1555,10 @@ extern "C" fn on_text_key(
     phase: c_int,
 ) -> c_int {
     ffi_guard::contain(0, || {
-        // SAFETY: the shim passes NUL-terminated UTF-8 strings (or null) that outlive this call.
         let read = |p: *const c_char| {
             (!p.is_null()).then(|| {
+                // SAFETY: the shim passes NUL-terminated UTF-8 strings (or null) that outlive
+                // this call; `p` is non-null here.
                 unsafe { std::ffi::CStr::from_ptr(p) }
                     .to_string_lossy()
                     .into_owned()
@@ -1713,6 +1803,8 @@ impl Qt {
     fn present_parent(&self) -> *mut c_void {
         self.secondary
             .iter()
+            // SAFETY: each `w.win` is a live DayWindow held in `self.secondary` (crate note "Unsafe
+            // calls").
             .find(|w| unsafe { ffi::day_qt_window_is_active(w.win) } != 0)
             .map_or(self.window, |w| w.win)
     }
@@ -1725,6 +1817,8 @@ fn register_resources() {
     let Ok(path) = std::env::var("DAY_QRESOURCE") else {
         return;
     };
+    // SAFETY: the path is a NUL-terminated string borrowed for the call (crate note "Unsafe
+    // calls").
     unsafe { ffi::day_qt_register_resource(cstr(&path).as_ptr()) };
     day_spec::resource::set_resource_opener(open_resource);
 }
@@ -1734,10 +1828,14 @@ fn register_resources() {
 fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
     let respath = format!(":/day/assets/{name}");
     let mut len: usize = 0;
+    // SAFETY: the path is borrowed for the call and `len` is a live local (crate note "Unsafe
+    // calls").
     let ptr = unsafe { ffi::day_qt_resource_data(cstr(&respath).as_ptr(), &raw mut len) };
     if ptr.is_null() {
         return None;
     }
+    // SAFETY: `ptr` points at `len` bytes inside the registered resource blob, which Qt never
+    // unregisters, so they stay valid and immutable for the app's life without a guard.
     Some(unsafe { day_spec::resource::Resource::from_raw(ptr.cast::<u8>(), len, Box::new(())) })
 }
 
@@ -1749,6 +1847,8 @@ impl Default for Qt {
 
 fn content_of(parent: &QtHandle) -> *mut c_void {
     // Scroll areas expose an inner content widget; the shim returns null for non-scrolls.
+    // SAFETY: `parent` is a live widget; the shim checks for a QScrollArea (crate note "Unsafe
+    // calls").
     let inner = unsafe { ffi::day_qt_scroll_content(parent.0) };
     if inner.is_null() { parent.0 } else { inner }
 }
@@ -1787,6 +1887,8 @@ fn set_label_runs(w: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
     if runs.is_empty() {
         // The plain setter also puts the format back to PlainText, so a label that loses its
         // runs stops parsing markup.
+        // SAFETY: `w` is a live label; the shim ignores any other widget (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_label_set_text(w, cstr(text).as_ptr()) };
         return;
     }
@@ -1794,6 +1896,7 @@ fn set_label_runs(w: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
         .with(|t| t.get(w as usize))
         .unwrap_or_else(|| qt_style(Font::Body).0);
     let html = qt_label_markup(text, runs, base_pt);
+    // SAFETY: `w` is a live label; the shim ignores any other widget (crate note "Unsafe calls").
     unsafe { ffi::day_qt_label_set_rich_text(w, cstr(&html).as_ptr()) };
 }
 
@@ -1899,6 +2002,8 @@ fn remember_label_pt(w: *mut c_void, f: day_spec::FontSpec) {
 /// default family inside Qt.
 unsafe fn apply_custom_family(w: *mut c_void, spec: day_spec::FontSpec) {
     if let Font::Custom(family, _) = spec.style {
+        // SAFETY: the caller's guarantee that `w` is a live label; the family is borrowed for the
+        // call.
         unsafe { ffi::day_qt_label_set_font_family(w, cstr(family).as_ptr()) };
     }
 }
@@ -2038,6 +2143,8 @@ pub(crate) fn toggle_sidebar(host: *mut std::os::raw::c_void) -> bool {
     });
     match flip {
         Some((pane, shown)) => {
+            // SAFETY: `pane` is a sidebar pane of a live nav host in NAV_STATE (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_set_visible(pane, i32::from(shown)) };
             true
         }
@@ -2071,6 +2178,8 @@ fn nav_sync_header(host: *mut std::os::raw::c_void) {
             state.titles.last().cloned().unwrap_or_default(),
         )
     });
+    // SAFETY: `host` is a live nav host splitter; the shim checks the class (crate note "Unsafe
+    // calls").
     unsafe {
         ffi::day_qt_nav_header_update(host, c_int::from(visible), cstr(&title).as_ptr());
     }
@@ -2108,6 +2217,8 @@ fn nav_present(host: *mut std::os::raw::c_void, split: bool) {
     if was_split == split {
         return;
     }
+    // SAFETY: the panes and pages belong to a live nav host in NAV_STATE (crate note "Unsafe
+    // calls").
     unsafe {
         ffi::day_qt_set_visible(sidebar_pane, i32::from(split));
         if let Some(page) = sidebar_page {
@@ -2131,6 +2242,8 @@ fn nav_present(host: *mut std::os::raw::c_void, split: bool) {
                 .collect();
             let last = detail.len().saturating_sub(1);
             for (i, page) in detail.iter().enumerate() {
+                // SAFETY: `page` is a live page of a nav host in NAV_STATE (crate note "Unsafe
+                // calls").
                 unsafe { ffi::day_qt_set_visible(page.0, i32::from(i == last)) };
             }
         }
@@ -2152,6 +2265,8 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
             return Vec::new();
         };
         let (mut sw, mut sh, mut lw, mut lh, mut dw, mut dh) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        // SAFETY: the panes belong to the live nav host of this NAV_STATE entry (crate note "Unsafe
+        // calls").
         unsafe {
             ffi::day_qt_widget_size(state.sidebar_pane, &raw mut sw, &raw mut sh);
             ffi::day_qt_widget_size(state.list_pane, &raw mut lw, &raw mut lh);
@@ -2186,6 +2301,8 @@ extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
     ffi_guard::contain((), || {
         nav_sync_panes(host);
         // The window toolbar's columns follow the panes (docs/toolbars.md).
+        // SAFETY: `host` is the splitter the shim reports, alive for the callback (crate note
+        // "Unsafe calls").
         unsafe { ffi::day_qt_toolbar_sync_columns(host) };
     });
 }
@@ -2214,6 +2331,8 @@ fn inspector_sync_panes(host: *mut std::os::raw::c_void) {
             return Vec::new();
         };
         let (mut cw, mut ch, mut pw, mut ph) = (0.0, 0.0, 0.0, 0.0);
+        // SAFETY: the panes belong to the live inspector of this INSPECTOR_STATE entry (crate note
+        // "Unsafe calls").
         unsafe {
             ffi::day_qt_widget_size(state.content_pane, &raw mut cw, &raw mut ch);
             ffi::day_qt_widget_size(state.panel_pane, &raw mut pw, &raw mut ph);
@@ -2278,6 +2397,8 @@ fn split_sync_panes(host: *mut std::os::raw::c_void) {
             return Vec::new();
         };
         let (mut aw, mut ah, mut bw, mut bh) = (0.0, 0.0, 0.0, 0.0);
+        // SAFETY: the panes belong to the live split of this SPLIT_STATE entry (crate note "Unsafe
+        // calls").
         unsafe {
             ffi::day_qt_widget_size(state.first_pane, &raw mut aw, &raw mut ah);
             ffi::day_qt_widget_size(state.second_pane, &raw mut bw, &raw mut bh);
@@ -2311,6 +2432,8 @@ extern "C" fn split_resized(host: *mut std::os::raw::c_void) {
             let mut m = m.borrow_mut();
             let state = m.get_mut(&(host as usize))?;
             let (mut w, mut h) = (0.0, 0.0);
+            // SAFETY: `host` is the splitter the shim reports, alive for the callback (crate note
+            // "Unsafe calls").
             unsafe { ffi::day_qt_widget_size(host, &raw mut w, &raw mut h) };
             if state.placed || w <= 0.0 || h <= 0.0 {
                 return None;
@@ -2320,6 +2443,8 @@ extern "C" fn split_resized(host: *mut std::os::raw::c_void) {
             Some(state.share)
         });
         if let Some(share) = place {
+            // SAFETY: `host` is the splitter the shim reports; the shim checks the class (crate
+            // note "Unsafe calls").
             unsafe { ffi::day_qt_split_set_fraction(host, share) };
             SPLIT_STATE.with(|m| {
                 if let Some(state) = m.borrow_mut().get_mut(&(host as usize)) {
@@ -2334,6 +2459,8 @@ extern "C" fn split_resized(host: *mut std::os::raw::c_void) {
 /// The divider moved: a drag reports the new share; Day's own placement does not.
 extern "C" fn split_moved(host: *mut std::os::raw::c_void) {
     ffi_guard::contain((), || {
+        // SAFETY: `host` is the splitter the shim reports; the shim checks the class (crate note
+        // "Unsafe calls").
         let share = unsafe { ffi::day_qt_split_fraction(host) }.clamp(0.0, 1.0);
         let report = SPLIT_STATE.with(|m| {
             let mut m = m.borrow_mut();
@@ -2389,6 +2516,8 @@ fn suite_apply_rows(host: *mut std::os::raw::c_void) {
                 break;
             }
             let at = i as c_int;
+            // SAFETY: `host` is the QTabWidget of a live NAV_SUITES entry (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_tabs_set_title(host, at, cstr(title).as_ptr()) };
             let icon = suite
                 .icons
@@ -2397,6 +2526,8 @@ fn suite_apply_rows(host: *mut std::os::raw::c_void) {
                 .filter(|n| !n.is_empty())
                 .map_or_default(icon_file_path);
             if !icon.is_empty() {
+                // SAFETY: `host` is the QTabWidget of a live NAV_SUITES entry (crate note "Unsafe
+                // calls").
                 unsafe { ffi::day_qt_tabs_set_icon(host, at, cstr(&icon).as_ptr()) };
             }
         }
@@ -2413,6 +2544,7 @@ fn nav_suite_sync(host: *mut std::os::raw::c_void) {
             return Vec::new();
         };
         let (mut w, mut h) = (0.0, 0.0);
+        // SAFETY: `host` is the QTabWidget of a live NAV_SUITES entry (crate note "Unsafe calls").
         unsafe { ffi::day_qt_tabs_content_size(host, &raw mut w, &raw mut h) };
         if w <= 0.0 || h <= 0.0 {
             return Vec::new();
@@ -2480,6 +2612,8 @@ extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) 
         let text = if text.is_null() {
             String::new()
         } else {
+            // SAFETY: non-null here; the shim passes a NUL-terminated UTF-8 buffer that outlives
+            // this call.
             unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned()
@@ -2546,6 +2680,8 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
         COVERS.with(|c| {
             for (cover, node) in c.borrow().iter() {
                 let (y, size) = cover_frame(*cover, size);
+                // SAFETY: `cover` is a presented cover; `release` drops it from COVERS before
+                // freeing it (crate note "Unsafe calls").
                 unsafe {
                     ffi::day_qt_set_geometry(
                         *cover,
@@ -2608,12 +2744,16 @@ fn navlist_apply_row_menus(w: *mut c_void, menus: &[Vec<day_spec::MenuItem>]) {
             if items.is_empty() {
                 std::ptr::null_mut()
             } else {
+                // SAFETY: a fresh, parentless QMenu; `day_qt_navlist_set_row_menus` adopts it below
+                // (crate note "Unsafe calls").
                 let m = unsafe { ffi::day_qt_menu_new() };
                 build_qt_menu(m, items);
                 m
             }
         })
         .collect();
+    // SAFETY: `w` is a live widget (the shim checks for a QListWidget) and `ptrs` holds
+    // `ptrs.len()` menus or nulls for the call (crate note "Unsafe calls").
     unsafe { ffi::day_qt_navlist_set_row_menus(w, ptrs.as_ptr(), ptrs.len() as i32) };
 }
 
@@ -3147,8 +3287,11 @@ fn qt_role_shortcut(role: day_spec::MenuRole) -> Option<&'static str> {
 pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
     for item in items {
         match item {
+            // SAFETY: `menu` is a live QMenu the caller built (crate note "Unsafe calls").
             day_spec::MenuItem::Separator => unsafe { ffi::day_qt_menu_add_separator(menu) },
             day_spec::MenuItem::Submenu { label, items, .. } => {
+                // SAFETY: `menu` is a live QMenu; the submenu returned is its child (crate note
+                // "Unsafe calls").
                 let sub = unsafe { ffi::day_qt_menu_add_submenu(menu, cstr(label).as_ptr()) };
                 build_qt_menu(sub, items);
             }
@@ -3178,6 +3321,8 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                         .or_else(|| role.and_then(|r| qt_role_shortcut(r).map(str::to_string)))
                         .unwrap_or_default();
                     let (ic, ic_fallback) = crate::toolbar::icon_args(icon.as_ref());
+                    // SAFETY: `menu` is a live QMenu; strings borrowed for the call (crate note
+                    // "Unsafe calls").
                     unsafe {
                         ffi::day_qt_menu_add_action(
                             menu,
@@ -3201,6 +3346,8 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                         .map(qt_shortcut)
                         .or_else(|| qt_role_shortcut(*role).map(str::to_string))
                         .unwrap_or_default();
+                    // SAFETY: `menu` is a live QMenu; strings borrowed for the call (crate note
+                    // "Unsafe calls").
                     unsafe {
                         ffi::day_qt_menu_add_role(
                             menu,
@@ -3226,6 +3373,8 @@ fn warn_missing_renderer(kind: PieceKind) {
 /// The visible placeholder a realize arm degrades to when its props payload has the wrong type
 /// (`props_of` has already reported the mismatch) — the same label the missing-renderer arm shows.
 pub(crate) fn placeholder_handle(kind: PieceKind) -> QtHandle {
+    // SAFETY: a plain constructor; the label text is borrowed for the call (crate note "Unsafe
+    // calls").
     QtHandle(unsafe { ffi::day_qt_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr(), 1) })
 }
 
@@ -3270,6 +3419,7 @@ impl Toolkit for Qt {
     type Handle = QtHandle;
 
     fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
+        // SAFETY: `handle` is a live widget Day realized (crate note "Unsafe calls").
         unsafe {
             day_toolkit_qt_sys::day_qt_set_visible(handle.0, i32::from(visible));
         }
@@ -3488,6 +3638,8 @@ impl Toolkit for Qt {
     }
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> QtHandle {
+        // SAFETY: each arm builds its widget with its own constructor and configures it with the
+        // setters of that class, on the GUI thread (crate note "Unsafe calls").
         unsafe {
             match Builtin::from_key(kind) {
                 Some(Builtin::Inspector) => {
@@ -4036,6 +4188,8 @@ impl Toolkit for Qt {
             tree::patch(h.0 as usize, patch);
             return;
         }
+        // SAFETY: `h` is live and `kind` names the class its realize made, so each arm calls that
+        // class's setters (crate note "Unsafe calls").
         unsafe {
             match kind {
                 kinds::IMAGE => {
@@ -4584,6 +4738,8 @@ impl Toolkit for Qt {
                 #[cfg(target_os = "macos")]
                 day_platform_macos::window_tabs::unregister(w.id);
                 toolbars.remove(&(w.win as usize));
+                // SAFETY: `w.win` is a live DayWindow leaving `self.secondary` here, so it is
+                // destroyed once.
                 unsafe { ffi::day_qt_window_destroy(w.win) };
                 false
             } else {
@@ -4656,6 +4812,8 @@ impl Toolkit for Qt {
         // so a widget recycling the freed address can't inherit the dead widget's entries.
         // (The explicit purges above stay: they key by node id / value pairs, not this address.)
         day_spec::sidetable::sweep(key);
+        // SAFETY: every table above has dropped `h`, so nothing touches it after `day_qt_delete`
+        // queues its deletion (crate note "Unsafe calls").
         unsafe {
             ffi::day_qt_remove_child(h.0);
             ffi::day_qt_delete(h.0);
@@ -4670,6 +4828,7 @@ impl Toolkit for Qt {
         // fill), but in front of the sidebar, taking every click meant for it. Parent it for
         // ownership only, and leave it parked.
         if COVER_IDS.with(|m| m.borrow().contains_key(&(child.0 as usize))) {
+            // SAFETY: `parent` and `child` are live widgets (crate note "Unsafe calls").
             unsafe {
                 ffi::day_qt_add_child(content_of(parent), child.0);
                 ffi::day_qt_set_visible(child.0, 0);
@@ -4686,6 +4845,8 @@ impl Toolkit for Qt {
             let Some(suite) = m.get_mut(&(parent.0 as usize)) else {
                 return false;
             };
+            // SAFETY: `parent` is the QTabWidget of a live NAV_SUITES entry and `child` a live page
+            // (crate note "Unsafe calls").
             unsafe {
                 if index == 0 {
                     ffi::day_qt_tabs_park(parent.0, child.0);
@@ -4719,6 +4880,8 @@ impl Toolkit for Qt {
         if let Some((node, titles, icons, keys)) =
             NAV_SUITE_ROWS.with(|m| m.borrow().get(&(child.0 as usize)).cloned())
         {
+            // SAFETY: `parent` is a live widget; the shim walks its parent chain (crate note
+            // "Unsafe calls").
             let suite = unsafe { ffi::day_qt_enclosing_tabs(parent.0) };
             if !suite.is_null() {
                 NAV_SUITES.with(|m| {
@@ -4758,6 +4921,7 @@ impl Toolkit for Qt {
             } else {
                 state.detail_pane
             };
+            // SAFETY: `pane` is a pane of the live nav host `parent` (crate note "Unsafe calls").
             unsafe { ffi::day_qt_add_child(pane, child.0) };
             state.pages.push((*child, id));
             true
@@ -4780,6 +4944,7 @@ impl Toolkit for Qt {
             } else {
                 state.first_pane
             };
+            // SAFETY: `pane` is a pane of the live split `parent` (crate note "Unsafe calls").
             unsafe { ffi::day_qt_add_child(pane, child.0) };
             state.panes.push((pane_id, second));
             true
@@ -4802,6 +4967,7 @@ impl Toolkit for Qt {
             } else {
                 state.content_pane
             };
+            // SAFETY: `pane` is a pane of the live inspector `parent` (crate note "Unsafe calls").
             unsafe { ffi::day_qt_add_child(pane, child.0) };
             state.panes.push((pane_id, panel));
             true
@@ -4809,6 +4975,7 @@ impl Toolkit for Qt {
         if inspected {
             inspector_sync_panes(parent.0);
         } else {
+            // SAFETY: `parent` and `child` are live widgets (crate note "Unsafe calls").
             unsafe { ffi::day_qt_add_child(content_of(parent), child.0) };
         }
     }
@@ -4837,8 +5004,11 @@ impl Toolkit for Qt {
             }
         });
         if in_suite {
+            // SAFETY: `parent` is the QTabWidget of a live NAV_SUITES entry (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_tabs_remove_page(parent.0, child.0) };
         }
+        // SAFETY: `child` is a live widget (crate note "Unsafe calls").
         unsafe { ffi::day_qt_remove_child(child.0) };
     }
 
@@ -4850,6 +5020,7 @@ impl Toolkit for Qt {
         // A label's sizeHint() is a full rich-text layout at Qt's own wrap heuristic, and the
         // label arm below never uses it except as a last resort: ask only then.
         if kind != kinds::LABEL {
+            // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe calls").
             unsafe { ffi::day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
         }
         match kind {
@@ -4870,17 +5041,21 @@ impl Toolkit for Qt {
                 // "readable column" for word-wrapped labels, which is not day's contract
                 // (natural = unwrapped). Height always via heightForWidth at the width day
                 // actually grants; sizeHint's heuristic height is never mixed in.
+                // SAFETY: `kind` is LABEL, so `h` is a live QLabel (crate note "Unsafe calls").
                 let nat_w = f64::from(unsafe { ffi::day_qt_label_natural_width(h.0) });
                 let width = match p.width {
                     Some(pw) => nat_w.min(pw),
                     None => nat_w,
                 };
+                // SAFETY: `kind` is LABEL, so `h` is a live QLabel (crate note "Unsafe calls").
                 let hfw = unsafe {
                     ffi::day_qt_label_height_for_width(h.0, width.round().max(1.0) as c_int)
                 };
                 if hfw > 0 {
                     Size::new(width.ceil(), f64::from(hfw))
                 } else {
+                    // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe
+                    // calls").
                     unsafe { ffi::day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
                     Size::new(width.ceil(), hh.ceil())
                 }
@@ -4945,6 +5120,7 @@ impl Toolkit for Qt {
         // `QWidget::setCursor(Qt::CursorShape)`, or `unsetCursor` for Default (docs/cursor.md).
         // Qt has no zoom, cell, copy-drop, context-menu, or vertical-text shape; each takes its
         // nearest, which is why `Cap::Cursor` answers Emulated.
+        // SAFETY: `h` is a live widget (crate note "Unsafe calls").
         unsafe { ffi::day_qt_widget_set_cursor(h.0, qt_cursor_shape(&cursor)) };
     }
 
@@ -4957,6 +5133,8 @@ impl Toolkit for Qt {
         // enter-key type (only Qt Quick exposes one). `max_length`: `QLineEdit::setMaxLength`
         // counts UTF-16 code units where day-pieces counts characters, so a native limit would
         // refuse text the bound allows (five emoji are ten units); day-pieces holds it alone.
+        // SAFETY: `h` is a live widget; the shim checks for a QLineEdit (crate note "Unsafe
+        // calls").
         unsafe {
             ffi::day_qt_lineedit_set_traits(
                 h.0,
@@ -4970,6 +5148,8 @@ impl Toolkit for Qt {
 
     fn set_selectable(&mut self, h: &QtHandle, selectable: bool) -> Option<QtHandle> {
         // The shim casts to Day's label, so a non-label handle is a safe no-op (docs/text.md).
+        // SAFETY: `h` is a live widget; the shim checks for Day's label (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_label_set_selectable(h.0, c_int::from(selectable)) };
         None
     }
@@ -5026,6 +5206,8 @@ impl Toolkit for Qt {
         if !day_spec::kind_has_baseline(kind) {
             return None;
         }
+        // SAFETY: `h` is a live widget; the shim checks the text classes it knows (crate note
+        // "Unsafe calls").
         let b = unsafe { ffi::day_qt_baseline(h.0, size.height) };
         (b >= 0.0).then_some(b)
     }
@@ -5095,10 +5277,14 @@ impl Toolkit for Qt {
     }
 
     fn scroll_bar_inset(&mut self, h: &QtHandle, vertical: bool) -> f64 {
+        // SAFETY: `h` is a live widget; the shim checks for a QScrollArea (crate note "Unsafe
+        // calls").
         f64::from(unsafe { ffi::day_qt_scroll_bar_inset(h.0, c_int::from(vertical)) })
     }
 
     fn set_scroll_content(&mut self, h: &QtHandle, content: Size) {
+        // SAFETY: `h` is a live widget; the shim checks for a QScrollArea (crate note "Unsafe
+        // calls").
         unsafe {
             ffi::day_qt_scroll_set_content_size(
                 h.0,
@@ -5124,6 +5310,8 @@ impl Toolkit for Qt {
     fn scroll_to(&mut self, h: &QtHandle, target: Rect, animated: bool) {
         // Qt's scroll bars have no animation of their own: an animated scroll glides the bars'
         // values for 250 ms with an ease-out cubic, and lands where the jump would (docs/scroll.md).
+        // SAFETY: `h` is a live widget; the shim checks for a QScrollArea (crate note "Unsafe
+        // calls").
         unsafe {
             ffi::day_qt_scroll_to_rect(
                 h.0,
@@ -5138,6 +5326,7 @@ impl Toolkit for Qt {
 
     fn scroll_offset(&mut self, h: &QtHandle) -> day_spec::Point {
         let (mut x, mut y) = (0.0_f64, 0.0_f64);
+        // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe calls").
         unsafe { ffi::day_qt_scroll_offset(h.0, &raw mut x, &raw mut y) };
         day_spec::Point::new(x, y)
     }
@@ -5156,6 +5345,8 @@ impl Toolkit for Qt {
         let animated = c_int::from(to.animated);
         Qt::post(Box::new(move || {
             if let Some(host) = LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| st.host)) {
+                // SAFETY: `host` is the list host of a live LIST_STATE entry (crate note "Unsafe
+                // calls").
                 unsafe { ffi::day_qt_list_scroll(host, row, align, animated) };
             }
         }));
@@ -5166,6 +5357,8 @@ impl Toolkit for Qt {
         use day_spec::present::PresentSpec;
         let parent = self.present_parent();
         match spec {
+            // SAFETY: `parent` is a live DayWindow or null; strings borrowed for the call (crate
+            // note "Unsafe calls").
             PresentSpec::Dialog { .. } => unsafe {
                 ffi::day_qt_present_dialog(
                     req,
@@ -5182,6 +5375,8 @@ impl Toolkit for Qt {
                 ok,
                 cancel,
                 ..
+                // SAFETY: `parent` is a live DayWindow or null; strings borrowed for the call
+                // (crate note "Unsafe calls").
             } => unsafe {
                 ffi::day_qt_present_prompt(
                     req,
@@ -5194,6 +5389,8 @@ impl Toolkit for Qt {
                     parent,
                 );
             },
+            // SAFETY: `parent` is a live DayWindow or null; strings borrowed for the call (crate
+            // note "Unsafe calls").
             PresentSpec::OpenFile { multiple, .. } => unsafe {
                 ffi::day_qt_present_file_open(
                     req,
@@ -5203,9 +5400,13 @@ impl Toolkit for Qt {
                     parent,
                 );
             },
+            // SAFETY: `parent` is a live DayWindow or null; strings borrowed for the call (crate
+            // note "Unsafe calls").
             PresentSpec::OpenFolder { .. } => unsafe {
                 ffi::day_qt_present_folder_open(req, cstr(spec.title()).as_ptr(), parent);
             },
+            // SAFETY: `parent` is a live DayWindow or null; strings borrowed for the call (crate
+            // note "Unsafe calls").
             PresentSpec::SaveFile { suggested_name, .. } => unsafe {
                 // The pieces layer copies the staged bytes to the chosen path.
                 ffi::day_qt_present_file_save(
@@ -5220,6 +5421,7 @@ impl Toolkit for Qt {
     }
 
     fn dismiss(&mut self, req: u64) {
+        // SAFETY: the shim looks `req` up and ignores an unknown one (crate note "Unsafe calls").
         unsafe { ffi::day_qt_dismiss_present(req) };
     }
 
@@ -5229,16 +5431,21 @@ impl Toolkit for Qt {
     }
     #[cfg(target_os = "macos")]
     fn share(&mut self, spec: &day_spec::share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
+        // SAFETY: both strings are borrowed for the call (crate note "Unsafe calls").
         unsafe { ffi::day_qt_share_url(cstr(&spec.url).as_ptr(), cstr(&spec.title).as_ptr()) }
     }
     fn open_url(&mut self, url: &str) {
         if let Ok(c) = std::ffi::CString::new(url) {
+            // SAFETY: `c` is a NUL-terminated string borrowed for the call (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_open_url(c.as_ptr()) };
         }
     }
 
     fn set_focusable(&mut self, h: &QtHandle, node: NodeId, focusable: bool) {
         if focusable {
+            // SAFETY: `h` is a live widget; the callbacks carry only `node` (crate note "Unsafe
+            // calls").
             unsafe {
                 ffi::day_qt_enable_keys(h.0, node.0, on_key);
                 ffi::day_qt_enable_focus(h.0, node.0, on_focus);
@@ -5250,6 +5457,7 @@ impl Toolkit for Qt {
     fn focus(&mut self, h: &QtHandle, _node: NodeId, focused: bool) {
         // The shim clears only while this widget still owns focus, so a stale release
         // can't blur a sibling.
+        // SAFETY: `h` is a live widget (crate note "Unsafe calls").
         unsafe { ffi::day_qt_widget_focus(h.0, c_int::from(focused)) };
     }
 
@@ -5275,6 +5483,8 @@ impl Toolkit for Qt {
             K::DoubleTap => 8,
             K::Touches => 9,
         };
+        // SAFETY: `h` is a live widget; the callback carries only `node` (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_enable_gesture(h.0, node.0, code, on_gesture) };
     }
 
@@ -5292,6 +5502,7 @@ impl Toolkit for Qt {
     }
 
     fn set_hit_slop(&mut self, h: &QtHandle, _node: NodeId, slop: day_spec::Insets) {
+        // SAFETY: `h` is a live widget (crate note "Unsafe calls").
         unsafe {
             ffi::day_qt_set_hit_slop(h.0, slop.top, slop.leading, slop.bottom, slop.trailing);
         }
@@ -5303,6 +5514,7 @@ impl Toolkit for Qt {
             Some(day_spec::DragAxis::Horizontal) => 1,
             Some(day_spec::DragAxis::Vertical) => 2,
         };
+        // SAFETY: `h` is a live widget (crate note "Unsafe calls").
         unsafe { ffi::day_qt_set_drag_axis(h.0, code) };
     }
 
@@ -5310,6 +5522,7 @@ impl Toolkit for Qt {
     // chain (focus inside moves on and reports its loss), take no input and read as disabled
     // to assistive technology; the shim counts nested calls (docs/forms.md).
     fn set_subtree_enabled(&mut self, h: &QtHandle, _node: NodeId, enabled: bool) {
+        // SAFETY: `h` is a live widget (crate note "Unsafe calls").
         unsafe { ffi::day_qt_subtree_enabled(h.0, c_int::from(enabled)) };
     }
 
@@ -5331,15 +5544,19 @@ impl Toolkit for Qt {
             items.to_vec(),
         );
         let items = &items[..];
+        // SAFETY: `self.window` is the primary DayWindow, checked non-null above (crate note
+        // "Unsafe calls").
         let bar = unsafe { ffi::day_qt_window_menubar(self.window) };
         // Top level entries are the menu-bar menus; a bare action becomes a single-item menu.
         for item in items {
             match item {
                 day_spec::MenuItem::Submenu { label, items, .. } => {
+                    // SAFETY: `bar` is the window's live QMenuBar (crate note "Unsafe calls").
                     let menu = unsafe { ffi::day_qt_menubar_add_menu(bar, cstr(label).as_ptr()) };
                     build_qt_menu(menu, items);
                 }
                 other => {
+                    // SAFETY: `bar` is the window's live QMenuBar (crate note "Unsafe calls").
                     let menu = unsafe { ffi::day_qt_menubar_add_menu(bar, cstr("").as_ptr()) };
                     build_qt_menu(menu, std::slice::from_ref(other));
                 }
@@ -5347,10 +5564,13 @@ impl Toolkit for Qt {
         }
         // An in-window bar (Linux/Windows) now has its real height: reserve its strip so the
         // content area — and day's layout — sit below it instead of underneath it.
+        // SAFETY: `self.window` is the primary DayWindow, checked non-null above (crate note
+        // "Unsafe calls").
         unsafe { ffi::day_qt_window_menubar_done(self.window) };
     }
 
     fn modifiers(&mut self) -> day_spec::Modifiers {
+        // SAFETY: a read of the keyboard state, no operands (crate note "Unsafe calls").
         let m = unsafe { ffi::day_qt_modifiers() };
         // The shim's mask uses the wire bits (`Modifiers::bits`).
         day_spec::Modifiers::from_bits((m & 7) as u8)
@@ -5364,6 +5584,8 @@ impl Toolkit for Qt {
     }
     fn set_context_menu_fn(&mut self, h: &QtHandle, node: NodeId, f: day_spec::ContextMenuFn) {
         CTX_MENU_FNS.with(|m| m.borrow_mut().insert(node.0, f));
+        // SAFETY: `h` is a live widget; the callback carries only `node` (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_context_menu_fn(h.0, node.0, on_context_menu_summon) };
     }
 
@@ -5376,11 +5598,16 @@ impl Toolkit for Qt {
 
     fn set_context_menu(&mut self, h: &QtHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
         if items.is_empty() {
+            // SAFETY: `h` is a live widget; null detaches its menu (crate note "Unsafe calls").
             unsafe { ffi::day_qt_set_context_menu(h.0, std::ptr::null_mut()) };
             return;
         }
+        // SAFETY: a fresh, parentless QMenu; `day_qt_set_context_menu` adopts it below (crate note
+        // "Unsafe calls").
         let menu = unsafe { ffi::day_qt_menu_new() };
         build_qt_menu(menu, items);
+        // SAFETY: `h` is a live widget and `menu` the QMenu built above, which the widget adopts
+        // (crate note "Unsafe calls").
         unsafe { ffi::day_qt_set_context_menu(h.0, menu) };
     }
 
@@ -5404,6 +5631,7 @@ impl Toolkit for Qt {
     }
 
     fn set_tooltip(&mut self, h: &QtHandle, text: &str) {
+        // SAFETY: `h` is a live widget (crate note "Unsafe calls").
         unsafe { ffi::day_qt_set_tooltip(h.0, cstr(text).as_ptr()) };
     }
     fn open_popover(
@@ -5416,6 +5644,8 @@ impl Toolkit for Qt {
         extern "C" fn dismissed(id: u64) {
             day_spec::ffi_guard::contain((), || emit(NodeId(id), Event::PopoverDismissed));
         }
+        // SAFETY: `anchor` and `content` are live widgets; the callback carries only `id` (crate
+        // note "Unsafe calls").
         unsafe {
             ffi::day_qt_popover(
                 anchor.0,
@@ -5428,17 +5658,23 @@ impl Toolkit for Qt {
         }
     }
     fn resize_popover(&mut self, content: &QtHandle, size: Size) {
+        // SAFETY: `content` is a live widget; the shim checks it sits in a popover (crate note
+        // "Unsafe calls").
         unsafe { ffi::day_qt_resize_popover(content.0, size.width, size.height) };
     }
     fn close_popover(&mut self, content: &QtHandle) {
+        // SAFETY: `content` is a live widget; the shim checks it sits in a popover (crate note
+        // "Unsafe calls").
         unsafe { ffi::day_qt_close_popover(content.0) };
     }
     fn show_toast(&mut self, host: &QtHandle, text: &str) {
+        // SAFETY: `host` is a live widget (crate note "Unsafe calls").
         unsafe { ffi::day_qt_toast(host.0, cstr(text).as_ptr()) };
         self.announce(text, false);
     }
 
     fn set_a11y(&mut self, h: &QtHandle, a11y: &A11yProps) {
+        // SAFETY: `h` is a live widget; strings borrowed for each call (crate note "Unsafe calls").
         unsafe {
             if let Some(id) = &a11y.identifier {
                 ffi::day_qt_set_object_name(h.0, cstr(id).as_ptr());
@@ -5497,9 +5733,9 @@ impl Toolkit for Qt {
             ffi::day_qt_read_native(h.0, n.as_mut_ptr());
             n.assume_init()
         };
-        // SAFETY: each pointer is NULL or a NUL-terminated heap string the shim wrote, alive
-        // until `day_qt_native_free` below.
         let string = |p: *mut c_char| {
+            // SAFETY: each pointer is NULL or a NUL-terminated heap string the shim wrote, alive
+            // until `day_qt_native_free` below; `p` is non-null here.
             (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
         };
         let role = match n.role {
@@ -5570,9 +5806,13 @@ impl Toolkit for Qt {
         cb: day_spec::FrameCallback,
     ) -> day_spec::CancelFrame {
         let token = day_core::frame::native::register(cb);
+        // SAFETY: `host` is a live widget; the callback carries only `token` (crate note "Unsafe
+        // calls").
         unsafe { ffi::day_qt_request_frame(host.0, token, run_frame) };
         Box::new(move || {
             day_core::frame::native::cancel(token);
+            // SAFETY: the shim only looks `token` up among its frame pumps (crate note "Unsafe
+            // calls").
             unsafe { ffi::day_qt_cancel_frame(token) };
         })
     }
@@ -5580,6 +5820,8 @@ impl Toolkit for Qt {
     fn replay(&mut self, h: &QtHandle, ops: &[DrawOp], _size: Size) {
         let (nums, texts) = day_spec::encode_ops(ops);
         let joined = cstr(&texts.join("\u{1f}"));
+        // SAFETY: `replay` runs on canvases, so `h` is a live DayCanvasWidget; the op buffers
+        // outlive the call and the shim copies them (crate note "Unsafe calls").
         unsafe {
             ffi::day_qt_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr());
         };
@@ -5742,8 +5984,8 @@ impl Toolkit for Qt {
         let (nums, texts) = day_spec::encode_ops(ops);
         let joined = cstr(&texts.join("\u{1f}"));
         let result = match (c_int::try_from(pw), c_int::try_from(ph)) {
-            // SAFETY: both op channels outlive the call; the shim copies what it keeps.
             (Ok(w), Ok(h)) => {
+                // SAFETY: both op channels outlive the call; the shim copies what it keeps.
                 if unsafe {
                     ffi::day_qt_canvas_render_image(
                         id.0,
@@ -5807,6 +6049,8 @@ impl Toolkit for Qt {
             if let Some(w) = self.secondary.iter().find(|w| w.content == host.0)
                 && let Some(group) = &w.tab_group
             {
+                // SAFETY: `w.win` is a live DayWindow in `self.secondary`; on macOS the GUI thread
+                // is the main thread the window_tabs calls require (crate note "Unsafe calls").
                 unsafe {
                     ffi::day_qt_window_show(w.win);
                     let view = ffi::day_qt_window_nsview(w.win);
@@ -5844,6 +6088,7 @@ impl Toolkit for Qt {
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<QtHandle> {
         let fixed = c_int::from(kind.is_panel());
+        // SAFETY: a constructor; strings borrowed for the call (crate note "Unsafe calls").
         let win = unsafe {
             ffi::day_qt_window_new2(
                 cstr(&options.title).as_ptr(),
@@ -5855,8 +6100,10 @@ impl Toolkit for Qt {
         };
         apply_open_options(win, options, fixed == 0);
         if !options.start_hidden {
+            // SAFETY: `win` is the DayWindow just created (crate note "Unsafe calls").
             unsafe { ffi::day_qt_window_show(win) };
         }
+        // SAFETY: `win` is the DayWindow just created (crate note "Unsafe calls").
         let content = unsafe { ffi::day_qt_window_content(win) };
         self.secondary.push(QtWin {
             #[cfg(target_os = "macos")]
@@ -5880,12 +6127,14 @@ impl Toolkit for Qt {
             // anchored to day-core releasing the content handle (`release`, below).
             #[cfg(target_os = "macos")]
             day_platform_macos::window_tabs::unregister(w.id);
+            // SAFETY: `w.win` is a live DayWindow in `self.secondary` (crate note "Unsafe calls").
             unsafe { ffi::day_qt_window_close(w.win) };
         }
     }
 
     fn focus_window(&mut self, host: &QtHandle) {
         if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            // SAFETY: `w.win` is a live DayWindow in `self.secondary` (crate note "Unsafe calls").
             unsafe { ffi::day_qt_window_raise(w.win) };
         }
     }
@@ -5909,6 +6158,7 @@ impl Toolkit for Qt {
             None => self.window,
         };
         if !win.is_null() {
+            // SAFETY: `win` is a live DayWindow, checked non-null (crate note "Unsafe calls").
             unsafe { ffi::day_qt_window_set_title(win, cstr(title).as_ptr()) };
         }
     }
@@ -6009,7 +6259,8 @@ fn apply_open_options(win: *mut c_void, options: &WindowOptions, resizable: bool
     let frameless = options.chrome == day_spec::WindowChrome::Frameless;
     let transparent = options.background == day_spec::WindowBackground::Transparent;
     let resizable = resizable && options.resizable;
-    // SAFETY (every call below): `win` is the DayWindow just created, not yet shown.
+    // SAFETY: every call below takes `win`, the DayWindow just created and not yet shown; the
+    // GUI thread made it (crate note "Unsafe calls").
     unsafe {
         if options.min_size.is_some() || options.max_size.is_some() {
             let min = options.min_size.unwrap_or(Size::new(-1.0, -1.0));
@@ -6040,8 +6291,8 @@ fn apply_property(win: *mut c_void, change: &day_spec::WindowChange) {
         // SAFETY: `win` is a live DayWindow (see `apply_window`).
         unsafe { ffi::day_qt_window_set_switch(win, which, c_int::from(on)) }
     };
-    // SAFETY (the calls below): as above.
     match change {
+        // SAFETY: `win` is a live DayWindow (see `apply_window`).
         C::Frame { origin, size } => unsafe {
             ffi::day_qt_window_set_frame(
                 win,
@@ -6053,6 +6304,7 @@ fn apply_property(win: *mut c_void, change: &day_spec::WindowChange) {
                 size.map_or(0.0, |s| s.height),
             );
         },
+        // SAFETY: `win` is a live DayWindow (see `apply_window`).
         C::Limits { min, max } => unsafe {
             let min = min.unwrap_or(Size::new(-1.0, -1.0));
             let max = max.unwrap_or(Size::new(-1.0, -1.0));
@@ -6065,6 +6317,7 @@ fn apply_property(win: *mut c_void, change: &day_spec::WindowChange) {
         C::Closable(on) => switch(4, *on),
         C::Resizable(on) => switch(5, *on),
         C::Visible(on) => switch(6, *on),
+        // SAFETY: `win` is a live DayWindow (see `apply_window`).
         C::RequestAttention(a) => unsafe {
             ffi::day_qt_window_alert(win, c_int::from(*a == day_spec::Attention::Critical));
         },
@@ -6148,6 +6401,8 @@ fn snapshot_qt_widget(widget: *mut c_void) -> Result<Vec<u8>, String> {
     let cpath = cstr(path.to_str().unwrap_or("/tmp/day-qt-snap.png"));
     // A scripted run's stated capture scale (Day.toml `[screenshots]`), else the widget's own.
     let scale = day_spec::capture_scale().unwrap_or(0.0);
+    // SAFETY: the dayscript seam passes a live widget; the path is borrowed for the call (crate
+    // note "Unsafe calls").
     let rc = unsafe { ffi::day_qt_snapshot_png(widget, cpath.as_ptr(), scale) };
     if rc != 0 {
         return Err("grab failed".into());
@@ -6160,6 +6415,8 @@ fn snapshot_qt_widget(widget: *mut c_void) -> Result<Vec<u8>, String> {
 extern "C" fn run_posted(data: *mut c_void) {
     // The posted-closure trampoline runs arbitrary Rust (deferred emits, list populates) —
     // contained like every other FFI entry (day-spec's ffi_guard).
+    // SAFETY: `data` came from `Box::into_raw` in `post`, `post_delayed` or `emit_deferred`, and
+    // the shim calls each posted callback once, so the box is reclaimed exactly once.
     let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data.cast()) };
     ffi_guard::contain((), f);
 }
@@ -6182,6 +6439,8 @@ impl Platform for Qt {
         // before it opens anything. Held until `run` returns, which is the app's end.
         #[cfg(target_os = "linux")]
         let _instance = linux::claim_instance();
+        // SAFETY: this thread creates the QApplication first and so becomes the GUI thread; every
+        // handle and string passed below is live for its call (crate note "Unsafe calls").
         unsafe {
             // The macOS app menu (Quit/Hide) takes its name from argv[0] at QApplication
             // construction, so pass the app's display name ("Showcase", falling back to the window
@@ -6239,6 +6498,8 @@ impl Platform for Qt {
 
     fn post(f: Box<dyn FnOnce() + Send>) {
         let data = Box::into_raw(Box::new(f)).cast::<c_void>();
+        // SAFETY: `data` is a leaked box `run_posted` reclaims once; the queue hand-off is
+        // thread-safe (crate note "Unsafe calls").
         unsafe { ffi::day_qt_post(run_posted, data) };
     }
 
@@ -6253,6 +6514,8 @@ impl Platform for Qt {
             return;
         }
         let data = Box::into_raw(Box::new(f)).cast::<c_void>();
+        // SAFETY: `data` is a leaked box `run_posted` reclaims once; Qt arms the timer on the
+        // application thread from any thread (crate note "Unsafe calls").
         unsafe { ffi::day_qt_post_delayed(ms as c_int, run_posted, data) };
     }
 }
@@ -6278,6 +6541,8 @@ fn release_bitmap(id: day_spec::BitmapId) {
 pub unsafe extern "C" fn day_qt_open_file(url: *const std::ffi::c_char) {
     day_spec::ffi_guard::contain((), || {
         if !url.is_null() {
+            // SAFETY: the caller's guarantee: `url` is non-null here and NUL-terminated for this
+            // call.
             let file = unsafe { std::ffi::CStr::from_ptr(url) }
                 .to_string_lossy()
                 .into_owned();

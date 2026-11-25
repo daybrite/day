@@ -660,12 +660,14 @@ mod repro_tests {
         let _guard = ENV_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // SAFETY: ENV_LOCK is held, so no other test here touches SOURCE_DATE_EPOCH meanwhile.
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
         assert_eq!(
             reproducible_epoch(),
             1_577_836_800,
             "default is 2020-01-01Z"
         );
+        // SAFETY: ENV_LOCK is held, so no other test here touches SOURCE_DATE_EPOCH meanwhile.
         unsafe { std::env::set_var("SOURCE_DATE_EPOCH", "1234567890") };
         assert_eq!(
             reproducible_epoch(),
@@ -674,10 +676,13 @@ mod repro_tests {
         );
         // Below 1980 ZIP cannot represent it, so the floor rejects rather than letting the writer
         // clamp it back into per-run variance.
+        // SAFETY: ENV_LOCK is held, so no other test here touches SOURCE_DATE_EPOCH meanwhile.
         unsafe { std::env::set_var("SOURCE_DATE_EPOCH", "100") };
         assert_eq!(reproducible_epoch(), 1_577_836_800);
+        // SAFETY: ENV_LOCK is held, so no other test here touches SOURCE_DATE_EPOCH meanwhile.
         unsafe { std::env::set_var("SOURCE_DATE_EPOCH", "not-a-number") };
         assert_eq!(reproducible_epoch(), 1_577_836_800);
+        // SAFETY: ENV_LOCK is held, so no other test here touches SOURCE_DATE_EPOCH meanwhile.
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
     }
 
@@ -686,6 +691,7 @@ mod repro_tests {
         let _guard = ENV_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // SAFETY: ENV_LOCK is held, so no other test here touches SOURCE_DATE_EPOCH meanwhile.
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
         let (date, time) = dos_datetime();
         // 2020-01-01T00:00:00Z → year 2020, month 1, day 1, midnight.

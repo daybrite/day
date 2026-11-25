@@ -67,6 +67,8 @@ define_class!(
 impl WellTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+        // SAFETY: NSObject's `init` on a fresh WellTarget allocation with its ivars set; returns it
+        // +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -113,6 +115,8 @@ fn make(backend: &mut AppKit, p: &ColorProps, id: NodeId) -> Retained<NSView> {
             .setTitle(&objc2_foundation::NSString::from_str(&p.title));
     }
     let target = WellTarget::new(mtm, id);
+    // SAFETY: the well holds its target weakly; TARGETS keeps `target` alive until `release` drops
+    // the well. The well implements `fire:`; main thread.
     unsafe {
         well.setTarget(Some(&target));
         well.setAction(Some(sel!(fire:)));

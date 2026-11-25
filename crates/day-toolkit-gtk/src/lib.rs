@@ -6633,6 +6633,7 @@ fn apply_app_icon(window: &adw::ApplicationWindow) {
                 &objc2_foundation::NSString::from_str(&icon),
             ) {
                 let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+                // SAFETY: on the main thread (`mtm`); `img` is a live NSImage the app retains.
                 unsafe { app.setApplicationIconImage(Some(&img)) };
             }
         }
@@ -7249,6 +7250,8 @@ fn register_bundled_fonts() {
                 continue;
             };
             // NULL config = the current default configuration.
+            // SAFETY: `c` is a NUL-terminated path that outlives the call, which fontconfig
+            // copies; a null config is documented to mean the current default configuration.
             if unsafe { FcConfigAppFontAddFile(std::ptr::null_mut(), c.as_ptr()) } == 0 {
                 log::warn!("could not register bundled font {}", path.display());
             }
@@ -7276,6 +7279,8 @@ fn register_bundled_fonts() {
         }
         for path in &fonts {
             let bytes = path.as_os_str().as_encoded_bytes();
+            // SAFETY: `bytes` is `bytes.len()` readable bytes for the call; the URL follows the
+            // Create rule, is used only when non-null and released once; a null error is allowed.
             unsafe {
                 let url = CFURLCreateFromFileSystemRepresentation(
                     std::ptr::null(),
@@ -11321,6 +11326,8 @@ impl Toolkit for Gtk {
 
     fn adopt(&mut self, raw: RawHandle) -> Handle {
         // A recycling GtkListView cell (a GtkFixed) — Day fills/rebinds its row content in place.
+        // SAFETY: `raw` is a live GtkWidget (the list's cell, which the list keeps referenced);
+        // `from_glib_none` takes a reference of its own for the returned handle.
         unsafe { gtk4::glib::translate::from_glib_none(raw.cast::<gtk4::ffi::GtkWidget>()) }
     }
 
@@ -11352,9 +11359,12 @@ impl Toolkit for Gtk {
             .ancestor(gtk4::Popover::static_type())
             .and_downcast::<gtk4::Popover>()
         {
-            // SAFETY: open_popover stores exactly one closed signal handler under this key.
             if let Some(handler) =
-                unsafe { popup.steal_data::<gtk4::glib::SignalHandlerId>("day-popover-closed") }
+                // SAFETY: open_popover stores exactly one closed signal handler under this key,
+                // as a `SignalHandlerId`, the type taken here.
+                unsafe {
+                    popup.steal_data::<gtk4::glib::SignalHandlerId>("day-popover-closed")
+                }
             {
                 popup.disconnect(handler);
             }
@@ -12198,6 +12208,10 @@ impl Toolkit for Gtk {
         let Some(view) = app.keyWindow().and_then(|w| w.contentView()) else {
             return false;
         };
+        // SAFETY: main thread (`mtm`). `alloc`/`initWithItems:` (an NSArray) and
+        // `showRelativeToRect:ofView:preferredEdge:` (NSRect, NSView, NSRectEdge as NSUInteger,
+        // returning void) match NSSharingServicePicker's declarations; `self.sharing` keeps the
+        // picker alive while it shows.
         unsafe {
             let items = NSArray::from_retained_slice(&[url]);
             let picker: objc2::rc::Allocated<AnyObject> =

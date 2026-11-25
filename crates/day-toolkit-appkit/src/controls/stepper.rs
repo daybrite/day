@@ -41,6 +41,7 @@ define_class!(
     impl DayStepperField {
         #[unsafe(method(setFrameSize:))]
         fn set_frame_size(&self, size: NSSize) {
+            // SAFETY: forwards NSView's `setFrameSize:` (one NSSize, no result) to the superclass.
             let _: () = unsafe { msg_send![super(self), setFrameSize: size] };
             self.lay_out(size);
         }
@@ -79,6 +80,8 @@ impl DayStepperField {
         field.setStringValue(&NSString::from_str(&fmt_value(p.value, p.decimals)));
         // Commit on focus loss too, not only Return, the way an inspector field behaves.
         if let Some(cell) = field.cell() {
+            // SAFETY: `setSendsActionOnEndEditing:` is an NSCell setter taking one BOOL; `cell` is
+            // the field's live cell, on the main thread.
             let _: () = unsafe { msg_send![&cell, setSendsActionOnEndEditing: true] };
         }
         let this = Self::alloc(mtm).set_ivars(FieldIvars {
@@ -87,7 +90,11 @@ impl DayStepperField {
             field: field.clone(),
             stepper: stepper.clone(),
         });
+        // SAFETY: NSView's `init` on a fresh DayStepperField allocation with its ivars set; returns
+        // it +1.
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+        // SAFETY: field and stepper hold `this` weakly as their target; they are its subviews and
+        // ivars, so it outlives their actions. `this` implements both selectors; main thread.
         unsafe {
             field.setTarget(Some(&this));
             field.setAction(Some(sel!(fieldChanged:)));

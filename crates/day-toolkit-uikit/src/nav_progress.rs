@@ -39,6 +39,8 @@ define_class!(
             &self,
             previous: Option<&objc2_ui_kit::UITraitCollection>,
         ) {
+            // SAFETY: UIView implements `traitCollectionDidChange:` (nullable UITraitCollection,
+            // void); this override forwards its own argument.
             let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
             ffi_guard::contain((), || {
                 use objc2_ui_kit::UITraitEnvironment as _;
@@ -57,6 +59,7 @@ define_class!(
 /// Set the ring's colors for the traits `overlay` is shown with.
 fn recolor(overlay: &UIView) {
     let layer = overlay.layer();
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let ring = unsafe { layer.sublayers() }.and_then(|layers| {
         layers
             .iter()
@@ -84,6 +87,7 @@ fn paint(
     ink: &CGColor,
     background: &CGColor,
 ) {
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let existing = unsafe { parent.sublayers() }.and_then(|layers| {
         layers
             .iter()
@@ -105,6 +109,7 @@ fn paint(
             let ring = CAShapeLayer::new();
             ring.setName(Some(&NSString::from_str(NAME)));
             ring.setFrame(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(size, size)));
+            // SAFETY: CGPathCreateWithEllipseInRect accepts a null transform; the rect is finite.
             let path = unsafe {
                 CGPath::with_ellipse_in_rect(
                     CGRect::new(CGPoint::new(1.5, 1.5), CGSize::new(size - 3.0, size - 3.0)),
@@ -113,9 +118,12 @@ fn paint(
             };
             ring.setPath(Some(&path));
             ring.setLineWidth(2.0);
-            ring.setTransform(unsafe {
-                CATransform3D::new_rotation(-std::f64::consts::FRAC_PI_2, 0.0, 0.0, 1.0)
-            });
+            ring.setTransform(CATransform3D::new_rotation(
+                -std::f64::consts::FRAC_PI_2,
+                0.0,
+                0.0,
+                1.0,
+            ));
             parent.addSublayer(&ring);
             ring
         });
@@ -127,10 +135,12 @@ fn paint(
         ring.setStrokeEnd(value.clamp(0.0, 1.0));
     } else {
         ring.setStrokeEnd(0.25);
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         if unsafe { ring.animationForKey(&key) }.is_none() {
             let spin = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str(
                 "transform.rotation",
             )));
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 spin.setFromValue(Some(&NSNumber::numberWithDouble(
                     -std::f64::consts::FRAC_PI_2,
@@ -153,7 +163,7 @@ use objc2_ui_kit::NSObjectUIAccessibility;
 use objc2_ui_kit::{UICollectionViewListCell, UIImageView, UIView};
 const TAG: isize = 0x44504;
 fn find_icon(view: &UIView) -> Option<Retained<UIImageView>> {
-    for child in unsafe { view.subviews() } {
+    for child in view.subviews() {
         if let Some(icon) = child.downcast_ref::<UIImageView>() {
             return Some(icon.retain());
         }
@@ -172,6 +182,8 @@ pub(crate) fn update(
     state: Option<Option<f64>>,
     mtm: MainThreadMarker,
 ) {
+    // SAFETY: UIView's `initWithFrame:` (CGRect) on a fresh Overlay returns the view; the rest is
+    // unaudited Apple API on live views, main thread (`mtm`).
     unsafe {
         cell.layoutIfNeeded();
         let Some(icon) = find_icon(&cell.contentView()) else {

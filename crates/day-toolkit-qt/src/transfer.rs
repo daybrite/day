@@ -33,6 +33,7 @@ extern "C" fn prepare(h: *mut c_void, x: f64, y: f64, len: *mut usize) -> *mut u
         let Some(packet) = offer.encode() else {
             return std::ptr::null_mut();
         };
+        // SAFETY: `len` is the shim's live out-parameter for this call.
         unsafe {
             *len = packet.len();
         }
@@ -40,12 +41,16 @@ extern "C" fn prepare(h: *mut c_void, x: f64, y: f64, len: *mut usize) -> *mut u
     })
 }
 extern "C" fn free(p: *mut u8, n: usize) {
+    // SAFETY: the shim hands back exactly the pointer and length `prepare` leaked as a boxed slice,
+    // once.
     unsafe {
         drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, n)));
     }
 }
 extern "C" fn accept(h: *mut c_void, x: f64, y: f64, types: *const c_char, local: bool) -> bool {
     ffi_guard::contain(false, || {
+        // SAFETY: the shim passes the drag's MIME types as a NUL-terminated string alive for this
+        // call.
         let types = unsafe { CStr::from_ptr(types) }
             .to_string_lossy()
             .split('\n')
@@ -66,6 +71,7 @@ extern "C" fn receive(h: *mut c_void, x: f64, y: f64, p: *const u8, n: usize, lo
         if n > MAX_BYTES {
             return false;
         }
+        // SAFETY: the shim passes `n` readable bytes of the dropped packet, alive for this call.
         let Some(offer) = Offer::decode(unsafe { std::slice::from_raw_parts(p, n) }) else {
             return false;
         };
@@ -93,12 +99,16 @@ extern "C" fn leave(h: *mut c_void) {
 }
 pub fn source(h: &QtHandle, source: Source) {
     SOURCES.with(|t| t.insert(h.0 as usize, source));
+    // SAFETY: `h` is a live widget; the callbacks find their state by the widget's address (crate
+    // note "Unsafe calls").
     unsafe {
         day_qt_drag_source(h.0, prepare, free);
     }
 }
 pub fn target(h: &QtHandle, target: Target) {
     TARGETS.with(|t| t.insert(h.0 as usize, target));
+    // SAFETY: `h` is a live widget; the callbacks find their state by the widget's address (crate
+    // note "Unsafe calls").
     unsafe {
         day_qt_drop_target(h.0, accept, receive, leave);
     }

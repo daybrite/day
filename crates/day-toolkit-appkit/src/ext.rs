@@ -60,12 +60,14 @@ pub fn with_native_subcontrol<R>(
             day_spec::Subcontrol::Host => Some(host.clone()),
             day_spec::Subcontrol::Content => host
                 .downcast_ref::<objc2_app_kit::NSScrollView>()
-                .and_then(|sv| unsafe { sv.documentView() }),
+                .and_then(objc2_app_kit::NSScrollView::documentView),
             day_spec::Subcontrol::Header => host
                 .downcast_ref::<objc2_app_kit::NSScrollView>()
-                .and_then(|sv| unsafe { sv.documentView() })
+                .and_then(objc2_app_kit::NSScrollView::documentView)
                 .and_then(|dv| dv.downcast::<objc2_app_kit::NSTableView>().ok())
-                .and_then(|tv| unsafe { tv.headerView() })
+                .and_then(|tv| tv.headerView())
+                // SAFETY: `headerView` returns an NSTableHeaderView, an NSView subclass, so the
+                // upcast is valid.
                 .map(|hv| unsafe { objc2::rc::Retained::cast_unchecked::<NSView>(hv) }),
         };
         target.map(|view| {

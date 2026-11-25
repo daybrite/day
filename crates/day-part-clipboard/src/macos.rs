@@ -26,6 +26,7 @@ pub fn set_text(text: &str) -> bool {
     // clearContents() takes ownership of the pasteboard (bumps the change count); without it,
     // setString:forType: fails on a pasteboard another app owns.
     pb.clearContents();
+    // SAFETY: NSPasteboardTypeString is AppKit's immutable constant, set before any Rust runs.
     pb.setString_forType(&NSString::from_str(text), unsafe { NSPasteboardTypeString })
 }
 
@@ -34,6 +35,7 @@ pub fn get_text() -> Option<String> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pb = NSPasteboard::generalPasteboard();
+    // SAFETY: NSPasteboardTypeString is AppKit's immutable constant, set before any Rust runs.
     pb.stringForType(unsafe { NSPasteboardTypeString })
         .map(|s| s.to_string())
 }
@@ -44,6 +46,7 @@ pub fn has_text() -> bool {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let pb = NSPasteboard::generalPasteboard();
+    // SAFETY: NSPasteboardTypeString is AppKit's immutable constant, set before any Rust runs.
     pb.stringForType(unsafe { NSPasteboardTypeString })
         .is_some()
 }

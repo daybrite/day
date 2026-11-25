@@ -2893,10 +2893,12 @@ mod tests {
             main_thread_budget(Duration::from_secs(120)),
             Duration::from_secs(120)
         );
+        // SAFETY: ENV_LOCK is still held (see the first mutation above).
         unsafe { std::env::set_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS", "90") };
         assert_eq!(main_thread_budget(five), Duration::from_secs(90));
         // Nonsense is ignored rather than producing a zero budget that fails every step.
         for bad in ["0", "-3", "abc", ""] {
+            // SAFETY: ENV_LOCK is still held (see the first mutation above).
             unsafe { std::env::set_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS", bad) };
             assert_eq!(
                 main_thread_budget(five),
@@ -2904,6 +2906,7 @@ mod tests {
                 "{bad:?} should fall back to the default"
             );
         }
+        // SAFETY: ENV_LOCK is still held (see the first mutation above).
         unsafe { std::env::remove_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS") };
     }
 

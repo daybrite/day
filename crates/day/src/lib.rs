@@ -1140,14 +1140,18 @@ pub mod android {
             day_localization_ui::set_launch_locales(&[]);
         }
         if let Some(a) = autodrive {
+            // SAFETY: on the activity's UI thread before the app starts; Rust readers lock against
+            // this in std, and this assumes no native thread reads the environment concurrently.
             unsafe { std::env::set_var("DAY_AUTODRIVE", a) };
         }
         if let Some(l) = locale {
+            // SAFETY: as for DAY_AUTODRIVE above.
             unsafe { std::env::set_var("DAY_LOCALE", l) };
         }
         if let Some(blob) = env_blob {
             for line in blob.lines() {
                 if let Some((k, v)) = line.split_once('=') {
+                    // SAFETY: as for DAY_AUTODRIVE above.
                     unsafe { std::env::set_var(k, v) };
                 }
             }

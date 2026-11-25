@@ -17,12 +17,15 @@ unsafe extern "C" {
 }
 
 pub fn set(key: &str, value: &str) -> bool {
+    // SAFETY: both pointer/length pairs name live UTF-8 strs; the shim copies them during the call.
     unsafe { day_dom_pref_set(key.as_ptr(), key.len(), value.as_ptr(), value.len()) != 0 }
 }
 
 pub fn get(key: &str) -> Option<String> {
     let mut buf = vec![0u8; 256];
     loop {
+        // SAFETY: `key` is a live str the shim copies; it writes at most `buf.len()` bytes into
+        // `buf`, which outlives the synchronous call.
         let n = unsafe { day_dom_pref_get(key.as_ptr(), key.len(), buf.as_mut_ptr(), buf.len()) };
         if n < 0 {
             return None;
@@ -37,9 +40,11 @@ pub fn get(key: &str) -> Option<String> {
 }
 
 pub fn remove(key: &str) -> bool {
+    // SAFETY: `key` is a live str of `key.len()` bytes; the shim copies it during the call.
     unsafe { day_dom_pref_remove(key.as_ptr(), key.len()) != 0 }
 }
 
 pub fn contains(key: &str) -> bool {
+    // SAFETY: `key` is a live str of `key.len()` bytes; the shim copies it during the call.
     unsafe { day_dom_pref_has(key.as_ptr(), key.len()) != 0 }
 }

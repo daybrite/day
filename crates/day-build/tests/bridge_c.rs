@@ -84,10 +84,13 @@ fn with_build_env(out: &Path, platform: &str, f: impl FnOnce()) {
         ("CARGO_CFG_TARGET_ARCH", std::env::consts::ARCH.to_string()),
     ];
     for (k, v) in &vars {
+        // SAFETY: ENV_LOCK, held for this whole function, serializes every env write in this
+        // test binary; the `cc` run in `f` reads the env on this same thread.
         unsafe { std::env::set_var(k, v) };
     }
     f();
     for (k, _) in &vars {
+        // SAFETY: still under ENV_LOCK, which serializes every env write in this test binary.
         unsafe { std::env::remove_var(k) };
     }
 }

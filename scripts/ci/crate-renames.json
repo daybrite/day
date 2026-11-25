@@ -80,6 +80,7 @@
     "scope": "tooling inputs and saved tooling state only",
     "overlap": "one documented tooling release",
     "removal": "the next announced breaking tooling release after that overlap",
-    "crate_aliases": false
+    "crate_aliases": true,
+    "crate_alias_form": "one final release under the old name that re-exports the new crate (CONTRIBUTING.md, Compatibility promise)"
   }
 }

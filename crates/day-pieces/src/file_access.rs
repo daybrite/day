@@ -42,6 +42,7 @@ mod apple {
     impl Drop for Access {
         fn drop(&mut self) {
             if self.active {
+                // SAFETY: balances the successful start in `resolve` on the same retained URL.
                 unsafe { self.url.stopAccessingSecurityScopedResource() };
             }
         }
@@ -70,6 +71,8 @@ mod apple {
             return Err(io::ErrorKind::InvalidData.into());
         }
         let mut stale = Bool::NO;
+        // SAFETY: the data is a fresh NSData copy of `bytes` and `stale` a local BOOL the call
+        // writes; Foundation validates the bookmark and reports bad data as an error.
         let url = unsafe {
             NSURL::URLByResolvingBookmarkData_options_relativeToURL_bookmarkDataIsStale_error(
                 &NSData::with_bytes(bytes),
@@ -82,6 +85,7 @@ mod apple {
         if !url.isFileURL() {
             return Err(io::ErrorKind::InvalidData.into());
         }
+        // SAFETY: `url` is a live file URL; a true result is balanced by `Access`'s drop.
         let active = unsafe { url.startAccessingSecurityScopedResource() };
         let access = Access { url, active };
         let path = access
@@ -117,6 +121,7 @@ pub(crate) struct ScopedRead {
 impl Drop for ScopedRead {
     fn drop(&mut self) {
         if self.active {
+            // SAFETY: balances the successful start in `scoped_read` on the same retained URL.
             unsafe { self.url.stopAccessingSecurityScopedResource() };
         }
     }
@@ -126,6 +131,7 @@ pub(crate) fn scoped_read(path: &std::path::Path) -> io::Result<ScopedRead> {
     let path = path.to_str().ok_or(io::ErrorKind::InvalidInput)?;
     let url = objc2_foundation::NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(path));
     // False is normal for app-private files and unsandboxed desktop apps.
+    // SAFETY: `url` is a live file URL; a true result is balanced by `ScopedRead`'s drop.
     let active = unsafe { url.startAccessingSecurityScopedResource() };
     Ok(ScopedRead { url, active })
 }

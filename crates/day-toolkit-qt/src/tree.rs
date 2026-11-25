@@ -38,6 +38,7 @@ extern "C" fn expanded(node: u64, token: u64, on: c_int) {
 extern "C" fn selected(node: u64, tokens: *const u64, len: c_int) {
     ffi_guard::contain((), || {
         let tokens = if len > 0 && !tokens.is_null() {
+            // SAFETY: non-null here; the shim passes `len` selected tokens, alive for this call.
             unsafe { std::slice::from_raw_parts(tokens, len as usize) }.to_vec()
         } else {
             Vec::new()
@@ -69,6 +70,8 @@ extern "C" fn row_menu(cell: u64, _x: f64, _y: f64) -> *mut c_void {
         if items.is_empty() {
             return std::ptr::null_mut();
         }
+        // SAFETY: a fresh, parentless QMenu; the shim takes it and parents it to the row (crate
+        // note "Unsafe calls").
         let menu = unsafe { ffi::day_qt_menu_new() };
         build_qt_menu(menu, &items);
         menu
@@ -83,6 +86,8 @@ pub(super) fn new(id: NodeId, p: &TreeProps) -> *mut c_void {
         RowHeight::Uniform(h) => h,
         RowHeight::Automatic => 36.0,
     };
+    // SAFETY: a constructor on the GUI thread; the callbacks carry only the node id (crate note
+    // "Unsafe calls").
     let host = unsafe {
         tree_new(
             id.0,
@@ -125,6 +130,7 @@ pub(super) fn patch(host: usize, patch: &TreePatch) {
     match patch {
         TreePatch::Reload => schedule(host, true),
         TreePatch::Expand(token, on) => {
+            // SAFETY: `host` is the tree host Day realized, still live (crate note "Unsafe calls").
             unsafe {
                 tree_expand(host as *mut c_void, *token, i32::from(*on));
             }
@@ -136,11 +142,14 @@ pub(super) fn patch(host: usize, patch: &TreePatch) {
                     e.selected.clone_from(tokens);
                 }
             });
+            // SAFETY: `host` is a live tree host; `tokens` outlives the call (crate note "Unsafe
+            // calls").
             unsafe {
                 tree_select(host as *mut c_void, tokens.as_ptr(), tokens.len() as c_int);
             }
         }
         TreePatch::Reveal(token) => {
+            // SAFETY: `host` is the tree host Day realized, still live (crate note "Unsafe calls").
             unsafe {
                 tree_reveal(host as *mut c_void, *token);
             }
@@ -195,6 +204,8 @@ fn schedule(host: usize, reload: bool) {
                     if !seen.insert(t) {
                         continue;
                     }
+                    // SAFETY: `host` has a live TREES entry for this node, so the tree is alive
+                    // (crate note "Unsafe calls").
                     unsafe {
                         tree_add(
                             host as *mut c_void,
@@ -210,6 +221,8 @@ fn schedule(host: usize, reload: bool) {
                     append(host, source, Some(t), seen);
                 }
             }
+            // SAFETY: `host` has a live TREES entry for this node, so the tree is alive (crate note
+            // "Unsafe calls").
             unsafe {
                 tree_begin(host as *mut c_void);
             }
@@ -232,6 +245,8 @@ fn schedule(host: usize, reload: bool) {
             for cell in stale {
                 (source.recycle)(cell as *mut c_void);
             }
+            // SAFETY: `host` is a live tree; `selected` outlives the call (crate note "Unsafe
+            // calls").
             unsafe {
                 tree_end(host as *mut c_void);
                 tree_select(
@@ -244,6 +259,7 @@ fn schedule(host: usize, reload: bool) {
         let active = TREES.with(|m| m.borrow().get(&host).map_or_default(|e| e.active.clone()));
         for token in active {
             let mut width = 0.0;
+            // SAFETY: `host` is a live tree; `width` is a live local (crate note "Unsafe calls").
             let visible = unsafe { tree_frame(host as *mut c_void, token, &raw mut width) } != 0;
             let old = TREES.with(|m| {
                 m.borrow()
@@ -257,6 +273,8 @@ fn schedule(host: usize, reload: bool) {
                 continue;
             }
             let cell = old.unwrap_or_else(|| {
+                // SAFETY: `host` is a live tree; the shim returns its row cell or null (crate note
+                // "Unsafe calls").
                 let cell = unsafe { tree_cell(host as *mut c_void, token) } as usize;
                 TREES.with(|m| {
                     if let Some(e) = m.borrow_mut().get_mut(&host) {
@@ -264,6 +282,8 @@ fn schedule(host: usize, reload: bool) {
                     }
                 });
                 if cell != 0 && source.row_menu.is_some() {
+                    // SAFETY: `cell` is the tree's live row cell; the callback carries only the
+                    // cell's address (crate note "Unsafe calls").
                     unsafe {
                         ffi::day_qt_context_menu_fn(cell as *mut c_void, cell as u64, row_menu);
                     }

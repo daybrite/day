@@ -33,6 +33,8 @@ extern "C" fn on_value(id: u64, v: f64) {
 }
 
 fn make(_backend: &mut Qt, p: &StepperProps, id: NodeId) -> QtHandle {
+    // SAFETY: a constructor on the GUI thread; `on_value` carries only the node id (crate note
+    // "Unsafe calls").
     QtHandle(unsafe {
         day_stepper_new(
             p.value,
@@ -48,12 +50,14 @@ fn make(_backend: &mut Qt, p: &StepperProps, id: NodeId) -> QtHandle {
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &StepperPatch) {
     let StepperPatch::SetValue(v) = patch;
+    // SAFETY: `h` is the DayStepper `make` returned, still live (crate note "Unsafe calls").
     unsafe { day_stepper_set(h.0, *v) };
 }
 
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe calls").
     unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(96.0), hh.max(24.0))
 }

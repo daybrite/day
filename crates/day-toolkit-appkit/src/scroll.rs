@@ -276,9 +276,11 @@ define_class!(
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
             ffi_guard::contain((), || {
+                // SAFETY: forwards NSScrollView's `scrollWheel:` with the live event AppKit passed
+                // in.
                 let _: () = unsafe { msg_send![super(self), scrollWheel: event] };
-                let gesture = WheelStep::of(unsafe { event.phase() });
-                let momentum = WheelStep::of(unsafe { event.momentumPhase() });
+                let gesture = WheelStep::of(event.phase());
+                let momentum = WheelStep::of(event.momentumPhase());
                 let ivars = self.ivars();
                 ivars.wheel.set(ivars.wheel.get().wrapping_add(1));
                 track(self, ivars, PhaseInput::Wheel { gesture, momentum });
@@ -299,8 +301,8 @@ fn parts(h: &NSView) -> Option<(&NSScrollView, &ScrollIvars)> {
 /// The content offset as `Event::ScrollChanged` and `Toolkit::scroll_offset` speak it: in the
 /// viewport's points, so a zoomed view's offset grows with the scale.
 fn viewport_offset(sv: &NSScrollView) -> (f64, f64) {
-    let origin = unsafe { sv.contentView() }.bounds().origin;
-    let scale = unsafe { sv.magnification() };
+    let origin = sv.contentView().bounds().origin;
+    let scale = sv.magnification();
     (origin.x * scale, origin.y * scale)
 }
 
@@ -309,7 +311,7 @@ fn viewport_offset(sv: &NSScrollView) -> (f64, f64) {
 /// clamped value.
 fn report(sv: &NSScrollView, ivars: &ScrollIvars, settle: bool) {
     if ivars.zoom.is_some() {
-        let scale = unsafe { sv.magnification() };
+        let scale = sv.magnification();
         if settle || (scale - ivars.scale.get()).abs() > 1e-6 {
             ivars.scale.set(scale);
             emit(ivars.node, Event::ScrollZoomed(scale));
@@ -325,7 +327,7 @@ fn report(sv: &NSScrollView, ivars: &ScrollIvars, settle: bool) {
 
 /// The offset along the scroll axis, in content points.
 fn along(sv: &NSScrollView, ivars: &ScrollIvars) -> f64 {
-    let origin = unsafe { sv.contentView() }.bounds().origin;
+    let origin = sv.contentView().bounds().origin;
     if ivars.horizontal { origin.x } else { origin.y }
 }
 
@@ -362,6 +364,8 @@ fn arm_quiet(sv: &NSScrollView, ivars: &ScrollIvars) {
         WHEEL_QUIET_MS,
         Box::new(move || {
             // Reclaim the +1 first, so every return balances it.
+            // SAFETY: `this` is the +1 pointer `Retained::into_raw` made above, reclaimed exactly
+            // once here on the main thread (the post runs on the main queue).
             let Some(sv) = (unsafe { Retained::from_raw(this as *mut NSScrollView) }) else {
                 return;
             };
@@ -377,9 +381,9 @@ fn arm_quiet(sv: &NSScrollView, ivars: &ScrollIvars) {
 /// The scroll came to rest: animate it to the nearest stop when it snaps (emulated, docs/
 /// scroll.md "Snapping"), coasting until it gets there. `false` when there is nothing to do.
 fn snap(sv: &NSScrollView, ivars: &ScrollIvars) -> bool {
-    let clip = unsafe { sv.contentView() };
+    let clip = sv.contentView();
     let bounds = clip.bounds();
-    let Some(doc) = (unsafe { sv.documentView() }) else {
+    let Some(doc) = sv.documentView() else {
         return false;
     };
     let content = doc.frame().size;
@@ -435,15 +439,18 @@ pub(super) fn realize(mtm: MainThreadMarker, node: NodeId, p: &ScrollProps) -> R
     let phased = p.track_phase || p.snap != ScrollSnap::None;
     let sv: Retained<NSScrollView> = if phased {
         let this = DayPhasedScrollView::alloc(mtm).set_ivars(ivars);
+        // SAFETY: NSScrollView's `init` on a fresh DayPhasedScrollView allocation with its ivars
+        // set.
         let this: Retained<DayPhasedScrollView> = unsafe { msg_send![super(this), init] };
         Retained::into_super(this)
     } else {
         let this = DayScrollView::alloc(mtm).set_ivars(ivars);
+        // SAFETY: NSScrollView's `init` on a fresh DayScrollView allocation with its ivars set.
         let this: Retained<DayScrollView> = unsafe { msg_send![super(this), init] };
         Retained::into_super(this)
     };
     let hidden = p.indicators == ScrollIndicators::Hidden;
-    unsafe {
+    {
         sv.setHasVerticalScroller(!p.horizontal && !hidden);
         sv.setHasHorizontalScroller(p.horizontal && !hidden);
         sv.setDrawsBackground(false);
@@ -472,10 +479,12 @@ pub(super) fn realize(mtm: MainThreadMarker, node: NodeId, p: &ScrollProps) -> R
         }
     }
     let doc = DayFlipped::new(mtm);
-    unsafe { sv.setDocumentView(Some(doc.as_ref())) };
+    sv.setDocumentView(Some(doc.as_ref()));
     let center = objc2_foundation::NSNotificationCenter::defaultCenter();
-    let clip = unsafe { sv.contentView() };
+    let clip = sv.contentView();
     // No observer without a reason (docs/scroll.md): a plain scroll view hears nothing.
+    // SAFETY: the center holds `sv` weakly and drops it when `sv` deallocates (macOS 10.11+), so no
+    // removal is needed; `sv`'s class implements each selector it registers. Main thread.
     unsafe {
         if p.track_offset || p.zoom.is_some() {
             clip.setPostsBoundsChangedNotifications(true);
@@ -538,7 +547,7 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
     let scale = scale.clamp(range.min, range.max);
     let zoom = ivars.zooms.get().wrapping_add(1);
     ivars.zooms.set(zoom);
-    let clip = unsafe { sv.contentView() };
+    let clip = sv.contentView();
     let bounds = clip.bounds();
     let center = NSPoint::new(
         bounds.origin.x + bounds.size.width / 2.0,
@@ -557,9 +566,13 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
     let changes = RcBlock::new(move |_ctx: NonNull<NSAnimationContext>| {
         // Through key-value coding: the animator proxy resolves `magnification` dynamically,
         // so a typed `setMagnification:` send fails objc2's method check.
+        // SAFETY: `animator` is NSAnimatablePropertyContainer's getter on the live scroll view
+        // `target`, returning a retained proxy; the group runs this block on the main thread.
         let animator: Retained<AnyObject> = unsafe { msg_send![&*target, animator] };
         let value = NSNumber::new_f64(scale);
         let key = NSString::from_str("magnification");
+        // SAFETY: key-value coding `setValue:forKey:` with an NSNumber for `magnification` (a
+        // CGFloat) on the live animator proxy.
         let _: () = unsafe { msg_send![&*animator, setValue: &*value, forKey: &*key] };
     });
     let completion = RcBlock::new(move || {
@@ -577,7 +590,7 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
             report(sv, ivars, true);
         });
     });
-    unsafe { NSAnimationContext::runAnimationGroup_completionHandler(&changes, Some(&completion)) };
+    NSAnimationContext::runAnimationGroup_completionHandler(&changes, Some(&completion));
 }
 
 /// Set `sv`'s magnification to `scale` with `center` (document coordinates) at the middle of the
@@ -585,8 +598,8 @@ pub(super) fn zoom(h: &NSView, scale: f64, animated: bool) {
 /// (an animator that landed it about another anchor), so the clip view is then moved to put
 /// `center` back in the middle.
 fn land_zoom(sv: &NSScrollView, scale: f64, center: NSPoint) {
-    unsafe { sv.setMagnification_centeredAtPoint(scale, center) };
-    let clip = unsafe { sv.contentView() };
+    sv.setMagnification_centeredAtPoint(scale, center);
+    let clip = sv.contentView();
     let mut bounds = clip.bounds();
     let off_x = bounds.origin.x + bounds.size.width / 2.0 - center.x;
     let off_y = bounds.origin.y + bounds.size.height / 2.0 - center.y;
@@ -611,13 +624,15 @@ pub(super) fn scroll_clip_to(
     animated: bool,
     done: Option<Box<dyn FnOnce()>>,
 ) {
-    let clip: Retained<NSClipView> = unsafe { scroll.contentView() };
+    let clip: Retained<NSClipView> = scroll.contentView();
     let mut bounds = clip.bounds();
     bounds.origin = to;
     let to = clip.constrainBoundsRect(bounds).origin;
     if animated {
         let target = clip.clone();
         let changes = RcBlock::new(move |_ctx: NonNull<NSAnimationContext>| {
+            // SAFETY: `animator` on an NSClipView returns a proxy that answers as an NSClipView;
+            // `target` is a live clone, and the group runs this block on the main thread.
             let animator: Retained<NSClipView> = unsafe { msg_send![&*target, animator] };
             animator.setBoundsOrigin(to);
         });
@@ -630,14 +645,12 @@ pub(super) fn scroll_clip_to(
                 }
             });
         });
-        unsafe {
-            NSAnimationContext::runAnimationGroup_completionHandler(&changes, Some(&completion));
-        }
+        NSAnimationContext::runAnimationGroup_completionHandler(&changes, Some(&completion));
     } else {
         // Stop one in flight, which would otherwise go on moving the clip view after the jump.
         settle_clip_at(&clip, to);
         clip.scrollToPoint(to);
-        unsafe { scroll.reflectScrolledClipView(&clip) };
+        scroll.reflectScrolledClipView(&clip);
         if let Some(done) = done {
             done();
         }
@@ -647,6 +660,8 @@ pub(super) fn scroll_clip_to(
 /// Set `clip`'s bounds origin to `to` through a zero-length animation of the same property,
 /// which stops an animated scroll still running.
 fn settle_clip_at(clip: &NSClipView, to: NSPoint) {
+    // SAFETY: `animator` on the live NSClipView `clip` returns a proxy that answers as an
+    // NSClipView; the grouping calls are balanced, on the main thread.
     unsafe {
         NSAnimationContext::beginGrouping();
         NSAnimationContext::currentContext().setDuration(0.0);
@@ -660,7 +675,7 @@ fn settle_clip_at(clip: &NSClipView, to: NSPoint) {
 /// the list (docs/list.md "Following the end"), and a scroll the app asked for must not carry
 /// it on past them.
 pub(super) fn stop_clip_animation(scroll: &NSScrollView) {
-    let clip: Retained<NSClipView> = unsafe { scroll.contentView() };
+    let clip: Retained<NSClipView> = scroll.contentView();
     settle_clip_at(&clip, clip.bounds().origin);
 }
 

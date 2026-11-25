@@ -60,6 +60,8 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
         let s = if text.is_null() {
             String::new()
         } else {
+            // SAFETY: a non-null string from the shim is NUL-terminated (a `c_str()`) and lives for
+            // the call.
             unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned()
@@ -69,6 +71,7 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
 }
 
 fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     let ptr = unsafe {
         day_textarea_xaml_new(
             cstr(&p.placeholder).as_ptr(),
@@ -79,6 +82,7 @@ fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
     };
     // The attributes are applied at build too, not only through patches: a text_area that starts
     // read-only (or with spell-check off) must come up that way rather than after its first patch.
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         day_textarea_xaml_set_editable(ptr, c_int::from(p.editable));
         day_textarea_xaml_set_selectable(ptr, c_int::from(p.selectable));
@@ -90,15 +94,19 @@ fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &TextPatch) {
     match patch {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         TextPatch::SetText(t) => unsafe { day_textarea_xaml_set_text(h.0, cstr(t).as_ptr()) },
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         TextPatch::SetEditable(v) => unsafe {
             day_textarea_xaml_set_editable(h.0, c_int::from(*v));
         },
         // Emulated, not native: TextBox has no IsTextSelectionEnabled (that is TextBlock's), so the
         // shim collapses selections as they form and suppresses the context menu (docs/textarea.md).
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         TextPatch::SetSelectable(v) => unsafe {
             day_textarea_xaml_set_selectable(h.0, c_int::from(*v));
         },
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         TextPatch::SetSpellCheck(v) => unsafe {
             day_textarea_xaml_set_spellcheck(h.0, c_int::from(*v));
         },
@@ -110,6 +118,7 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     let avail_w = p.width.unwrap_or(300.0).max(160.0);
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { day_xaml_measure(h.0, avail_w, -1.0, &raw mut w, &raw mut hh) };
     let min_h = f64::from(min_lines) * LINE_H + PAD;
     let max_h = if max_lines > 0 {

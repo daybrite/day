@@ -121,6 +121,8 @@ define_class!(
                 .userInfo()
                 .objectForKey(&*NSString::from_str(ROUTE_KEY));
             if let Some(route) = route {
+                // SAFETY: assumes the value is the NSString `post` stored under ROUTE_KEY; it is
+                // not type-checked, so a remote payload with a non-string `day.route` breaks it.
                 let text: Retained<NSString> = unsafe { Retained::cast_unchecked(route) };
                 crate::deliver_tap(&text.to_string());
             }
@@ -194,8 +196,11 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
                 &[&*NSString::from_str(n.route_str())],
             );
             // setUserInfo takes the type-erased dictionary; the concrete one is layout-identical.
+            // SAFETY: the same NSDictionary object; only its Rust-side generic parameters change.
             let erased: Retained<objc2_foundation::NSDictionary> =
                 unsafe { Retained::cast_unchecked(typed) };
+            // SAFETY: `content` is a live mutable content object; userInfo needs property-list
+            // keys and values, and these are NSStrings.
             unsafe { content.setUserInfo(&erased) };
         }
         if let Some(badge) = n.badge_count() {

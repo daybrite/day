@@ -17,6 +17,7 @@ fn sysctl_string(name: &str) -> Option<String> {
     let cname = CString::new(name).ok()?;
     let mut size: libc::size_t = 0;
     // First call: query the required buffer size.
+    // SAFETY: `cname` is NUL-terminated and `size` is a local; a null buffer asks for the size.
     let rc = unsafe {
         libc::sysctlbyname(
             cname.as_ptr(),
@@ -31,6 +32,7 @@ fn sysctl_string(name: &str) -> Option<String> {
     }
     let mut buf = vec![0u8; size];
     // Second call: fill the buffer.
+    // SAFETY: `buf` holds `size` writable bytes and `size` tells sysctl so; both outlive the call.
     let rc = unsafe {
         libc::sysctlbyname(
             cname.as_ptr(),

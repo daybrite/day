@@ -57,6 +57,7 @@ fn main() {
     let _app = NSApplication::sharedApplication(mtm);
     let mut toolkit = AppKit::new();
     toolkit.set_event_sink(Box::new(|_, _| {}));
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -66,6 +67,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     window.orderFront(None);
     let content = window.contentView().expect("content view");

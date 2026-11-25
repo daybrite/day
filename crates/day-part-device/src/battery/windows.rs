@@ -31,6 +31,7 @@ pub fn status() -> Option<BatteryStatus> {
         battery_life_time: 0,
         battery_full_life_time: 0,
     };
+    // SAFETY: `sps` is a live, writable `SYSTEM_POWER_STATUS` with the C layout the call fills.
     if unsafe { GetSystemPowerStatus(&raw mut sps) } == 0 {
         return None;
     }

@@ -51,6 +51,8 @@ pub(crate) fn attach(view: &objc2::rc::Retained<objc2_app_kit::NSView>, host: No
     });
     let center = NSNotificationCenter::defaultCenter();
     let clip_obj: &AnyObject = &clip;
+    // SAFETY: the center copies `block` and keeps it until the scope cleanup below removes `token`.
+    // With no queue it runs on the posting thread, the main thread that moves `clip`'s bounds.
     let token = unsafe {
         center.addObserverForName_object_queue_usingBlock(
             Some(NSViewBoundsDidChangeNotification),
@@ -65,6 +67,8 @@ pub(crate) fn attach(view: &objc2::rc::Retained<objc2_app_kit::NSView>, host: No
         // The observer token is a ProtocolObject (no Deref to AnyObject); every ObjC object
         // shares representation, so the pointer cast is the standard bridge.
         let ptr = objc2::rc::Retained::as_ptr(&token).cast::<AnyObject>();
+        // SAFETY: `ptr` points at the observer token this closure owns, live for the call; main
+        // thread.
         unsafe { center.removeObserver(&*ptr) };
     });
 }

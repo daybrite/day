@@ -12,7 +12,7 @@ struct DisplaySource {
 }
 impl Drop for DisplaySource {
     fn drop(&mut self) {
-        unsafe { self.link.invalidate() };
+        self.link.invalidate();
     }
 }
 thread_local! {
@@ -33,11 +33,11 @@ define_class!(
         #[unsafe(method(step:))]
         fn step(&self, link: &CADisplayLink) {
             ffi_guard::contain((), || {
-                unsafe { link.setPaused(true) };
+                link.setPaused(true);
                 let token = self.ivars().token.replace(0);
                 native::deliver(token, FrameStamp {
-                    timestamp: unsafe { link.timestamp() },
-                    target_timestamp: Some(unsafe { link.targetTimestamp() }),
+                    timestamp: link.timestamp(),
+                    target_timestamp: Some(link.targetTimestamp()),
                 });
                 // A continuing consumer has re-armed this same link during delivery.
                 if self.ivars().token.get() == 0 {
@@ -50,7 +50,7 @@ define_class!(
 pub(super) fn request(host: &NSView, cb: FrameCallback) -> CancelFrame {
     // Avoid even referencing the new NSView method on macOS 13. That supported OS has a real
     // Core Video vsync source too, so it never needs a synthetic 16ms timer.
-    if !unsafe { host.respondsToSelector(sel!(displayLinkWithTarget:selector:)) } {
+    if !host.respondsToSelector(sel!(displayLinkWithTarget:selector:)) {
         return legacy::request(host, cb);
     }
     let key = ptr_of(host);
@@ -63,9 +63,14 @@ pub(super) fn request(host: &NSView, cb: FrameCallback) -> CancelFrame {
                     key,
                     token: Cell::new(0),
                 });
+            // SAFETY: NSObject's `init` on a fresh FrameTarget allocation with its ivars set;
+            // returns it +1.
             let target: Retained<FrameTarget> = unsafe { msg_send![super(this), init] };
             let link: Retained<CADisplayLink> =
+                // SAFETY: `host` answers `displayLinkWithTarget:selector:` (checked above) with a
+                // retained link; `target` implements `step:`, and SOURCES keeps it alive.
                 unsafe { msg_send![host, displayLinkWithTarget: &*target, selector: sel!(step:)] };
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 link.addToRunLoop_forMode(
                     &objc2_foundation::NSRunLoop::mainRunLoop(),
@@ -75,7 +80,7 @@ pub(super) fn request(host: &NSView, cb: FrameCallback) -> CancelFrame {
             DisplaySource { link, target }
         });
         source.target.ivars().token.set(token);
-        unsafe { source.link.setPaused(false) };
+        source.link.setPaused(false);
     });
     Box::new(move || {
         native::cancel(token);
@@ -116,6 +121,7 @@ mod legacy {
     impl Drop for Guard {
         fn drop(&mut self) {
             // Stop joins outstanding callbacks before the context is released.
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 CVDisplayLinkStop(self.link);
                 CVDisplayLinkRelease(self.link);
@@ -131,6 +137,8 @@ mod legacy {
         _: *mut u64,
         context: *mut c_void,
     ) -> i32 {
+        // SAFETY: `context` is the Box<Context> the Guard owns; dropping the Guard stops the link,
+        // which waits for running callbacks, before freeing it. Only atomics are touched here.
         let ctx = unsafe { &*context.cast::<Context>() };
         if !ctx.sent.swap(true, Ordering::AcqRel) {
             let token = ctx.token;
@@ -146,15 +154,17 @@ mod legacy {
             .or_else(|| objc2_app_kit::NSScreen::mainScreen(MainThreadMarker::new().unwrap()));
         let display = screen
             .and_then(|s| {
-                let value = unsafe {
-                    s.deviceDescription()
-                        .objectForKey(&NSString::from_str("NSScreenNumber"))
-                }?;
+                let value = s
+                    .deviceDescription()
+                    .objectForKey(&NSString::from_str("NSScreenNumber"))?;
+                // SAFETY: a device description's NSScreenNumber is an NSNumber, which answers
+                // `unsignedIntValue` with a u32; main thread.
                 Some(unsafe { msg_send![&*value, unsignedIntValue] })
             })
             .unwrap_or(0);
         let token = native::register(cb);
         let mut link = std::ptr::null_mut();
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         if unsafe { CVDisplayLinkCreateWithCGDisplay(display, &raw mut link) } != 0 {
             native::cancel(token);
             log::error!("could not create Core Video display link");
@@ -168,7 +178,9 @@ mod legacy {
             }),
         };
         let context = (&raw mut *guard.context).cast();
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         if unsafe { CVDisplayLinkSetOutputCallback(link, fire, context) } != 0
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             || unsafe { CVDisplayLinkStart(link) } != 0
         {
             log::error!("could not start Core Video display link");

@@ -267,6 +267,17 @@ SWIFT
             ls -la build/day/dist >&2 || true
             exit 1
         }
+        if [ "$COMBO" = ios-uikit ]; then
+            # Two equivalent GOT slots can happen to get the same assignment in both
+            # builds. Check the final device binary as well as comparing the rebuild.
+            unzip -p "$ART" Payload/CiSample.app/CiSample > "$WORK/CiSample.macho"
+            slots=$(xcrun dyld_info -fixups "$WORK/CiSample.macho" |
+                awk '$2 == "__got" && $NF == "libobjc/_objc_msgSend" { n++ } END { print n+0 }')
+            [ "$slots" = 1 ] || {
+                echo "expected one _objc_msgSend GOT slot in the iOS scaffold, found $slots" >&2
+                exit 1
+            }
+        fi
         echo "== rebuilding $(basename "$ART")"
         "$DAY" rebuild --from-dir "$PWD" --keep --strict "$ART"
     done

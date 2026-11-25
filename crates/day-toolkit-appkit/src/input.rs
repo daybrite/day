@@ -282,6 +282,8 @@ struct ActivePress {
 struct InputMonitor(Retained<AnyObject>);
 impl Drop for InputMonitor {
     fn drop(&mut self) {
+        // SAFETY: `self.0` is the monitor `addLocalMonitorForEventsMatchingMask:handler:` returned,
+        // removed once, on the main thread.
         unsafe { NSEvent::removeMonitor(&self.0) };
     }
 }
@@ -376,7 +378,7 @@ pub(super) fn takes_pointer(view: &NSView) -> bool {
 fn passive_leaf(view: &NSView) -> bool {
     let leaf = view
         .downcast_ref::<objc2_app_kit::NSImageView>()
-        .is_some_and(|iv| !unsafe { iv.isEditable() })
+        .is_some_and(|iv| !iv.isEditable())
         || view.downcast_ref::<NSBox>().is_some();
     leaf && !takes_pointer(view)
 }
@@ -388,6 +390,7 @@ pub(super) fn container_hit_test(this: &NSView, point: NSPoint) -> Option<Retain
     if this.isHidden() {
         return None;
     }
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let local = match unsafe { this.superview() } {
         Some(sup) => this.convertPoint_fromView(point, Some(&sup)),
         None => point,
@@ -401,7 +404,7 @@ pub(super) fn container_hit_test(this: &NSView, point: NSPoint) -> Option<Retain
     if subtree_disabled(this) {
         return None;
     }
-    for child in unsafe { this.subviews() }.to_vec().into_iter().rev() {
+    for child in this.subviews().to_vec().into_iter().rev() {
         if child.isHidden() {
             continue;
         }
@@ -461,7 +464,7 @@ pub(super) fn set_hit_slop(view: &NSView, slop: Insets) {
 pub(super) fn install_hover_area(view: &NSView) {
     let key = ptr_of(view);
     if let Some(old) = HOVER_AREAS.with(|t| t.take(key)) {
-        unsafe { view.removeTrackingArea(&old) };
+        view.removeTrackingArea(&old);
     }
     let base = NSTrackingAreaOptions::MouseEnteredAndExited
         | NSTrackingAreaOptions::MouseMoved
@@ -472,6 +475,7 @@ pub(super) fn install_hover_area(view: &NSView) {
         (NSRect::ZERO, base | NSTrackingAreaOptions::InVisibleRect)
     };
     let owner: &AnyObject = view;
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let area = unsafe {
         NSTrackingArea::initWithRect_options_owner_userInfo(
             NSTrackingArea::alloc(),
@@ -481,7 +485,7 @@ pub(super) fn install_hover_area(view: &NSView) {
             None,
         )
     };
-    unsafe { view.addTrackingArea(&area) };
+    view.addTrackingArea(&area);
     HOVER_AREAS.with(|t| t.insert(key, area));
 }
 
@@ -534,6 +538,7 @@ pub(super) fn install_monitor() {
             return;
         }
         let block = block2::RcBlock::new(|raw: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit hands a local event monitor a non-null NSEvent that is valid for the block call.
             let event = unsafe { raw.as_ref() };
             ffi_guard::contain(raw.as_ptr(), || {
                 if observe(event) {
@@ -552,6 +557,8 @@ pub(super) fn install_monitor() {
             | NSEventMask::KeyDown
             | NSEventMask::KeyUp;
         *slot.borrow_mut() =
+            // SAFETY: AppKit copies `block` and keeps it until the monitor is removed; local
+            // monitors run on the main thread, and the block captures nothing.
             unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &block) }
                 .map(InputMonitor);
     });
@@ -574,16 +581,11 @@ fn observe(event: &NSEvent) -> bool {
         classify_pointer(
             kind,
             NSEventSubtype::MouseEvent,
-            unsafe { event.isEnteringProximity() },
-            unsafe { event.pointingDeviceType() },
+            event.isEnteringProximity(),
+            event.pointingDeviceType(),
         )
     } else {
-        classify_pointer(
-            kind,
-            unsafe { event.subtype() },
-            false,
-            NSPointingDeviceType::Unknown,
-        )
+        classify_pointer(kind, event.subtype(), false, NSPointingDeviceType::Unknown)
     };
     if let Some(now) = pointer
         && POINTER.with(|p| p.replace(now)) != now
@@ -655,6 +657,7 @@ fn press_down(event: &NSEvent) {
                 last: at,
             });
         }
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         view = unsafe { v.superview() };
     }
     if pressed.is_empty() {
@@ -862,6 +865,7 @@ pub(super) fn subtree_disabled(view: &NSView) -> bool {
             if l.is_root(ptr_of(&v)) {
                 return true;
             }
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             cur = unsafe { v.superview() };
         }
         false
@@ -902,7 +906,7 @@ fn collect(view: &NSView, out: &mut Vec<(usize, Retained<NSView>, Prior)>) {
     if let Some(prior) = prior_of(view) {
         out.push((ptr_of(view), Retained::from(view), prior));
     }
-    for sub in &unsafe { view.subviews() } {
+    for sub in &view.subviews() {
         collect(&sub, out);
     }
 }
@@ -967,7 +971,7 @@ pub(super) fn set_subtree_enabled(root: &NSView, enabled: bool) {
     }
     PRESSES.with(|p| {
         p.borrow_mut()
-            .retain(|press| !unsafe { press.view.isDescendantOf(root) });
+            .retain(|press| !press.view.isDescendantOf(root));
     });
     let fresh = LEDGER.with(|l| {
         l.borrow_mut().disable(key, || {
@@ -984,15 +988,16 @@ pub(super) fn set_subtree_enabled(root: &NSView, enabled: bool) {
 /// Whether `responder` is `root`, a view inside it, or the field editor of a field inside it.
 fn responder_inside(responder: &NSResponder, root: &NSView) -> bool {
     if let Some(text) = responder.downcast_ref::<NSText>()
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         && let Some(delegate) = unsafe { text.delegate() }
         && let Some(field) = AsRef::<AnyObject>::as_ref(&*delegate).downcast_ref::<NSView>()
-        && unsafe { field.isDescendantOf(root) }
+        && field.isDescendantOf(root)
     {
         return true;
     }
     responder
         .downcast_ref::<NSView>()
-        .is_some_and(|v| unsafe { v.isDescendantOf(root) })
+        .is_some_and(|v| v.isDescendantOf(root))
 }
 
 /// A disabled root left the tree: put back what it alone held.

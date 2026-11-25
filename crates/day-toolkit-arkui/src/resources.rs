@@ -85,8 +85,8 @@ pub enum Mapped {
 impl Mapped {
     pub fn as_ptr_len(&self) -> (*const u8, usize) {
         match self {
-            // SAFETY: the mapping is `len` bytes from `base`, and the entry starts `offset` in.
             Mapped::Mmap { base, len, offset } => {
+                // SAFETY: the mapping is `len` bytes from `base`, and the entry starts `offset` in.
                 (unsafe { base.cast::<u8>().add(*offset) }, len - offset)
             }
             Mapped::Heap(v) => (v.as_ptr(), v.len()),

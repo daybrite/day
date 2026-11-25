@@ -271,6 +271,8 @@ fn default_open(name: &str) -> Option<Resource> {
     let mmap = unsafe { memmap2::Mmap::map(&file).ok()? };
     let ptr = mmap.as_ptr();
     let len = mmap.len();
+    // SAFETY: `ptr`/`len` describe the mapping, which `mmap` (the guard) owns; moving the `Mmap`
+    // into the box does not move the mapped pages. Assumes nobody rewrites the file meanwhile.
     Some(unsafe { Resource::from_raw(ptr, len, Box::new(mmap)) })
 }
 

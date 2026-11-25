@@ -53,6 +53,8 @@ define_class!(
 impl SearchTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(SearchIvars { node });
+        // SAFETY: NSObject's `init` on a fresh SearchTarget allocation with its ivars set; returns
+        // it +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -74,6 +76,8 @@ fn make(backend: &mut AppKit, p: &SearchProps, id: NodeId) -> Retained<NSView> {
     // NSSearchField is an NSTextField, so its NSControl text-editing delegate delivers per-keystroke
     // controlTextDidChange: to our NSTextFieldDelegate.
     let tf: &NSTextField = field.as_ref();
+    // SAFETY: the field holds its delegate weakly; TARGETS keeps `target` alive until `release`
+    // drops the field. Main thread.
     unsafe { tf.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
     let ns: Retained<NSView> = Retained::from(<NSSearchField as AsRef<NSView>>::as_ref(&field));
     TARGETS.with(|m| {

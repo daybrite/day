@@ -74,6 +74,7 @@ unsafe extern "C" {
 fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(120.0), hh.max(32.0))
 }
@@ -100,6 +101,7 @@ mod date_renderer {
     }
 
     fn make(_backend: &mut Xaml, p: &DateProps, id: NodeId) -> WinHandle {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         WinHandle(unsafe {
             day_datetime_xaml_date_new(
                 c_int::from(p.style == Style::Inline),
@@ -116,6 +118,7 @@ mod date_renderer {
 
     fn update(_backend: &mut Xaml, h: &WinHandle, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { day_datetime_xaml_date_set(h.0, CivilDate::of(*d)) };
     }
 
@@ -140,11 +143,13 @@ mod time_renderer {
 
     fn make(_backend: &mut Xaml, p: &TimeProps, id: NodeId) -> WinHandle {
         // `seconds` is a documented no-op: TimePicker edits hours/minutes only.
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         WinHandle(unsafe { day_datetime_xaml_time_new(p.time.seconds_of_day(), id.0, on_time) })
     }
 
     fn update(_backend: &mut Xaml, h: &WinHandle, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { day_datetime_xaml_time_set(h.0, t.seconds_of_day()) };
     }
 

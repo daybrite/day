@@ -211,6 +211,8 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
                 _ => (0, 0),
             };
             let action = item.action;
+            // SAFETY: `bar` is the window's live QToolBar; strings outlive the call (crate note
+            // "Unsafe calls").
             unsafe {
                 ffi::day_qt_toolbar_add_action(
                     bar,
@@ -245,6 +247,8 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
                 .collect::<Vec<_>>()
                 .join("\u{1f}");
             let (titles, icons) = (cstr(&titles), cstr(&icons));
+            // SAFETY: `bar` is the window's live QToolBar; strings outlive the call (crate note
+            // "Unsafe calls").
             unsafe {
                 ffi::day_qt_toolbar_add_segmented(
                     bar,
@@ -258,6 +262,8 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
             };
         }
         ToolbarItemKind::Menu { items } => {
+            // SAFETY: `bar` is the window's live QToolBar; the menu returned is the bar's (crate
+            // note "Unsafe calls").
             let menu = unsafe {
                 ffi::day_qt_toolbar_add_menu(
                     bar,
@@ -280,6 +286,8 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
         } => {
             let text = cstr(text);
             let ph = cstr(placeholder);
+            // SAFETY: `bar` and `win` are the live bar and DayWindow; strings outlive the call
+            // (crate note "Unsafe calls").
             unsafe {
                 ffi::day_qt_toolbar_add_search(
                     bar,
@@ -294,9 +302,13 @@ fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
                 ffi::day_qt_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr());
             };
         }
+        // SAFETY: `bar` is the window's live QToolBar; strings outlive the call (crate note "Unsafe
+        // calls").
         ToolbarItemKind::Label => unsafe {
             ffi::day_qt_toolbar_add_label(bar, id.as_ptr(), label.as_ptr());
         },
+        // SAFETY: `bar` is the window's live QToolBar; `id` outlives the call (crate note "Unsafe
+        // calls").
         ToolbarItemKind::Separator => unsafe {
             ffi::day_qt_toolbar_add_separator(bar, id.as_ptr());
         },
@@ -310,10 +322,13 @@ impl Qt {
         let Some(win) = self.window_of(h) else {
             return false;
         };
+        // SAFETY: `win` is a live DayWindow from `window_of` (crate note "Unsafe calls").
         let bar = unsafe { ffi::day_qt_window_toolbar(win) };
         if bar.is_null() {
             return false;
         }
+        // SAFETY: `bar` is the window's live QToolBar, checked non-null (crate note "Unsafe
+        // calls").
         let columns = unsafe { ffi::day_qt_toolbar_has_columns(bar) } != 0;
         let mirror = self.toolbars.entry(win as usize).or_default();
         for op in ops {
@@ -321,6 +336,8 @@ impl Qt {
                 day_spec::ToolbarOp::Remove { id } => {
                     mirror.remove(id);
                     let id = cstr(id);
+                    // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note
+                    // "Unsafe calls").
                     unsafe { ffi::day_qt_toolbar_remove(win, id.as_ptr()) };
                 }
                 day_spec::ToolbarOp::Insert { index, item } => {
@@ -332,6 +349,8 @@ impl Qt {
                     // The column as asked, not as this layout folds it: the shim re-places by it
                     // when a split arrives or leaves.
                     let (col, _) = slot_of(item, true);
+                    // SAFETY: `bar` is the window's live QToolBar; `after` outlives the call (crate
+                    // note "Unsafe calls").
                     unsafe {
                         ffi::day_qt_toolbar_begin_insert(
                             bar,
@@ -346,6 +365,7 @@ impl Qt {
                 }
             }
         }
+        // SAFETY: `win` is a live DayWindow from `window_of` (crate note "Unsafe calls").
         unsafe { ffi::day_qt_window_toolbar_done(win) };
         true
     }
@@ -358,33 +378,49 @@ impl Qt {
         }
         let id = cstr(patch.item());
         match patch {
+            // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note "Unsafe
+            // calls").
             ToolbarPatch::Focus { .. } => unsafe { ffi::day_qt_toolbar_focus(win, id.as_ptr()) },
             ToolbarPatch::Text { text, .. } => {
                 let text = cstr(text);
+                // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note
+                // "Unsafe calls").
                 unsafe { ffi::day_qt_toolbar_set_text(win, id.as_ptr(), text.as_ptr()) };
             }
+            // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note "Unsafe
+            // calls").
             ToolbarPatch::On { on, .. } => unsafe {
                 ffi::day_qt_toolbar_set_checked(win, id.as_ptr(), c_int::from(*on));
             },
+            // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note "Unsafe
+            // calls").
             ToolbarPatch::Selected { index, .. } => unsafe {
                 ffi::day_qt_toolbar_set_selected(win, id.as_ptr(), *index as c_int);
             },
+            // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note "Unsafe
+            // calls").
             ToolbarPatch::Suggestions { list, .. } => unsafe {
                 let joined = cstr(&list.join("\n"));
                 ffi::day_qt_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr());
             },
+            // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note "Unsafe
+            // calls").
             ToolbarPatch::Enabled { on, .. } => unsafe {
                 ffi::day_qt_toolbar_set_enabled(win, id.as_ptr(), c_int::from(*on));
             },
             ToolbarPatch::Label { label, tooltip, .. } => {
                 let tip = cstr(tooltip.as_deref().unwrap_or(label));
                 let label = cstr(label);
+                // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note
+                // "Unsafe calls").
                 unsafe {
                     ffi::day_qt_toolbar_set_words(win, id.as_ptr(), label.as_ptr(), tip.as_ptr());
                 };
             }
             ToolbarPatch::Placeholder { text, .. } => {
                 let text = cstr(text);
+                // SAFETY: `win` is a live DayWindow; the shim ignores an unknown id (crate note
+                // "Unsafe calls").
                 unsafe { ffi::day_qt_toolbar_set_placeholder(win, id.as_ptr(), text.as_ptr()) };
             }
         }

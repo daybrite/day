@@ -36,6 +36,8 @@ unsafe extern "system" {
 pub fn set_text(text: &str) -> bool {
     // UTF-16 with the required trailing NUL.
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: the clipboard is opened and closed on this thread; `mem` is allocated with room
+    // for `wide` and locked for the copy, and passes to the clipboard only when the set succeeds.
     unsafe {
         if OpenClipboard(std::ptr::null_mut()) == 0 {
             return false; // another app holds the clipboard open
@@ -67,6 +69,9 @@ pub fn set_text(text: &str) -> bool {
 }
 
 pub fn get_text() -> Option<String> {
+    // SAFETY: the clipboard is open on this thread while its handle is locked and read. The scan
+    // stops at the first NUL or at the end of the block (`GlobalSize`), whichever comes first, so
+    // text another app stored without a terminator is never read past its allocation.
     unsafe {
         if OpenClipboard(std::ptr::null_mut()) == 0 {
             return None;
@@ -77,12 +82,13 @@ pub fn get_text() -> Option<String> {
             if mem.is_null() {
                 return None;
             }
+            let units = GlobalSize(mem) / std::mem::size_of::<u16>();
             let p = GlobalLock(mem) as *const u16;
             if p.is_null() {
                 return None;
             }
             let mut len = 0usize;
-            while *p.add(len) != 0 {
+            while len < units && *p.add(len) != 0 {
                 len += 1;
             }
             let s = String::from_utf16_lossy(std::slice::from_raw_parts(p, len));
@@ -96,6 +102,7 @@ pub fn get_text() -> Option<String> {
 
 pub fn has_text() -> bool {
     // Format probe; no OpenClipboard needed.
+    // SAFETY: takes a format id only and touches no memory of ours.
     unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT) != 0 }
 }
 
@@ -122,9 +129,12 @@ fn format_id(mime: &str) -> u32 {
         m => m,
     };
     let wide: Vec<_> = name.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: `wide` is a NUL-terminated UTF-16 name that outlives the call.
     unsafe { RegisterClipboardFormatW(wide.as_ptr()) }
 }
 pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
+    // SAFETY: the clipboard is opened and closed on this thread; each `mem` is allocated with
+    // room for its bytes, locked for the copy, and freed unless the clipboard took it.
     unsafe {
         if OpenClipboard(GetActiveWindow()) == 0 {
             return Err(Error::Unavailable);
@@ -201,6 +211,8 @@ pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
     }
 }
 pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error> {
+    // SAFETY: the clipboard is open on this thread while its handles are locked; each read
+    // covers `GlobalSize` bytes of the locked block and is copied out before the unlock.
     unsafe {
         if OpenClipboard(std::ptr::null_mut()) == 0 {
             return Err(Error::Unavailable);

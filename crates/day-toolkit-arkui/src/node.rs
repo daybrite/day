@@ -1858,8 +1858,8 @@ pub fn scroll_to_rect(n: Handle, x: f32, y: f32, w: f32, h: f32, animated: bool)
         return;
     }
     let offset = get_values(n, Attr::NODE_SCROLL_OFFSET);
-    // SAFETY: the offset attribute's two slots are floats.
     let (ox, oy) = if offset.len() >= 2 {
+        // SAFETY: the offset attribute's two slots are floats.
         unsafe { (offset[0].f32_, offset[1].f32_) }
     } else {
         (0.0, 0.0)

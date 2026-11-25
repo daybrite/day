@@ -1915,6 +1915,8 @@ const SCAFFOLD_LINTS: &str = r#"# Lint policy: Clippy's `pedantic` group. The pr
 # `#[expect(clippy::<lint>, reason = "…")]`.
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+# Every `unsafe` block states why it is sound in a `// SAFETY:` comment.
+undocumented_unsafe_blocks = "warn"
 # UI code converts between float layout units and integer indices and pixel counts, and `as`
 # is the only operator for float-to-integer.
 cast_possible_truncation = "allow"
@@ -2615,6 +2617,7 @@ define_class!(
 impl FieldTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
+        // SAFETY: `init` is NSObject's initializer, sent once to a new instance whose ivars are set.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -2632,6 +2635,7 @@ fn make(backend: &mut AppKit, p: &__PASCAL__Props, id: NodeId) -> Retained<NSVie
     }
     field.setStringValue(&NSString::from_str(&p.text));
     let target = FieldTarget::new(mtm, id);
+    // SAFETY: the field holds its delegate weakly; `TARGETS` keeps `target` alive with the view.
     unsafe { field.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
     let ns: Retained<NSView> = Retained::from(<NSTextField as AsRef<NSView>>::as_ref(&field));
     TARGETS.with(|m| {
@@ -2764,6 +2768,7 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
     let s = if text.is_null() {
         String::new()
     } else {
+        // SAFETY: the shim passes a non-null, NUL-terminated string that is valid for the call.
         unsafe { CStr::from_ptr(text) }
             .to_string_lossy()
             .into_owned()
@@ -2776,6 +2781,8 @@ fn cstr(s: &str) -> CString {
 }
 
 fn make(_backend: &mut Qt, p: &__PASCAL__Props, id: NodeId) -> QtHandle {
+    // SAFETY: both C strings outlive the call and the shim copies them; `on_text` has the
+    // callback signature the shim declares.
     QtHandle(unsafe {
         day___SNAKE___new(
             cstr(&p.placeholder).as_ptr(),
@@ -2788,13 +2795,15 @@ fn make(_backend: &mut Qt, p: &__PASCAL__Props, id: NodeId) -> QtHandle {
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &__PASCAL__Patch) {
     let __PASCAL__Patch::SetText(t) = patch;
+    // SAFETY: `h.0` is the live widget `make` created; the shim copies the text during the call.
     unsafe { day___SNAKE___set_text(h.0, cstr(t).as_ptr()) };
 }
 
 fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_qt_size_hint(h.0, &mut w, &mut hh) };
+    // SAFETY: `h.0` is a live widget; the shim writes both out-parameters before it returns.
+    unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     let width = p.width.unwrap_or(w).max(120.0);
     Size::new(width, hh.max(24.0))
 }
@@ -2890,6 +2899,7 @@ define_class!(
 impl FieldTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
+        // SAFETY: `init` is NSObject's initializer, sent once to a new instance whose ivars are set.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -2908,6 +2918,8 @@ fn make(_backend: &mut Uikit, p: &__PASCAL__Props, id: NodeId) -> Retained<UIVie
         field.setText(Some(&NSString::from_str(&p.text)));
     }
     let target = FieldTarget::new(mtm, id);
+    // SAFETY: UIKit does not retain targets; `TARGETS` keeps `target` alive with the view, and
+    // its class implements `fire:`.
     unsafe {
         field.addTarget_action_forControlEvents(
             Some(&target),
@@ -2918,7 +2930,7 @@ fn make(_backend: &mut Uikit, p: &__PASCAL__Props, id: NodeId) -> Retained<UIVie
     let ns: Retained<UIView> = Retained::from(<UITextField as AsRef<UIView>>::as_ref(&field));
     TARGETS.with(|m| {
         m.borrow_mut()
-            .insert((ns.as_ref() as *const UIView) as usize, target)
+            .insert(std::ptr::from_ref::<UIView>(ns.as_ref()) as usize, target)
     });
     ns
 }
@@ -3069,6 +3081,7 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
     let s = if text.is_null() {
         String::new()
     } else {
+        // SAFETY: the shim passes a non-null, NUL-terminated string that is valid for the call.
         unsafe { CStr::from_ptr(text) }
             .to_string_lossy()
             .into_owned()
@@ -3081,6 +3094,8 @@ fn cstr(s: &str) -> CString {
 }
 
 fn make(_backend: &mut Xaml, p: &__PASCAL__Props, id: NodeId) -> WinHandle {
+    // SAFETY: both C strings outlive the call and the shim copies them; `on_text` has the
+    // callback signature the shim declares.
     WinHandle(unsafe {
         day___SNAKE___xaml_new(
             cstr(&p.placeholder).as_ptr(),
@@ -3093,13 +3108,15 @@ fn make(_backend: &mut Xaml, p: &__PASCAL__Props, id: NodeId) -> WinHandle {
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &__PASCAL__Patch) {
     let __PASCAL__Patch::SetText(t) = patch;
+    // SAFETY: `h.0` is the live element `make` created; the shim copies the text during the call.
     unsafe { day___SNAKE___xaml_set_text(h.0, cstr(t).as_ptr()) };
 }
 
 fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
-    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &mut w, &mut hh) };
+    // SAFETY: `h.0` is a live element; the shim writes both out-parameters before it returns.
+    unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     let width = p.width.unwrap_or(w).max(160.0);
     Size::new(width, hh.max(32.0))
 }

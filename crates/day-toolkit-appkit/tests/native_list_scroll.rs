@@ -70,8 +70,12 @@ mod native {
             table: table.retain(),
             board,
         });
+        // SAFETY: NSObject's `init` on a fresh FixtureListDrag allocation with its ivars set.
         let drag: Retained<FixtureListDrag> = unsafe { msg_send![super(drag), init] };
+        // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
         let delegate = unsafe { table.dataSource() }.unwrap();
+        // SAFETY: the backend's data source implements `tableView:acceptDrop:row:dropOperation:`
+        // as (NSTableView, NSDraggingInfo, NSInteger, drop operation) -> BOOL; main thread.
         let accepted: bool = unsafe {
             msg_send![&*delegate, tableView: table, acceptDrop: &*drag, row: insertion as isize, dropOperation: NSTableViewDropOperation::Above]
         };

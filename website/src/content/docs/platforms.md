@@ -140,11 +140,12 @@ checks; neither API presence nor an emulated capability proves desktop-equivalen
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation**: partial. [`with_animation(spec, || …)`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html) supports native opacity, transform, and frame animation on AppKit, UIKit, Android, Web, and ArkUI
-  (where frames move instantly). On GTK, Qt, and WinUI the changes apply at commit with no animation
-  (`Cap::Animation` reports unsupported), because Day never ticks its own frames for native
-  widgets. An animated background *color* interpolates on UIKit and ArkUI only, and the enter/exit
-  `.transition` surface is not implemented.
+- **Animation**: partial. [`with_animation(spec, || …)`](https://docs.rs/day-core/latest/day_core/fn.with_animation.html) animates opacity, transform, frame, and a
+  container's background color on all eight toolkits, and `Cap::Animation` reports native support
+  on each. The [toolkit support table](/docs/reference/tween#toolkit-support) lists each toolkit's
+  limits: GTK steps animated properties on its frame clock, and ArkUI cannot read a value back
+  mid-flight. The enter/exit `.transition` surface for pieces that appear and disappear is not
+  implemented.
 - **Multi-window:** [secondary windows](/docs/reference/windows) work on every toolkit — native
   windows on AppKit, GTK, Qt, WinUI, and Android, UIScenes on iPad, a multiton ability on
   HarmonyOS; iPhone and web present them as a fullscreen cover in the primary window. Probe

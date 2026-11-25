@@ -45,6 +45,7 @@ unsafe impl Encode for Coordinate {
     const ENCODING: Encoding =
         Encoding::Struct("CLLocationCoordinate2D", &[f64::ENCODING, f64::ENCODING]);
 }
+// SAFETY: a pointer to `Coordinate` is a pointer to that same C struct.
 unsafe impl RefEncode for Coordinate {
     const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
 }
@@ -97,6 +98,8 @@ impl Delegate {
 /// Read every field of a `CLLocation`. CoreLocation signals "not measured" with a negative accuracy
 /// and with `-1` for speed and course, so those become `None` rather than nonsense numbers.
 unsafe fn read_fix(loc: *mut AnyObject) -> Fix {
+    // SAFETY: the caller passes a live CLLocation; each selector is a CLLocation (or, for
+    // `timeIntervalSince1970`, NSDate) property whose declared type the result annotation matches.
     unsafe {
         let coord: Coordinate = msg_send![loc, coordinate];
         let altitude: f64 = msg_send![loc, altitude];

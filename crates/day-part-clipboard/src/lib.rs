@@ -100,18 +100,23 @@ mod imp {
     }
 
     pub fn set_text(text: &str) -> bool {
+        // SAFETY: `text` is a live str of `text.len()` bytes; the shim decodes it during the call.
         unsafe { day_dom_clipboard_set(text.as_ptr(), text.len()) == 1 }
     }
     pub fn get_text() -> Option<String> {
+        // SAFETY: no operands; the shim stages the text and answers its byte length.
         let len = unsafe { day_dom_clipboard_get() };
         if len < 0.0 {
             return None;
         }
         let mut buf = vec![0u8; len as usize];
+        // SAFETY: `buf` holds the `len` bytes the shim just staged, and wasm is single-threaded,
+        // so nothing restages between the two calls; the shim writes exactly that many.
         unsafe { day_dom_clipboard_take(buf.as_mut_ptr()) };
         String::from_utf8(buf).ok()
     }
     pub fn has_text() -> bool {
+        // SAFETY: no operands; the shim only inspects the clipboard event or its mirror.
         unsafe { day_dom_clipboard_has() == 1 }
     }
 }

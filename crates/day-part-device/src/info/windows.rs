@@ -37,6 +37,7 @@ pub fn get() -> DeviceInfo {
         dw_platform_id: 0,
         sz_csd_version: [0; 128],
     };
+    // SAFETY: `info` is a live `RTL_OSVERSIONINFOW` whose size field is set, as the call requires.
     let system_version = if unsafe { RtlGetVersion(&raw mut info) } == 0 {
         format!(
             "{}.{}.{}",

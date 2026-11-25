@@ -17,12 +17,14 @@ unsafe extern "C" {
 }
 pub fn source(el: u32, source: Source) {
     SOURCES.with(|t| t.insert(el as usize, source));
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     unsafe {
         day_dom_drag_source(el);
     }
 }
 pub fn target(el: u32, target: Target) {
     TARGETS.with(|t| t.insert(el as usize, target));
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     unsafe {
         day_dom_drop_target(el);
     }
@@ -35,6 +37,7 @@ pub extern "C" fn day_dom_drag_prepare(el: u32, x: f64, y: f64) {
             .and_then(|f| f(Point::new(x, y)))
             .and_then(|o| o.encode())
         {
+            // SAFETY: `packet` is copied (`slice`) during the call (crate note "Unsafe calls").
             unsafe {
                 day_dom_drag_offer(packet.as_ptr(), packet.len());
             }
@@ -62,6 +65,8 @@ pub unsafe extern "C" fn day_dom_drag_accept(
     n: usize,
     local: bool,
 ) -> bool {
+    // SAFETY: the shim's `transferCall` passes a fresh `day_dom_alloc(n)` buffer holding `n`
+    // bytes and never touches it again; `take_bytes` owns and frees it.
     let bytes = unsafe { crate::take_bytes(p, n) };
     ffi_guard::contain(false, || {
         let at = Location {
@@ -87,6 +92,8 @@ pub unsafe extern "C" fn day_dom_drag_receive(
     n: usize,
     local: bool,
 ) -> bool {
+    // SAFETY: the shim's `transferCall` passes a fresh `day_dom_alloc(n)` buffer holding `n`
+    // bytes and never touches it again; `take_bytes` owns and frees it.
     let bytes = unsafe { crate::take_bytes(p, n) };
     ffi_guard::contain(false, || {
         let Some(offer) = Offer::decode(&bytes) else {

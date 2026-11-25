@@ -28,6 +28,7 @@ unsafe extern "C" {
 unsafe fn value(dict: CFDictionaryRef, key: &str) -> Option<CFTypeRef> {
     let k = CFString::new(key);
     let mut out: *const c_void = std::ptr::null();
+    // SAFETY: the caller passes a live dictionary; `k` lives for the call and `out` is a local.
     let present = unsafe {
         CFDictionaryGetValueIfPresent(dict, k.as_concrete_TypeRef().cast::<c_void>(), &raw mut out)
     };
@@ -35,8 +36,11 @@ unsafe fn value(dict: CFDictionaryRef, key: &str) -> Option<CFTypeRef> {
 }
 
 unsafe fn i64_value(dict: CFDictionaryRef, key: &str) -> Option<i64> {
+    // SAFETY: the caller passes a live dictionary.
     let v = unsafe { value(dict, key)? };
     let mut n: i64 = 0;
+    // SAFETY: the integer keys read here are CFNumbers in IOKit's power-source description (not
+    // type-checked), borrowed from the live `dict`; `n` is an i64 matching kCFNumberSInt64Type.
     let ok = unsafe {
         CFNumberGetValue(
             v as CFNumberRef,
@@ -48,8 +52,11 @@ unsafe fn i64_value(dict: CFDictionaryRef, key: &str) -> Option<i64> {
 }
 
 unsafe fn string_value(dict: CFDictionaryRef, key: &str) -> Option<String> {
+    // SAFETY: the caller passes a live dictionary.
     let v = unsafe { value(dict, key)? };
     let mut buf = [0i8; 128];
+    // SAFETY: "Power Source State" is a CFString per IOKit (not type-checked), borrowed from the
+    // live `dict`; the call writes at most `buf.len()` bytes including the NUL.
     let ok = unsafe {
         CFStringGetCString(
             v as CFStringRef,
@@ -61,11 +68,14 @@ unsafe fn string_value(dict: CFDictionaryRef, key: &str) -> Option<String> {
     if ok == 0 {
         return None;
     }
+    // SAFETY: CFStringGetCString succeeded, so `buf` holds a NUL-terminated string.
     let cstr = unsafe { std::ffi::CStr::from_ptr(buf.as_ptr().cast::<c_char>()) };
     Some(cstr.to_string_lossy().into_owned())
 }
 
 pub fn status() -> Option<BatteryStatus> {
+    // SAFETY: `blob` and `list` are +1 Copy references, null-checked and released once; `ps` and
+    // `desc` are Get-rule borrows used only while `blob` and `list` are alive.
     unsafe {
         let blob = IOPSCopyPowerSourcesInfo();
         if blob.is_null() {

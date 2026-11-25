@@ -45,6 +45,7 @@ fn main() {
         assert_eq!(toolkit.gesture_support(kind), want, "{kind:?}");
     }
 
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -54,6 +55,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     let content = window.contentView().expect("content view");
 

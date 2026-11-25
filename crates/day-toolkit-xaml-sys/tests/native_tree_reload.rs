@@ -22,8 +22,9 @@ fn main() {
     extern "C" fn viewport(_: *mut c_void) {}
 
     extern "C" fn reload(raw: *mut c_void) {
-        // State belongs to main and outlives the message loop. All callbacks run on
-        // that same UI thread; the last callback quits without scheduling another.
+        // SAFETY: `raw` is main's boxed `State`, which outlives the message loop; every callback
+        // runs on that UI thread and the last one quits without scheduling another. `tree` is
+        // the live TreeView handle main made, and the labels are C string literals.
         unsafe {
             let state = &mut *raw.cast::<State>();
             day_xaml_tree_begin(state.tree);
@@ -55,6 +56,9 @@ fn main() {
         }
     }
 
+    // SAFETY: this thread creates the window and runs its loop, so it is the UI thread; the
+    // strings and `chrome` outlive their calls, the window and tree are checked non-null, and
+    // `state` is boxed and outlives `day_xaml_run`, after which nothing posts to it.
     unsafe {
         let chrome = DayXamlChrome {
             shadow: 1,

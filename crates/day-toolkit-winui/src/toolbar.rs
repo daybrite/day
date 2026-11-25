@@ -122,6 +122,8 @@ pub(crate) extern "C" fn on_toolbar_value(
         } else if kind == 0 {
             ToolbarValue::On(on != 0)
         } else {
+            // SAFETY: kinds 1 and 3 carry a NUL-terminated string (a `c_str()`) that lives for the
+            // callback.
             let text = unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned();
@@ -279,11 +281,15 @@ impl Xaml {
         let secondary = c_int::from(win != self.window);
         for op in ops {
             match op {
+                // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string
+                // outlives the call.
                 day_spec::ToolbarOp::Remove { id } => unsafe {
                     ffi::day_xaml_toolbar_remove(win, cstr(id).as_ptr());
                 },
                 day_spec::ToolbarOp::Insert { index, item } => {
                     let spec = serialize_toolbar(std::slice::from_ref(item));
+                    // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every
+                    // string outlives the call.
                     unsafe {
                         ffi::day_xaml_toolbar_insert(
                             win,
@@ -295,6 +301,8 @@ impl Xaml {
                 }
             }
         }
+        // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string outlives
+        // the call.
         unsafe { ffi::day_xaml_toolbar_done(win, secondary) };
         true
     }
@@ -308,26 +316,38 @@ impl Xaml {
         match patch {
             ToolbarPatch::Focus { item } => {
                 let id = cstr(item);
+                // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string
+                // outlives the call.
                 unsafe { ffi::day_xaml_toolbar_focus(win, id.as_ptr()) };
             }
             ToolbarPatch::Text { item, text } => {
                 let (id, text) = (cstr(item), cstr(text));
+                // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string
+                // outlives the call.
                 unsafe { ffi::day_xaml_toolbar_set_text(win, id.as_ptr(), text.as_ptr()) };
             }
             ToolbarPatch::On { item, on } => {
                 let id = cstr(item);
+                // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string
+                // outlives the call.
                 unsafe { ffi::day_xaml_toolbar_set_checked(win, id.as_ptr(), c_int::from(*on)) };
             }
             ToolbarPatch::Selected { item, index } => {
                 let id = cstr(item);
+                // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string
+                // outlives the call.
                 unsafe { ffi::day_xaml_toolbar_set_selected(win, id.as_ptr(), *index as c_int) };
             }
             ToolbarPatch::Suggestions { item, list } => {
                 let (id, joined) = (cstr(item), cstr(&list.join("\x1f")));
+                // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string
+                // outlives the call.
                 unsafe { ffi::day_xaml_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr()) };
             }
             ToolbarPatch::Enabled { item, on } => {
                 let id = cstr(item);
+                // SAFETY: `win` is a live window token (crate note "Unsafe calls"); every string
+                // outlives the call.
                 unsafe { ffi::day_xaml_toolbar_set_enabled(win, id.as_ptr(), c_int::from(*on)) };
             }
             // Not applied yet: the shim has no setter for a command's label, tooltip or a search

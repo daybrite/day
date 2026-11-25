@@ -38,6 +38,7 @@ fn main() {
         }
     }));
 
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -47,6 +48,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     let content = window.contentView().expect("window has a content view");
 
@@ -115,6 +117,7 @@ fn main() {
         assert_eq!(editor.selectedRange(), NSRange::new(5, 0));
         keys.borrow_mut().clear();
         for command in [sel!(moveDown:), sel!(moveUp:), sel!(cancelOperation:)] {
+            // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
             unsafe { editor.doCommandBySelector(command) };
         }
         if node == BAR {
@@ -141,10 +144,12 @@ fn main() {
         }
         // Other commands stay the field editor's either way.
         select(&mut toolkit, 4, 4);
+        // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
         unsafe { editor.doCommandBySelector(sel!(moveToBeginningOfLine:)) };
         assert_eq!(editor.selectedRange(), NSRange::new(0, 0));
         assert!(keys.borrow().len() <= 3);
 
+        // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
         unsafe { window.endEditingFor(None) };
     }
     window.close();

@@ -31,6 +31,8 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
     let s = if text.is_null() {
         String::new()
     } else {
+        // SAFETY: non-null here; the shim passes a QByteArray's NUL-terminated data, alive for this
+        // call.
         unsafe { CStr::from_ptr(text) }
             .to_string_lossy()
             .into_owned()
@@ -43,6 +45,8 @@ fn cstr(s: &str) -> CString {
 }
 
 fn make(_backend: &mut Qt, p: &SearchProps, id: NodeId) -> QtHandle {
+    // SAFETY: a constructor on the GUI thread; the strings outlive the call and `on_text` carries
+    // only the node id (crate note "Unsafe calls").
     QtHandle(unsafe {
         day_search_new(
             cstr(&p.placeholder).as_ptr(),
@@ -55,12 +59,15 @@ fn make(_backend: &mut Qt, p: &SearchProps, id: NodeId) -> QtHandle {
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &SearchPatch) {
     let SearchPatch::SetText(t) = patch;
+    // SAFETY: `h` is the DaySearch `make` returned, still live; `t` borrowed for the call (crate
+    // note "Unsafe calls").
     unsafe { day_search_set_text(h.0, cstr(t).as_ptr()) };
 }
 
 fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe calls").
     unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     // Grow to the proposed width; natural height from the line edit's size hint.
     let width = p.width.unwrap_or(w).max(120.0);

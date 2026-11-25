@@ -30,6 +30,8 @@ unsafe extern "C" {
 }
 fn native(mime: &str) -> Retained<NSString> {
     let s = NSString::from_str(mime);
+    // SAFETY: `UTTypeCreatePreferredIdentifierForTag` reads the CFString `s` (toll-free NSString)
+    // and the framework constant, allows a null conformance, and returns +1 or null.
     unsafe {
         Retained::from_raw(UTTypeCreatePreferredIdentifierForTag(
             kUTTagClassMIMEType,
@@ -40,6 +42,8 @@ fn native(mime: &str) -> Retained<NSString> {
     .unwrap_or(s)
 }
 fn mime(uti: &NSString) -> Option<String> {
+    // SAFETY: `uti` is a live NSString (toll-free CFString); `UTTypeCopyPreferredTagWithClass`
+    // returns a +1 string or null, so `from_raw` takes ownership.
     unsafe {
         Retained::from_raw(UTTypeCopyPreferredTagWithClass(
             std::ptr::from_ref::<NSString>(uti).cast(),
@@ -69,9 +73,9 @@ fn location(
     session: &ProtocolObject<dyn UIDropSession>,
 ) -> Option<Location> {
     let view = interaction.view()?;
-    let p = unsafe { session.locationInView(&view) };
+    let p = session.locationInView(&view);
     let mut types = Vec::new();
-    for item in &unsafe { session.items() } {
+    for item in &session.items() {
         for ty in &item.itemProvider().registeredTypeIdentifiers() {
             if let Some(m) = mime(&ty)
                 && !types.contains(&m)
@@ -84,7 +88,7 @@ fn location(
         position: Point::new(p.x, p.y),
         types,
         allowed: vec![Operation::Copy],
-        local: unsafe { session.localDragSession() }.is_some(),
+        local: session.localDragSession().is_some(),
     })
 }
 fn finish(token: u64, index: usize, mime: String, bytes: Option<Vec<u8>>) {
@@ -140,7 +144,7 @@ define_class!(
                 let Some(view) = interaction.view() else {
                     return NSArray::new();
                 };
-                let p = unsafe { session.locationInView(&view) };
+                let p = session.locationInView(&view);
                 let source = self.ivars().source.borrow().clone();
                 let Some(offer) = source.and_then(|f| f(Point::new(p.x, p.y))) else {
                     return NSArray::new();
@@ -161,6 +165,8 @@ define_class!(
                         >|
                               -> *mut NSProgress {
                             let data = NSData::with_bytes(&bytes);
+                            // SAFETY: the provider passes a live `(NSData *, NSError *)` block;
+                            // `data` outlives the call.
                             unsafe {
                                 completion.as_ref().call((
                                     Retained::as_ptr(&data).cast_mut(),
@@ -170,6 +176,8 @@ define_class!(
                             std::ptr::null_mut()
                         },
                     );
+                    // SAFETY: the provider copies `block`, which owns `bytes` (Send + Sync), so it
+                    // may run on any queue later; `native` returns a live type identifier.
                     unsafe {
                         provider
                             .registerDataRepresentationForTypeIdentifier_visibility_loadHandler(
@@ -179,9 +187,8 @@ define_class!(
                             );
                     }
                 }
-                let item = unsafe {
-                    UIDragItem::initWithItemProvider(UIDragItem::alloc(self.mtm()), &provider)
-                };
+                let item =
+                    UIDragItem::initWithItemProvider(UIDragItem::alloc(self.mtm()), &provider);
                 NSArray::from_retained_slice(&[item])
             })
         }
@@ -246,7 +253,7 @@ define_class!(
                 if target.proposal(&at) != Operation::Copy {
                     return;
                 }
-                let items = unsafe { session.items() };
+                let items = session.items();
                 if items.is_empty() || items.len() > MAX_ITEMS {
                     return;
                 }
@@ -285,6 +292,8 @@ define_class!(
                 for (index, (provider, mime)) in reads.into_iter().enumerate() {
                     let ty = native(&mime);
                     let block = RcBlock::new(move |data: *mut NSData, _error: *mut NSError| {
+                        // SAFETY: the load completion (on a background queue) gets null or an NSData that is valid for
+                        // the call; its bytes are copied before the hop back to the main queue.
                         let bytes = unsafe { data.as_ref() }
                             .filter(|d| d.len() <= MAX_BYTES)
                             .map(NSData::to_vec);
@@ -292,6 +301,8 @@ define_class!(
                         dispatch2::DispatchQueue::main()
                             .exec_async(move || finish(token, index, mime, bytes));
                     });
+                    // SAFETY: the provider copies `block`; it owns `mime`, `token`, `index` (all
+                    // Send) and hops to the main queue.
                     let progress = unsafe {
                         provider
                             .loadDataRepresentationForTypeIdentifier_completionHandler(&ty, &block)
@@ -324,6 +335,8 @@ fn delegate(view: &UIView) -> Retained<Delegate> {
         source: RefCell::new(None),
         target: RefCell::new(None),
     });
+    // SAFETY: `d` is a fresh transfer Delegate with ivars set; NSObject's `init` takes no arguments
+    // and returns the initialized object.
     let d: Retained<Delegate> = unsafe { msg_send![super(d), init] };
     DELEGATES.with(|t| t.insert(key, d.clone()));
     d

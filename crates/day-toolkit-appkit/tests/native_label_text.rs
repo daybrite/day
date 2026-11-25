@@ -188,6 +188,7 @@ fn main() {
     let df = decorated.downcast_ref::<NSTextField>().unwrap();
     let s = df.attributedStringValue();
     let mut range = NSRange::new(0, 0);
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let color = unsafe {
         s.attribute_atIndex_effectiveRange(NSUnderlineColorAttributeName, 1, &raw mut range)
     };
@@ -210,6 +211,7 @@ fn main() {
     let font = caps.downcast_ref::<NSTextField>().unwrap().font().unwrap();
     let settings = font
         .fontDescriptor()
+        // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
         .objectForKey(unsafe { NSFontFeatureSettingsAttribute });
     assert!(
         settings.is_some(),
@@ -252,6 +254,7 @@ fn main() {
 
     // Selection reports: byte offsets into the displayed text, once per change, cleared when
     // editing ends.
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -261,6 +264,7 @@ fn main() {
             false,
         )
     };
+    // SAFETY: the test owns the window through `Retained`; closing must not release it again.
     unsafe { window.setReleasedWhenClosed(false) };
     let text = "Say déjà vu 🌅 now";
     let reporting = toolkit.realize(
@@ -278,6 +282,7 @@ fn main() {
     ));
     window.contentView().unwrap().addSubview(&reporting);
     let rf = reporting.downcast_ref::<NSTextField>().unwrap();
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     unsafe { rf.selectText(None) };
     let editor = rf.currentEditor().expect("label has a field editor");
     let editor = editor.downcast::<NSTextView>().unwrap();
@@ -301,6 +306,7 @@ fn main() {
     );
     editor.setSelectedRange(NSRange::new(0, 3));
     events.borrow_mut().clear();
+    // SAFETY: unaudited Apple API; live operands on the main thread (day-toolkit-appkit's "Unsafe calls" note).
     unsafe { window.endEditingFor(None) };
     assert_eq!(*events.borrow(), [(14, 3, 3)], "ending the edit clears it");
 

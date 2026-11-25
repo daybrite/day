@@ -45,8 +45,10 @@ Agree on the scope and submission process with a maintainer before starting. Rea
    with their `scripts/ci/*-matrix.sh` generators and rerun the gate.
 5. Run `bash scripts/ci/lint.sh` for the available platform Clippy checks and `cargo test` for
    the crates you touched. Report any checks you could not run. The hooks and build tests do
-   not replace these checks. The workspace enables Clippy's `pedantic` group
-   (`[workspace.lints]` in the root `Cargo.toml`) and CI denies warnings. Fix a finding in the
+   not replace these checks. The workspace enables Clippy's `pedantic` group and
+   `undocumented_unsafe_blocks` (`[workspace.lints]` in the root `Cargo.toml`) and CI denies
+   warnings, so every `unsafe` block and `unsafe impl` needs a `// SAFETY:` comment that says
+   why it is sound. Fix a finding in the
    code; where that would change public API or behavior, use
    `#[expect(clippy::<lint>, reason = "…")]` on the narrowest item, not `#[allow]`.
 6. Update the affected documentation and `DESIGN.md` in the same PR as a framework change.
@@ -63,9 +65,27 @@ inheritance. Package release versions remain concrete; third-party requirements 
 Test-only path dependencies stripped during publication omit the version field to avoid
 publishing reverse dependencies and creating cycles.
 
-Source and behavior changes between 0.x releases are expected. Apps commit `Cargo.lock`, build
-with `--locked`, and test dependency updates before shipping. A library's lockfile does not pin
-its consumers' dependencies. Preserve the wildcard policy through 0.x releases; revisit it at 1.0.
+Source and behavior changes between 0.x releases are still expected, and the compatibility
+promise below gives each one a warning period. Apps commit `Cargo.lock`, build with `--locked`,
+and test dependency updates before shipping. A library's lockfile does not pin its consumers'
+dependencies. Preserve the wildcard policy through 0.x releases; revisit it at 1.0.
+
+### Compatibility promise
+
+From Day 0.8 on, a change to a public surface keeps the old spelling working, with a warning,
+for at least one minor release. Something deprecated during 0.8 can be removed in 0.9.0 at the
+earliest. Apply the rule that matches the change in the same pull request:
+
+| Change | What stays behind |
+| --- | --- |
+| A public function, type, method, module or Cargo feature is renamed or moved | The old name, marked `#[deprecated(since = "<version>", note = "use <new name>")]`, forwarding to the new one. A renamed feature keeps the old name as a feature that enables the new one. |
+| A crate is renamed | One final release under the old name that depends on the new crate and re-exports it (`pub use new_crate::*;`), with the rename in its description and README. Record the rename in `scripts/ci/crate-renames.json` so the workspace itself stops using the old name. |
+| A CLI flag, target name, `Day.toml` key or dayscript step is renamed | The old spelling is still accepted and prints a warning that names the new one. |
+| Something is removed, or a signature or behavior changes in a way no alias can cover | A "Breaking" entry in that release's notes with the step that migrates an app. |
+
+Exempt: items hidden with `#[doc(hidden)]`, the external-toolkit interface marked unstable in
+DESIGN.md §15.5, and files `day new` generated in an app, which change by regenerating them.
+Delete each deprecated item once its release window has passed.
 
 ## Creating extensions and crates
 

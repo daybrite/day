@@ -144,7 +144,8 @@ fn defer_settle(key: usize, index: Option<usize>) {
 }
 unsafe extern "C" fn on_event(event: *mut ArkUI_NodeEvent) {
     day_spec::ffi_guard::contain((), || {
-        // ArkUI owns the event and its payload for the duration of this callback.
+        // SAFETY: ArkUI owns the event and its payload for the duration of this callback; the
+        // payload is null-checked before its first data slot is read.
         let (handle, kind, index) = unsafe {
             let payload = OH_ArkUI_NodeEvent_GetNodeComponentEvent(event);
             (
@@ -159,6 +160,7 @@ unsafe extern "C" fn on_event(event: *mut ArkUI_NodeEvent) {
         };
         let key = handle as usize;
         if kind == Ev::NODE_TOUCH_EVENT {
+            // SAFETY: `event` is live for this callback, and a touch event carries an input event.
             let action =
                 unsafe { OH_ArkUI_UIInputEvent_GetAction(OH_ArkUI_NodeEvent_GetInputEvent(event)) };
             if action == 1 || action == 0 || action == 3 {

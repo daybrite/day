@@ -31,6 +31,7 @@ extern "C" fn prepare(h: *mut c_void, x: f64, y: f64, len: *mut usize) -> *mut u
         let Some(packet) = offer.encode() else {
             return std::ptr::null_mut();
         };
+        // SAFETY: `len` points at the shim's `size_t` local in its `DragStarting` handler.
         unsafe {
             *len = packet.len();
         }
@@ -38,12 +39,15 @@ extern "C" fn prepare(h: *mut c_void, x: f64, y: f64, len: *mut usize) -> *mut u
     })
 }
 extern "C" fn free(p: *mut u8, n: usize) {
+    // SAFETY: `p` and `n` are the boxed slice `prepare` leaked, which the shim hands back once.
     unsafe {
         drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, n)));
     }
 }
 extern "C" fn accept(h: *mut c_void, x: f64, y: f64, types: *const c_char, local: bool) -> bool {
     ffi_guard::contain(false, || {
+        // SAFETY: the shim passes a NUL-terminated string (a `c_str()`) that lives for the
+        // callback.
         let types = unsafe { CStr::from_ptr(types) }
             .to_string_lossy()
             .split('\n')
@@ -64,7 +68,15 @@ extern "C" fn receive(h: *mut c_void, x: f64, y: f64, p: *const u8, n: usize, lo
         if n > MAX_BYTES {
             return false;
         }
-        let Some(offer) = Offer::decode(unsafe { std::slice::from_raw_parts(p, n) }) else {
+        // An empty payload can arrive as a null `data()`, which `from_raw_parts` must never see.
+        let bytes: &[u8] = if p.is_null() {
+            &[]
+        } else {
+            // SAFETY: `p` is non-null and points at the shim's payload vector, whose `n` bytes
+            // live for the callback.
+            unsafe { std::slice::from_raw_parts(p, n) }
+        };
+        let Some(offer) = Offer::decode(bytes) else {
             return false;
         };
         TARGETS.with(|t| t.get(h as usize)).is_some_and(|t| {
@@ -90,6 +102,7 @@ extern "C" fn leave(h: *mut c_void) {
 }
 pub fn source(h: &WinHandle, source: Source) {
     SOURCES.with(|t| t.insert(h.0 as usize, source));
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         day_xaml_drag_source(h.0, prepare, free);
     }
@@ -110,6 +123,7 @@ pub fn migrate(old: usize, new: &WinHandle) {
 }
 pub fn target(h: &WinHandle, target: Target) {
     TARGETS.with(|t| t.insert(h.0 as usize, target));
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         day_xaml_drop_target(h.0, accept, receive, leave);
     }

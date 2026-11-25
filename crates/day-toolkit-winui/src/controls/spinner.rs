@@ -21,12 +21,14 @@ unsafe extern "C" {
 }
 
 pub(crate) fn make(_backend: &mut Xaml, p: &ActivityProps, _id: NodeId) -> WinHandle {
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     WinHandle(unsafe { day_activity_xaml_new(c_int::from(p.large), c_int::from(p.animating)) })
 }
 
 pub(crate) fn update(_backend: &mut Xaml, h: &WinHandle, patch: &ActivityPatch) {
     match patch {
         ActivityPatch::Value(_) => {}
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         ActivityPatch::Animating(on) => unsafe {
             day_activity_xaml_set_animating(h.0, c_int::from(*on));
         },

@@ -297,8 +297,12 @@ mod tests {
         // SAFETY: test-local env mutation, on a variable no other test touches.
         unsafe { std::env::set_var("DAY_LINUXDEPLOY_PLUGIN_GTK", &this) };
         assert_eq!(tool("linuxdeploy-plugin-gtk"), Some(this));
+        // SAFETY: as above. Nothing locks the env here, so this relies on the other test threads
+        // reading it only through std, which serializes against this write.
         unsafe { std::env::set_var("DAY_LINUXDEPLOY_PLUGIN_GTK", "/nope/not/here") };
         assert_eq!(tool("linuxdeploy-plugin-gtk"), None);
+        // SAFETY: as above. Nothing locks the env here, so this relies on the other test threads
+        // reading it only through std, which serializes against this write.
         unsafe { std::env::remove_var("DAY_LINUXDEPLOY_PLUGIN_GTK") };
     }
 }

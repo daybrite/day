@@ -74,6 +74,8 @@ define_class!(
 impl ComboTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ComboIvars { node });
+        // SAFETY: NSObject's `init` on a fresh ComboTarget allocation with its ivars set; returns
+        // it +1.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -87,6 +89,7 @@ day_core::tls_group! {
 fn apply_items(combo: &NSComboBox, items: &[String]) {
     combo.removeAllItems();
     for item in items {
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         unsafe { combo.addItemWithObjectValue(&NSString::from_str(item)) };
     }
 }
@@ -105,6 +108,8 @@ fn make(backend: &mut AppKit, p: &ComboProps, id: NodeId) -> Retained<NSView> {
     let target = ComboTarget::new(mtm, id);
     // One delegate registration covers both protocols: NSComboBox forwards the inherited
     // NSTextField text-editing delegate and watches it for the combo notifications.
+    // SAFETY: the combo box holds its delegate weakly; TARGETS keeps `target` alive until `release`
+    // drops the combo box. Main thread.
     unsafe { combo.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
     let ns: Retained<NSView> = Retained::from(<NSComboBox as AsRef<NSView>>::as_ref(&combo));
     TARGETS.with(|m| {

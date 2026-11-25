@@ -47,5 +47,6 @@ define_class!(
     }
 );
 pub(super) fn delegate(mtm: MainThreadMarker) -> Retained<DocumentDelegate> {
+    // SAFETY: NSObject's `init` on a fresh DocumentDelegate allocation (no ivars); returns it +1.
     unsafe { msg_send![DocumentDelegate::alloc(mtm), init] }
 }

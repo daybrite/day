@@ -43,6 +43,8 @@ extern "C" fn on_text(id: u64, text: *const c_char) {
     let s = if text.is_null() {
         String::new()
     } else {
+        // SAFETY: a non-null string from the shim is NUL-terminated (a `c_str()`) and lives for the
+        // call.
         unsafe { CStr::from_ptr(text) }
             .to_string_lossy()
             .into_owned()
@@ -59,6 +61,7 @@ fn joined(items: &[String]) -> CString {
 }
 
 fn make(_backend: &mut Xaml, p: &ComboProps, id: NodeId) -> WinHandle {
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     WinHandle(unsafe {
         day_combo_xaml_new(
             joined(&p.items).as_ptr(),
@@ -71,6 +74,7 @@ fn make(_backend: &mut Xaml, p: &ComboProps, id: NodeId) -> WinHandle {
 }
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &ComboPatch) {
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         match patch {
             ComboPatch::Items(items) => day_combo_xaml_set_items(h.0, joined(items).as_ptr()),
@@ -82,6 +86,7 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &ComboPatch) {
 fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     let width = p.width.unwrap_or(w).max(120.0);
     Size::new(width, hh.max(32.0))

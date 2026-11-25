@@ -716,6 +716,8 @@ pub mod arkts {
         let mut ret = Arg::plain(-1, 0, 0.0);
         // SAFETY: the symbol is day-toolkit-arkui's export with exactly this signature.
         let invoke: InvokeFn = unsafe { std::mem::transmute(entry) };
+        // SAFETY: `name` is NUL-terminated, `args` holds `args.len()` `Arg`s and `ret` is a local;
+        // all outlive the call, and the export only reads/writes them during it.
         match unsafe { invoke(name.as_ptr(), args.as_ptr(), args.len(), done, &raw mut ret) } {
             0 => Ok(ret),
             2 => Err(super::Error::Runtime),
@@ -733,6 +735,7 @@ pub mod arkts {
         }
         // SAFETY: the symbol is day-toolkit-arkui's export with exactly this signature.
         let f: OnJsThreadFn = unsafe { std::mem::transmute(entry) };
+        // SAFETY: the export takes no arguments and only reads the JS thread's id.
         unsafe { f() != 0 }
     }
 

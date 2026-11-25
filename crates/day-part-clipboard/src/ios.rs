@@ -10,17 +10,21 @@ use objc2_ui_kit::UIPasteboard;
 
 pub fn set_text(text: &str) -> bool {
     let pb = UIPasteboard::generalPasteboard();
+    // SAFETY: `pb` is the live general pasteboard (not main-thread-only); the string is retained
+    // for the call and the pasteboard copies it.
     unsafe { pb.setString(Some(&NSString::from_str(text))) };
     true
 }
 
 pub fn get_text() -> Option<String> {
     let pb = UIPasteboard::generalPasteboard();
+    // SAFETY: `pb` is the live general pasteboard (not main-thread-only); the result is retained.
     unsafe { pb.string() }.map(|s| s.to_string())
 }
 
 pub fn has_text() -> bool {
     let pb = UIPasteboard::generalPasteboard();
+    // SAFETY: `pb` is the live general pasteboard (not main-thread-only); a plain BOOL getter.
     unsafe { pb.hasStrings() }
 }
 
@@ -59,6 +63,8 @@ pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
         .collect();
     let item = NSDictionary::from_slices(&key_refs, &value_refs);
     let items = NSArray::from_slice(&[&*item]);
+    // SAFETY: the one item maps UTI strings to NSData, a value type setItems: accepts; the
+    // pasteboard copies the array, which `items` keeps alive for the call.
     unsafe {
         UIPasteboard::generalPasteboard().setItems(&items);
     }

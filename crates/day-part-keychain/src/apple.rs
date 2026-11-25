@@ -94,6 +94,7 @@ fn data_protection() -> bool {
         // SAFETY: the dictionary is live for both calls; no result is asked for.
         let status = unsafe { SecItemAdd(as_dictionary(&probe), std::ptr::null_mut()) };
         if status == ERR_SUCCESS || status == ERR_DUPLICATE_ITEM {
+            // SAFETY: the temporary query dictionary is live for the call.
             let _ = unsafe { SecItemDelete(as_dictionary(&base_query(Some(PROBE_KEY), true))) };
         }
         status != ERR_MISSING_ENTITLEMENT
@@ -139,6 +140,7 @@ fn copy_matching(query: &Query) -> Result<Option<CFRetained<CFType>>, i32> {
     if status != ERR_SUCCESS {
         return Err(status);
     }
+    // SAFETY: on success `result` is the +1 reference the call returned; this takes ownership.
     Ok(NonNull::new(result.cast_mut()).map(|p| unsafe { CFRetained::from_raw(p) }))
 }
 
@@ -183,17 +185,19 @@ fn protection_of(attributes: &CFDictionary<CFString, CFType>) -> Protection {
 /// even for a protected item. `Ok(None)` when there is no such item.
 fn attributes_of(key: &str) -> Result<Option<Protection>, KeychainError> {
     let query = base_query(Some(key), data_protection());
+    // SAFETY: the `kSec*` statics are the framework's constant keys and values, valid for the
+    // process; `query` is a live mutable dictionary owned here.
     unsafe {
         query.set(kSecReturnAttributes, CFBoolean::new(true));
         query.set(kSecMatchLimit, kSecMatchLimitOne);
     }
     match copy_matching(&query) {
         Ok(Some(found)) => {
-            // SAFETY: an attributes query answers a dictionary; the cast only names its key and
-            // value types.
             let attrs = found
                 .downcast::<CFDictionary>()
                 .map_err(|_| KeychainError::Platform("attributes are not a dictionary".into()))?;
+            // SAFETY: an attributes query answers a dictionary; the cast only names its key and
+            // value types.
             let attrs =
                 unsafe { CFRetained::cast_unchecked::<CFDictionary<CFString, CFType>>(attrs) };
             Ok(Some(protection_of(&attrs)))
@@ -296,6 +300,8 @@ pub fn set(key: &str, secret: &[u8], protection: Protection) -> Result<(), Keych
 
 /// Read the secret of `key` with `query`'s authentication settings applied.
 fn read_data(query: &Query) -> Result<Vec<u8>, KeychainError> {
+    // SAFETY: the `kSec*` statics are the framework's constant keys and values, valid for the
+    // process; `query` is a live mutable dictionary the caller owns.
     unsafe {
         query.set(kSecReturnData, CFBoolean::new(true));
         query.set(kSecMatchLimit, kSecMatchLimitOne);
@@ -393,6 +399,8 @@ pub fn contains(key: &str) -> Result<bool, KeychainError> {
 
 pub fn entries() -> Result<Vec<Entry>, KeychainError> {
     let query = base_query(None, data_protection());
+    // SAFETY: the `kSec*` statics are the framework's constant keys and values, valid for the
+    // process; `query` is a live mutable dictionary owned here.
     unsafe {
         query.set(kSecReturnAttributes, CFBoolean::new(true));
         query.set(kSecMatchLimit, kSecMatchLimitAll);

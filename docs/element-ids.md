@@ -62,9 +62,8 @@ is used in `expand.row` and `tree_move.row/parent` references.
 Composite controls declare their distinct targets explicitly:
 
 ```rust
-rating(stars)
-    .star_id(|n| id!(rating_star, n))
-    .id(id!(rating_row))
+document_tabs(tabs, new_label, close_label, title, content)
+    .strip_id(id!(documents))
 legend(entries).entry_id(|key| id!(series_legend, key))
 ```
 

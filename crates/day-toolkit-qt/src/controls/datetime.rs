@@ -41,6 +41,7 @@ unsafe extern "C" {
 fn measure(_backend: &mut Qt, h: &QtHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: `h` is a live widget; out-pointers name locals (crate note "Unsafe calls").
     unsafe { day_qt_size_hint(h.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(60.0), hh.max(22.0))
 }
@@ -60,6 +61,8 @@ mod date_renderer {
     }
 
     fn make(_backend: &mut Qt, p: &DateProps, id: NodeId) -> QtHandle {
+        // SAFETY: a constructor on the GUI thread; `on_date` carries only the node id (crate note
+        // "Unsafe calls").
         QtHandle(unsafe {
             day_datetime_date_new(
                 c_int::from(p.style == Style::Inline),
@@ -76,6 +79,7 @@ mod date_renderer {
 
     fn update(_backend: &mut Qt, h: &QtHandle, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
+        // SAFETY: `h` is the DayDateWidget `make` returned, still live (crate note "Unsafe calls").
         unsafe { day_datetime_date_set(h.0, d.to_epoch_days()) };
     }
 
@@ -99,6 +103,8 @@ mod time_renderer {
     }
 
     fn make(_backend: &mut Qt, p: &TimeProps, id: NodeId) -> QtHandle {
+        // SAFETY: a constructor on the GUI thread; `on_time` carries only the node id (crate note
+        // "Unsafe calls").
         QtHandle(unsafe {
             day_datetime_time_new(
                 c_int::from(p.seconds),
@@ -111,6 +117,7 @@ mod time_renderer {
 
     fn update(_backend: &mut Qt, h: &QtHandle, patch: &TimePatch) {
         let TimePatch::SetTime(t) = patch;
+        // SAFETY: `h` is the DayTimeWidget `make` returned, still live (crate note "Unsafe calls").
         unsafe { day_datetime_time_set(h.0, t.seconds_of_day()) };
     }
 

@@ -25,6 +25,7 @@ fn control_size(large: bool) -> NSControlSize {
 
 fn set_animating(spinner: &NSProgressIndicator, on: bool) {
     // startAnimation:/stopAnimation: are `unsafe` in objc2 (they take a sender selector object).
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     unsafe {
         if on {
             spinner.startAnimation(None);

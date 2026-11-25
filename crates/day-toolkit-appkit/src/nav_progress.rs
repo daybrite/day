@@ -35,6 +35,8 @@ define_class!(
         /// A light/dark switch (the app's, the window's or the system's) while the ring shows.
         #[unsafe(method(viewDidChangeEffectiveAppearance))]
         fn view_did_change_effective_appearance(&self) {
+            // SAFETY: forwards NSView's `viewDidChangeEffectiveAppearance` (no arguments, no
+            // result).
             let _: () = unsafe { msg_send![super(self), viewDidChangeEffectiveAppearance] };
             ffi_guard::contain((), || recolor(self));
         }
@@ -60,6 +62,7 @@ fn shape(ring: &CAShapeLayer, w: f64, h: f64) {
     ring.setBounds(CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(size, size)));
     ring.setPosition(CGPoint::new(w / 2.0, h / 2.0));
     let inset = 1.5_f64.min(size / 2.0);
+    // SAFETY: a null transform pointer is allowed and means none; the path is returned retained.
     let path = unsafe {
         CGPath::with_ellipse_in_rect(
             CGRect::new(
@@ -74,6 +77,7 @@ fn shape(ring: &CAShapeLayer, w: f64, h: f64) {
 
 /// The ring layer an overlay's root layer holds, if one is showing.
 fn ring_of(parent: &CALayer) -> Option<Retained<CAShapeLayer>> {
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     unsafe { parent.sublayers() }.and_then(|layers| {
         layers
             .iter()
@@ -108,9 +112,12 @@ fn paint(
         ring.setName(Some(&NSString::from_str(NAME)));
         shape(&ring, w, h);
         ring.setLineWidth(2.0);
-        ring.setTransform(unsafe {
-            CATransform3D::new_rotation(-std::f64::consts::FRAC_PI_2, 0.0, 0.0, 1.0)
-        });
+        ring.setTransform(CATransform3D::new_rotation(
+            -std::f64::consts::FRAC_PI_2,
+            0.0,
+            0.0,
+            1.0,
+        ));
         parent.addSublayer(&ring);
         ring
     });
@@ -122,10 +129,12 @@ fn paint(
         ring.setStrokeEnd(value.clamp(0.0, 1.0));
     } else {
         ring.setStrokeEnd(0.25);
+        // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
         if unsafe { ring.animationForKey(&key) }.is_none() {
             let spin = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str(
                 "transform.rotation",
             )));
+            // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
             unsafe {
                 spin.setFromValue(Some(&NSNumber::numberWithDouble(
                     -std::f64::consts::FRAC_PI_2,
@@ -152,6 +161,8 @@ use objc2_app_kit::{
 )]
 pub(crate) fn update(icon: &NSImageView, state: Option<Option<f64>>) {
     // Host the animation separately from AppKit's managed image backing layer.
+    // SAFETY: `initWithFrame:` is NSView's initializer, sent to a fresh Overlay allocation (no
+    // ivars); the other calls are unaudited Apple APIs on `icon`'s live views, on the main thread.
     unsafe {
         let existing = icon
             .subviews()
@@ -201,7 +212,7 @@ pub(crate) fn update(icon: &NSImageView, state: Option<Option<f64>>) {
 /// Re-fit a showing ring to its icon after the icon's size changed: the cell lays the icon out
 /// at its row size style's size, and again when the system's Sidebar icon size changes.
 pub(crate) fn fit(icon: &NSImageView) {
-    let overlay = unsafe { icon.subviews() }.iter().find_map(|view| {
+    let overlay = icon.subviews().iter().find_map(|view| {
         view.identifier()
             .as_ref()
             .is_some_and(|id| id.to_string() == NAME)

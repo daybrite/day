@@ -55,6 +55,7 @@ fn style_code(s: PickerStyle) -> c_int {
 fn make(_backend: &mut Xaml, p: &PickerProps, id: NodeId) -> WinHandle {
     // crate::cstr strips interior NULs, so one bad option can't blank the whole list.
     let joined = crate::cstr(&p.options.join("\n"));
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     let h = unsafe {
         day_picker_xaml_new(
             style_code(p.style),
@@ -66,6 +67,7 @@ fn make(_backend: &mut Xaml, p: &PickerProps, id: NodeId) -> WinHandle {
     };
     // Enabled is every control's default, so only a disabled picker needs the call.
     if !p.enabled {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { day_picker_xaml_set_enabled(h, 0) };
     }
     WinHandle(h)
@@ -73,11 +75,14 @@ fn make(_backend: &mut Xaml, p: &PickerProps, id: NodeId) -> WinHandle {
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &PickerPatch) {
     match patch {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         PickerPatch::Selected(i) => unsafe { day_picker_xaml_set_selected(h.0, *i as c_int) },
         PickerPatch::Options(opts) => {
             let joined = crate::cstr(&opts.join("\n"));
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { day_picker_xaml_set_options(h.0, joined.as_ptr()) };
         }
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         PickerPatch::Enabled(on) => unsafe { day_picker_xaml_set_enabled(h.0, c_int::from(*on)) },
     }
 }
@@ -85,6 +90,7 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &PickerPatch) {
 fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { day_xaml_measure(h.0, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w.max(120.0), hh.max(32.0))
 }

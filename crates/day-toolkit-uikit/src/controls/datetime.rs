@@ -60,6 +60,8 @@ define_class!(
 impl DateTimeTarget {
     fn new(mtm: MainThreadMarker, node: NodeId, time: bool) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node, time });
+        // SAFETY: `this` is a fresh DayDateTimeTarget with ivars set; NSObject's `init` takes no
+        // arguments and returns the initialized object.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -87,12 +89,15 @@ fn make_picker(
     p.setPreferredDatePickerStyle(style);
     let gmt = NSTimeZone::timeZoneForSecondsFromGMT(0);
     p.setTimeZone(Some(&gmt));
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     if let Some(cal) = NSCalendar::calendarWithIdentifier(unsafe { NSCalendarIdentifierGregorian })
     {
         cal.setTimeZone(&gmt);
         p.setCalendar(Some(&cal));
     }
     let target = DateTimeTarget::new(mtm, node, time);
+    // SAFETY: UIControl does not retain its target; `TARGETS` holds `target` until `release` drops
+    // it with the picker. Main thread (`mtm`); `fire:` takes the sender.
     unsafe {
         p.addTarget_action_forControlEvents(
             Some(&target as &DateTimeTarget as &AnyObject),

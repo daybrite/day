@@ -7,6 +7,32 @@
 //! `DesktopWindowXamlSource`, with Day layout placing them inside XAML Canvases.
 //! Toolkit-independent Windows services come from `day-platform-windows`.
 //! The `Xaml` and `xaml_raw` type names remain shared by both target variants.
+//!
+//! # Unsafe calls
+//!
+//! Nearly every `unsafe` block here calls the C++/WinRT shim in `day-toolkit-xaml-sys`
+//! (`src/shim.cpp` and its `shim-*.cpp`/`*.inc` parts). Those calls share one contract, and a
+//! site that relies on nothing more carries the comment "live shim handles on the UI thread":
+//!
+//! - **Handles.** A [`WinHandle`] is a `Node*` the shim boxed (`boxh`), owning one WinRT
+//!   reference to its element. It is live from the `*_new` call that returned it until
+//!   `release` hands it to `day_xaml_delete`; day-core releases children before their parent
+//!   and never passes a released handle back, and the handle-keyed maps in this crate drop
+//!   their entries in `release` (or `remove`) first. A window token from
+//!   `day_xaml_window_new2` is live until `day_xaml_window_destroy2`; the primary window's
+//!   (`Xaml::window`) is never freed. Calls keyed by a list, tree or canvas look the handle
+//!   up in the shim's own registry and do nothing for one it no longer knows.
+//! - **Thread.** XAML objects belong to the UI thread that runs `day_xaml_run`. `Xaml` holds
+//!   raw pointers, so it is not `Send`: the toolkit, its renderers and the shim's callbacks all
+//!   run there. Only `day_xaml_post` is called from other threads, and it locks.
+//! - **Strings** go in as NUL-terminated UTF-8, mostly from `cstr` (a `CString` temporary that
+//!   lives to the end of its statement); the shim copies them (`hs`) before it returns.
+//! - **Out-pointers and arrays** point at locals or `Vec`s that outlive the call, sized for
+//!   what the shim writes or reads.
+//! - **Callbacks** are `extern "C"` functions, which live for the whole program.
+//!
+//! A site with any further obligation (a pointer the shim hands into a callback, a boxed
+//! closure passed through `day_xaml_post`, a raw Win32 call) carries its own comment.
 
 #![cfg(windows)]
 
@@ -238,6 +264,7 @@ fn attach_custom_sidebar() {
     });
     if let Some((page, _)) = page {
         SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(page as usize)));
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_nav_custom_sidebar(pending, page) };
     }
 }
@@ -279,6 +306,8 @@ extern "C" fn document_event(host_id: u64, kind: c_int, index: c_int, key: *cons
         let text = if key.is_null() {
             String::new()
         } else {
+            // SAFETY: a non-null string from the shim is NUL-terminated (a `c_str()`) and lives for
+            // the call.
             unsafe { std::ffi::CStr::from_ptr(key) }
                 .to_string_lossy()
                 .into_owned()
@@ -523,8 +552,10 @@ fn stack_sync(host: *mut c_void) {
         if let Some(NavState::Split(s)) = m.borrow().get(&(host as usize)) {
             let last = s.detail_pages.len().saturating_sub(1);
             for (i, (page, _, _)) in s.detail_pages.iter().enumerate() {
+                // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                 unsafe { ffi::day_xaml_set_visible(*page, c_int::from(i == last)) };
             }
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe {
                 ffi::day_xaml_nav_set_back_visible(
                     s.nav_view,
@@ -534,6 +565,7 @@ fn stack_sync(host: *mut c_void) {
             // Restore the (new) top page's title — without this a pop left the POPPED page's
             // title in the NavigationView header until the next push.
             if let Some((_, _, title)) = s.detail_pages.last() {
+                // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                 unsafe { ffi::day_xaml_nav_set_header(s.nav_view, cstr(title).as_ptr()) };
             }
         }
@@ -566,6 +598,7 @@ fn select_sync(host: *mut c_void) {
         }
     });
     for (page, visible) in pages {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_visible(page, c_int::from(visible)) };
     }
 }
@@ -591,6 +624,7 @@ fn apply_button_content(
         }
         None => ("", String::new(), String::new()),
     };
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         ffi::day_xaml_button_set_content(
             h,
@@ -655,6 +689,7 @@ fn apply_paragraph(
     text: &str,
     plain: bool,
 ) {
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         ffi::day_xaml_label_set_paragraph(
             h,
@@ -685,6 +720,7 @@ fn apply_paragraph(
     } else if LABEL_ELIDE.with(|m| m.borrow_mut().remove(&key)).is_some() {
         // Back to the platform's own trimming: show the whole text again.
         let whole = cstr(text);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_label_show_elided(h, whole.as_ptr(), whole.as_ptr()) };
     }
 }
@@ -699,9 +735,11 @@ fn elide_label(h: *mut c_void, width: f64) {
     }) else {
         return;
     };
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     let shown = day_spec::elide(&full, mode, width, |s| unsafe {
         ffi::day_xaml_label_text_width(h, cstr(s).as_ptr())
     });
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { ffi::day_xaml_label_show_elided(h, cstr(&shown).as_ptr(), cstr(&full).as_ptr()) };
 }
 
@@ -777,6 +815,7 @@ fn label_align_code(align: day_spec::props::TextAlign) -> c_int {
 
 /// `FontSpec::{small_caps, oldstyle_figures}` on a label.
 fn apply_label_features(h: *mut c_void, f: day_spec::FontSpec) {
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         ffi::day_xaml_label_set_features(
             h,
@@ -903,9 +942,11 @@ fn apply_label_runs(
     if runs.is_empty() {
         // The plain setter also clears the Inlines, so a label losing its runs stops rendering
         // the styled version.
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_label_set_text(h, cstr(text).as_ptr()) };
         return;
     }
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { ffi::day_xaml_label_runs_begin(h, node) };
     let mut at = 0usize;
     let add = |slice: &str, run: Option<&day_spec::TextRun>| {
@@ -957,6 +998,7 @@ fn apply_label_runs(
                 link = u.to_string();
             }
         }
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe {
             ffi::day_xaml_label_runs_add(
                 h,
@@ -1003,6 +1045,8 @@ fn cstr(s: &str) -> CString {
 /// so nothing has opened anything yet: the label's `.on_link()` decides.
 extern "C" fn on_link(id: u64, url: *const c_char) {
     ffi_guard::contain((), || {
+        // SAFETY: the shim passes a NUL-terminated string (a `c_str()`) that lives for the
+        // callback.
         let url = unsafe { CStr::from_ptr(url) }
             .to_string_lossy()
             .into_owned();
@@ -1070,6 +1114,8 @@ extern "C" fn on_toggle(id: u64, on: c_int) {
 }
 extern "C" fn on_text(id: u64, s: *const c_char) {
     ffi_guard::contain((), || {
+        // SAFETY: the shim passes a NUL-terminated string (a `c_str()`) that lives for the
+        // callback.
         let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
         // The late echo of day's own write (an address bar's completion) is not typing.
         let echo = TEXT_FIELD_ECHO.with(|m| {
@@ -1304,6 +1350,7 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
             }
         });
         if let Some(s) = entry {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_label_set_font_family(h, s.as_ptr()) };
         }
     });
@@ -1335,6 +1382,8 @@ fn win2d_font_family(path: &std::path::Path, family: &str) -> Option<String> {
         .collect();
     let mut url = vec![0u16; path.len() * 3 + 16];
     let mut len = u32::try_from(url.len()).ok()?;
+    // SAFETY: `path` is NUL-terminated and `len` holds `url`'s capacity in UTF-16 units, the most
+    // the call writes.
     let hr = unsafe { UrlCreateFromPathW(path.as_ptr(), url.as_mut_ptr(), &raw mut len, 0) };
     if hr < 0 {
         return None;
@@ -1532,6 +1581,7 @@ fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int, c_int) {
 fn natural(h: *mut c_void) -> Size {
     let mut w = 0.0;
     let mut hh = 0.0;
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe { ffi::day_xaml_measure(h, -1.0, -1.0, &raw mut w, &raw mut hh) };
     Size::new(w, hh)
 }
@@ -1756,6 +1806,7 @@ fn warn_missing_renderer(kind: PieceKind) {
 /// The visible placeholder a realize arm degrades to when its props payload has the wrong type
 /// (`props_of` has already reported the mismatch) — the same label the missing-renderer arm shows.
 pub(crate) fn placeholder_handle(kind: PieceKind) -> WinHandle {
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     WinHandle(unsafe { ffi::day_xaml_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr(), 1) })
 }
 
@@ -1825,6 +1876,7 @@ impl Toolkit for Xaml {
         } else {
             (slop.leading, slop.trailing)
         };
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_hit_slop(h.0, left, slop.top, right, slop.bottom) };
     }
 
@@ -1834,20 +1886,24 @@ impl Toolkit for Xaml {
             Some(day_spec::DragAxis::Horizontal) => 1,
             Some(day_spec::DragAxis::Vertical) => 2,
         };
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_drag_axis(h.0, code) };
     }
 
     fn set_subtree_enabled(&mut self, h: &WinHandle, _node: NodeId, enabled: bool) {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_subtree_enabled(h.0, c_int::from(enabled)) };
     }
 
     fn primary_pointer(&self) -> day_spec::PointerKind {
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         pointer_kind(unsafe { ffi::day_xaml_primary_pointer() })
     }
 
     // Windows' one "Text size" factor (`UISettings.TextScaleFactor`), which XAML applies to
     // every text element itself; the style does not matter (docs/text.md "System text size").
     fn text_scale(&mut self, _style: Font) -> f64 {
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         let f = unsafe { ffi::day_xaml_text_scale() };
         if f.is_finite() && f > 0.0 { f } else { 1.0 }
     }
@@ -1869,6 +1925,7 @@ impl Toolkit for Xaml {
                 day_spec::props::TextAlign::Trailing => 2,
                 day_spec::props::TextAlign::Justified => 3,
             };
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_label_set_direction(h.0, rtl, code) };
             return;
         }
@@ -1879,12 +1936,14 @@ impl Toolkit for Xaml {
         ) {
             return;
         }
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_flow_direction(h.0, rtl) };
     }
 
     #[cfg(feature = "winui")]
     fn set_focusable(&mut self, h: &WinHandle, node: NodeId, focusable: bool) {
         if focusable {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe {
                 ffi::day_xaml_set_focusable(
                     h.0,
@@ -1899,6 +1958,7 @@ impl Toolkit for Xaml {
     }
 
     fn set_presented(&mut self, handle: &Self::Handle, visible: bool) {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe {
             day_toolkit_xaml_sys::day_xaml_set_visible(handle.0, i32::from(visible));
         }
@@ -1972,6 +2032,8 @@ impl Toolkit for Xaml {
             Cap::FramelessWindow | Cap::OverlayTitleBar | Cap::DragRegion => Support::Native,
             // Mica, Mica Alt and Acrylic through DWMWA_SYSTEMBACKDROP_TYPE, Windows 11 22621+.
             Cap::WindowMaterial => {
+                // SAFETY: a shim call without handles, on the UI thread
+                // (crate note "Unsafe calls").
                 if unsafe { ffi::day_xaml_materials_supported() } != 0 {
                     Support::Native
                 } else {
@@ -2073,6 +2135,8 @@ impl Toolkit for Xaml {
     }
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> WinHandle {
+        // SAFETY: every arm creates an element or passes this node's live handles, on the UI thread
+        // (crate note "Unsafe calls").
         unsafe {
             let handle = match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
@@ -2572,6 +2636,8 @@ impl Toolkit for Xaml {
             tree::patch(h.0 as usize, patch);
             return;
         }
+        // SAFETY: every arm passes this node's live handles, on the UI thread
+        // (crate note "Unsafe calls").
         unsafe {
             match kind {
                 kinds::IMAGE => {
@@ -3003,12 +3069,15 @@ impl Toolkit for Xaml {
         tree::release(h.0 as usize);
         // A drag region's element is held by the shim's hit test; let it go with the node.
         if DRAG_REGIONS.with(|d| d.borrow_mut().remove(&(h.0 as usize))) {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_set_drag_region(h.0, 0) };
         }
         // A released window content = that window is gone (docs/windows.md teardown): Now
         // destroy the whole secondary window, never before (child releases come first).
         self.secondary.retain(|w| {
             if w.content == h.0 {
+                // SAFETY: `w.win` is this window's live token, destroyed once here, after its
+                // content's children.
                 unsafe { ffi::day_xaml_window_destroy2(w.win) };
                 false
             } else {
@@ -3020,6 +3089,8 @@ impl Toolkit for Xaml {
         // can go — and if that was the last primary, `quit_app` follows right behind.
         if !self.primary_root.is_null() && self.primary_root == h.0 {
             self.primary_root = std::ptr::null_mut();
+            // SAFETY: the primary host is destroyed once: `primary_root` is cleared just above (UI
+            // thread).
             unsafe { ffi::day_xaml_destroy_primary() };
         }
         let key = h.0 as usize;
@@ -3049,11 +3120,15 @@ impl Toolkit for Xaml {
         SPLIT_SIDEBAR_PAGES.with(|m| m.borrow_mut().remove(&key));
         if let Some(NavState::Split(s)) = NAV_STATE.with(|m| m.borrow_mut().remove(&key)) {
             NAV_HOST_BY_ID.with(|m| m.borrow_mut().retain(|_, v| *v != s.nav_view));
+            // SAFETY: `content_host` was boxed for this nav host alone and is deleted once, with
+            // it.
             unsafe { ffi::day_xaml_delete(s.content_host) };
         }
         list::release(key);
         // The scroll host's content Canvas is boxed separately from the ScrollViewer handle.
         if let Some(content) = SCROLL_STATE.with(|m| m.borrow_mut().remove(&key)) {
+            // SAFETY: the content Canvas was boxed for this scroll host alone and is deleted once,
+            // with it.
             unsafe { ffi::day_xaml_delete(content) };
         }
         GESTURES.with(|g| g.borrow_mut().retain(|(ptr, _)| *ptr != key));
@@ -3071,6 +3146,7 @@ impl Toolkit for Xaml {
         // freed address can't inherit the dead element's entries. (The explicit purges above
         // stay: they key by node id / value pairs, not this address.)
         day_spec::sidetable::sweep(key);
+        // SAFETY: day-core releases `h` once, after its children; the maps above have dropped it.
         unsafe { ffi::day_xaml_delete(h.0) };
     }
 
@@ -3100,12 +3176,14 @@ impl Toolkit for Xaml {
             if !s.is_stack && index == 0 {
                 // The sidebar page (day's logo/title header piece) → the NavigationView's
                 // PaneHeader; clipped to a fixed height by set_frame.
+                // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                 unsafe { ffi::day_xaml_nav_set_pane_header(s.nav_view, child.0) };
                 s.sidebar_page = Some((child.0, node));
                 SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().insert(child.0 as usize));
                 NavInsert::Done
             } else {
                 // Detail / stack page → nv.Content (day positions it by absolute frame).
+                // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                 unsafe { ffi::day_xaml_add_child(s.content_host, child.0) };
                 s.detail_pages.push((child.0, node, String::new()));
                 NavInsert::Content {
@@ -3145,12 +3223,15 @@ impl Toolkit for Xaml {
                         return;
                     };
                     let (mut w, mut h) = (0.0, 0.0);
+                    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                     unsafe { ffi::day_xaml_widget_size(host, &raw mut w, &raw mut h) };
                     if w > 0.0 && h > 0.0 {
                         emit(node, Event::FrameChanged(Size::new(w, h)));
                     }
                 });
                 let data = Box::into_raw(Box::new(boxed)).cast::<c_void>();
+                // SAFETY: `day_xaml_post` takes ownership of `data` and hands it to `run_posted`
+                // once, on the UI thread; it locks, so any thread may call it.
                 unsafe { ffi::day_xaml_post(run_posted, data) };
                 if stack {
                     stack_sync(parent.0);
@@ -3173,6 +3254,7 @@ impl Toolkit for Xaml {
             } else {
                 state.content_host
             };
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_add_child(host, child.0) };
             INSPECTOR_PANES_BY_HOST.with(|p| {
                 if let Some(nodes) = p.borrow_mut().get_mut(&state.node) {
@@ -3189,6 +3271,7 @@ impl Toolkit for Xaml {
             // Seed the pane with the host's current bounds — adding a child does not refire
             // SizeChanged (the nav content-region rule above).
             let (mut w, mut h) = (0.0, 0.0);
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_widget_size(host, &raw mut w, &raw mut h) };
             if w > 0.0 && h > 0.0 && pane_id.0 != 0 {
                 emit(pane_id, Event::FrameChanged(Size::new(w, h)));
@@ -3199,6 +3282,7 @@ impl Toolkit for Xaml {
         let target = SCROLL_STATE
             .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
             .unwrap_or(parent.0);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_add_child(target, child.0) };
     }
 
@@ -3211,6 +3295,7 @@ impl Toolkit for Xaml {
             };
             s.detail_pages.retain(|&(p, _, _)| p != child.0);
             SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(child.0 as usize)));
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_remove_child(s.content_host, child.0) };
             Some((s.is_stack, s.resident))
         });
@@ -3245,12 +3330,14 @@ impl Toolkit for Xaml {
             })
         });
         if let Some(host) = inspected {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_remove_child(host, child.0) };
             return;
         }
         let target = SCROLL_STATE
             .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
             .unwrap_or(parent.0);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_remove_child(target, child.0) };
     }
 
@@ -3267,6 +3354,7 @@ impl Toolkit for Xaml {
                         // Height-for-width: re-measure wrapped at the proposed width.
                         let mut w = 0.0;
                         let mut hh = 0.0;
+                        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                         unsafe { ffi::day_xaml_measure(h.0, pw, -1.0, &raw mut w, &raw mut hh) };
                         Size::new(pw.ceil(), hh.ceil())
                     }
@@ -3303,6 +3391,7 @@ impl Toolkit for Xaml {
             kinds::PROGRESS => {
                 // Determinate bar fills the proposed width; the indeterminate ring is square.
                 let nat = natural(h.0);
+                // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                 if unsafe { ffi::day_xaml_progress_is_ring(h.0) } != 0 {
                     let side = nat.width.max(nat.height).max(20.0);
                     Size::new(side, side)
@@ -3328,11 +3417,13 @@ impl Toolkit for Xaml {
         // WM_SETCURSOR with a Win32 `IDC_*` shape (docs/cursor.md). Grab, zoom, column/row
         // resize, copy, alias, cell, and vertical text take their nearest, so `Cap::Cursor`
         // answers Emulated.
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_cursor(h.0, win_cursor_code(&cursor)) };
     }
 
     fn set_selectable(&mut self, h: &WinHandle, selectable: bool) -> Option<WinHandle> {
         // The shim try_as's to a TextBlock, so a non-label handle is a safe no-op (docs/text.md).
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_label_set_selectable(h.0, c_int::from(selectable)) };
         None
     }
@@ -3344,12 +3435,14 @@ impl Toolkit for Xaml {
     fn set_input_traits(&mut self, h: &WinHandle, traits: &InputTraits) -> Option<WinHandle> {
         let key = h.0 as usize;
         let node = TEXT_FIELD_NODE.with(|m| m.borrow().get(&key).copied())?;
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         let swapped = unsafe {
             ffi::day_xaml_field_set_secure(h.0, c_int::from(traits.secure), node, on_text, on_focus)
         };
         let live = if swapped.is_null() { h.0 } else { swapped };
         // The shim declines the rebuild when the field hangs somewhere it cannot take the
         // replacement's place. A password left in a `TextBox` is worth saying out loud.
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         if traits.secure && unsafe { ffi::day_xaml_field_is_secure(live) } == 0 {
             log::error!(
                 "day-toolkit-winui: a secure text field could not be rebuilt as a PasswordBox; its \
@@ -3375,6 +3468,7 @@ impl Toolkit for Xaml {
         // No native length limit: `MaxLength` counts UTF-16 units where the bound counts
         // characters, so it would refuse text the bound allows. day-pieces holds the bound. The
         // action key's label has no counterpart on this keyboard.
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe {
             ffi::day_xaml_field_set_traits(
                 live,
@@ -3399,10 +3493,12 @@ impl Toolkit for Xaml {
         });
         for k in gestures {
             GESTURES.with(|g| g.borrow_mut().insert((swapped as usize, k)));
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_enable_gesture(swapped, node, k, on_gesture) };
         }
         transfer::migrate(key, &new);
         // The replacement's template is not built yet, and its height is the template's.
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_on_control_loaded(swapped, node, control_loaded) };
         self.release(*h);
         Some(new)
@@ -3413,6 +3509,7 @@ impl Toolkit for Xaml {
     // outright. Day never ticks these frames itself (§0.3).
     fn set_opacity(&mut self, h: &WinHandle, opacity: f64, anim: Option<&AnimSpec>) {
         let anim = XamlAnim::new(anim);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_opacity(h.0, opacity, XamlAnim::ptr(anim.as_ref())) };
     }
 
@@ -3420,6 +3517,7 @@ impl Toolkit for Xaml {
         // A CompositeTransform about the element's center — the same anchor AppKit's layer and
         // Qt's painter transform use, so a rotated/scaled box matches across backends.
         let anim = XamlAnim::new(anim);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe {
             ffi::day_xaml_set_transform(
                 h.0,
@@ -3441,6 +3539,7 @@ impl Toolkit for Xaml {
         if !day_spec::kind_has_baseline(kind) {
             return None;
         }
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         let b = unsafe { ffi::day_xaml_baseline(h.0, size.height) };
         (b >= 0.0).then_some(b)
     }
@@ -3450,6 +3549,7 @@ impl Toolkit for Xaml {
         // height (a Canvas has no desired size) so day's logo/title piece sits at the pane top; the
         // NavigationView owns everything below it. Width follows the frame day proposes.
         if SPLIT_SIDEBAR_PAGES.with(|m| m.borrow().contains(&(h.0 as usize))) {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe {
                 ffi::day_xaml_set_geometry(
                     h.0,
@@ -3463,6 +3563,7 @@ impl Toolkit for Xaml {
         }
         if let Some(anim) = XamlAnim::new(anim) {
             // Position and size played from the frame shown now (docs/tween.md).
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe {
                 ffi::day_xaml_set_geometry_animated(
                     h.0,
@@ -3474,6 +3575,7 @@ impl Toolkit for Xaml {
                 );
             }
         } else {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe {
                 ffi::day_xaml_set_geometry(
                     h.0,
@@ -3499,6 +3601,7 @@ impl Toolkit for Xaml {
     // clips + scrolls; the offset/scroll-to operate on the ScrollViewer handle directly.
     fn set_scroll_content(&mut self, h: &WinHandle, content: Size) {
         if let Some(c) = SCROLL_STATE.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe {
                 ffi::day_xaml_scroll_set_content_size(
                     c,
@@ -3523,6 +3626,7 @@ impl Toolkit for Xaml {
     }
 
     fn scroll_to(&mut self, h: &WinHandle, target: Rect, animated: bool) {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe {
             ffi::day_xaml_scroll_to(
                 h.0,
@@ -3535,6 +3639,7 @@ impl Toolkit for Xaml {
 
     fn scroll_offset(&mut self, h: &WinHandle) -> Point {
         let (mut x, mut y) = (0.0_f64, 0.0_f64);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_scroll_offset(h.0, &raw mut x, &raw mut y) };
         Point::new(x, y)
     }
@@ -3568,12 +3673,14 @@ impl Toolkit for Xaml {
         if !GESTURES.with(|g| g.borrow_mut().insert((h.0 as usize, k))) {
             return;
         }
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_enable_gesture(h.0, node.0, k, on_gesture) };
     }
 
     fn focus(&mut self, h: &WinHandle, _node: NodeId, focused: bool) {
         // The shim resigns to the window's invisible focus sink — system XAML has no
         // "focus nothing" — and only while this control still owns focus.
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_control_focus(h.0, c_int::from(focused)) };
     }
 
@@ -3582,6 +3689,7 @@ impl Toolkit for Xaml {
     }
 
     fn set_tooltip(&mut self, h: &WinHandle, text: &str) {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_tooltip(h.0, cstr(text).as_ptr()) };
     }
     fn open_popover(
@@ -3594,6 +3702,7 @@ impl Toolkit for Xaml {
         extern "C" fn dismissed(id: u64) {
             day_spec::ffi_guard::contain((), || emit(NodeId(id), Event::PopoverDismissed));
         }
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe {
             ffi::day_xaml_popover(
                 anchor.0,
@@ -3606,12 +3715,15 @@ impl Toolkit for Xaml {
         }
     }
     fn resize_popover(&mut self, content: &WinHandle, size: Size) {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_resize_popover(content.0, size.width, size.height) };
     }
     fn close_popover(&mut self, content: &WinHandle) {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_close_popover(content.0) };
     }
     fn show_toast(&mut self, host: &WinHandle, text: &str) {
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_toast(host.0, cstr(text).as_ptr()) };
         self.announce(text, false);
     }
@@ -3619,6 +3731,7 @@ impl Toolkit for Xaml {
     fn set_a11y(&mut self, h: &WinHandle, a11y: &A11yProps) {
         use day_spec::Role;
         if let Some(id) = &a11y.identifier {
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_set_name(h.0, cstr(id).as_ptr()) };
         }
         // The rest crosses in one call; an unset member goes over as an empty string / 0 and
@@ -3643,6 +3756,7 @@ impl Toolkit for Xaml {
         let hint = cstr(a11y.hint.as_deref().unwrap_or(""));
         let value = cstr(a11y.value.as_deref().unwrap_or(""));
         let hidden = c_int::from(a11y.hidden || a11y.decorative);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe {
             ffi::day_xaml_set_a11y(
                 h.0,
@@ -3657,6 +3771,7 @@ impl Toolkit for Xaml {
     }
 
     fn announce(&mut self, text: &str, urgent: bool) {
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_announce(cstr(text).as_ptr(), c_int::from(urgent)) };
     }
 
@@ -3775,6 +3890,7 @@ impl Toolkit for Xaml {
         // File/Edit/View/Help slot-filling into every context menu.
         let mut spec = String::new();
         serialize_menu_xaml(items, &mut spec);
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_context_menu(h.0, cstr(&spec).as_ptr()) };
     }
 
@@ -3808,10 +3924,12 @@ impl Toolkit for Xaml {
         // (see `open_window`). Re-set on a locale change, so the stored spec stays current.
         self.menu_spec.clone_from(&spec);
         let c = cstr(&spec);
+        // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
         unsafe { ffi::day_xaml_set_app_menu(self.window, c.as_ptr()) };
         // Every window already open shows the same bar — the menu is app-level, not per-window.
         // A Preferences panel is the exception and stays bare.
         for w in self.secondary.iter().filter(|w| !w.menuless) {
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             unsafe { ffi::day_xaml_window_set_menu2(w.win, c.as_ptr()) };
         }
     }
@@ -3819,6 +3937,7 @@ impl Toolkit for Xaml {
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
         use day_spec::present::PresentSpec;
         match spec {
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             PresentSpec::Dialog { .. } => unsafe {
                 ffi::day_xaml_present_dialog(
                     req,
@@ -3835,6 +3954,7 @@ impl Toolkit for Xaml {
                 ok,
                 cancel,
                 ..
+                // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             } => unsafe {
                 ffi::day_xaml_present_prompt(
                     req,
@@ -3847,6 +3967,7 @@ impl Toolkit for Xaml {
                     self.window,
                 );
             },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             PresentSpec::OpenFile { multiple, .. } => unsafe {
                 ffi::day_xaml_present_file_open(
                     req,
@@ -3856,9 +3977,11 @@ impl Toolkit for Xaml {
                     self.window,
                 );
             },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             PresentSpec::OpenFolder { .. } => unsafe {
                 ffi::day_xaml_present_folder_open(req, cstr(spec.title()).as_ptr(), self.window);
             },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             PresentSpec::SaveFile { suggested_name, .. } => unsafe {
                 // The pieces layer copies the staged bytes to the chosen path (docs/files.md).
                 ffi::day_xaml_present_file_save(
@@ -3873,6 +3996,7 @@ impl Toolkit for Xaml {
     }
 
     fn dismiss(&mut self, req: u64) {
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_dismiss_present(req) };
     }
 
@@ -3887,6 +4011,7 @@ impl Toolkit for Xaml {
     }
     fn open_url(&mut self, url: &str) {
         let c = cstr(url);
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_open_url(c.as_ptr()) };
     }
 
@@ -3909,9 +4034,13 @@ impl Toolkit for Xaml {
             }));
         }
         let token = day_core::frame::native::register(cb);
+        // SAFETY: `fire` lives for the program; the token stays registered until delivered or
+        // cancelled.
         unsafe { ffi::day_xaml_request_frame(token, fire) };
         Box::new(move || {
             day_core::frame::native::cancel(token);
+            // SAFETY: an id-keyed lookup; `CancelFrame` is not `Send`, so this runs on the UI
+            // thread.
             unsafe { ffi::day_xaml_cancel_frame(token) };
         })
     }
@@ -3921,6 +4050,8 @@ impl Toolkit for Xaml {
         let ops = resolve_canvas_fonts(ops);
         let (nums, texts) = day_spec::encode_ops(&ops);
         let joined = cstr(&texts.join("\u{1f}"));
+        // SAFETY: live canvas handle on the UI thread; `nums` and `joined` outlive the call, which
+        // copies them.
         unsafe {
             ffi::day_xaml_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr());
         };
@@ -3938,6 +4069,8 @@ impl Toolkit for Xaml {
     ) -> day_spec::WindowOpenReply<WinHandle> {
         let fixed = c_int::from(kind.is_panel());
         let chrome = window_chrome(options);
+        // SAFETY: the title and `chrome` outlive the call, which returns a new window token (UI
+        // thread).
         let win = unsafe {
             ffi::day_xaml_window_new2(
                 cstr(&options.title).as_ptr(),
@@ -3954,6 +4087,7 @@ impl Toolkit for Xaml {
         if options.min_size.is_some() || options.max_size.is_some() {
             set_limits(win, options.min_size, options.max_size);
         }
+        // SAFETY: `win` is the live token `day_xaml_window_new2` just returned (UI thread).
         let content = unsafe { ffi::day_xaml_window_content2(win) };
         // The app menu was installed before this window existed, and Windows draws one per
         // window — so replay it here rather than leaving the new window bare.
@@ -3963,6 +4097,7 @@ impl Toolkit for Xaml {
         // Windows has. It keeps the menu-less frame the shim gives it.
         let menuless = kind.is_panel();
         if !menuless && !self.menu_spec.is_empty() {
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             unsafe { ffi::day_xaml_window_set_menu2(win, cstr(&self.menu_spec).as_ptr()) };
         }
         self.secondary.push(XamlWin {
@@ -3975,6 +4110,7 @@ impl Toolkit for Xaml {
 
     fn close_window(&mut self, host: &WinHandle) {
         if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             unsafe { ffi::day_xaml_window_close2(w.win) };
         }
     }
@@ -3982,12 +4118,14 @@ impl Toolkit for Xaml {
     fn quit_app(&mut self) {
         // Just the platform's exit: day-core has already disposed the other windows and
         // delivered WillTerminate (docs/windows.md close policy).
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_quit() };
     }
 
     fn focus_window(&mut self, host: &WinHandle) {
         // The primary too: a forwarded launch focuses whichever window is in front.
         if let Some(win) = self.window_token(host) {
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             unsafe { ffi::day_xaml_window_raise2(win) };
         }
     }
@@ -3996,6 +4134,7 @@ impl Toolkit for Xaml {
         // `window_token` covers the primary too — it is an ordinary window (docs/windows.md),
         // and `day::window_title` in the first window's shell arrives here like any other.
         if let Some(win) = self.window_token(host) {
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             unsafe { ffi::day_xaml_window_set_title2(win, cstr(title).as_ptr()) };
         }
     }
@@ -4013,6 +4152,7 @@ impl Toolkit for Xaml {
                 d.remove(&(h.0 as usize));
             }
         });
+        // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_drag_region(h.0, c_int::from(drag)) };
     }
 
@@ -4025,13 +4165,16 @@ impl Toolkit for Xaml {
         match change {
             // ShowWindow for minimize, maximize and restore; fullscreen is borderless, over the
             // window's whole monitor. The shim reports the outcome through `win_state`.
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::State(state) => unsafe { ffi::day_xaml_window_set_state(win, state.code()) },
             // Captures, recordings and screen sharing leave the window out; the user still sees it.
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::ContentProtected(on) => unsafe {
                 ffi::day_xaml_window_set_protected(win, c_int::from(*on));
             },
             // SetWindowPos: the outer frame's origin, the content size around which the frame
             // and the docked chrome are added.
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::Frame { origin, size } => unsafe {
                 let p = origin.unwrap_or(Point::ZERO);
                 let z = size.unwrap_or(Size::new(0.0, 0.0));
@@ -4047,6 +4190,7 @@ impl Toolkit for Xaml {
             },
             // WM_GETMINMAXINFO's track sizes.
             C::Limits { min, max } => set_limits(win, *min, *max),
+            // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
             C::Level(level) => unsafe {
                 ffi::day_xaml_window_set_flag(
                     win,
@@ -4055,25 +4199,33 @@ impl Toolkit for Xaml {
                 );
             },
             // ITaskbarList::DeleteTab / AddTab.
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::SkipTaskbar(skip) => unsafe {
                 ffi::day_xaml_window_set_flag(win, 1, c_int::from(*skip));
             },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::Resizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 2, c_int::from(*on)) },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::Minimizable(on) => unsafe {
                 ffi::day_xaml_window_set_flag(win, 3, c_int::from(*on));
             },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::Maximizable(on) => unsafe {
                 ffi::day_xaml_window_set_flag(win, 4, c_int::from(*on));
             },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::Closable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 5, c_int::from(*on)) },
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::Visible(on) => unsafe { ffi::day_xaml_window_set_flag(win, 6, c_int::from(*on)) },
             // The title bar's DWM dark flag and the island root's RequestedTheme.
             C::Appearance(dark) => {
+                // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
                 unsafe { ffi::day_xaml_window_set_appearance(win, dark.map_or(-1, c_int::from)) };
                 // The window's inks, for its own scheme.
                 repaint_inks();
             }
             // FlashWindowEx.
+            // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
             C::RequestAttention(a) => unsafe {
                 ffi::day_xaml_window_attention(
                     win,
@@ -4088,11 +4240,13 @@ impl Toolkit for Xaml {
     fn window_frame(&self, host: &WinHandle) -> Option<day_spec::Rect> {
         let win = self.window_token(host)?;
         let mut r = [0.0f64; 4];
+        // SAFETY: a live window token; `r` has the four slots the shim writes.
         (unsafe { ffi::day_xaml_window_frame(win, r.as_mut_ptr()) } != 0)
             .then(|| day_spec::Rect::new(r[0], r[1], r[2], r[3]))
     }
 
     fn monitors(&self) -> Vec<day_spec::Monitor> {
+        // SAFETY: a null buffer with capacity 0 only counts the monitors (UI thread).
         let count = unsafe { ffi::day_xaml_monitors(std::ptr::null_mut(), 0) }.max(0);
         let mut raw: Vec<ffi::DayXamlMonitor> = (0..count)
             .map(|_| ffi::DayXamlMonitor {
@@ -4104,6 +4258,7 @@ impl Toolkit for Xaml {
                 name: [0; 128],
             })
             .collect();
+        // SAFETY: `raw` holds `count` structs and the shim fills at most `count` of them.
         let filled = unsafe { ffi::day_xaml_monitors(raw.as_mut_ptr(), count) }.clamp(0, count);
         raw.truncate(filled as usize);
         let text = |chars: &[c_char]| {
@@ -4145,6 +4300,7 @@ impl Toolkit for Xaml {
             };
             let mut menu = String::new();
             serialize_menu_xaml(&item.menu, &mut menu);
+            // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
             unsafe {
                 ffi::day_xaml_status_set(
                     cstr(&item.id).as_ptr(),
@@ -4162,6 +4318,7 @@ impl Toolkit for Xaml {
             .map(|i| i.id.as_str())
             .collect::<Vec<_>>()
             .join("\n");
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_status_retain(cstr(&ids).as_ptr()) };
     }
 
@@ -4180,6 +4337,7 @@ impl Toolkit for Xaml {
             P::Paused(v) => (3, v),
             P::Error(v) => (4, v),
         };
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_app_progress(kind, value) };
     }
 
@@ -4193,6 +4351,7 @@ impl Toolkit for Xaml {
             B::Dot => (2, 0),
             B::Text(_) => return,
         };
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_app_badge(kind, count) };
     }
 
@@ -4200,6 +4359,7 @@ impl Toolkit for Xaml {
     /// day-core decides about quitting; what keeping the app alive needs here is somewhere for
     /// Day's posts to go once that window is gone.
     fn set_keep_running(&mut self, keep: bool) {
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_keep_running(c_int::from(keep)) };
     }
 
@@ -4212,6 +4372,7 @@ impl Toolkit for Xaml {
             return self.snapshot_window();
         };
         let win = w.win;
+        // SAFETY: a live window token; `path` is a NUL-terminated `CString` that outlives the call.
         snapshot_via(|path| unsafe { ffi::day_xaml_snapshot_png2(win, path) })
     }
 
@@ -4219,6 +4380,7 @@ impl Toolkit for Xaml {
         // The primary window's NavigationView is the only split here (secondary windows carry
         // no chrome), so the host is implied. The same call the toolbar's own AppBarButton
         // makes, so a dayscript walkthrough drives the real path (docs/toolbars.md).
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_toggle_sidebar() != 0 }
     }
 
@@ -4233,6 +4395,7 @@ impl Toolkit for Xaml {
             Some(false) => 1, // light
             Some(true) => 2,  // dark
         };
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_set_appearance(mode) };
         // Every ink that follows the appearance, for the scheme now shown (docs/color.md).
         repaint_inks();
@@ -4250,6 +4413,7 @@ impl Toolkit for Xaml {
     /// around it themed themselves correctly. That mismatch is what made a dark-mode window show
     /// app-painted surfaces in light colors.
     fn dark_mode(&mut self) -> bool {
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_is_dark() != 0 }
     }
 
@@ -4257,6 +4421,7 @@ impl Toolkit for Xaml {
     /// as `AnimationsEnabled`, and the shim re-reads it on every call so the answer is current
     /// after each change report.
     fn reduce_motion(&mut self) -> bool {
+        // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
         unsafe { ffi::day_xaml_reduce_motion() != 0 }
     }
 
@@ -4268,6 +4433,7 @@ impl Toolkit for Xaml {
     /// is the one part of this backend that is testable off Windows (`ImageFormat::dimensions`).
     fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
         let held =
+            // SAFETY: `bytes` is live for the call; the shim copies them under `id` (UI thread).
             unsafe { ffi::day_xaml_image_decode(id.0, bytes.as_ptr(), bytes.len() as c_int) != 0 };
         let format = day_spec::ImageFormat::sniff(bytes);
         let event = if let (true, Some((w, h))) = (held, day_spec::ImageFormat::dimensions(bytes)) {
@@ -4291,6 +4457,7 @@ impl Toolkit for Xaml {
         } else {
             // A container whose header this does not parse would leave the caller with no size
             // to lay out against, so it is refused rather than answered with zeros.
+            // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
             unsafe { ffi::day_xaml_image_release(id.0) };
             Event::ImageDecoded {
                 req,
@@ -4316,7 +4483,8 @@ impl Toolkit for Xaml {
         let (width, height) = day_spec::export_pixels(size, scale);
         let (nums, texts) = day_spec::encode_ops(&resolve_canvas_fonts(ops));
         let texts = cstr(&texts.join("\u{1f}"));
-        // Core validated dimensions and limits; all borrowed buffers outlive this synchronous call.
+        // SAFETY: core validated dimensions and limits; `nums` and `texts` outlive this synchronous
+        // call, on the UI thread.
         let rc = unsafe {
             ffi::day_xaml_canvas_bitmap(
                 id.0,
@@ -4357,6 +4525,8 @@ impl Toolkit for Xaml {
             let fit = spec.fit.unwrap_or(Size::ZERO);
             let mut len = 0;
             // The shim allocates the returned bytes; copy before freeing through its allocator.
+            // SAFETY: the shim writes `len` before it returns; its `malloc`ed bytes are copied and
+            // then freed once through its own allocator.
             unsafe {
                 let bytes = ffi::day_xaml_encode_png(
                     id.0,
@@ -4386,6 +4556,7 @@ impl Toolkit for Xaml {
             return Err("no window".into());
         }
         let win = self.window;
+        // SAFETY: a live window token; `path` is a NUL-terminated `CString` that outlives the call.
         snapshot_via(|path| unsafe { ffi::day_xaml_snapshot_png(win, path) })
     }
 
@@ -5199,6 +5370,7 @@ fn set_jump_tasks(dynamic: &[day_spec::LauncherShortcut]) {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    // SAFETY: a shim call without handles, on the UI thread (crate note "Unsafe calls").
     unsafe { ffi::day_xaml_set_jump_tasks(cstr(&id).as_ptr(), cstr(&spec).as_ptr()) };
 }
 
@@ -5206,6 +5378,7 @@ fn set_jump_tasks(dynamic: &[day_spec::LauncherShortcut]) {
 fn set_limits(win: *mut c_void, min: Option<Size>, max: Option<Size>) {
     let min = min.unwrap_or(Size::new(0.0, 0.0));
     let max = max.unwrap_or(Size::new(0.0, 0.0));
+    // SAFETY: a live window token (crate note "Unsafe calls"), on the UI thread.
     unsafe { ffi::day_xaml_window_set_limits(win, min.width, min.height, max.width, max.height) };
 }
 
@@ -5272,6 +5445,7 @@ fn cover_frame(cover: *mut c_void, area: Size) -> (f64, Size) {
 
 fn cover_extent(window: *mut c_void) -> Size {
     let (mut w, mut h) = (0.0f64, 0.0f64);
+    // SAFETY: `window` is a live window token or null for the primary; locals take the size.
     unsafe { ffi::day_xaml_window_chrome_size(window, &raw mut w, &raw mut h) };
     if w > 0.0 && h > 0.0 {
         Size::new(w, h)
@@ -5296,6 +5470,7 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
         COVERS.with(|c| {
             for (cover, node) in c.borrow().iter() {
                 let (y, full) = cover_frame(*cover, full);
+                // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
                 unsafe {
                     ffi::day_xaml_set_geometry(
                         *cover,
@@ -5338,6 +5513,8 @@ extern "C" fn control_loaded(id: u64) {
             });
         });
         let data = Box::into_raw(Box::new(boxed)).cast::<c_void>();
+        // SAFETY: `day_xaml_post` takes ownership of `data` and hands it to `run_posted` once, on
+        // the UI thread; it locks, so any thread may call it.
         unsafe { ffi::day_xaml_post(run_posted, data) };
     });
 }
@@ -5345,6 +5522,8 @@ extern "C" fn control_loaded(id: u64) {
 extern "C" fn run_posted(data: *mut c_void) {
     // The posted-closure trampoline runs arbitrary Rust (deferred emits, list populates) —
     // contained like every other FFI entry (day-spec's ffi_guard).
+    // SAFETY: `data` is the `Box` that `post` or a `day_xaml_post` caller leaked, and the shim
+    // passes it here exactly once.
     let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data.cast()) };
     ffi_guard::contain((), f);
 }
@@ -5356,6 +5535,8 @@ extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) 
         let text = if text.is_null() {
             String::new()
         } else {
+            // SAFETY: a non-null string from the shim is NUL-terminated (a `c_str()`) and lives for
+            // the call.
             unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned()
@@ -5512,6 +5693,7 @@ fn configure_scroll(sv: *mut c_void, id: NodeId, p: &day_spec::props::ScrollProp
         ScrollSnap::Interval(points) => (2, points),
     };
     let (zoom_min, zoom_max) = p.zoom.map_or((0.0, 0.0), |z| (z.min, z.max));
+    // SAFETY: live shim handles on the UI thread (crate note "Unsafe calls").
     unsafe {
         ffi::day_xaml_scroll_configure(
             sv,
@@ -5606,6 +5788,9 @@ impl Platform for Xaml {
     };
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, WinHandle, Size)>) {
+        // SAFETY: the window and callbacks are installed on this thread, which becomes the UI
+        // thread; every string and `chrome` outlive their calls, and every callback is `extern
+        // "C"`.
         unsafe {
             let (min_w, min_h) = options
                 .min_size
@@ -5675,6 +5860,8 @@ impl Platform for Xaml {
 
     fn post(f: Box<dyn FnOnce() + Send>) {
         let data = Box::into_raw(Box::new(f)).cast::<c_void>();
+        // SAFETY: `day_xaml_post` takes ownership of `data` and hands it to `run_posted` once, on
+        // the UI thread; it locks, so any thread may call it.
         unsafe { ffi::day_xaml_post(run_posted, data) };
     }
 
@@ -5688,6 +5875,8 @@ impl Platform for Xaml {
             return;
         }
         let data = Box::into_raw(Box::new(f)).cast::<c_void>();
+        // SAFETY: `day_xaml_post_delayed` takes ownership of `data` and hands it to `run_posted`
+        // once, on the UI thread; it posts through the locking `day_xaml_post`.
         unsafe { ffi::day_xaml_post_delayed(ms, run_posted, data) };
     }
 }

@@ -56,8 +56,12 @@ impl State {
         let observer = Progress::alloc(mtm).set_ivars(ProgressIvars {
             state: Rc::downgrade(state),
         });
+        // SAFETY: `observer` is a fresh DayPagerProgress with ivars set; NSObject's `init` takes no
+        // arguments and returns the initialized object.
         let observer: Retained<Progress> = unsafe { msg_send![super(observer), init] };
         let key = NSString::from_str("contentOffset");
+        // SAFETY: KVO does not retain the observer; `state.progress` keeps it and `scroll` until
+        // `detach_progress` (also run on drop) removes it. Main thread; null context is allowed.
         unsafe {
             let _: () = msg_send![
                 &*scroll,
@@ -72,6 +76,8 @@ impl State {
     fn detach_progress(&self) {
         if let Some((scroll, observer)) = self.progress.borrow_mut().take() {
             let key = NSString::from_str("contentOffset");
+            // SAFETY: `attach_progress` registered `observer` on `scroll` for this key path; both
+            // are still retained here. Main thread.
             unsafe {
                 let _: () = msg_send![&*scroll, removeObserver: &*observer, forKeyPath: &*key];
             }
@@ -254,6 +260,8 @@ define_class!(
                 }
                 state.finished.set(state.serial.get());
                 // UIKit is still unwinding its scroll transition. Dispatch next runloop turn.
+                // SAFETY: NSObject implements `performSelector:withObject:afterDelay:` (void); the
+                // run loop retains `self` until `settled` (no argument) runs. Main thread.
                 unsafe { let _: () = msg_send![self, performSelector:sel!(settled), withObject:std::ptr::null::<NSObject>(), afterDelay:0.0f64]; }
             }
         }
@@ -317,6 +325,8 @@ define_class!(
         }
         #[unsafe(method(layoutSubviews))]
         fn layout(&self) {
+            // SAFETY: UIView implements `layoutSubviews` (no arguments, void); this is its
+            // override.
             unsafe { let _: () = msg_send![super(self), layoutSubviews]; }
             if let Some(view) = self.ivars().state.controller.view() { view.setFrame(self.bounds()); }
         }
@@ -349,6 +359,7 @@ define_class!(
 );
 fn make(_: &mut Uikit, p: &PagerProps, id: NodeId) -> Retained<UIView> {
     let mtm = MainThreadMarker::new().unwrap();
+    // SAFETY: unaudited Apple API; live operands on the main thread (crate note "Unsafe calls").
     let controller = unsafe {
         UIPageViewController::initWithTransitionStyle_navigationOrientation_options(
             UIPageViewController::alloc(mtm),
@@ -375,6 +386,8 @@ fn make(_: &mut Uikit, p: &PagerProps, id: NodeId) -> Retained<UIView> {
     let delegate = Delegate::alloc(mtm).set_ivars(DelegateIvars {
         state: Rc::downgrade(&state),
     });
+    // SAFETY: `delegate` is a fresh DayPagerDelegate with ivars set; NSObject's `init` takes no
+    // arguments and returns the initialized object.
     let delegate: Retained<Delegate> = unsafe { msg_send![super(delegate), init] };
     state
         .controller
@@ -386,6 +399,8 @@ fn make(_: &mut Uikit, p: &PagerProps, id: NodeId) -> Retained<UIView> {
         state: state.clone(),
         _delegate: delegate,
     });
+    // SAFETY: `host` is a fresh DayPagerHost with ivars set; UIView's `init` takes no arguments and
+    // returns the initialized view.
     let host: Retained<Host> = unsafe { msg_send![super(host), init] };
     host.setClipsToBounds(true);
     if let Some(view) = state.controller.view() {

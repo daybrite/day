@@ -21,6 +21,26 @@
 //! and ArkUI backends. The exceptions are nav/tab pages, whose panes are CSS-managed and
 //! report their size back through a `ResizeObserver` (`Event::FrameChanged`) — the `DayNavPage`
 //! contract (docs/navigation.md).
+//!
+//! # Unsafe calls
+//!
+//! The `day_dom_*` imports are `unsafe` because they are foreign. shim.js implements each one
+//! synchronously on the page's only thread, under one contract that the `// SAFETY:` comments
+//! cite as the crate note "Unsafe calls":
+//!
+//! - **Ids and numbers.** Element ids (`el`, `host`, `nav`, …) are keys into the shim's own
+//!   registry (`els`), minted by `day_dom_create`/`day_dom_create_tag`. They address no wasm
+//!   memory, so a stale id can at worst make the shim skip or throw, never reach Rust's memory.
+//!   Other scalars are plain values.
+//! - **Input spans.** A `(ptr, len)` pair is a live `&str`, `&[u8]` or `&[f64]` that outlives
+//!   the call, and `len` counts its elements (bytes for text, valid UTF-8 as it comes from a
+//!   `&str`). The shim decodes or copies it (`str`, `slice`, `Array.from`) before it returns,
+//!   keeps no view of wasm memory, and takes no ownership.
+//! - **Output buffers.** An `out` pointer is a Rust array with room for the count of `f64` the
+//!   import's doc names, and the shim writes exactly that many. The string answers
+//!   (`day_dom_env`, `day_dom_read_native`, `day_dom_fonts`) write at most `cap` bytes.
+//! - **Buffers into wasm.** What the shim hands to an export it allocates with `day_dom_alloc`
+//!   and fills; the export takes ownership with `take_bytes`, which frees it.
 #![cfg(target_arch = "wasm32")]
 
 mod controls;
@@ -350,12 +370,15 @@ unsafe extern "Rust" fn __getrandom_v03_custom(
 }
 
 fn s(el: u32, prop: &str, val: &str) {
+    // SAFETY: `prop` and `val` are only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_set_style(el, prop.as_ptr(), prop.len(), val.as_ptr(), val.len()) };
 }
 fn attr(el: u32, a: &str, v: &str) {
+    // SAFETY: `a` and `v` are only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_set_attr(el, a.as_ptr(), a.len(), v.as_ptr(), v.len()) };
 }
 fn text(el: u32, t: &str) {
+    // SAFETY: `t` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_set_text(el, t.as_ptr(), t.len()) };
 }
 /// The number an accessibility value leads with ("72%" → 72, "3 of 5" → 3), for
@@ -407,6 +430,7 @@ fn apply_button_content(el: u32, title: &str, icon: Option<&day_spec::Icon>, ico
         ),
         None => escape(title),
     };
+    // SAFETY: `html` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_set_html(el, html.as_ptr(), html.len()) };
 }
 
@@ -503,6 +527,7 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
     } else {
         EL_SPAN
     };
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     let el = unsafe { day_dom_create(kind) };
     text(el, content);
     if let Some(r) = run {
@@ -514,6 +539,7 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
             s(el, "background-color", &ink_css(c));
         }
         if let Some(url) = r.link.as_deref() {
+            // SAFETY: `url` is only read during the call (crate note "Unsafe calls").
             unsafe { day_dom_link(el, parent, url.as_ptr(), url.len()) };
         }
         // One element has one decoration style and color for all its lines: an underline and
@@ -523,10 +549,12 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
         match (r.underline, r.strikethrough) {
             (Some(u), Some(st)) if u != st => {
                 apply_decoration(el, "underline", Some(u));
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let inner = unsafe { day_dom_create(EL_SPAN) };
                 text(el, "");
                 text(inner, content);
                 apply_decoration(inner, "line-through", Some(st));
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_insert(el, inner, u32::MAX) };
             }
             (Some(u), Some(_)) => apply_decoration(el, "underline line-through", Some(u)),
@@ -535,6 +563,7 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
             (None, None) => {}
         }
     }
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     unsafe { day_dom_insert(parent, el, u32::MAX) };
 }
 
@@ -560,9 +589,11 @@ fn apply_decoration(el: u32, lines: &str, d: Option<day_spec::Decoration>) {
 }
 
 fn class(el: u32, c: &str, on: bool) {
+    // SAFETY: `c` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_set_class(el, c.as_ptr(), c.len(), u32::from(on)) };
 }
 fn warn(msg: &str) {
+    // SAFETY: `msg` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_warn(msg.as_ptr(), msg.len()) };
 }
 /// Read a host "environment" value (query params / navigator facts) as an app-facing
@@ -579,6 +610,7 @@ pub fn host_env(key: &str) -> Option<String> {
 /// on a target without `Instant`.
 #[must_use]
 pub fn monotonic_secs() -> f64 {
+    // SAFETY: no operands; the shim reads a clock (crate note "Unsafe calls").
     unsafe { day_dom_perf_now() / 1000.0 }
 }
 
@@ -587,6 +619,7 @@ pub fn monotonic_secs() -> f64 {
 /// clock routes through here on `web-dom`).
 #[must_use]
 pub fn now_epoch_ms() -> u64 {
+    // SAFETY: no operands; the shim reads a clock (crate note "Unsafe calls").
     let ms = unsafe { day_dom_now_ms() };
     if ms.is_finite() && ms > 0.0 {
         ms as u64
@@ -601,6 +634,8 @@ pub fn now_epoch_ms() -> u64 {
 /// one that clamps its return to the buffer (writing exactly `cap` bytes) grows until there
 /// is headroom.
 fn env(key: &str) -> String {
+    // SAFETY: `key` is only read; the shim writes at most `cap` bytes at `out` (crate note "Unsafe
+    // calls").
     read_buffer(|out, cap| unsafe { day_dom_env(key.as_ptr(), key.len(), out, cap) })
 }
 
@@ -1187,6 +1222,7 @@ fn listen_once(el: u32, mask: u32) {
         fresh
     });
     if fresh != 0 {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_listen(el, fresh) };
     }
 }
@@ -1424,6 +1460,8 @@ fn content_lines(t: &str) -> u32 {
 fn measure_str(txt: &str) -> Size {
     let css = format!("{} {SYSTEM_STACK}", scaled_rem(1.0));
     let mut out = [0.0f64; 2];
+    // SAFETY: `txt` and `css` are only read, and `out` has room for the 2 f64 written (crate note
+    // "Unsafe calls").
     unsafe {
         day_dom_measure_text(
             txt.as_ptr(),
@@ -1457,6 +1495,7 @@ fn remember(el: u32, id: NodeId) {
 /// ([`day_spec::props_of`] already reported it): the same visible `⟨kind⟩` label the
 /// missing-renderer path builds, so one mismatched piece cannot take down the tree build.
 fn realize_placeholder(kind: PieceKind, id: NodeId) -> DomHandle {
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     let el = unsafe { day_dom_create(EL_LABEL) };
     text(el, &format!("⟨{kind}⟩"));
     class(el, "placeholder", true);
@@ -1867,6 +1906,7 @@ fn install_app_menu(items: &[day_spec::MenuItem]) {
         json_str(&mut json, &url);
     }
     json.push('}');
+    // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_app_menu(json.as_ptr(), json.len()) };
 }
 
@@ -2219,6 +2259,7 @@ impl Dom {
     /// The public helper surface a `lib-dom.rs` builds on: piece crates cannot reach day-toolkit-dom's
     /// private shim imports, so element creation, attributes and method calls go through these.
     pub fn element(&mut self, tag: &str) -> DomHandle {
+        // SAFETY: `tag` is only read during the call (crate note "Unsafe calls").
         DomHandle(unsafe { day_dom_create_tag(tag.as_ptr(), tag.len()) })
     }
 
@@ -2230,6 +2271,7 @@ impl Dom {
 
     /// Call a zero-argument method on the element (`play`, `pause`, `load`, …).
     pub fn call(&mut self, h: &DomHandle, method: &str) {
+        // SAFETY: `method` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_call(h.0, method.as_ptr(), method.len()) };
     }
 
@@ -2240,12 +2282,14 @@ impl Dom {
     /// `html` must come from Day's own serializer ([`day_spec::styled_to_html`]), which escapes
     /// every character of app text; this is not a hole to hand arbitrary markup through.
     pub fn set_html(&mut self, h: &DomHandle, html: &str) {
+        // SAFETY: `html` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_set_html(h.0, html.as_ptr(), html.len()) };
     }
 
     /// Select a BYTE range of a contenteditable element's flattened text — the same offsets
     /// [`listen::EDITABLE`] reports.
     pub fn set_editor_selection(&mut self, h: &DomHandle, start: usize, end: usize) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_editor_select(h.0, start as u32, end as u32) };
     }
 
@@ -2253,6 +2297,7 @@ impl Dom {
     /// would: through the browser's editing command, so its undo stack records the insertion
     /// and the element's `input` event reports the result (docs/texteditor.md).
     pub fn insert_editor_text(&mut self, h: &DomHandle, at: usize, text: &str) {
+        // SAFETY: `text` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_editor_insert(h.0, at as u32, text.as_ptr(), text.len()) };
     }
 
@@ -2266,6 +2311,7 @@ impl Dom {
     ///
     /// Idempotent it is NOT: each call adds listeners, so call it once, from `make`.
     pub fn listen(&mut self, h: &DomHandle, mask: u32) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_listen(h.0, mask) };
     }
 }
@@ -2321,6 +2367,7 @@ impl Toolkit for Dom {
             // this is the one payload the arm ignores outright.
             AppBadge::Text(_) => return,
         };
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_set_app_badge(encoded) };
     }
 
@@ -2346,7 +2393,9 @@ impl Toolkit for Dom {
             _ => return,
         };
         let answer = match state {
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             WindowState::Fullscreen => unsafe { day_dom_set_fullscreen(1) },
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             WindowState::Normal => unsafe { day_dom_set_fullscreen(0) },
             WindowState::Minimized | WindowState::Maximized => {
                 WINDOW_STATE.with(std::cell::Cell::get).code()
@@ -2365,6 +2414,7 @@ impl Toolkit for Dom {
     /// desktop, in CSS px (points at 100% zoom).
     fn window_frame(&self, _host: &DomHandle) -> Option<Rect> {
         let mut f = [0f64; 4];
+        // SAFETY: `f` has room for the 4 f64 the shim writes (crate note "Unsafe calls").
         let ok = unsafe { day_dom_window_frame(f.as_mut_ptr()) } != 0;
         (ok && f[2] > 0.0 && f[3] > 0.0).then(|| Rect::new(f[0], f[1], f[2], f[3]))
     }
@@ -2373,6 +2423,7 @@ impl Toolkit for Dom {
     /// list them all, but only asynchronously and behind a permission prompt.
     fn monitors(&self) -> Vec<day_spec::Monitor> {
         let mut v = [0f64; 9];
+        // SAFETY: `v` has room for the 9 f64 the shim writes (crate note "Unsafe calls").
         unsafe { day_dom_screen(v.as_mut_ptr()) };
         if v[2] <= 0.0 || v[3] <= 0.0 {
             return Vec::new();
@@ -2390,6 +2441,7 @@ impl Toolkit for Dom {
     fn set_drag_region(&mut self, h: &DomHandle, drag: bool) {
         class(h.0, "day-drag-region", drag);
         if drag {
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe { day_dom_takes_pointer(h.0) };
         }
     }
@@ -2573,6 +2625,7 @@ impl Toolkit for Dom {
             // Blurring the field dismisses a touch screen's keyboard: the scroll piece resigns
             // focus when a drag begins. A desktop browser has no software keyboard.
             Cap::ScrollKeyboardDismiss => {
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 if unsafe { day_dom_touch_points() } > 0 {
                     Support::Emulated
                 } else {
@@ -2592,6 +2645,7 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<ContainerProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_DIV) };
                 if let Some(role) = p.role {
                     SURFACE_ROLES.with(|t| t.insert(el as usize, role));
@@ -2605,6 +2659,7 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<LabelProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_LABEL) };
                 class(el, "day-passive-leaf", true);
                 set_label_text(el, &p.text, &p.runs);
@@ -2661,6 +2716,7 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<ButtonProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_BUTTON) };
                 if p.icon.is_some() {
                     apply_button_content(el, &p.title, p.icon.as_ref(), p.icon_only);
@@ -2672,6 +2728,7 @@ impl Toolkit for Dom {
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 1) };
                 el
             }
@@ -2679,11 +2736,14 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<ToggleProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_TOGGLE) };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_set_checked(el, u32::from(p.on)) };
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 4) };
                 el
             }
@@ -2691,16 +2751,19 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<SliderProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_SLIDER) };
                 attr(el, "min", &p.min.to_string());
                 attr(el, "max", &p.max.to_string());
                 attr(el, "step", &p.step.map_or("any".into(), |s| s.to_string()));
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_set_value(el, p.value) };
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
                 // 2 = `input` (live, every motion) | 4 = `change` (settled, on release) — the
                 // two facts a drag produces, which the DOM already separates for us.
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 2 | 4) };
                 el
             }
@@ -2708,12 +2771,14 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<TextFieldProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_FIELD) };
                 attr(el, "value", &p.text);
                 attr(el, "placeholder", &p.placeholder);
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 2 | 8 | 16) };
                 el
             }
@@ -2721,6 +2786,7 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<TextAreaProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_AREA) };
                 text(el, &p.text);
                 attr(el, "placeholder", &p.placeholder);
@@ -2729,6 +2795,7 @@ impl Toolkit for Dom {
                     m.borrow_mut()
                         .insert(el, (p.min_lines, p.max_lines, content_lines(&p.text)))
                 });
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 2 | 8) };
                 el
             }
@@ -2742,6 +2809,7 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<ProgressProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe {
                     day_dom_create(if p.value.is_some() {
                         EL_PROGRESS
@@ -2751,6 +2819,7 @@ impl Toolkit for Dom {
                 };
                 if let Some(v) = p.value {
                     attr(el, "max", "1");
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_set_value(el, v) };
                 } else {
                     // Which of the two this element is, is only knowable here — both render with
@@ -2806,6 +2875,7 @@ impl Toolkit for Dom {
                     template: p.template,
                     is_img: p.tint.is_none() && !p.template,
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(if state.masked() { EL_DIV } else { EL_IMAGE }) };
                 if state.masked() {
                     if !p.decorative {
@@ -2817,9 +2887,11 @@ impl Toolkit for Dom {
                     // one thing a mask can be cut from.
                     match &p.source {
                         day_spec::ImageSource::Named(_) => {}
+                        // SAFETY: `b` is only read during the call (crate note "Unsafe calls").
                         day_spec::ImageSource::Bytes(b) => unsafe {
                             day_dom_image_set_bytes(el, b.as_ptr(), b.len());
                         },
+                        // SAFETY: ids and numbers only (crate note "Unsafe calls").
                         day_spec::ImageSource::Decoded(id) => unsafe {
                             day_dom_image_set_bitmap(el, id.0 as f64);
                         },
@@ -2830,9 +2902,11 @@ impl Toolkit for Dom {
                     // request for an asset that does not exist.
                     match &p.source {
                         day_spec::ImageSource::Named(_) => attr(el, "src", &src),
+                        // SAFETY: `b` is only read during the call (crate note "Unsafe calls").
                         day_spec::ImageSource::Bytes(b) => unsafe {
                             day_dom_image_set_bytes(el, b.as_ptr(), b.len());
                         },
+                        // SAFETY: ids and numbers only (crate note "Unsafe calls").
                         day_spec::ImageSource::Decoded(id) => unsafe {
                             day_dom_image_set_bitmap(el, id.0 as f64);
                         },
@@ -2854,13 +2928,16 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::Canvas) => {
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_CANVAS) };
                 // A canvas is the one built-in piece with no native control under it, so it
                 // needs a tab stop of its own before focus — and with focus, the keys
                 // (docs/menus.md) — can reach what it draws.
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_canvas_keynav(el) };
                 // …and reports focus both ways (mask 8), so `.focused(signal)` binds two-way
                 // and dayscript's `assert_focused` can see where the keyboard is.
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 8) };
                 // Pass-through (docs/gestures.md): a canvas with no handler lets a press reach
                 // what is behind it. A key handler is declared while the piece builds, after
@@ -2869,6 +2946,7 @@ impl Toolkit for Dom {
                 class(el, "day-passive-leaf", true);
                 post_local(move || {
                     if day_spec::keys::handled(id) || day_spec::keys::text(id) {
+                        // SAFETY: ids and numbers only (crate note "Unsafe calls").
                         unsafe { day_dom_takes_pointer(el) };
                     }
                 });
@@ -2878,12 +2956,14 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<ScrollProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_SCROLL) };
                 if p.horizontal {
                     class(el, "horizontal", true);
                 }
                 // Offsets only for a piece that reads them (docs/scroll.md "Offset").
                 if p.track_offset {
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_listen(el, listen::SCROLL) };
                 }
                 let flags = u32::from(p.indicators == ScrollIndicators::Hidden)
@@ -2896,11 +2976,13 @@ impl Toolkit for Dom {
                     ScrollSnap::None | ScrollSnap::Interval(_) => (0, 0.0),
                 };
                 if flags != 0 || snap != 0 {
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_scroll_setup(el, flags, snap, interval) };
                 }
                 el
             }
             Some(Builtin::Divider) => {
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_DIVIDER) };
                 class(el, "day-passive-leaf", true);
                 el
@@ -2909,8 +2991,10 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<NavProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_NAV) };
                 class(el, "document-tabs", p.documents.is_some());
+                // SAFETY: `p.title` is only read during the call (crate note "Unsafe calls").
                 unsafe {
                     day_dom_nav_mode(
                         el,
@@ -2919,6 +3003,7 @@ impl Toolkit for Dom {
                         p.title.len(),
                     );
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 1) }; // the back bar's button reports via CLICK
                 let state = NavState {
                     presentation: p.presentation,
@@ -2937,18 +3022,21 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<NavPageProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_PAGE) };
                 PAGE_SIDEBAR.with(|m| {
                     m.borrow_mut()
                         .insert(el, p.pane == day_spec::props::Pane::Sidebar)
                 });
                 CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 32) };
                 el
             }
             // Emulated fullscreen cover (docs/cover.md): a fixed-position overlay, hidden
             // until presented. CSS-framed (inset:0) and observer-reported, like nav pages.
             Some(Builtin::Cover) => {
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_PAGE) };
                 class(el, "day-cover", true);
                 // The half sheet: a bottom-anchored half panel (`.day-half`, day.css), the
@@ -2961,6 +3049,7 @@ impl Toolkit for Dom {
                     COVER_SHEET.with(|set| set.borrow_mut().insert(el));
                 }
                 CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_listen(el, 32) };
                 el
             }
@@ -2968,6 +3057,7 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_NAVMENU) };
                 let json = navmenu_json(
                     &p.items,
@@ -2979,6 +3069,7 @@ impl Toolkit for Dom {
                     &p.sections,
                     p.selected,
                 );
+                // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
                 unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 el
             }
@@ -2986,12 +3077,16 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<ListProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let host = unsafe { day_dom_create(EL_SCROLL) };
                 class(host, "day-list", true);
                 if p.reorderable {
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_list_reorder(host) };
                 }
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let content = unsafe { day_dom_create(EL_DIV) };
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_insert(host, content, 0) };
                 let (row_height, automatic) = match p.row_height {
                     RowHeight::Uniform(h) => (h, false),
@@ -3027,8 +3122,10 @@ impl Toolkit for Dom {
                     )
                 });
                 // Rows are built as they scroll in, so the list has to hear about scrolling.
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_list_on_scroll(host) };
                 if p.selectable {
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_list_keynav(host, u32::from(p.multi_select)) };
                 }
                 host
@@ -3059,6 +3156,7 @@ impl Toolkit for Dom {
                     "day: no renderer for piece kind \"{kind}\" on web-dom (rendering a placeholder)"
                 ));
                 day_spec::placeholder::report(kind, "web-dom");
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 let el = unsafe { day_dom_create(EL_LABEL) };
                 text(el, &format!("⟨{kind}⟩"));
                 class(el, "placeholder", true);
@@ -3125,9 +3223,12 @@ impl Toolkit for Dom {
                                         attr(el, "src", &src);
                                     }
                                 }
+                                // SAFETY: `b` is only read during the call (crate note "Unsafe
+                                // calls").
                                 day_spec::ImageSource::Bytes(b) => unsafe {
                                     day_dom_image_set_bytes(el, b.as_ptr(), b.len());
                                 },
+                                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                                 day_spec::ImageSource::Decoded(id) => unsafe {
                                     day_dom_image_set_bitmap(el, id.0 as f64);
                                 },
@@ -3199,6 +3300,7 @@ impl Toolkit for Dom {
             kinds::TOGGLE => {
                 if let Some(p) = patch.downcast_ref::<TogglePatch>() {
                     match p {
+                        // SAFETY: ids and numbers only (crate note "Unsafe calls").
                         TogglePatch::On(on) => unsafe { day_dom_set_checked(el, u32::from(*on)) },
                         TogglePatch::Enabled(e) => set_enabled(el, *e),
                     }
@@ -3207,6 +3309,7 @@ impl Toolkit for Dom {
             kinds::SLIDER => {
                 if let Some(p) = patch.downcast_ref::<SliderPatch>() {
                     match p {
+                        // SAFETY: ids and numbers only (crate note "Unsafe calls").
                         SliderPatch::Value(v) => unsafe { day_dom_set_value(el, *v) },
                         SliderPatch::Enabled(e) => set_enabled(el, *e),
                     }
@@ -3227,6 +3330,7 @@ impl Toolkit for Dom {
                         TextFieldPatch::Enabled(e) => set_enabled(el, *e),
                         TextFieldPatch::Select(sel) => {
                             let at = |n: usize| n.min(u32::MAX as usize) as u32;
+                            // SAFETY: ids and numbers only (crate note "Unsafe calls").
                             unsafe { day_dom_field_select(el, at(sel.start), at(sel.end)) }
                         }
                     }
@@ -3266,7 +3370,9 @@ impl Toolkit for Dom {
                         PICKER_SELECTED.with(|m| m.borrow_mut().insert(el, *i));
                         let seg = SEG_COUNT.with(|m| m.borrow().get(&el).copied());
                         match seg {
+                            // SAFETY: ids and numbers only (crate note "Unsafe calls").
                             Some(_) => unsafe { day_dom_options_select(el, *i as u32) },
+                            // SAFETY: ids and numbers only (crate note "Unsafe calls").
                             None => unsafe { day_dom_set_value(el, *i as f64) },
                         }
                     }
@@ -3281,6 +3387,7 @@ impl Toolkit for Dom {
                             selected,
                             ..Default::default()
                         });
+                        // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
                         unsafe { day_dom_options(el, json.as_ptr(), json.len()) };
                         if SEG_COUNT.with(|m| m.borrow().contains_key(&el)) {
                             SEG_COUNT.with(|m| m.borrow_mut().insert(el, opts.len()));
@@ -3301,6 +3408,7 @@ impl Toolkit for Dom {
                 if let Some(ProgressPatch::Value(v)) = patch.downcast_ref::<ProgressPatch>()
                     && let Some(v) = v
                 {
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_set_value(el, *v) };
                 }
             }
@@ -3330,6 +3438,7 @@ impl Toolkit for Dom {
                                 }
                                 _ => s(el, "background-color", ""),
                             }
+                            // SAFETY: ids and numbers only (crate note "Unsafe calls").
                             unsafe { day_dom_insert(1, el, u32::MAX) };
                             class(el, "open", true);
                             // Seed the frame SYNCHRONOUSLY from the cached viewport (the cover is
@@ -3339,6 +3448,7 @@ impl Toolkit for Dom {
                             if let Some(node) = node_of(el) {
                                 let vp = LAST_VIEWPORT.with(std::cell::Cell::get);
                                 // Less the cover's own toolbar strip, which sits above it.
+                                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                                 let strip = unsafe { day_dom_toolbar_height(el) };
                                 // A half sheet is the bottom half, less the grabber strip
                                 // the stylesheet pads for (`.day-half`); the observer
@@ -3400,13 +3510,17 @@ impl Toolkit for Dom {
                                 json.push_str(&r.to_string());
                             }
                             json.push_str("]}");
+                            // SAFETY: `json` is only read during the call (crate note "Unsafe
+                            // calls").
                             unsafe { day_dom_navmenu_rows(el, json.as_ptr(), json.len()) };
                         }
+                        // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
                         None => unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) },
                     }
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()
                 {
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_navmenu_select(el, sel.map_or(-1, |i| i as i32)) };
                 }
             }
@@ -3472,6 +3586,7 @@ impl Toolkit for Dom {
                 (source.release)(list.pin.1 as usize as day_spec::RawHandle);
             }
         }
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_release(el) };
     }
 
@@ -3491,6 +3606,7 @@ impl Toolkit for Dom {
             // The sidebar page belongs to the CHROME slot in every presentation except `Stack`,
             // where it is the stack's root and so joins the detail pages instead.
             let to_chrome = sidebar && state.presentation != NavPresentation::Stack;
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe { day_dom_nav_add_page(parent.0, child.0, u32::from(to_chrome)) };
             if !to_chrome {
                 state.pages.push(child.0);
@@ -3500,6 +3616,7 @@ impl Toolkit for Dom {
         if routed {
             return;
         }
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_insert(parent.0, child.0, index as u32) };
     }
 
@@ -3512,10 +3629,12 @@ impl Toolkit for Dom {
                 state.selected = state.selected.min(state.pages.len().saturating_sub(1));
             }
         });
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_remove(child.0) };
     }
 
     fn move_child(&mut self, parent: &DomHandle, child: &DomHandle, to: usize) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_insert(parent.0, child.0, to as u32) };
     }
 
@@ -3544,6 +3663,8 @@ impl Toolkit for Dom {
             }),
             kinds::BUTTON => {
                 let mut out = [0.0f64; 2];
+                // SAFETY: null text and font select the shim's element mode, `el` riding in the
+                // length slot; `out` has room for the 2 f64 written (crate note "Unsafe calls").
                 unsafe {
                     day_dom_measure_text(
                         std::ptr::null(),
@@ -3613,6 +3734,7 @@ impl Toolkit for Dom {
         if !day_spec::kind_has_baseline(kind) {
             return None;
         }
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         let b = unsafe { day_dom_baseline(h.0, size.height) };
         (b >= 0.0).then_some(b)
     }
@@ -3633,6 +3755,7 @@ impl Toolkit for Dom {
                 ],
                 anim,
             ),
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             None => unsafe {
                 day_dom_set_frame(
                     h.0,
@@ -3702,6 +3825,7 @@ impl Toolkit for Dom {
         // this element and its text back in (`.day-selectable` in day.css). See docs/text.md.
         class(h.0, "day-selectable", selectable);
         if selectable {
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe { day_dom_takes_pointer(h.0) };
         }
         None
@@ -3753,6 +3877,7 @@ impl Toolkit for Dom {
         let json = format!(
             r#"{{"type":"{kind}","inputmode":"{inputmode}","autocomplete":"{autocomplete}","autocapitalize":"{capitalize}","autocorrect":"{autocorrect}","spellcheck":"{spellcheck}","enterkeyhint":"{enterkeyhint}","readonly":"{readonly}"}}"#
         );
+        // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_input_traits(h.0, json.as_ptr(), json.len()) };
         None
     }
@@ -3766,16 +3891,19 @@ impl Toolkit for Dom {
             cursor.css_name()
         };
         let p = "cursor";
+        // SAFETY: `p` and `v` are only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_set_style(h.0, p.as_ptr(), p.len(), v.as_ptr(), v.len()) };
         // A browser shows a cursor only over an element the pointer hits, so a cursor makes a
         // pass-through element a pointer target (the one place the web departs from
         // docs/gestures.md "Pass-through").
         if cursor != Cursor::Default {
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe { day_dom_takes_pointer(h.0) };
         }
     }
 
     fn set_scroll_content(&mut self, h: &DomHandle, content: Size) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_scroll_content(h.0, content.width, content.height) };
     }
 
@@ -3808,6 +3936,7 @@ impl Toolkit for Dom {
                 return;
             }
             let mut view = [0.0_f64; 2];
+            // SAFETY: `view` has room for the 2 f64 the shim writes (crate note "Unsafe calls").
             unsafe { day_dom_list_viewport(el, view.as_mut_ptr()) };
             let target = LISTS.with(|m| {
                 let m = m.borrow();
@@ -3841,6 +3970,7 @@ impl Toolkit for Dom {
                             }
                         });
                     }
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_scroll_to(el, 0.0, y, u32::from(to.animated)) };
                     // An instant jump has moved the offset already, but its `scroll` event
                     // waits for the next frame: build and report the rows it shows now.
@@ -3856,11 +3986,13 @@ impl Toolkit for Dom {
     }
 
     fn scroll_to(&mut self, h: &DomHandle, target: Rect, animated: bool) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_scroll_to(h.0, target.origin.x, target.origin.y, u32::from(animated)) };
     }
 
     fn scroll_offset(&mut self, h: &DomHandle) -> Point {
         let mut out = [0.0f64; 2];
+        // SAFETY: `out` has room for the 2 f64 the shim writes (crate note "Unsafe calls").
         unsafe { day_dom_scroll_offset(h.0, out.as_mut_ptr()) };
         Point::new(out[0], out[1])
     }
@@ -3904,6 +4036,7 @@ impl Toolkit for Dom {
         } else {
             (slop.leading, slop.trailing)
         };
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe {
             day_dom_hit_slop(
                 h.0,
@@ -3923,12 +4056,14 @@ impl Toolkit for Dom {
             Some(day_spec::DragAxis::Horizontal) => 1,
             Some(day_spec::DragAxis::Vertical) => 2,
         };
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_drag_axis(h.0, code) };
     }
 
     /// `inert` on the element (input, focus and the accessibility tree at once) plus
     /// `aria-disabled`; form controls keep their own `disabled` from day-core's patches.
     fn set_subtree_enabled(&mut self, h: &DomHandle, _node: NodeId, enabled: bool) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_subtree_enabled(h.0, u32::from(enabled)) };
     }
 
@@ -3950,6 +4085,7 @@ impl Toolkit for Dom {
     /// The browser's default font size against the 16 px (17 px under iOS Dynamic Type) Day's
     /// ramp is drawn for; one factor for every style.
     fn text_scale(&mut self, _style: Font) -> f64 {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_text_scale() }
     }
 
@@ -3974,12 +4110,14 @@ impl Toolkit for Dom {
 
     /// `(pointer: coarse)` at launch, then the `pointerType` of each pointer down or hover.
     fn primary_pointer(&self) -> day_spec::PointerKind {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         pointer_kind(unsafe { day_dom_pointer_kind() })
     }
 
     fn set_focusable(&mut self, h: &DomHandle, node: NodeId, focusable: bool) {
         remember(h.0, node);
         if focusable {
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe {
                 day_dom_canvas_keynav(h.0);
                 // The key route reports focus both ways itself (shim `reportFocus`), and a
@@ -3990,6 +4128,7 @@ impl Toolkit for Dom {
     }
 
     fn focus(&mut self, h: &DomHandle, _node: NodeId, focused: bool) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_focus(h.0, u32::from(focused)) };
     }
 
@@ -4008,6 +4147,7 @@ impl Toolkit for Dom {
         // history just for showing its own launch route); every later change pushes one, so
         // browser back/forward walk the app's navigation.
         let replace = FIRST_ROUTE.with(|c| c.replace(false));
+        // SAFETY: `route` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_set_hash(route.as_ptr(), route.len(), u32::from(replace)) };
     }
 
@@ -4017,6 +4157,7 @@ impl Toolkit for Dom {
         // cover-tier window's items go on a strip over the cover, where its content can reach
         // them (the page's strip is underneath it).
         let json = toolbar_edit_json(ops);
+        // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_toolbar_edit(h.0, json.as_ptr(), json.len()) };
         true
     }
@@ -4080,11 +4221,13 @@ impl Toolkit for Dom {
             }
         }
         json.push('}');
+        // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_toolbar_patch(h.0, json.as_ptr(), json.len()) };
     }
     fn toggle_sidebar(&mut self, _host: &DomHandle) -> bool {
         // One window, one split: the host is implied. Same call the strip's own button makes,
         // so a dayscript walkthrough drives the real path (docs/toolbars.md).
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_toolbar_sidebar() != 0 }
     }
 
@@ -4129,6 +4272,7 @@ impl Toolkit for Dom {
         attr(h.0, "title", text);
     }
     fn needs_touch_tooltip(&self) -> bool {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_touch_tooltip() != 0 }
     }
     fn open_popover(
@@ -4139,15 +4283,19 @@ impl Toolkit for Dom {
         id: NodeId,
     ) -> bool {
         remember(panel.0, id);
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_popover(anchor.0, panel.0, size.width, size.height) != 0 }
     }
     fn resize_popover(&mut self, content: &DomHandle, size: Size) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_resize_popover(content.0, size.width, size.height) };
     }
     fn close_popover(&mut self, content: &DomHandle) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_close_popover(content.0) };
     }
     fn show_toast(&mut self, _host: &DomHandle, text: &str) {
+        // SAFETY: `text` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_toast(text.as_ptr(), text.len()) };
         self.announce(text, false);
     }
@@ -4225,6 +4373,7 @@ impl Toolkit for Dom {
     fn announce(&mut self, text: &str, urgent: bool) {
         // The shim's live regions (docs/accessibility.md): one per politeness, so an urgent
         // sentence interrupts and a polite one waits its turn.
+        // SAFETY: `text` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_announce(text.as_ptr(), text.len(), u32::from(urgent)) };
     }
 
@@ -4236,6 +4385,8 @@ impl Toolkit for Dom {
     fn read_native(&self, h: &DomHandle) -> day_spec::NativeSnapshot {
         use day_spec::Role;
         let el = h.0;
+        // SAFETY: the shim writes at most `cap` bytes into `read_buffer`'s buffer at `out` (crate
+        // note "Unsafe calls").
         let raw = read_buffer(|out, cap| unsafe { day_dom_read_native(el, out, cap) });
         if raw.is_empty() {
             return day_spec::NativeSnapshot::default();
@@ -4451,15 +4602,19 @@ impl Toolkit for Dom {
         cb: day_spec::FrameCallback,
     ) -> day_spec::CancelFrame {
         let token = day_core::frame::native::register(cb);
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         let request = unsafe { day_dom_request_frame(token as f64) };
         Box::new(move || {
             day_core::frame::native::cancel(token);
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe { day_dom_cancel_frame(request) };
         })
     }
 
     fn replay(&mut self, h: &DomHandle, ops: &[DrawOp], size: Size) {
         let (buf, strs) = encode_ops(ops);
+        // SAFETY: `buf` and `strs` are only read, by a synchronous paint (crate note "Unsafe
+        // calls").
         unsafe {
             day_dom_canvas_replay(
                 h.0,
@@ -4480,6 +4635,8 @@ impl Toolkit for Dom {
         let mut cap = 4096usize;
         let text = loop {
             let mut buf = vec![0u8; cap];
+            // SAFETY: `buf` is `cap` bytes long and the shim writes at most `cap` (crate note
+            // "Unsafe calls").
             let n = unsafe { day_dom_fonts(buf.as_mut_ptr(), buf.len()) };
             if n > cap {
                 cap = n;
@@ -4505,6 +4662,8 @@ impl Toolkit for Dom {
     ) -> Option<day_spec::TextMetrics> {
         let family = font.family_str();
         let mut out = [0.0f64; 8];
+        // SAFETY: `text` and `family` are only read, and `out` has room for the 8 f64 written
+        // (crate note "Unsafe calls").
         unsafe {
             day_dom_canvas_measure_text(
                 text.as_ptr(),
@@ -4526,6 +4685,7 @@ impl Toolkit for Dom {
         revision: u32,
     ) -> Result<day_spec::capture::Readiness, String> {
         Ok(
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             if unsafe { day_dom_prepare_snapshot(host.map_or(0, |h| h.0), revision) } != 0 {
                 day_spec::capture::Readiness::Ready
             } else {
@@ -4542,6 +4702,7 @@ impl Toolkit for Dom {
     }
 
     fn modifiers(&mut self) -> day_spec::Modifiers {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         let mask = unsafe { day_dom_modifiers() };
         // The shim's mask uses the wire bits (`Modifiers::bits`).
         day_spec::Modifiers::from_bits((mask & 7) as u8)
@@ -4564,6 +4725,8 @@ impl Toolkit for Dom {
             j.push_str(",\"name\":");
             json_str(&mut j, suggested_name);
             j.push('}');
+            // SAFETY: `j` is only read and `bytes` is copied (`slice`) during the call (crate note
+            // "Unsafe calls").
             unsafe {
                 day_dom_present_save(req as u32, j.as_ptr(), j.len(), bytes.as_ptr(), bytes.len());
             };
@@ -4571,6 +4734,7 @@ impl Toolkit for Dom {
         }
         let json = present_json(spec);
         if let Some(j) = json {
+            // SAFETY: `j` is only read during the call (crate note "Unsafe calls").
             unsafe { day_dom_present(req as u32, j.as_ptr(), j.len()) }
         } else {
             // Unsupported spec: answer dismissed so the await resolves.
@@ -4586,10 +4750,13 @@ impl Toolkit for Dom {
     }
 
     fn dismiss(&mut self, req: u64) {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_dismiss(req as u32) };
     }
 
     fn share_support(&self) -> day_spec::Support {
+        // SAFETY: no operands; the shim returns a JS boolean, which arrives as 0 or 1 (crate note
+        // "Unsafe calls").
         if unsafe { day_dom_share_support() } {
             day_spec::Support::Native
         } else {
@@ -4598,9 +4765,12 @@ impl Toolkit for Dom {
     }
     fn share(&mut self, spec: &day_spec::share::ShareSpec, _anchor: Option<&Self::Handle>) -> bool {
         let (url, title) = (&spec.url, &spec.title);
+        // SAFETY: `url` and `title` are only read; the JS boolean answer arrives as 0 or 1 (crate
+        // note "Unsafe calls").
         unsafe { day_dom_share_url(url.as_ptr(), url.len(), title.as_ptr(), title.len()) }
     }
     fn open_url(&mut self, url: &str) {
+        // SAFETY: `url` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_open_url(url.as_ptr(), url.len()) };
     }
 
@@ -4648,10 +4818,12 @@ impl Platform for Dom {
     const RUN_ENDS_APP: bool = false;
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, DomHandle, Size)>) {
+        // SAFETY: `options.title` is only read during the call (crate note "Unsafe calls").
         unsafe { day_dom_set_title(options.title.as_ptr(), options.title.len()) };
         // Before the viewport is read: the Standard chrome's rules can move the root down.
         // Frameless, the backgrounds, placement and resizability are the browser's to decide.
         let overlay = options.chrome == day_spec::WindowChrome::Overlay;
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         let inset = unsafe { day_dom_window_chrome(u32::from(overlay)) };
         // The root's content reads its safe area while it builds, before any tree exists to
         // report into: seed it, as the first window's inset.
@@ -4681,6 +4853,7 @@ impl Platform for Dom {
 
     fn post(f: Box<dyn FnOnce() + Send>) {
         POSTED.with(|q| q.borrow_mut().push_back(f));
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_schedule_post() };
     }
 
@@ -4691,6 +4864,7 @@ impl Platform for Dom {
             t
         });
         DELAYED.with(|m| m.borrow_mut().insert(token, f));
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_schedule_delayed(token, ms) };
     }
 
@@ -4709,6 +4883,8 @@ fn post_local(f: impl FnOnce() + 'static) {
     // the Send bound on the queue is satisfied by wrapping in a type that is only ever
     // touched on this thread.
     struct NotSendButFine(Option<Box<dyn FnOnce()>>);
+    // SAFETY: wasm32-unknown-unknown without atomics has one thread, so the closure is never sent;
+    // `Dom::post` runs it on the thread that made it.
     unsafe impl Send for NotSendButFine {}
     let wrapped = NotSendButFine(Some(Box::new(f)));
     Dom::post(Box::new(move || {
@@ -4979,17 +5155,22 @@ fn realize_picker(p: &PickerProps) -> u32 {
     let n = p.options.len() as f64;
     let el = match p.style {
         PickerStyle::Menu => {
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             let el = unsafe { day_dom_create(EL_SELECT) };
             PICKER_SELECTED.with(|m| m.borrow_mut().insert(el, p.selected));
+            // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
             unsafe { day_dom_options(el, json.as_ptr(), json.len()) }; // shim fills <option>s
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe { day_dom_listen(el, 4) };
             PICKER_SIZE.with(|m| m.borrow_mut().insert(el, Size::new(longest + 38.0, 26.0)));
             el
         }
         PickerStyle::Segmented | PickerStyle::Inline => {
             let segmented = p.style == PickerStyle::Segmented;
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             let el = unsafe { day_dom_create(if segmented { EL_SEGMENTED } else { EL_RADIOS }) };
             PICKER_SELECTED.with(|m| m.borrow_mut().insert(el, p.selected));
+            // SAFETY: `json` is only read during the call (crate note "Unsafe calls").
             unsafe { day_dom_options(el, json.as_ptr(), json.len()) };
             SEG_COUNT.with(|m| m.borrow_mut().insert(el, p.options.len()));
             let size = if segmented {
@@ -5192,10 +5373,12 @@ fn nav_present(el: u32, next: NavPresentation) {
             pages.insert(0, side);
         }
     }
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     unsafe { day_dom_nav_present(el, nav_mode(next)) };
     if let Some(side) = sidebar
         && next != NavPresentation::Stack
     {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_nav_add_page(el, side, 1) };
         // The chrome slot always shows its page; it may have been hidden as a stack root under
         // a pushed detail.
@@ -5216,6 +5399,7 @@ fn nav_present(el: u32, next: NavPresentation) {
         .and_then(|n| pages.iter().position(|p| *p == n))
         .unwrap_or_else(|| pages.len().saturating_sub(1));
     for (i, page) in pages.iter().enumerate() {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_nav_add_page(el, *page, 0) };
         s(*page, "display", if i == shown { "block" } else { "none" });
     }
@@ -5239,6 +5423,7 @@ fn sync_back_bar_at(el: u32, state: &NavState, depth: usize) {
     let visible =
         state.presentation == NavPresentation::Stack && depth >= 1 && state.titles.len() > 1;
     let title = state.titles.last().cloned().unwrap_or_default();
+    // SAFETY: `title` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_nav_back_bar(el, u32::from(visible), title.as_ptr(), title.len()) };
 }
 
@@ -5303,10 +5488,12 @@ fn list_fill_window(host: u32) {
             let (content, rowh, selectable) = (st.content, st.row_height.max(1.0), st.selectable);
             let separators = st.separators;
             let n = (source.len)();
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             let width = unsafe { day_dom_width(host) }.max(1.0);
             // The rows on screen, plus the overscan. A list the browser has not laid out yet reports
             // no height — build a screen's worth then, and let the scroll that follows extend it.
             let mut view = [0.0_f64; 2];
+            // SAFETY: `view` has room for the 2 f64 the shim writes (crate note "Unsafe calls").
             unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
             let laid_out = view[1] > 0.0;
             let (offset, vh) = (view[0], if laid_out { view[1] } else { 600.0 });
@@ -5359,12 +5546,15 @@ fn list_fill_window(host: u32) {
             let mut work: Vec<(usize, u32, bool, bool)> = Vec::new();
             for i in first..last {
                 if st.cells[i] == 0 {
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     let cell = unsafe { day_dom_create(EL_CELL) };
                     // Appended, not inserted at the row index: cells are absolutely framed, so
                     // document order says nothing about where a row appears — and a window filled
                     // out of order (scroll down, then back up) has no meaningful index to insert at.
+                    // SAFETY: ids and numbers only (crate note "Unsafe calls").
                     unsafe { day_dom_insert(content, cell, u32::MAX) };
                     if selectable {
+                        // SAFETY: ids and numbers only (crate note "Unsafe calls").
                         unsafe { day_dom_listen(cell, 1) };
                         // The role pairs with the host's `listbox` (day_dom_list_keynav): it is what
                         // makes the arrow keys below mean something to a screen reader, and what
@@ -5412,6 +5602,7 @@ fn list_fill_window(host: u32) {
             Some(t) => (t[i], t[i + 1] - t[i]),
             None => (i as f64 * rowh, rowh),
         };
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe {
             day_dom_set_frame(cell, 0.0, top, width, height);
         }
@@ -5473,6 +5664,7 @@ fn list_fill_window(host: u32) {
             .and_then(|st| st.pending_scroll.take())
     });
     if let Some(y) = pending {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_scroll_to(host, 0.0, y, 0) };
     }
     // Rows realized just now start unpainted, and a reload can move which rows are selected
@@ -5536,6 +5728,7 @@ fn list_pin_header(host: u32) {
             return hidden;
         }
         let mut view = [0.0_f64; 2];
+        // SAFETY: `view` has room for the 2 f64 the shim writes (crate note "Unsafe calls").
         unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
         let offset = view[0];
         let tops = st.tops(n);
@@ -5568,10 +5761,14 @@ fn list_pin_header(host: u32) {
         return;
     };
     if wrapper == 0 {
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         wrapper = unsafe { day_dom_create(EL_DIV) };
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         cell = unsafe { day_dom_create(EL_CELL) };
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_insert(wrapper, cell, 0) };
         // Before the rows' content, so the sticky strip's natural place is the list's top.
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         unsafe { day_dom_insert(host, wrapper, 0) };
         s(wrapper, "position", "sticky");
         s(wrapper, "top", "0");
@@ -5585,11 +5782,13 @@ fn list_pin_header(host: u32) {
             }
         });
     }
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     let width = unsafe { day_dom_width(host) }.max(1.0);
     s(wrapper, "display", "block");
     s(wrapper, "height", &format!("{height}px"));
     s(wrapper, "margin-bottom", &format!("{}px", -height));
     s(wrapper, "transform", &format!("translateY({push}px)"));
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     unsafe { day_dom_set_frame(cell, 0.0, 0.0, width, height) };
     if rebind {
         LISTS.with(|m| {
@@ -5615,9 +5814,11 @@ fn list_restack(host: u32) {
         };
         let n = (source.len)();
         let tops = st.tops(n);
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         let width = unsafe { day_dom_width(host) }.max(1.0);
         for (i, &cell) in st.cells.iter().enumerate().take(n) {
             if cell != 0 {
+                // SAFETY: ids and numbers only (crate note "Unsafe calls").
                 unsafe { day_dom_set_frame(cell, 0.0, tops[i], width, tops[i + 1] - tops[i]) };
             }
         }
@@ -5645,6 +5846,7 @@ fn list_settled() -> bool {
                 continue;
             }
             let mut view = [0.0_f64; 2];
+            // SAFETY: `view` has room for the 2 f64 the shim writes (crate note "Unsafe calls").
             unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
             let n = (source.len)();
             // A list that is not shown reports nothing, so it owes nothing.
@@ -5656,6 +5858,7 @@ fn list_settled() -> bool {
                             || (height - view[1]).abs() > 0.5
                             || rows != n
                     }));
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             let gliding = view[1] > 0.0 && unsafe { day_dom_list_gliding(host) } != 0;
             if !(late || gliding) {
                 st.owed_polls = 0;
@@ -5749,6 +5952,7 @@ fn list_cursor(entry: &ListEntry) -> Option<usize> {
 /// to, so a held arrow key scrolls a line at a time instead of recentering on every step.
 fn list_reveal_row(host: u32, (top, bottom): (f64, f64)) {
     let mut view = [0.0_f64; 2];
+    // SAFETY: `view` has room for the 2 f64 the shim writes (crate note "Unsafe calls").
     unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
     let (offset, vh) = (view[0], view[1]);
     if vh <= 0.0 {
@@ -5761,6 +5965,7 @@ fn list_reveal_row(host: u32, (top, bottom): (f64, f64)) {
     } else {
         return;
     };
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     unsafe { day_dom_scroll_to(host, 0.0, y, 0) };
 }
 
@@ -5889,6 +6094,7 @@ fn list_patch(el: u32, p: &ListPatch) {
                 list_fill_window(el);
             }
         }),
+        // SAFETY: ids and numbers only (crate note "Unsafe calls").
         ListPatch::ScrollToEnd => unsafe { day_dom_scroll_edge(el, 1, 1) },
         ListPatch::ScrollToRow(row) => {
             let y = LISTS.with(|m| {
@@ -5904,6 +6110,7 @@ fn list_patch(el: u32, p: &ListPatch) {
                     st.pending_scroll = Some(y);
                 }
             });
+            // SAFETY: ids and numbers only (crate note "Unsafe calls").
             unsafe { day_dom_scroll_to(el, 0.0, y, 1) };
         }
         ListPatch::Selected(rows) => {
@@ -7255,6 +7462,7 @@ fn apply_appearance() {
         Some(true) => 1,
         None => 2,
     };
+    // SAFETY: ids and numbers only (crate note "Unsafe calls").
     let effective = unsafe { day_dom_set_dark(mode) };
     DARK.with(|d| d.set(effective == 1));
 }
@@ -7342,6 +7550,7 @@ pub fn dayscript_token() -> Option<String> {
 
 /// Send one dayscript reply line to the page (the engine's web sender — docs/web.md).
 pub fn script_send(line: &str) {
+    // SAFETY: `line` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_script_send(line.as_ptr(), line.len()) };
 }
 
@@ -7378,6 +7587,7 @@ pub fn install_panic_hook() {
 ///
 /// Pass this to `day_core::set_log_sink`; the facade does it in `day::web::start`.
 pub fn console_sink(level: log::Level, line: &str) {
+    // SAFETY: `line` is only read during the call (crate note "Unsafe calls").
     unsafe { day_dom_log(level as u32, line.as_ptr(), line.len()) };
 }
 

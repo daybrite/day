@@ -70,6 +70,8 @@ pub fn set_text(text: &str) -> bool {
     let Ok(content) = CString::new(text) else {
         return false;
     };
+    // SAFETY: every handle is null-checked before use and destroyed exactly once here; Add*
+    // and SetData copy what they take, and `content` is NUL-terminated and outlives the calls.
     unsafe {
         let pb = OH_Pasteboard_Create();
         if pb.is_null() {
@@ -102,6 +104,8 @@ pub fn set_text(text: &str) -> bool {
 }
 
 pub fn get_text() -> Option<String> {
+    // SAFETY: handles are null-checked and destroyed once; GetContent's string is borrowed from
+    // `uds` and copied out before `uds` is destroyed.
     unsafe {
         let pb = OH_Pasteboard_Create();
         if pb.is_null() {
@@ -132,6 +136,7 @@ pub fn get_text() -> Option<String> {
 }
 
 pub fn has_text() -> bool {
+    // SAFETY: `pb` is null-checked and destroyed once; the type id is a static C string.
     unsafe {
         let pb = OH_Pasteboard_Create();
         if pb.is_null() {
@@ -173,6 +178,8 @@ fn type_id(m: &str) -> CString {
     .unwrap()
 }
 pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
+    // SAFETY: handles are null-checked and destroyed once; the C strings and byte slices outlive
+    // each call, and AddGeneralEntry copies the bytes despite its `*mut` parameter.
     unsafe {
         let pb = OH_Pasteboard_Create();
         let data = OH_UdmfData_Create();
@@ -228,6 +235,8 @@ pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
     }
 }
 pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error> {
+    // SAFETY: handles are null-checked and destroyed once; `records` holds `count` entries and
+    // entry bytes and text are borrowed from `data`/`uds`, copied out before either is destroyed.
     unsafe {
         let pb = OH_Pasteboard_Create();
         if pb.is_null() {

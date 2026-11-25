@@ -47,6 +47,8 @@ define_class!(
 impl RefreshTarget {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+        // SAFETY: `this` is a fresh DayPullRefreshTarget with ivars set; NSObject's `init` takes no
+        // arguments and returns the initialized object.
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -78,9 +80,13 @@ define_class!(
 fn make(_backend: &mut Uikit, p: &RefreshProps, id: NodeId) -> Retained<UIView> {
     let mtm = MainThreadMarker::new().unwrap();
     let control: Retained<UIRefreshControl> =
+        // SAFETY: `init` on a fresh UIRefreshControl allocation (UIControl's designated no-argument
+        // initializer) returns the initialized control. Main thread (`mtm`).
         unsafe { msg_send![UIRefreshControl::alloc(mtm), init] };
     let target = RefreshTarget::new(mtm, id);
     let target_obj: &objc2::runtime::AnyObject = &target;
+    // SAFETY: UIControl does not retain its target; the host's `_target` ivar keeps it as long as
+    // the host keeps `control`. Main thread; `refreshPulled:` takes the sender.
     unsafe {
         control.addTarget_action_forControlEvents(
             Some(target_obj),
@@ -95,6 +101,8 @@ fn make(_backend: &mut Uikit, p: &RefreshProps, id: NodeId) -> Retained<UIView> 
         control,
         _target: target,
     });
+    // SAFETY: `host` is a fresh DayRefreshHost with ivars set; UIView's `init` takes no arguments
+    // and returns the initialized view.
     let host: Retained<RefreshHost> = unsafe { msg_send![super(host), init] };
     Retained::into_super(host)
 }

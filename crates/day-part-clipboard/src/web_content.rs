@@ -72,6 +72,8 @@ pub unsafe extern "C" fn day_clipboard_result(req: u32, status: u32, p: *mut u8,
             clippy::same_length_and_capacity,
             reason = "`day_dom_alloc(len)` allocates exactly `len` bytes, all initialized by the caller"
         )]
+        // SAFETY: `len` is nonzero here (the shim's null pointer comes only with `len == 0`), so
+        // per the contract `p` is a live `day_dom_alloc(len)` buffer of `len` bytes we now own.
         unsafe {
             Vec::from_raw_parts(p, len, len)
         }
@@ -95,6 +97,7 @@ pub unsafe extern "C" fn day_clipboard_result(req: u32, status: u32, p: *mut u8,
 }
 pub fn read(preferred: &[&str]) -> ClipboardFuture<Option<Representation>> {
     let preferred = preferred.join("\n");
+    // SAFETY: `preferred` is a live string of `preferred.len()` bytes; the shim copies it at once.
     let future = request(|req| unsafe {
         day_dom_clipboard_read_bytes(req, preferred.as_ptr(), preferred.len());
     });
@@ -106,6 +109,7 @@ pub fn read(preferred: &[&str]) -> ClipboardFuture<Option<Representation>> {
 )]
 pub fn write(content: Content) -> ClipboardFuture<Vec<String>> {
     let data = crate::content::pack(&content);
+    // SAFETY: `data` is a live buffer of `data.len()` bytes; the shim copies it before returning.
     let future =
         request(|req| unsafe { day_dom_clipboard_write_bytes(req, data.as_ptr(), data.len()) });
     Box::pin(async move {

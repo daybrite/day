@@ -21,7 +21,9 @@ unsafe extern "C" {
 }
 
 pub(crate) fn make(_backend: &mut Qt, p: &ActivityProps, _id: NodeId) -> QtHandle {
+    // SAFETY: a constructor on the GUI thread (crate note "Unsafe calls").
     let w = QtHandle(unsafe { day_activity_qt_new(c_int::from(p.large)) });
+    // SAFETY: `w` is the QProgressBar just created (crate note "Unsafe calls").
     unsafe { day_activity_qt_set_animating(w.0, c_int::from(p.animating)) };
     w
 }
@@ -29,6 +31,7 @@ pub(crate) fn make(_backend: &mut Qt, p: &ActivityProps, _id: NodeId) -> QtHandl
 pub(crate) fn update(_backend: &mut Qt, h: &QtHandle, patch: &ActivityPatch) {
     match patch {
         ActivityPatch::Value(_) => {}
+        // SAFETY: `h` is the QProgressBar `make` returned, still live (crate note "Unsafe calls").
         ActivityPatch::Animating(on) => unsafe {
             day_activity_qt_set_animating(h.0, c_int::from(*on));
         },

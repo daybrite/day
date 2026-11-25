@@ -216,8 +216,13 @@ struct Crypt {
 
 // SAFETY: function pointers into system libraries that stay loaded for the life of the process.
 unsafe impl Send for Api {}
+// SAFETY: the table is never written after it is loaded, and WinHTTP's entry points are
+// documented as callable from any thread.
 unsafe impl Sync for Api {}
+// SAFETY: function pointers into crypt32, which stays loaded for the life of the process.
 unsafe impl Send for Crypt {}
+// SAFETY: the table is never written after it is loaded, and crypt32's certificate store
+// functions are callable from any thread.
 unsafe impl Sync for Crypt {}
 
 unsafe extern "system" {
@@ -419,6 +424,7 @@ struct Session {
 
 // SAFETY: an HINTERNET is an opaque handle WinHTTP documents as usable from any thread.
 unsafe impl Send for Session {}
+// SAFETY: the session's fields are never written after `open`, and its handle is thread-safe.
 unsafe impl Sync for Session {}
 
 impl Session {
@@ -483,6 +489,7 @@ struct ClientCert {
 // SAFETY: a certificate context and store are immutable once imported; crypt32 documents both
 // as usable from any thread.
 unsafe impl Send for ClientCert {}
+// SAFETY: as for `Send`: the store and context are only read once imported.
 unsafe impl Sync for ClientCert {}
 
 impl ClientCert {
@@ -688,11 +695,12 @@ unsafe extern "system" fn on_status(
     }
     // SAFETY: the box stays alive until STATUS_HANDLE_CLOSING above.
     let context = unsafe { &*raw };
-    // SAFETY: WinHTTP documents `info` per notification; each handler reads only that shape.
     let error = || {
         if info.is_null() {
             E_CONNECTION_ERROR
         } else {
+            // SAFETY: WinHTTP documents `info` per notification; this closure runs only for
+            // STATUS_REQUEST_ERROR, where `info` points at a `WINHTTP_ASYNC_RESULT`.
             unsafe { (*(info as *const AsyncResult)).error }
         }
     };
@@ -1011,6 +1019,8 @@ struct Exchange {
 // in flight and read only by that read's completion, and `ExState::reading`, taken under the lock,
 // admits one read at a time.
 unsafe impl Send for Exchange {}
+// SAFETY: as for `Send`: shared state sits behind the mutexes, and the buffer behind
+// `ExState::reading`.
 unsafe impl Sync for Exchange {}
 
 impl Exchange {
@@ -1411,6 +1421,8 @@ struct WsConn {
 // SAFETY: as for `Exchange`: WinHTTP handles are usable from any thread, and
 // `WsState::receiving`, taken under the lock, admits one receive at a time into the buffer.
 unsafe impl Send for WsConn {}
+// SAFETY: as for `Send`: shared state sits behind the mutex, and the buffer behind
+// `WsState::receiving`.
 unsafe impl Sync for WsConn {}
 
 fn refuse(waiting: Vec<Completion>) {
