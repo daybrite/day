@@ -1179,6 +1179,31 @@ fn map_error(err: &NSError) -> HttpError {
     const BAD_URL: isize = -1000;
     const UNSUPPORTED_URL: isize = -1002;
     const TOO_MANY_REDIRECTS: isize = -1007;
+    use objc2_foundation::{
+        NSNumber, NSURLErrorDomain, NSURLErrorNetworkUnavailableReason as Reason,
+        NSURLErrorNetworkUnavailableReasonKey,
+    };
+    // SAFETY: Foundation exports these immutable constants on every supported Apple target.
+    let (domain, key) = unsafe { (NSURLErrorDomain, NSURLErrorNetworkUnavailableReasonKey) };
+    if *err.domain() != *domain {
+        return HttpError::Io(err.localizedDescription().to_string());
+    }
+    if err.code() == NOT_CONNECTED
+        && let Some(reason) = err
+            .userInfo()
+            .objectForKey(key)
+            .and_then(|n| n.downcast::<NSNumber>().ok())
+    {
+        let restriction = match Reason(reason.integerValue()) {
+            Reason::Expensive => Some(crate::NetworkRestriction::Expensive),
+            Reason::Constrained => Some(crate::NetworkRestriction::Constrained),
+            Reason::Cellular => Some(crate::NetworkRestriction::Cellular),
+            _ => None,
+        };
+        if let Some(reason) = restriction {
+            return HttpError::NetworkRestricted(reason);
+        }
+    }
     match err.code() {
         TIMED_OUT => HttpError::Timeout,
         CANNOT_FIND_HOST | DNS_FAILED => HttpError::Dns,
@@ -1358,5 +1383,40 @@ impl SessionDelegate {
         let this = Self::alloc().set_ivars(DelegateIvars { routes });
         // SAFETY: NSObject's designated initializer on a freshly allocated instance.
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+#[cfg(test)]
+mod network_error_tests {
+    use super::*;
+    use crate::NetworkRestriction::{Cellular, Constrained, Expensive};
+    use objc2_foundation::{NSNumber, NSURLErrorDomain, NSURLErrorNetworkUnavailableReasonKey};
+
+    #[test]
+    fn offline_and_policy_denials_have_distinct_errors() {
+        // SAFETY: the Foundation constants are available on all deployment targets, and the
+        // userInfo dictionary holds an NSNumber under the documented key.
+        unsafe {
+            for (number, expected) in [
+                (0, Some(Cellular)),
+                (1, Some(Expensive)),
+                (2, Some(Constrained)),
+                (9, None),
+            ] {
+                let value = NSNumber::new_i32(number);
+                let info = NSDictionary::from_slices(
+                    &[NSURLErrorNetworkUnavailableReasonKey],
+                    &[&*value as &AnyObject],
+                );
+                let error =
+                    NSError::errorWithDomain_code_userInfo(NSURLErrorDomain, -1009, Some(&info));
+                assert_eq!(
+                    map_error(&error),
+                    expected.map_or(HttpError::Connect, HttpError::NetworkRestricted)
+                );
+            }
+            let offline = NSError::errorWithDomain_code_userInfo(NSURLErrorDomain, -1009, None);
+            assert_eq!(map_error(&offline), HttpError::Connect);
+        }
     }
 }

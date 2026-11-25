@@ -943,6 +943,30 @@ impl ClientInner {
                 return Err(bad());
             }
         }
+        if (!request.allow_expensive || !request.allow_constrained)
+            && !url
+                .as_ref()
+                .and_then(url::Url::host)
+                .is_some_and(|host| match host {
+                    url::Host::Ipv4(ip) => ip.is_loopback(),
+                    url::Host::Ipv6(ip) => ip.is_loopback(),
+                    url::Host::Domain(name) => {
+                        name.trim_end_matches('.').eq_ignore_ascii_case("localhost")
+                    }
+                })
+        {
+            let conditions = self.transport.network_conditions();
+            if !request.allow_expensive && conditions.expensive == Some(true) {
+                return Err(HttpError::NetworkRestricted(
+                    crate::NetworkRestriction::Expensive,
+                ));
+            }
+            if !request.allow_constrained && conditions.constrained == Some(true) {
+                return Err(HttpError::NetworkRestricted(
+                    crate::NetworkRestriction::Constrained,
+                ));
+            }
+        }
         let mut headers: Vec<(String, String)> = self
             .headers
             .iter()
@@ -3340,6 +3364,11 @@ pub trait Socket: Send + Sync {
 
 /// One backend.
 pub trait Transport: Send + Sync + 'static {
+    /// Conditions for a pre-dispatch policy check. Native path-selecting transports can leave
+    /// these unknown and apply the flags on [`Prepared`] to the actual destination instead.
+    fn network_conditions(&self) -> crate::NetworkConditions {
+        crate::NetworkConditions::default()
+    }
     fn capabilities(&self) -> Capabilities;
     /// Start an exchange. Events may arrive before this returns.
     fn start(&self, request: Prepared, events: Events) -> Arc<dyn Transfer>;

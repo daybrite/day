@@ -48,7 +48,7 @@
 //! continuation runs on the UI thread, so results are plain signal writes (docs/async.md).
 //!
 //! Every option is **best-effort per platform** (docs/http.md has the matrix):
-//! `allow_expensive`/`allow_constrained` are native on Apple and advisory elsewhere; HTTP 4xx/5xx
+//! `allow_expensive`/`allow_constrained` are enforced by `URLSession` on Apple and checked against available platform signals elsewhere; HTTP 4xx/5xx
 //! are `Ok` responses (check [`Response::status`]), not errors.
 
 use std::borrow::Cow;
@@ -64,6 +64,7 @@ mod session;
 pub mod simulation;
 mod statistics;
 mod validators;
+pub use day_part_connectivity::{NetworkConditions, network_conditions};
 pub use session::{Provider, Session};
 pub use statistics::{Statistics, TransferStatistics};
 pub use validators::CacheValidators;
@@ -297,15 +298,16 @@ impl Request {
     }
 
     /// Whether the request may use "expensive" paths (cellular / personal hotspot). Default
-    /// `true`. Native on Apple (`allowsExpensiveNetworkAccess`); advisory elsewhere; combine
-    /// with `day_part_connectivity::status().expensive` for app-side policy.
+    /// `true`. `URLSession` enforces this during path selection. Other built-in providers check
+    /// the reported cost before each exchange. An unknown cost permits the attempt.
     pub fn allow_expensive(mut self, allowed: bool) -> Self {
         self.allow_expensive = allowed;
         self
     }
 
-    /// Whether the request may run under Low Data Mode. Default `true`. Native on Apple
-    /// (`allowsConstrainedNetworkAccess`); advisory elsewhere.
+    /// Whether the request may use a connection marked for reduced data use. Default `true`.
+    /// `URLSession` enforces Low Data Mode during path selection. Other built-in providers check
+    /// available data-saving signals before each exchange. Unknown permits the attempt.
     pub fn allow_constrained(mut self, allowed: bool) -> Self {
         self.allow_constrained = allowed;
         self
@@ -403,6 +405,19 @@ pub struct Download {
     pub bytes_written: u64,
 }
 
+/// Why network policy prevented a request. Platforms can report one reason even when
+/// several restrictions apply to the current route.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NetworkRestriction {
+    /// The path is metered or expensive.
+    Expensive,
+    /// Data saving is active for this app on the path.
+    Constrained,
+    /// The OS disallowed cellular access.
+    Cellular,
+}
+
 /// A transport-level failure. HTTP error statuses (4xx/5xx) are not here; they arrive as
 /// [`Response::status`]. The portable core maps from each platform's taxonomy (docs/http.md).
 #[non_exhaustive]
@@ -416,6 +431,8 @@ pub enum HttpError {
     Dns,
     /// The connection could not be established (refused, unreachable, reset mid-handshake).
     Connect,
+    /// A request or OS policy ruled out the available network path.
+    NetworkRestricted(NetworkRestriction),
     /// TLS handshake / certificate failure, including a server a pin or a trust handler refused.
     Tls(String),
     /// Everything else the platform reported (message passed through).
@@ -439,6 +456,7 @@ impl std::fmt::Display for HttpError {
             HttpError::BadUrl(u) => write!(f, "bad url: {u}"),
             HttpError::Timeout => write!(f, "request timed out"),
             HttpError::Dns => write!(f, "host name resolution failed"),
+            HttpError::NetworkRestricted(reason) => write!(f, "network restricted ({reason:?})"),
             HttpError::Connect => write!(f, "connection failed"),
             HttpError::Tls(m) => write!(f, "TLS failure: {m}"),
             HttpError::Io(m) => write!(f, "{m}"),

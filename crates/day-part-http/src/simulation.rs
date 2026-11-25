@@ -93,6 +93,8 @@ impl Clock for ManualClock {
 /// transfers at their next delivery boundary. Pausing does not pause request timeout clocks.
 #[derive(Clone, Debug)]
 pub struct Conditions {
+    /// Synthetic default-route policy used for new exchanges.
+    pub network: crate::NetworkConditions,
     pub latency: Duration,
     /// Payload bytes/sec, each direction per transfer. None means unlimited.
     pub bytes_per_second: Option<u64>,
@@ -105,6 +107,7 @@ pub struct Conditions {
 impl Default for Conditions {
     fn default() -> Self {
         Self {
+            network: crate::NetworkConditions::default(),
             latency: Duration::ZERO,
             bytes_per_second: None,
             failure_rate: 0.0,
@@ -314,6 +317,9 @@ fn delay(c: &Conditions, bytes: u64) -> Duration {
         .map_or_default(|rate| Duration::from_secs_f64(bytes as f64 / rate.max(1) as f64))
 }
 impl Transport for Simulation {
+    fn network_conditions(&self) -> crate::NetworkConditions {
+        self.conditions().network
+    }
     fn capabilities(&self) -> crate::Capabilities {
         simulated_capabilities()
     }

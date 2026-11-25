@@ -215,6 +215,9 @@ pub(crate) fn observe(
     })
 }
 impl Transport for Observed {
+    fn network_conditions(&self) -> crate::NetworkConditions {
+        self.inner.network_conditions()
+    }
     fn capabilities(&self) -> Capabilities {
         self.inner.capabilities()
     }

@@ -87,7 +87,7 @@ fn interpret(flags: u32) -> NetworkStatus {
         return NetworkStatus {
             online: true,
             kind: NetworkKind::Cellular,
-            expensive: Some(true),
+            expensive: network_conditions().expensive,
         };
     }
     // Non-cellular: Wi-Fi on iOS (best-effort; see the header comment), unknown on macOS.
@@ -98,6 +98,19 @@ fn interpret(flags: u32) -> NetworkStatus {
     NetworkStatus {
         online: true,
         kind,
-        expensive: None,
+        expensive: network_conditions().expensive,
+    }
+}
+
+unsafe extern "C" {
+    fn day_connectivity_path_flags() -> u32;
+}
+
+pub fn network_conditions() -> super::NetworkConditions {
+    // SAFETY: the linked path monitor takes no arguments and returns an atomic snapshot.
+    let flags = unsafe { day_connectivity_path_flags() };
+    super::NetworkConditions {
+        expensive: (flags & 1 != 0).then_some(flags & 2 != 0),
+        constrained: (flags & 1 != 0).then_some(flags & 4 != 0),
     }
 }

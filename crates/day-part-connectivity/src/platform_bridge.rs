@@ -1,19 +1,24 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Android, whole: the Java that reads ConnectivityManager, the declaration that binds it, and the
-// mapping into [`NetworkStatus`]. Nothing about this platform appears anywhere else in the crate.
-//
-// ConnectivityManager needs a `Context` and has no C entry point, so it is this crate's only
-// foreign arm (docs/bridge.md). Written in Java rather than Kotlin so it compiles in any Android
-// project. The ACCESS_NETWORK_STATE permission stays a build-graph fact in Cargo.toml.
-//
-// Before daybridge the snapshot crossed as one packed `long`, `(online << 16) | (kind << 8) |
-// expensiveByte` with -1 and 255 sentinels, written in Java and unpacked in Rust. Three
-// declarations replace it, and every sentinel with it.
+#[cfg(target_os = "android")]
+use super::NetworkKind;
+use super::{NetworkConditions, NetworkStatus};
 
-use super::{NetworkKind, NetworkStatus};
+#[cfg(target_arch = "wasm32")]
+pub fn status() -> Option<NetworkStatus> {
+    None
+}
 
+pub fn network_conditions() -> NetworkConditions {
+    let flags = policy_native().unwrap_or(0);
+    NetworkConditions {
+        expensive: (flags & 1 != 0).then_some(flags & 2 != 0),
+        constrained: (flags & 4 != 0).then_some(flags & 8 != 0),
+    }
+}
+
+#[cfg(target_os = "android")]
 pub fn status() -> Option<NetworkStatus> {
     // No Context or no ConnectivityManager means no reading at all, which is what `None` is for.
     // The three calls read the same live snapshot; a network that changes between them yields a
@@ -28,11 +33,7 @@ pub fn status() -> Option<NetworkStatus> {
     Some(NetworkStatus {
         online: online_native().unwrap_or(false),
         kind,
-        expensive: match expensive_native() {
-            Ok(0) => Some(false),
-            Ok(1) => Some(true),
-            _ => None, // unknown: no active network, or capabilities unreadable
-        },
+        expensive: network_conditions().expensive,
     })
 }
 
@@ -43,8 +44,8 @@ day_bridge::bridge! {
         fn online_native() -> Result<bool, day_bridge::Error>;
         /// 0 none, 1 wifi, 2 cellular, 3 ethernet, 4 other.
         fn kind_native() -> Result<i32, day_bridge::Error>;
-        /// 0 not metered, 1 metered, -1 unknown.
-        fn expensive_native() -> Result<i32, day_bridge::Error>;
+        /// Independent known/value bits for metering (1/2) and data saving (4/8).
+        fn policy_native() -> Result<i32, day_bridge::Error>;
     }
 
     #[day_bridge::impl(java, platforms = [android])]
@@ -85,17 +86,42 @@ day_bridge::bridge! {
                 return 4;
             }
 
-            public static int expensive_native() {
-                NetworkCapabilities caps = caps();
-                if (caps == null) return -1;
-                return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) ? 0 : 1;
+            public static int policy_native() {
+                Context ctx = DayRuntime.ctx;
+                if (ctx == null) return 0;
+                ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm == null) return 0;
+                Network net = cm.getActiveNetwork();
+                if (net == null) return 0;
+                NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+                if (caps == null) return 0;
+                boolean metered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+                    && !(android.os.Build.VERSION.SDK_INT >= 30
+                        && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_TEMPORARILY_NOT_METERED));
+                int flags = metered ? 3 : 1;
+                if (android.os.Build.VERSION.SDK_INT >= 24) {
+                    int restriction = cm.getRestrictBackgroundStatus();
+                    if (restriction == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED)
+                        flags |= metered ? 12 : 4;
+                    else if (restriction == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_WHITELISTED
+                            || restriction == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_DISABLED)
+                        flags |= 4;
+                }
+                return flags;
             }
         "#,
     );
 
-    // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
-    // never compiled; it satisfies the rule that a bridge always has an answer for an unclaimed
-    // target.
+    #[day_bridge::impl(js, platforms = [web])]
+    js!(r#"
+        export function policy_native() {
+            const saving = globalThis.navigator?.connection?.saveData;
+            return typeof saving === "boolean" ? (saving ? 12 : 4) : 0;
+        }
+        export function kind_native() { return 0; }
+        export function online_native() { return false; }
+    "#);
+
     #[day_bridge::impl(rust, platforms = [other])]
     fn online_native() -> Result<bool, day_bridge::Error> {
         Err(day_bridge::Error::Unsupported)
@@ -107,7 +133,7 @@ day_bridge::bridge! {
     }
 
     #[day_bridge::impl(rust, platforms = [other])]
-    fn expensive_native() -> Result<i32, day_bridge::Error> {
+    fn policy_native() -> Result<i32, day_bridge::Error> {
         Err(day_bridge::Error::Unsupported)
     }
 }

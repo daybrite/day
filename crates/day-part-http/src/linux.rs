@@ -1153,6 +1153,9 @@ struct CurlTransport {
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 impl Transport for CurlTransport {
+    fn network_conditions(&self) -> crate::NetworkConditions {
+        crate::network_conditions()
+    }
     fn capabilities(&self) -> Capabilities {
         capabilities()
     }

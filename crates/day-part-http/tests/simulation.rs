@@ -325,3 +325,83 @@ fn reqwest_streaming_upload_and_cancellation_are_observed() {
     assert_eq!(session.statistics().failed, 1);
     assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
+
+#[test]
+fn network_policy_checks_each_known_signal_before_the_transfer() {
+    use day_part_http::{HttpError, NetworkConditions, NetworkRestriction};
+    let (client, _, sim, clock) = setup();
+    sim.handle(|_, _| true, |_| Ok(Reply::new(200, vec![])));
+    for expensive in [None, Some(false), Some(true)] {
+        for constrained in [None, Some(false), Some(true)] {
+            sim.set_conditions(Conditions {
+                network: NetworkConditions {
+                    expensive,
+                    constrained,
+                },
+                ..Conditions::default()
+            });
+            for allow_expensive in [false, true] {
+                for allow_constrained in [false, true] {
+                    let expected = if !allow_expensive && expensive == Some(true) {
+                        Some(NetworkRestriction::Expensive)
+                    } else if !allow_constrained && constrained == Some(true) {
+                        Some(NetworkRestriction::Constrained)
+                    } else {
+                        None
+                    };
+                    let count = sim.requests().len();
+                    let (tx, rx) = mpsc::channel();
+                    let _flight = client.fetch_async(
+                        Request::get("https://fixture.invalid/")
+                            .allow_expensive(allow_expensive)
+                            .allow_constrained(allow_constrained),
+                        move |result| tx.send(result).unwrap(),
+                    );
+                    clock.advance(Duration::ZERO);
+                    assert_eq!(
+                        rx.try_recv().unwrap().err(),
+                        expected.map(HttpError::NetworkRestricted)
+                    );
+                    assert_eq!(
+                        sim.requests().len() - count,
+                        usize::from(expected.is_none())
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn loopback_redirect_rechecks_policy_and_websockets_check_before_open() {
+    use day_part_http::{HttpError, NetworkConditions, NetworkRestriction};
+    let (client, _, sim, clock) = setup();
+    sim.route("GET", "http://127.0.0.1/", |_| {
+        Ok(Reply::new(302, vec![]).header("Location", "https://fixture.invalid/"))
+    });
+    sim.set_conditions(Conditions {
+        network: NetworkConditions {
+            expensive: None,
+            constrained: Some(true),
+        },
+        ..Conditions::default()
+    });
+    let (tx, rx) = mpsc::channel();
+    let _flight = client.fetch_async(
+        Request::get("http://127.0.0.1/").allow_constrained(false),
+        move |r| tx.send(r.err()).unwrap(),
+    );
+    clock.advance(Duration::ZERO);
+    let refused = Some(HttpError::NetworkRestricted(
+        NetworkRestriction::Constrained,
+    ));
+    assert_eq!(rx.try_recv().unwrap(), refused);
+    assert_eq!(sim.requests().len(), 1);
+    let (tx, rx) = mpsc::channel();
+    client.websocket_async(
+        Request::get("wss://fixture.invalid/").allow_constrained(false),
+        move |r| tx.send(r.err()).unwrap(),
+    );
+    clock.advance(Duration::ZERO);
+    assert_eq!(rx.try_recv().unwrap(), refused);
+}

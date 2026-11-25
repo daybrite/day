@@ -75,11 +75,26 @@ if (200..300).contains(&resp.status) {
 [Uploads](#uploads). `Response { status, headers, body }` adds [`text()`](https://docs.rs/day-part-http/latest/day_part_http/struct.Response.html#method.text) (lossy UTF-8) and a
 case-insensitive [`header(name)`](https://docs.rs/day-part-http/latest/day_part_http/struct.Response.html#method.header).
 
-Two contract points apply everywhere:
+### Network policy
+
+Both network allowances default to true. Set them to false on large or deferrable transfers.
+URLSession applies the flags when selecting a route on macOS and iOS. The other built-in providers
+check the available [cost and data-saving signals](network.md#cost-and-data-saving) before opening
+each HTTP exchange or WebSocket. A later route change can affect an exchange already in progress.
+An unknown signal permits the attempt. Explicit loopback addresses bypass the default-route check.
+Allowing a request still leaves the operating system in control of connectivity.
+
+A refusal returns `HttpError::NetworkRestricted` with a
+[`NetworkRestriction`](https://docs.rs/day-part-http/latest/day_part_http/enum.NetworkRestriction.html).
+A plain offline or unreachable connection remains `HttpError::Connect` when the platform supplies
+no policy reason. Apple can also report that cellular access is disabled.
+See Apple's [URL request cost policy](https://developer.apple.com/documentation/foundation/urlrequest/allowsexpensivenetworkaccess).
+
+### Responses and timeouts
 
 - **4xx and 5xx are responses.** An HTTP error status arrives as `resp.status == 404`. An
   `HttpError` is a transport failure: `BadUrl`, `Timeout`, `Dns`, `Connect`, `Tls`, `Io`,
-  `Cancelled`, `TooManyRedirects`, `Status` or `Unsupported` (the enum is `#[non_exhaustive]`).
+  `NetworkRestricted`, `Cancelled`, `TooManyRedirects`, `Status` or `Unsupported` (the enum is `#[non_exhaustive]`).
 - **[`timeout`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.timeout) bounds progress.** It covers connecting, waiting for the response head, and idle
   gaps in the body, so a long download that keeps moving runs to the end. The default is 30 s.
   [`timeout_total`](https://docs.rs/day-part-http/latest/day_part_http/struct.Request.html#method.timeout_total) bounds the whole request, redirects and challenges included.

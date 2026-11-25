@@ -641,9 +641,12 @@ dependencies = [
 name = "day-part-connectivity"
 version = "0.7.11"
 dependencies = [
+ "cc",
  "day-bridge",
  "day-build",
  "day-platform-android",
+ "libloading",
+ "windows",
 ]
 
 [[package]]
@@ -707,6 +710,7 @@ dependencies = [
  "day-async",
  "day-bridge",
  "day-build",
+ "day-part-connectivity",
  "day-platform-android",
  "futures-util",
  "httpdate",

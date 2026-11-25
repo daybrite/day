@@ -19,8 +19,24 @@
 //!
 //! Every field is **best-effort**: each OS reports a different slice of the truth. `kind` and
 //! `expensive` in particular vary per platform (macOS reachability carries no transport info, Linux
-//! infers the kind from interface names, only Android/HarmonyOS report meteredness); see the
+//! infers the kind from interface names). Use [`network_conditions`] for cost and data saving. See the
 //! per-field docs and docs/network.md for the per-platform matrix.
+
+/// Cost and data-saving signals for the current default route. Each field is independent.
+/// `None` means the platform has no reading, including while a path monitor starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NetworkConditions {
+    /// The platform marks this connection expensive or metered.
+    pub expensive: Option<bool>,
+    /// The platform requests reduced data use on this connection for this app.
+    pub constrained: Option<bool>,
+}
+
+/// Read current cost and data-saving signals without sending a request to the destination.
+#[must_use]
+pub fn network_conditions() -> NetworkConditions {
+    imp::network_conditions()
+}
 
 /// The transport class of the active network connection. Best-effort: not every platform can
 /// distinguish these (see [`NetworkStatus::kind`]).
@@ -52,7 +68,7 @@ pub struct NetworkStatus {
     /// Windows report [`NetworkKind::Other`] when online.
     pub kind: NetworkKind,
     /// Whether the connection is metered/expensive, where the platform reports it (Android's
-    /// `NOT_METERED` capability, HarmonyOS likewise, Windows' cost hint, iOS cellular). `None` when
+    /// `NOT_METERED` capability, HarmonyOS likewise, Apple’s path monitor, Windows' cost hint, Linux `NetworkManager`). `None` when
     /// unknown.
     pub expensive: Option<bool>,
 }
@@ -88,8 +104,8 @@ mod imp;
 #[path = "ohos.rs"]
 mod imp;
 
-#[cfg(target_os = "android")]
-#[path = "android.rs"]
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+#[path = "platform_bridge.rs"]
 mod imp;
 
 // Any other platform: no native connectivity API.
@@ -98,9 +114,14 @@ mod imp;
     target_os = "ios",
     target_os = "windows",
     target_os = "linux",
-    target_os = "android"
+    target_os = "android",
+    target_arch = "wasm32"
 )))]
 mod imp {
+    pub fn network_conditions() -> super::NetworkConditions {
+        super::NetworkConditions::default()
+    }
+
     pub fn status() -> Option<super::NetworkStatus> {
         None
     }

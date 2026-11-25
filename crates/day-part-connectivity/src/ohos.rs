@@ -22,13 +22,14 @@ const BEARER_ETHERNET: c_int = 3;
 // NetConn_NetCap: 11 = NETCONN_NET_CAPABILITY_NOT_METERED.
 const CAPABILITY_NOT_METERED: c_int = 11;
 
-/// NetConn_NetHandle (net_connection_type.h).
+/// `NetConn_NetHandle` in `net_connection_type.h`.
 #[repr(C)]
 struct NetConnNetHandle {
     net_id: i32,
 }
 
-/// NetConn_NetCapabilities (net_connection_type.h).
+/// `NetConn_NetCapabilities` in `net_connection_type.h`.
+#[derive(Default)]
 #[repr(C)]
 struct NetConnNetCapabilities {
     // Written by the C side; only the caps/bearer lists are read here.
@@ -55,7 +56,8 @@ unsafe extern "C" {
 pub fn status() -> Option<NetworkStatus> {
     let mut has_default: i32 = 0;
     // Non-zero return = permission missing (201) or service unreachable, so no reading at all.
-    if unsafe { OH_NetConn_HasDefaultNet(&mut has_default) } != 0 {
+    // SAFETY: the output is a live i32 written synchronously by NetworkKit.
+    if unsafe { OH_NetConn_HasDefaultNet(&raw mut has_default) } != 0 {
         return None;
     }
     if has_default == 0 {
@@ -69,10 +71,11 @@ pub fn status() -> Option<NetworkStatus> {
     // A default network is activated; refine kind/expensive from its capabilities (best-effort:
     // if the detail calls fail we still report online).
     let mut handle = NetConnNetHandle { net_id: 0 };
-    let mut caps: NetConnNetCapabilities = unsafe { std::mem::zeroed() };
+    let mut caps = NetConnNetCapabilities::default();
+    // SAFETY: both outputs have the layouts in net_connection_type.h and outlive the calls.
     let detailed = unsafe {
-        OH_NetConn_GetDefaultNet(&mut handle) == 0
-            && OH_NetConn_GetNetCapabilities(&mut handle, &mut caps) == 0
+        OH_NetConn_GetDefaultNet(&raw mut handle) == 0
+            && OH_NetConn_GetNetCapabilities(&raw mut handle, &raw mut caps) == 0
     };
     if !detailed {
         return Some(NetworkStatus {
@@ -98,4 +101,11 @@ pub fn status() -> Option<NetworkStatus> {
         kind,
         expensive,
     })
+}
+
+pub fn network_conditions() -> super::NetworkConditions {
+    super::NetworkConditions {
+        expensive: status().and_then(|s| s.expensive),
+        constrained: None,
+    }
 }

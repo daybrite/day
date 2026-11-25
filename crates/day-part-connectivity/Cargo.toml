@@ -17,19 +17,25 @@ license.workspace = true
 #   Windows:   GetNetworkConnectivityHint (iphlpapi, resolved dynamically; Windows 10 2004+)
 #   Linux:     /sys/class/net interface scan
 #   HarmonyOS: native libnet_connection.so (NetworkKit), gated on target_env = "ohos"
-#   Android:   ConnectivityManager via the inline Java arm in src/android.rs (docs/bridge.md)
+#   Android:   ConnectivityManager via the inline Java arm in src/platform_bridge.rs (docs/bridge.md)
 # See docs/network.md + docs/extending.md.
 
 [dependencies]
 
-# macOS/iOS need no crates: src/apple.rs is plain-C FFI to the SystemConfiguration framework.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Networking_Connectivity"] }
+
+[target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
+libloading = "0.9"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+day-bridge = { workspace = true }
 
 # Android reads ConnectivityManager through a Java shim + day-platform-android's cached JVM/Context. This is the
 # one platform where the headless crate rides on the day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-platform-android = { workspace = true }
-# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
-# dependency is Android-only too; every other target compiles exactly as it did before.
+# daybridge (docs/bridge.md): the Java arm and its declaration live in src/platform_bridge.rs, so the web arm reads the browser data-saving preference.
 day-bridge = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
@@ -54,16 +60,17 @@ permissions = ["ohos.permission.GET_NETWORK_INFO"]
 # read Rust link metadata, so the app must link the framework itself: declared here and linked via
 # the generated DayPieces SwiftPM package (resolve_ios scans every closure dep, part or piece).
 [package.metadata.day.ios]
-frameworks = ["SystemConfiguration"]
+frameworks = ["SystemConfiguration", "Network"]
 
 # --- macOS backend contribution ---
 # Same story once the platform/macos/ Xcode host project drives the final link (§17.4): the
 # Rust `#[link]` attribute is honored only when cargo links, so the generated DayPieces
 # package declares the framework for xcodebuild.
 [package.metadata.day.macos]
-frameworks = ["SystemConfiguration"]
+frameworks = ["SystemConfiguration", "Network"]
 
 [build-dependencies]
+cc = { workspace = true }
 day-build = { workspace = true }
 
 [lints]

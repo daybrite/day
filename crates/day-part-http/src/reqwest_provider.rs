@@ -142,6 +142,9 @@ fn body_stream(
     reqwest::Body::wrap_stream(stream)
 }
 impl Transport for Reqwest {
+    fn network_conditions(&self) -> crate::NetworkConditions {
+        crate::network_conditions()
+    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             streaming: true,

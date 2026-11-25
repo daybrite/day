@@ -58,7 +58,9 @@ fn lookup() -> Option<GetNetworkConnectivityHintFn> {
 }
 
 pub fn status() -> Option<NetworkStatus> {
-    let get_hint = lookup()?;
+    static HINT: std::sync::OnceLock<Option<GetNetworkConnectivityHintFn>> =
+        std::sync::OnceLock::new();
+    let get_hint = (*HINT.get_or_init(lookup))?;
     let mut hint = NlNetworkConnectivityHint {
         connectivity_level: 0,
         connectivity_cost: 0,
@@ -89,4 +91,20 @@ pub fn status() -> Option<NetworkStatus> {
         kind,
         expensive,
     })
+}
+
+pub fn network_conditions() -> super::NetworkConditions {
+    use windows::Networking::Connectivity::{NetworkCostType, NetworkInformation};
+    let cost = NetworkInformation::GetInternetConnectionProfile()
+        .and_then(|p| p.GetConnectionCost())
+        .ok();
+    let expensive = cost.as_ref().and_then(|c| match c.NetworkCostType().ok()? {
+        NetworkCostType::Unrestricted => Some(false),
+        NetworkCostType::Fixed | NetworkCostType::Variable => Some(true),
+        _ => None,
+    });
+    super::NetworkConditions {
+        expensive: expensive.or_else(|| status().and_then(|s| s.expensive)),
+        constrained: cost.and_then(|c| c.BackgroundDataUsageRestricted().ok()),
+    }
 }

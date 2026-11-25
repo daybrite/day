@@ -6,7 +6,7 @@
 // "up" means link-level connectivity. Kind is inferred from the kernel's predictable interface-name
 // prefixes (wl* wireless, en*/eth* wired, ww* wwan), preferring wired > wifi > cellular when several
 // are up. "online" here means a link is up, not that internet access was validated; meteredness is a
-// desktop-session concept the kernel doesn't know, so expensive is always None. Pure std.
+// NetworkManager property read separately from link state.
 
 use super::{NetworkKind, NetworkStatus};
 use std::fs;
@@ -33,7 +33,7 @@ pub fn status() -> Option<NetworkStatus> {
         Some(kind) => NetworkStatus {
             online: true,
             kind,
-            expensive: None,
+            expensive: metered(),
         },
         None => NetworkStatus {
             online: false,
@@ -63,5 +63,80 @@ fn rank(kind: NetworkKind) -> u8 {
         NetworkKind::Wifi => 2,
         NetworkKind::Cellular => 1,
         NetworkKind::Other | NetworkKind::None => 0,
+    }
+}
+
+/// `NetworkManager`'s Metered property describes the default route, including the daemon's
+/// guessed-yes and guessed-no classifications. The system bus and libsystemd are optional.
+pub fn network_conditions() -> super::NetworkConditions {
+    super::NetworkConditions {
+        expensive: metered(),
+        constrained: None,
+    }
+}
+
+fn metered() -> Option<bool> {
+    use std::ffi::{c_char, c_int, c_void};
+    use std::sync::OnceLock;
+
+    type Bus = *mut c_void;
+    struct Api {
+        _library: libloading::Library,
+        open: unsafe extern "C" fn(*mut Bus) -> c_int,
+        unref: unsafe extern "C" fn(Bus) -> Bus,
+        set_timeout: unsafe extern "C" fn(Bus, u64) -> c_int,
+        property: unsafe extern "C" fn(
+            Bus,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            *const c_char,
+            *mut c_void,
+            c_char,
+            *mut c_void,
+        ) -> c_int,
+    }
+    static API: OnceLock<Option<Api>> = OnceLock::new();
+    // SAFETY: these symbols use the stable sd-bus.h ABI. The library outlives its symbols.
+    let api = API
+        .get_or_init(|| unsafe {
+            let lib = libloading::Library::new("libsystemd.so.0").ok()?;
+            Some(Api {
+                open: *lib.get(b"sd_bus_open_system\0").ok()?,
+                unref: *lib.get(b"sd_bus_unref\0").ok()?,
+                set_timeout: *lib.get(b"sd_bus_set_method_call_timeout\0").ok()?,
+                property: *lib.get(b"sd_bus_get_property_trivial\0").ok()?,
+                _library: lib,
+            })
+        })
+        .as_ref()?;
+    let mut bus = std::ptr::null_mut();
+    let mut value = 0u32;
+    // SAFETY: the bus belongs to this call. The property has D-Bus type 'u' (u32)
+    // and all strings and output storage remain valid until the synchronous call returns.
+    unsafe {
+        if (api.open)(&raw mut bus) < 0 {
+            return None;
+        }
+        let ok = (api.set_timeout)(bus, 150_000) >= 0
+            && (api.property)(
+                bus,
+                c"org.freedesktop.NetworkManager".as_ptr(),
+                c"/org/freedesktop/NetworkManager".as_ptr(),
+                c"org.freedesktop.NetworkManager".as_ptr(),
+                c"Metered".as_ptr(),
+                std::ptr::null_mut(),
+                b'u' as c_char,
+                (&raw mut value).cast(),
+            ) >= 0;
+        (api.unref)(bus);
+        if !ok {
+            return None;
+        }
+    }
+    match value {
+        1 | 3 => Some(true),
+        2 | 4 => Some(false),
+        _ => None,
     }
 }

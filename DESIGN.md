@@ -9459,6 +9459,13 @@ parts without a second networking stack. DAV callers must select redirect/authen
 inspect individual 207 outcomes, and respect platform method support and browser CORS.
 `crates/day-part-http/tests/dav.rs` checks token parsing, intercepted XML and native exchanges.
 
+HTTP requests carry independent expensive-path and data-saving allowances. URLSession selects
+an eligible Apple path and returns a typed refusal when the OS supplies a reason. Other built-in
+providers sample the default route before dispatch. Unknown observations permit a request.
+The simulator supplies its own two signals, including on redirects and WebSocket opens.
+[Network connectivity](docs/network.md#cost-and-data-saving) describes the observations on each
+target. [HTTP](docs/http.md#network-policy) documents the request contract.
+
 `day-part-http` now places a `Session` boundary between the public `Client` and its transport.
 Default clients (including the cached crate-root stateless client) resolve `Session::global()`
 at operation start; explicitly supplied sessions isolate test state. A snapshot pins a provider

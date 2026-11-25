@@ -507,6 +507,9 @@ impl Transfer for AndroidTransfer {
 }
 
 impl Transport for AndroidTransport {
+    fn network_conditions(&self) -> crate::NetworkConditions {
+        crate::network_conditions()
+    }
     fn capabilities(&self) -> Capabilities {
         CAPABILITIES
     }

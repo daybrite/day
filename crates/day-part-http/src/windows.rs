@@ -579,6 +579,9 @@ impl WinTransport {
 }
 
 impl Transport for WinTransport {
+    fn network_conditions(&self) -> crate::NetworkConditions {
+        crate::network_conditions()
+    }
     fn capabilities(&self) -> Capabilities {
         capabilities()
     }
