@@ -146,7 +146,9 @@ scripts need no hand-tuned sleeps. Acting steps synthesize Day events on the
 main thread between reactive updates. `tap` waits for native navigation to settle and for the
 control to have a nonzero frame and be enabled. Those checks happen before dispatch, so a
 pending button is not reported as successfully pressed and an accepted action is not replayed.
-`wait_idle` also waits for native transitions. These checks do not detect occlusion or replace
+`wait_idle` also waits for native transitions. For a slow emulator, a screenshot can give
+its native render checkpoint more time with `screenshot: { name: details, timeout_secs: 30 }`.
+These checks do not detect occlusion or replace
 native hit testing. Native behavior can still differ between toolkits,
 so run the walkthrough on the targets you intend to ship.
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an

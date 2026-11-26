@@ -21,12 +21,12 @@
   <script>window.__DAY_MODULES = [/*day:modules*/];</script>
   <script type="module">
     import { start } from './shim.js';
-    start('app.wasm');
+    /*day:startup*/start('app.wasm');
   </script>
   <!-- The offline shell (docs/web.md "Home screen and offline"): sw.js, generated beside this
-       page with every file of the dist, serves the app when the network is away. Registered
-       after the app starts so it never competes with the first load; browsers only allow a
-       worker on https: and loopback, which is where `day launch` serves from. -->
+       page with every file of the dist, serves the app when the network is away. Apps that
+       need the worker for isolation also register it before startup. Browsers allow service
+       workers on HTTPS and loopback, which is where `day launch` serves from. -->
   <script>
     if ('serviceWorker' in navigator) {
       addEventListener('load', () => {

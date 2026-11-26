@@ -134,16 +134,26 @@ Upload the contents of `dist/` to a static web host. Keep the generated files to
 serve over HTTPS. Asset URLs are relative, so the app can live at a domain root or under a
 subdirectory. Configure the host to serve `.wasm` as `application/wasm` for streaming startup.
 
-For durable file databases, the host must provide cross-origin isolation:
+Durable file databases require cross-origin isolation. On a configurable host, send these response headers:
 
 ```text
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-Day's local server sends these headers. On hosts that cannot provide them, such as GitHub
-Pages, the persistence extension reports `durable: false` and refuses file-database opens.
-Check [Persistence](/docs/reference/persistence#the-web) before choosing a host.
+Day's local server sends these headers. On a static HTTPS host such as GitHub Pages, opt in
+with this setting in `Day.toml`:
+
+```toml
+[web]
+cross-origin-isolation = true
+```
+
+On the first top-level visit, the app waits for its scoped offline service worker to take
+control, then reloads the same URL with the headers. Hosts that already send them start
+directly. The browser must permit service workers and origin-private storage. Cross-origin
+resources used by an isolated app need compatible CORS or CORP headers.
+See [Persistence](/docs/reference/persistence#the-web).
 
 The reusable Day app workflow can deploy the web build to GitHub Pages. Include [`web-dom`](https://daybrite.dev/docs/reference/platforms/web-dom "toolkit:web-dom") in
 its targets and set `deploy-web: true`; follow the complete

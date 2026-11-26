@@ -594,6 +594,9 @@ pub enum Step {
     },
     Screenshot {
         name: String,
+        /// Time allowed for native layout and the compositor's render checkpoint.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_secs: Option<f64>,
         /// Capture the secondary window opened under this key (`day::open_window`'s `key`)
         /// instead of the primary (docs/windows.md). On the cover-fallback tier the key
         /// resolves to the primary window, whose fullscreen cover is the content: the same
@@ -780,6 +783,10 @@ impl Step {
                 ..
             }
             | Step::RunTests {
+                timeout_secs: Some(t),
+                ..
+            }
+            | Step::Screenshot {
                 timeout_secs: Some(t),
                 ..
             } if *t > 0.0 => *t,

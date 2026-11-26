@@ -193,6 +193,9 @@ pub struct Web {
     /// How much browser chrome an installed launch shows. Default `standalone`.
     #[serde(default)]
     pub display: WebDisplay,
+    /// Provide COOP/COEP on static HTTPS hosts for apps that require shared memory.
+    #[serde(default)]
+    pub cross_origin_isolation: bool,
 }
 
 /// The web app manifest's `display` values (W3C Web Application Manifest), kebab-case as the

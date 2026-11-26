@@ -165,6 +165,7 @@ fn wait_budgets_share_defaults_and_per_operation_overrides() {
         ("assert_text", json!({"id":"fixture"})),
         ("web_eval", json!({"id":"fixture","script":"true"})),
         ("run_tests", json!({})),
+        ("screenshot", json!({"name":"fixture"})),
     ] {
         for (timeout, expected) in [
             (None, 5.0),

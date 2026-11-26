@@ -3,6 +3,7 @@
 // The CLI fills the content version and shell file list.
 const VERSION = /*day:cache*/ "";
 const PRECACHE = /*day:precache*/ [];
+const ISOLATE = /*day:isolation*/ false;
 const SCOPE = new URL(self.registration.scope);
 const SCOPE_KEY = encodeURIComponent(SCOPE.pathname);
 const SHELL_PREFIX = 'day-shell-' + SCOPE_KEY + '-';
@@ -60,6 +61,10 @@ async function cleanResources(current) {
   }
 }
 self.addEventListener('message', event => {
+  if (event.data?.type === 'day-cross-origin-isolation') {
+    event.ports[0]?.postMessage(ISOLATE);
+    return;
+  }
   if (event.data?.type === 'day-resource-protocol') {
     event.ports[0]?.postMessage(2);
     return;
@@ -99,5 +104,14 @@ self.addEventListener('fetch', event => {
       if (index) return index;
     }
     throw error;
+  }).then(response => {
+    // Only the top-level shell and the scripts that start dedicated/shared workers need
+    // these policies. Leave virtual documents, cross-origin requests and redirects alone.
+    if (!ISOLATE || !response.ok || response.redirected || response.type === 'opaque'
+        || !['document', 'worker', 'sharedworker'].includes(request.destination)) return response;
+    const headers = new Headers(response.headers);
+    headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+    headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+    return new Response(response.body, {status: response.status, statusText: response.statusText, headers});
   }));
 });

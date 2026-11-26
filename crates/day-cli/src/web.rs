@@ -205,9 +205,15 @@ pub fn build_web(
         .map_err(|e| e.to_string())?,
     )
     .map_err(|e| format!("manifest: {e}"))?;
+    let before_start = if project.manifest.web.cross_origin_isolation {
+        "import { prepareIsolation } from './isolation.js';\n    if (await prepareIsolation()) "
+    } else {
+        ""
+    };
     std::fs::write(
         dist.join("index.html"),
         HOST_INDEX
+            .replace("/*day:startup*/", before_start)
             .replacen(
                 "lang=\"en\"",
                 &format!("lang=\"{}\"", attr_escape(&home.lang)),
@@ -218,6 +224,13 @@ pub fn build_web(
             .replace("[/*day:modules*/]", &format!("[{modules_json}]")),
     )
     .map_err(|e| format!("index: {e}"))?;
+    let isolation = dist.join("isolation.js");
+    if project.manifest.web.cross_origin_isolation {
+        std::fs::write(&isolation, include_str!("../resources/web/isolation.js"))
+            .map_err(|e| format!("isolation.js: {e}"))?;
+    } else if isolation.exists() {
+        std::fs::remove_file(&isolation).map_err(|e| format!("isolation.js: {e}"))?;
+    }
     // Bundled images, flat under assets/images/, the paths day-toolkit-dom writes into `src` attrs.
     let images_src = project.resource_root().join("images");
     if images_src.is_dir() {
@@ -304,8 +317,11 @@ pub fn build_web(
     // file list, and its cache version is a digest of their bytes, so a rebuild with any
     // change installs a fresh cache and drops the old one.
     let files = dist_files(&dist)?;
-    std::fs::write(dist.join("sw.js"), service_worker(&files))
-        .map_err(|e| format!("sw.js: {e}"))?;
+    std::fs::write(
+        dist.join("sw.js"),
+        service_worker(&files, project.manifest.web.cross_origin_isolation),
+    )
+    .map_err(|e| format!("sw.js: {e}"))?;
 
     Ok(BuildOutcome {
         target: target.name,
@@ -706,7 +722,7 @@ fn dist_files(dist: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
 /// navigation neither can answer. Same-origin GETs inside the worker's scope only; the
 /// dayscript socket and every other origin pass through untouched. A rebuild changes the
 /// digest, so the next visit installs a fresh cache and the activation drops the old one.
-pub fn service_worker(files: &[(String, Vec<u8>)]) -> String {
+fn service_worker(files: &[(String, Vec<u8>)], isolate: bool) -> String {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     for (rel, bytes) in files {
@@ -730,6 +746,10 @@ pub fn service_worker(files: &[(String, Vec<u8>)]) -> String {
     let precache =
         serde_json::to_string(&serde_json::Value::Array(list)).unwrap_or_else(|_| "[]".into());
     include_str!("../resources/web/service-worker.js")
+        .replace(
+            "/*day:isolation*/ false",
+            if isolate { "true" } else { "false" },
+        )
         .replace("/*day:cache*/ \"\"", &format!("\"day-{version}\""))
         .replace("/*day:precache*/ []", &precache)
 }
@@ -1470,17 +1490,19 @@ mod home_screen_tests {
             ("app.wasm".to_string(), vec![0, 1]),
             ("assets/data/fixture.bin".to_string(), vec![2, 3]),
         ];
-        let sw = service_worker(&a);
+        let sw = service_worker(&a, false);
+        assert!(sw.contains("const ISOLATE = false;"));
+        assert!(service_worker(&a, true).contains("const ISOLATE = true;"));
         assert!(sw.contains("const PRECACHE = [\"index.html\",\"app.wasm\"];"));
         let mut b = a.clone();
         b[1].1.push(2);
         assert_ne!(
-            service_worker(&a),
-            service_worker(&b),
+            service_worker(&a, false),
+            service_worker(&b, false),
             "a changed byte changes the cache name"
         );
         assert_eq!(
-            service_worker(&a),
+            service_worker(&a, false),
             sw,
             "the same files give the same worker"
         );
