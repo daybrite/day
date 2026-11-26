@@ -216,5 +216,18 @@ fn main() {
         mid > 0.0 && mid < 1.0 && shown(&toolkit).opacity == Some(0.5),
         "a run for ever plays until a plain set stops it",
     );
+    // Quit with a frame still armed. The core driver and reactive scope outlive
+    // the display-link table on this main thread, as they do in a running app.
+    let toolkit = std::cell::RefCell::new(toolkit);
+    day_core::install_frame_requester(move |_, cb| toolkit.borrow_mut().request_frame(&stack, cb));
+    let clock = day_core::toolbar::with_window(
+        day_core::RNode::default(),
+        day_core::frame::FrameClock::current,
+    );
+    day_reactive::Scope::root().enter(|| {
+        clock
+            .request(|_| check(false, "frame fired before shutdown"))
+            .in_scope();
+    });
     std::process::exit(0);
 }

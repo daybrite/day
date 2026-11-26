@@ -84,7 +84,9 @@ pub(super) fn request(host: &NSView, cb: FrameCallback) -> CancelFrame {
     });
     Box::new(move || {
         native::cancel(token);
-        SOURCES.with(|s| {
+        // A scoped frame can be cancelled during Quit after SOURCES has been
+        // destroyed. Each DisplaySource invalidates its link when the table drops.
+        let _ = SOURCES.try_with(|s| {
             let mut s = s.borrow_mut();
             if s.get(&key)
                 .is_some_and(|s| s.target.ivars().token.get() == token)

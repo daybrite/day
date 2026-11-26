@@ -2874,6 +2874,10 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > remaining captures; ordinary runtime cancellation still removes demand and cancels the native
 > source. The subprocess regression `handles_drop_during_core_tls_teardown` exercises active
 > and paused handles owned by the dying root without depending on TLS key destruction order.
+> On macOS 14 and later, AppKit's display-link table can be destroyed while the core driver
+> and reactive scopes are still alive. Each table entry invalidates its link on drop. A later
+> scope cancellation removes the core callback and only looks up the native link if the table
+> is still available. The AppKit `native_motion` test quits with a scoped frame pending.
 >
 > Native sources are CADisplayLink (AppKit 14+/UIKit), Core Video (AppKit 13), Choreographer
 > (Android), CompositionTarget.Rendering (XAML), requestAnimationFrame (DOM), GTK widget
