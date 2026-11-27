@@ -17,9 +17,12 @@
 package dev.daybrite.day.piece.settings;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.util.TypedValue;
 import android.view.View;
@@ -39,16 +42,16 @@ public final class DaySettingsRow extends DayFixed {
     static final int STYLE_ITEM = 0, STYLE_CATEGORY = 1, STYLE_NOTE = 2, STYLE_HEADER = 3;
     /** Flag bits (the Rust side's `flags`). */
     static final int F_CHEVRON = 1, F_DESTRUCTIVE = 2, F_RIPPLE = 4, F_FORWARD = 8,
-            F_TEMPLATE_ICON = 16, F_FIRST = 32;
+            F_TEMPLATE_ICON = 16, F_FIRST = 32, F_PICTURE = 64;
     /** M3 list-item metrics, in dp (lib-android.rs holds the same numbers). */
     static final float PAD_H = 16f, GAP = 16f, CHEVRON = 24f, TEXT_GAP = 2f, ICON = 24f,
-            HEADER_ICON = 56f, HEADER_ICON_RADIUS = 12f;
+            HEADER_ICON = 56f, HEADER_ICON_RADIUS = 12f, PICTURE = 40f, PICTURE_RADIUS = 9f;
     static final float ITEM_PAD_V = 8f, HEADER_PAD_V = 16f, CATEGORY_TOP = 24f,
             CATEGORY_TOP_FIRST = 8f, CATEGORY_BOTTOM = 8f, NOTE_TOP = 8f, NOTE_BOTTOM = 12f;
 
     private final TextView headline;
     private final TextView supporting;
-    private final Drawable icon;
+    private Drawable icon;
     private final int style;
     private final int flags;
     private final Paint chevronPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -164,6 +167,18 @@ public final class DaySettingsRow extends DayFixed {
         if (v instanceof DaySettingsRow) ((DaySettingsRow) v).setRowEnabled(on);
     }
 
+    /** The leading picture from encoded bytes (a PNG or JPEG thumbnail). Bytes the platform
+     *  cannot decode leave the picture slot empty. */
+    public static void setRowPicture(View v, byte[] bytes) {
+        if (!(v instanceof DaySettingsRow) || bytes == null) return;
+        DaySettingsRow r = (DaySettingsRow) v;
+        Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (b == null) return;
+        r.icon = new BitmapDrawable(r.getResources(), b);
+        if (!r.isEnabled()) r.icon.setAlpha(97);
+        r.invalidate();
+    }
+
     /** The natural (unwrapped) width of the text block, in dp. */
     public static float rowTextWidth(View v) {
         if (!(v instanceof DaySettingsRow)) return 0f;
@@ -223,14 +238,19 @@ public final class DaySettingsRow extends DayFixed {
         return h;
     }
 
-    private float iconSize() {
-        return style == STYLE_HEADER ? HEADER_ICON : ICON;
+    private boolean picture() {
+        return (flags & F_PICTURE) != 0;
     }
 
-    /** Where the text column starts: past the padding and the icon slot. */
+    private float iconSize() {
+        return style == STYLE_HEADER ? HEADER_ICON : picture() ? PICTURE : ICON;
+    }
+
+    /** Where the text column starts: past the padding and the icon slot. A picture row keeps
+     *  its slot while the picture is absent, so its texts line up with its neighbors'. */
     private int textLeft() {
         int x = Math.round(PAD_H * density);
-        if (icon != null) x += Math.round((iconSize() + GAP) * density);
+        if (icon != null || picture()) x += Math.round((iconSize() + GAP) * density);
         return x;
     }
 
@@ -309,9 +329,9 @@ public final class DaySettingsRow extends DayFixed {
             int iconTop = textTop + (th - size) / 2;
             if (style == STYLE_HEADER) iconTop = Math.max(padV, (getHeight() - size) / 2);
             icon.setBounds(iconLeft, iconTop, iconLeft + size, iconTop + size);
-            if (style == STYLE_HEADER) {
-                // The app icon as a rounded tile, the launcher's shape.
-                float r = HEADER_ICON_RADIUS * density;
+            if (style == STYLE_HEADER || picture()) {
+                // The app icon as a rounded tile, the launcher's shape; a picture likewise.
+                float r = (style == STYLE_HEADER ? HEADER_ICON_RADIUS : PICTURE_RADIUS) * density;
                 canvas.save();
                 Path clip = new Path();
                 clip.addRoundRect(iconLeft, iconTop, iconLeft + size, iconTop + size, r, r, Path.Direction.CW);

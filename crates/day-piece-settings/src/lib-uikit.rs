@@ -91,6 +91,9 @@ const FIELD_MIN: f64 = 160.0;
 const GROUP_ICON: f64 = 29.0;
 /// The About header row's app icon.
 const ABOUT_ICON: f64 = 40.0;
+/// A row's or a group's picture ([`Row::image`], [`Group::image`]): its side and corner radius.
+const PICTURE: f64 = 40.0;
+const PICTURE_RADIUS: f64 = 9.0;
 /// A nominal width for a table measured with no proposal (never the case under a nav page).
 const NOMINAL_WIDTH: f64 = 390.0;
 
@@ -131,12 +134,37 @@ enum Host {
 }
 
 /// A cell's leading image.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum CellImage {
     /// A bundled image or vector, by the name the toolkit resolves (docs/vectors.md).
     Named(String),
     /// An SF Symbol, by name.
     Symbol(String),
+    /// Encoded bytes (a downloaded thumbnail, a mark a crate carries), decoded by `UIImage`.
+    Data(std::sync::Arc<Vec<u8>>),
+}
+
+// By hand, so a logged cell names its picture without printing the encoded bytes.
+impl std::fmt::Debug for CellImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CellImage::Named(name) => write!(f, "Named({name:?})"),
+            CellImage::Symbol(name) => write!(f, "Symbol({name:?})"),
+            CellImage::Data(bytes) => write!(f, "Data({} bytes)", bytes.len()),
+        }
+    }
+}
+
+impl CellImage {
+    /// The cell image for a picture source: a staged name or encoded bytes. A decoded bitmap
+    /// has no cell form.
+    fn of(source: &day_spec::ImageSource) -> Option<Self> {
+        match source {
+            day_spec::ImageSource::Named(name) => Some(CellImage::Named(name.clone())),
+            day_spec::ImageSource::Bytes(bytes) => Some(CellImage::Data(bytes.clone())),
+            day_spec::ImageSource::Decoded(_) => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1118,7 +1146,20 @@ impl GroupedCell {
         c.child = parts.control;
         c.tap = parts.tap;
         c.id = parts.row_id;
+        if let Some(source) = &r.image {
+            c = c.picture(source);
+        }
         c
+    }
+    /// A picture as a rounded tile, drawn untinted ([`Row::image`], [`Group::image`]).
+    fn picture(mut self, source: &day_spec::ImageSource) -> Self {
+        if let Some(image) = CellImage::of(source) {
+            self.image = Some(image);
+            self.image_size = PICTURE;
+            self.image_radius = PICTURE_RADIUS;
+            self.image_template = false;
+        }
+        self
     }
     fn icon(mut self, icon: Option<&GroupIcon>) -> Self {
         self.image = icon.map(|i| match i {
@@ -1557,6 +1598,9 @@ impl SettingsCell {
                 let image = match img {
                     CellImage::Named(name) => day_toolkit_uikit::image_named(name),
                     CellImage::Symbol(name) => UIImage::systemImageNamed(&NSString::from_str(name)),
+                    CellImage::Data(bytes) => {
+                        UIImage::imageWithData(&objc2_foundation::NSData::with_bytes(bytes))
+                    }
                 };
                 let image = image.map(|i| {
                     if p.image_template {
@@ -2119,10 +2163,33 @@ fn group_sections(inst: &Rc<Installed>, g: &Group) -> Vec<GroupedSection> {
         .collect()
 }
 
-/// The root list: the About header in its own section, then one section of group rows with
-/// their icons (one group: its rows inline under the header, as the composed root does).
+/// A group's row on the root list: its picture or icon, the subtitle, a chevron.
+fn entry_cell(e: RootEntry) -> GroupedCell {
+    let RootEntry {
+        id,
+        title,
+        subtitle,
+        icon,
+        image,
+        open,
+    } = e;
+    let mut cell = GroupedCell::new(title)
+        .icon(icon.as_ref())
+        .with_id(day_core::id!(prefs_group, id))
+        .tap(move || open());
+    if let Some(source) = &image {
+        cell = cell.picture(source);
+    }
+    cell.caption = subtitle;
+    cell.accessory = Accessory::Chevron;
+    cell
+}
+
+/// The root list: the About header as the first section, a section per featured group, then one
+/// section of group rows with their icons (one listed group: its rows inline, as the composed
+/// root does).
 pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
-    let (about, groups) = root_entries(&inst);
+    let (about, featured, groups) = root_entries(&inst);
     let mut sections: Vec<GroupedSection> = Vec::new();
     if let Some(a) = about {
         let open = a.open.clone();
@@ -2137,26 +2204,14 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         cell.accessory = Accessory::Chevron;
         sections.push(GroupedSection::new(vec![cell]));
     }
-    let visible = inst.visible_groups();
-    if let [g] = visible.as_slice() {
+    sections.extend(featured.into_iter().map(|e| GroupedSection::new(vec![entry_cell(e)])));
+    if let Some(g) = inst.inline_group() {
         if g.custom.is_some() {
             return None;
         }
         sections.extend(group_sections(&inst, g));
     } else {
-        let cells: Vec<GroupedCell> = groups
-            .into_iter()
-            .map(|e| {
-                let open = e.open.clone();
-                let mut cell = GroupedCell::new(e.title.clone())
-                    .icon(e.icon.as_ref())
-                    .with_id(day_core::id!(prefs_group, e.id.clone()))
-                    .tap(move || open());
-                cell.caption = e.subtitle.clone();
-                cell.accessory = Accessory::Chevron;
-                cell
-            })
-            .collect();
+        let cells: Vec<GroupedCell> = groups.into_iter().map(entry_cell).collect();
         if !cells.is_empty() {
             sections.push(GroupedSection::new(cells));
         }

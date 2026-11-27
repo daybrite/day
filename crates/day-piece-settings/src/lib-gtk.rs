@@ -1908,7 +1908,9 @@ impl Piece for Shell {
         let mut pages = Vec::new();
         for g in inst.visible_groups() {
             let mut groups = Vec::new();
-            for s in &g.sections {
+            // Live sections are read here, once per window: the shell's rows are fixed.
+            let sections = g.all_sections();
+            for s in &sections {
                 let rows: Vec<&Row> = s.rows.iter().filter(|r| r.is_available()).collect();
                 if rows.is_empty() {
                     continue;

@@ -1493,10 +1493,10 @@ fn entry_row(e: &RootEntry, card: CardPos, about: bool) -> AnyPiece {
     row.id(id).any()
 }
 
-/// The settings root: the About header as the first card, then the groups as one card of
-/// chevron rows (one group: its sections as cards under the header).
+/// The settings root: the About header as the first card, a card per featured group, then the
+/// listed groups as one card of chevron rows (one listed group: its sections as cards).
 pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
-    let (about, groups) = root_entries(&inst);
+    let (about, featured, groups) = root_entries(&inst);
     let whole = CardPos {
         first: true,
         last: true,
@@ -1513,8 +1513,17 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
                 .any(),
             );
         }
-        let visible = inst.visible_groups();
-        if let [g] = visible[..] {
+        for e in &featured {
+            cards.push(
+                SectionGroup {
+                    title: None,
+                    footer: None,
+                    rows: vec![entry_row(e, whole, false)],
+                }
+                .any(),
+            );
+        }
+        if let Some(g) = inst.inline_group() {
             group_cards(&inst, g, &mut cards);
         } else if !groups.is_empty() {
             let last = groups.len() - 1;

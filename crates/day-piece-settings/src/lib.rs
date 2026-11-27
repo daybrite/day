@@ -113,6 +113,7 @@ impl From<day_spec::VectorName> for GroupIcon {
 
 type Build = Rc<dyn Fn() -> AnyPiece>;
 type Avail = Rc<dyn Fn() -> bool>;
+type Live = Rc<dyn Fn() -> Vec<Section>>;
 
 /// One group of settings (docs/settings.md): a page on desktop (a toolbar tab, a dialog page,
 /// a sidebar entry) and a row of the mobile root list that pushes the page.
@@ -123,10 +124,13 @@ pub struct Group {
     title: TextSource,
     subtitle: Option<TextSource>,
     icon: Option<GroupIcon>,
+    image: Option<day_spec::ImageSource>,
     sections: Vec<Section>,
+    live: Option<Live>,
     custom: Option<Build>,
     order: i32,
     available: Option<Avail>,
+    featured: bool,
 }
 
 impl Group {
@@ -137,16 +141,26 @@ impl Group {
             title: title.into_text(),
             subtitle: None,
             icon: None,
+            image: None,
             sections: Vec::new(),
+            live: None,
             custom: None,
             order: 0,
             available: None,
+            featured: false,
         }
     }
     /// The glyph beside the title: a bundled vector (the same name a `nav` item takes) or a
     /// standard [`day_spec::Symbol`].
     pub fn icon(mut self, icon: impl Into<GroupIcon>) -> Self {
         self.icon = Some(icon.into());
+        self
+    }
+    /// A picture for the group's row on the phone settings root, drawn as a rounded tile in
+    /// place of the icon glyph: a bundled image, or encoded bytes a contributing crate carries
+    /// itself. The desktop Preferences window keeps the [`icon`](Self::icon).
+    pub fn image(mut self, source: impl Into<day_spec::ImageSource>) -> Self {
+        self.image = Some(source.into());
         self
     }
     /// One line under the title in the mobile root list ("Units, data source").
@@ -165,6 +179,25 @@ impl Group {
             Some(s) if s.title.is_none() && s.footer.is_none() => s.rows.push(row),
             _ => self.sections.push(Section::new().row(row)),
         }
+        self
+    }
+    /// Sections computed each time the group's page is built, after the declared ones: a list
+    /// that arrives from the network, a set of rows that follows a signal. Reads inside `build`
+    /// are tracked, and a change rebuilds the page while it is on screen. The GTK and Qt
+    /// preferences windows read the sections once, when the window opens.
+    ///
+    /// A group with live sections is always a separate page: the phone root lists it as a row
+    /// even when it is the only group.
+    pub fn sections_with(mut self, build: impl Fn() -> Vec<Section> + 'static) -> Self {
+        self.live = Some(Rc::new(build));
+        self
+    }
+    /// Give the group a separate card at the top of the phone settings root, under the About
+    /// header, ahead of the app's groups (docs/settings.md). A featured group does not count
+    /// toward the one-group rule, so an app whose single group shows its rows inline keeps
+    /// them inline. The desktop Preferences window lists it as an ordinary page.
+    pub fn featured(mut self) -> Self {
+        self.featured = true;
         self
     }
     /// A bespoke piece that is the whole group page (Skies' city editor). Sections, if any,
@@ -195,6 +228,22 @@ impl Group {
     }
     fn is_available(&self) -> bool {
         self.available.as_ref().is_none_or(|f| f())
+    }
+    /// The declared sections followed by the live ones, read now (a tracked read when the
+    /// caller is tracking).
+    fn all_sections(&self) -> Vec<Section> {
+        let mut sections = self.sections.clone();
+        if let Some(live) = &self.live {
+            sections.extend(live());
+        }
+        sections
+    }
+    /// This group with its live sections read into the declared ones.
+    fn resolved(&self) -> Group {
+        let mut g = self.clone();
+        g.sections = self.all_sections();
+        g.live = None;
+        g
     }
 }
 
@@ -288,6 +337,7 @@ enum RowKind {
 pub struct Row {
     title: TextSource,
     caption: Option<TextSource>,
+    image: Option<day_spec::ImageSource>,
     id: Option<day_core::ElementId>,
     enabled: Option<Reactive<bool>>,
     available: Option<Avail>,
@@ -299,6 +349,7 @@ impl Row {
         Row {
             title: title.into_text(),
             caption: None,
+            image: None,
             id: None,
             enabled: None,
             available: None,
@@ -313,6 +364,14 @@ impl Row {
     /// A secondary line under the title.
     pub fn caption<M>(mut self, t: impl IntoText<M>) -> Self {
         self.caption = Some(t.into_text());
+        self
+    }
+    /// A picture at the row's leading edge, drawn as a rounded tile: a bundled image
+    /// (`res::images::mark`) or encoded bytes (`Arc<Vec<u8>>`, a downloaded thumbnail). For a
+    /// [`rows::link`], [`rows::navigate`], [`rows::action`] or [`rows::info`] row that stands
+    /// for a thing with a face (an app, an account, a device).
+    pub fn image(mut self, source: impl Into<day_spec::ImageSource>) -> Self {
+        self.image = Some(source.into());
         self
     }
     /// The element id of the row's control (default `pref-<key>` for a pref row).
@@ -1025,6 +1084,22 @@ impl Installed {
     fn group(&self, id: &str) -> Option<&Group> {
         self.groups.iter().find(|g| g.id == id && g.is_available())
     }
+    /// The visible groups the phone root lists under its cards: every group that is not
+    /// [featured](Group::featured).
+    fn listed_groups(&self) -> Vec<&Group> {
+        self.groups
+            .iter()
+            .filter(|g| !g.featured && g.is_available())
+            .collect()
+    }
+    /// The group whose rows the phone root shows inline: the only listed group, when its
+    /// sections are fixed (a group with live sections stays a separate page).
+    fn inline_group(&self) -> Option<&Group> {
+        match self.listed_groups()[..] {
+            [g] if g.live.is_none() => Some(g),
+            _ => None,
+        }
+    }
 }
 
 /// The word the platform uses for the surface: "Settings" on macOS, Windows and the phones,
@@ -1717,8 +1792,48 @@ fn composed_window_shell(inst: Rc<Installed>) -> AnyPiece {
     nav
 }
 
+/// The key a live group's page is rebuilt under: the group as its sections read at one
+/// evaluation. Two evaluations never compare equal, so every tracked change rebuilds.
+#[derive(Clone)]
+struct LiveGroup {
+    stamp: u64,
+    group: Rc<Group>,
+}
+
+impl PartialEq for LiveGroup {
+    fn eq(&self, other: &Self) -> bool {
+        self.stamp == other.stamp
+    }
+}
+
+/// A page of a group with [live sections](Group::sections_with): `build` draws the group as
+/// its sections read now, and the page is rebuilt when a signal that read tracked changes.
+fn live_page(g: &Group, build: impl Fn(&Group) -> AnyPiece + 'static) -> AnyPiece {
+    let base = g.clone();
+    let stamp = Cell::new(0u64);
+    keyed(
+        move || {
+            stamp.set(stamp.get() + 1);
+            Some(LiveGroup {
+                stamp: stamp.get(),
+                group: Rc::new(base.resolved()),
+            })
+        },
+        move |live: &LiveGroup| build(&live.group),
+    )
+    .any()
+}
+
 /// A group's page: its sections as a form, then its custom piece.
 fn group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
+    if g.live.is_some() {
+        return live_page(g, move |g| fixed_group_page(inst.clone(), g, desktop));
+    }
+    fixed_group_page(inst, g, desktop)
+}
+
+/// [`group_page`] for a group whose sections are all declared.
+fn fixed_group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
     // The phones draw a group as their own grouped table (a `UITableView` in the inset
     // grouped style, a Material preference list) when the arm provides one.
     if !desktop {
@@ -1747,6 +1862,14 @@ fn group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
 /// One group's sections with no scroll of their own (see [`Prefs::group_body`]). The phones'
 /// native pages size themselves to their rows inside a Day `scroll`.
 fn group_body(inst: Rc<Installed>, g: &Group) -> AnyPiece {
+    if g.live.is_some() {
+        return live_page(g, move |g| fixed_group_body(inst.clone(), g));
+    }
+    fixed_group_body(inst, g)
+}
+
+/// [`group_body`] for a group whose sections are all declared.
+fn fixed_group_body(inst: Rc<Installed>, g: &Group) -> AnyPiece {
     #[cfg(all(feature = "uikit", target_os = "ios"))]
     {
         if let Some(p) = uikit_impl::group_body(inst.clone(), g) {
@@ -1841,15 +1964,21 @@ fn section_piece(inst: Rc<Installed>, s: &Section, desktop: bool) -> Option<AnyP
 /// One composed row: title (and caption) leading, the control trailing, the System Settings
 /// / iOS Settings shape every platform reads. A toolkit feature replaces it with its native row.
 fn row_piece(inst: Rc<Installed>, r: &Row, desktop: bool) -> AnyPiece {
+    // A row with a leading image is drawn by the arms that have a slot for one (the UIKit
+    // table cell, the Material list item); everywhere else the composed row carries it.
     #[cfg(feature = "gtk")]
     {
-        if let Some(p) = gtk_impl::row_piece(inst.clone(), r, desktop) {
+        if r.image.is_none()
+            && let Some(p) = gtk_impl::row_piece(inst.clone(), r, desktop)
+        {
             return p;
         }
     }
     #[cfg(all(feature = "uikit", target_os = "ios"))]
     {
-        if let Some(p) = uikit_impl::row_piece(inst.clone(), r, desktop) {
+        if r.image.is_none()
+            && let Some(p) = uikit_impl::row_piece(inst.clone(), r, desktop)
+        {
             return p;
         }
     }
@@ -1861,13 +1990,17 @@ fn row_piece(inst: Rc<Installed>, r: &Row, desktop: bool) -> AnyPiece {
     }
     #[cfg(all(feature = "xaml", target_os = "windows"))]
     {
-        if let Some(p) = xaml_impl::row_piece(inst.clone(), r, desktop) {
+        if r.image.is_none()
+            && let Some(p) = xaml_impl::row_piece(inst.clone(), r, desktop)
+        {
             return p;
         }
     }
     #[cfg(all(feature = "arkui", target_env = "ohos"))]
     {
-        if let Some(p) = arkui_impl::row_piece(inst.clone(), r, desktop) {
+        if r.image.is_none()
+            && let Some(p) = arkui_impl::row_piece(inst.clone(), r, desktop)
+        {
             return p;
         }
     }
@@ -1907,8 +2040,48 @@ const TITLE_COLUMN_MAX: f64 = 360.0;
 const SLIDER_WIDTH: f64 = 200.0;
 /// The value column beside a composed slider: room for "1000%", trailing-aligned.
 const VALUE_WIDTH: f64 = 52.0;
+/// A composed row's leading image ([`Row::image`]): its side and corner radius.
+const ROW_IMAGE: f64 = 40.0;
+const ROW_IMAGE_RADIUS: f64 = 9.0;
 
-fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
+fn composed_row(inst: Rc<Installed>, r: &Row, desktop: bool) -> AnyPiece {
+    let Some(source) = &r.image else {
+        return composed_row_body(inst, r, desktop);
+    };
+    let tile = image(source.clone())
+        .frame(ROW_IMAGE, ROW_IMAGE)
+        .corner_radius(ROW_IMAGE_RADIUS);
+    // A link reads as a list row here, not as inline link text: the picture, the title over
+    // the caption, and the whole row opens the address.
+    if let RowKind::Link(url) = &r.kind {
+        let url = url.clone();
+        let enabled = r.enabled.clone();
+        let line = row((tile, title_column(r), spacer(), label("↗").secondary()))
+            .spacing(12.0)
+            .align(VAlign::Center)
+            .grow(Dimension::Width)
+            .on_tap(move || {
+                if enabled.as_ref().is_none_or(day_pieces::Reactive::get) {
+                    day_core::open_url(&url);
+                }
+            });
+        return match &r.id {
+            Some(id) => line.id(id.clone()).any(),
+            None => line.any(),
+        };
+    }
+    row((
+        tile,
+        composed_row_body(inst, r, desktop).grow(Dimension::Width),
+    ))
+    .spacing(12.0)
+    .align(VAlign::Center)
+    .grow(Dimension::Width)
+    .any()
+}
+
+/// A composed row without its leading image.
+fn composed_row_body(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
     let id = r.id.clone();
     let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
@@ -2224,8 +2397,6 @@ fn destination(inst: Rc<Installed>, r: &SettingsRoute) -> AnyPiece {
     }
 }
 
-/// The mobile root page: the About header card, then the groups as chevron rows (one group:
-/// its rows inline under the header).
 /// One row of the mobile root list, for a toolkit arm that draws the list natively: a group
 /// (or the About header) with what the row shows and what tapping it does.
 // Consumed by the uikit/android/arkui arms, which only compile for their targets.
@@ -2236,39 +2407,54 @@ pub(crate) struct RootEntry {
     pub title: TextSource,
     pub subtitle: Option<TextSource>,
     pub icon: Option<GroupIcon>,
+    /// The group's picture ([`Group::image`]), drawn in place of the icon where the arm has a
+    /// slot for one.
+    pub image: Option<day_spec::ImageSource>,
     /// Push the entry's page onto the settings stack.
     pub open: Rc<dyn Fn()>,
 }
 
-/// The root list's entries in order: the About header first (when an About is declared),
-/// then every visible group.
+/// The root list's entries in order: the About header (when an About is declared), the
+/// [featured](Group::featured) groups, one card each, then the listed groups. An arm
+/// shows the listed groups as rows unless [`Installed::inline_group`] names one to show inline.
 #[allow(dead_code)]
-pub(crate) fn root_entries(inst: &Rc<Installed>) -> (Option<RootEntry>, Vec<RootEntry>) {
+pub(crate) fn root_entries(
+    inst: &Rc<Installed>,
+) -> (Option<RootEntry>, Vec<RootEntry>, Vec<RootEntry>) {
     let path = inst.path;
     let about = inst.about.as_ref().map(|about| RootEntry {
         id: "about".into(),
         title: TextSource::Static(about.display_name()),
         subtitle: about.version_line().map(TextSource::Static),
         icon: about.icon_name().cloned().map(GroupIcon::Image),
+        image: None,
         open: Rc::new(move || path.update(|p| p.push(SettingsRoute::About))),
     });
-    let groups = inst
-        .visible_groups()
-        .into_iter()
-        .map(|g| {
-            let id = g.id;
-            RootEntry {
-                id: id.to_string(),
-                title: g.title.clone(),
-                subtitle: g.subtitle.clone(),
-                icon: g.icon.clone(),
-                open: Rc::new(move || {
-                    path.update(|p| p.push(SettingsRoute::Group(id.to_string())));
-                }),
-            }
-        })
+    let entry = |g: &Group| {
+        let id = g.id;
+        RootEntry {
+            id: id.to_string(),
+            title: g.title.clone(),
+            subtitle: g.subtitle.clone(),
+            icon: g.icon.clone(),
+            image: g.image.clone(),
+            open: Rc::new(move || {
+                path.update(|p| p.push(SettingsRoute::Group(id.to_string())));
+            }),
+        }
+    };
+    let visible = inst.visible_groups();
+    let featured = visible
+        .iter()
+        .filter(|g| g.featured)
+        .map(|g| entry(g))
         .collect();
-    (about, groups)
+    let listed = visible
+        .iter()
+        .filter(|g| !g.featured)
+        .map(|g| entry(g))
+        .collect();
+    (about, featured, listed)
 }
 
 /// The mobile root page: the arm's native grouped list where one exists, else composed.
@@ -2294,8 +2480,8 @@ fn root_page(inst: Rc<Installed>) -> AnyPiece {
     composed_root_page(inst)
 }
 
-/// The mobile root page from ordinary Day pieces: the About header card, then the groups as
-/// chevron rows (one group: its rows inline under the header).
+/// The mobile root page from ordinary Day pieces: the About header card, a card per featured
+/// group, then the listed groups as chevron rows (one listed group: its rows inline).
 #[expect(
     clippy::needless_pass_by_value,
     reason = "every settings builder, per-toolkit ones included, takes the shared `Rc` by value"
@@ -2305,9 +2491,11 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
     if let Some(about) = &inst.about {
         parts.push(about_header(inst.clone(), about));
     }
-    let groups = inst.visible_groups();
-    if groups.len() == 1 {
-        let g = groups[0];
+    // One card per featured group, ahead of the app's groups.
+    for g in inst.visible_groups().into_iter().filter(|g| g.featured) {
+        parts.push(section((composed_group_entry(&inst, g),)).any());
+    }
+    if let Some(g) = inst.inline_group() {
         for s in &g.sections {
             if let Some(p) = section_piece(inst.clone(), s, false) {
                 parts.push(p);
@@ -2317,49 +2505,14 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
             parts.push(custom());
         }
     } else {
-        let rows: Vec<AnyPiece> = groups
-            .iter()
-            .map(|g| {
-                let id = g.id;
-                let path = inst.path;
-                let titles = match &g.subtitle {
-                    Some(sub) => column((
-                        text_label(&g.title),
-                        text_label(sub).font(day_spec::Font::Footnote).secondary(),
-                    ))
-                    .spacing(2.0)
-                    .align(HAlign::Leading)
-                    .any(),
-                    None => text_label(&g.title).any(),
-                };
-                // A bundled vector draws as an image; a standard glyph has no image name, so
-                // it draws as a plain icon-only button that opens the same page (the only piece
-                // that renders a `Symbol` on every toolkit). No icon: an empty slot keeps the
-                // titles of iconed and icon-less rows aligned.
-                // A standard glyph draws from day-spec's shared outline as a template image
-                // (an icon-only button would bring the toolkit's button chrome with it: on
-                // the web a pill that squashed the glyph). No icon: an empty slot keeps the
-                // titles of iconed and icon-less rows aligned.
-                let leading = match &g.icon {
-                    Some(GroupIcon::Image(name)) => {
-                        image(name.clone()).template().frame(24.0, 24.0).any()
-                    }
-                    Some(GroupIcon::Symbol(sym)) => match sym.outline_svg() {
-                        Some(svg) => image(svg.into_bytes()).template().frame(24.0, 24.0).any(),
-                        None => spacer().frame(24.0, 24.0).any(),
-                    },
-                    None => spacer().frame(24.0, 24.0).any(),
-                };
-                row((leading, titles, spacer(), label("›").secondary()))
-                    .spacing(12.0)
-                    .align(VAlign::Center)
-                    .grow(Dimension::Width)
-                    .on_tap(move || path.update(|p| p.push(SettingsRoute::Group(id.to_string()))))
-                    .id(day_core::id!(prefs_group, id))
-                    .any()
-            })
+        let rows: Vec<AnyPiece> = inst
+            .listed_groups()
+            .into_iter()
+            .map(|g| composed_group_entry(&inst, g))
             .collect();
-        parts.push(section(rows).any());
+        if !rows.is_empty() {
+            parts.push(section(rows).any());
+        }
     }
     scroll(
         form(parts)
@@ -2368,6 +2521,48 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
             .id(day_core::id!(settings_root)),
     )
     .any()
+}
+
+/// A group's row on the composed root: its picture or icon, the title over the subtitle, a
+/// chevron; tapping pushes the group's page.
+fn composed_group_entry(inst: &Rc<Installed>, g: &Group) -> AnyPiece {
+    let id = g.id;
+    let path = inst.path;
+    let titles = match &g.subtitle {
+        Some(sub) => column((
+            text_label(&g.title),
+            text_label(sub).font(day_spec::Font::Footnote).secondary(),
+        ))
+        .spacing(2.0)
+        .align(HAlign::Leading)
+        .any(),
+        None => text_label(&g.title).any(),
+    };
+    // A picture draws as a rounded tile. A bundled vector draws as a template image, and a
+    // standard glyph from day-spec's shared outline the same way (an icon-only button would
+    // bring the toolkit's button chrome with it: on the web a pill that squashed the glyph).
+    // No icon: an empty slot keeps the titles of iconed and icon-less rows aligned.
+    let leading = match (&g.image, &g.icon) {
+        (Some(source), _) => image(source.clone())
+            .frame(ROW_IMAGE, ROW_IMAGE)
+            .corner_radius(ROW_IMAGE_RADIUS)
+            .any(),
+        (None, Some(GroupIcon::Image(name))) => {
+            image(name.clone()).template().frame(24.0, 24.0).any()
+        }
+        (None, Some(GroupIcon::Symbol(sym))) => match sym.outline_svg() {
+            Some(svg) => image(svg.into_bytes()).template().frame(24.0, 24.0).any(),
+            None => spacer().frame(24.0, 24.0).any(),
+        },
+        (None, None) => spacer().frame(24.0, 24.0).any(),
+    };
+    row((leading, titles, spacer(), label("›").secondary()))
+        .spacing(12.0)
+        .align(VAlign::Center)
+        .grow(Dimension::Width)
+        .on_tap(move || path.update(|p| p.push(SettingsRoute::Group(id.to_string()))))
+        .id(day_core::id!(prefs_group, id))
+        .any()
 }
 
 /// The About header card on the mobile root: icon, name, version; tapping opens the About page.

@@ -32,6 +32,7 @@ day_toolkit_material::java_class! {
             flags: jint, enabled: jboolean) -> android.view.View,
         static fn setRowTexts(view: android.view.View, title: JString, caption: JString),
         static fn setRowEnabled(view: android.view.View, on: jboolean),
+        static fn setRowPicture(view: android.view.View, bytes: jbyte[]),
         static fn rowTextWidth(view: android.view.View) -> jfloat,
         static fn rowTextHeight(view: android.view.View, width: jfloat) -> jfloat,
     },
@@ -43,6 +44,8 @@ const GAP: f64 = 16.0;
 const CHEVRON: f64 = 24.0;
 const ICON: f64 = 24.0;
 const HEADER_ICON: f64 = 56.0;
+/// A row's or a group's picture ([`Row::image`], [`Group::image`]): a rounded tile.
+const PICTURE: f64 = 40.0;
 const STACK_GAP: f64 = 8.0;
 /// A one-line item is 56 dp, a two-line one 72, with 8 of vertical padding around taller content.
 const ITEM_PAD_V: f64 = 8.0;
@@ -73,6 +76,7 @@ const F_RIPPLE: i32 = 4;
 const F_FORWARD: i32 = 8;
 const F_TEMPLATE_ICON: i32 = 16;
 const F_FIRST: i32 = 32;
+const F_PICTURE: i32 = 64;
 
 /// What a line of the page is (`DaySettingsRow.STYLE_*`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,9 +98,21 @@ struct RowProps {
     caption: String,
     /// The leading glyph's drawable name ("" = none).
     icon: String,
+    /// The leading picture's encoded bytes, in place of a named glyph.
+    picture: Option<Picture>,
     style: Style,
     flags: i32,
     enabled: bool,
+}
+
+/// A picture's encoded bytes. Debug prints the length, so a logged row does not print them.
+#[derive(Clone, PartialEq)]
+struct Picture(std::sync::Arc<Vec<u8>>);
+
+impl std::fmt::Debug for Picture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Picture({} bytes)", self.0.len())
+    }
 }
 
 /// Later changes: a relocalized text, the `enabled` condition.
@@ -115,7 +131,7 @@ fn make(_backend: &mut Material, p: &RowProps, _id: NodeId) -> AHandle {
         let title = JString::from_str(env, &p.title)?;
         let caption = JString::from_str(env, &p.caption)?;
         let icon = JString::from_str(env, &p.icon)?;
-        DaySettingsRow::makeRow(
+        let row = DaySettingsRow::makeRow(
             env,
             &title,
             &caption,
@@ -123,7 +139,12 @@ fn make(_backend: &mut Material, p: &RowProps, _id: NodeId) -> AHandle {
             p.style as i32,
             p.flags,
             p.enabled,
-        )
+        )?;
+        if let Some(Picture(bytes)) = &p.picture {
+            let bytes = env.byte_array_from_slice(bytes)?;
+            DaySettingsRow::setRowPicture(env, &row, &bytes)?;
+        }
+        Ok(row)
     })
 }
 
@@ -174,6 +195,7 @@ struct RowLayout {
     style: Style,
     first: bool,
     icon: bool,
+    picture: bool,
     chevron: bool,
     stack: bool,
     two_line: bool,
@@ -189,6 +211,7 @@ impl RowLayout {
         let icon = match (self.icon, self.style) {
             (false, _) => 0.0,
             (true, Style::Header) => HEADER_ICON + GAP,
+            (true, _) if self.picture => PICTURE + GAP,
             (true, _) => ICON + GAP,
         };
         PAD_H + icon
@@ -310,6 +333,7 @@ struct NativeRow {
     caption: Option<TextSource>,
     icon: Option<String>,
     template_icon: bool,
+    picture: Option<Picture>,
     style: Style,
     first: bool,
     chevron: bool,
@@ -317,6 +341,8 @@ struct NativeRow {
     ripple: bool,
     forward_click: bool,
     stack: bool,
+    /// The leading image is a picture tile (40 dp, rounded) rather than a 24 dp glyph.
+    tile: bool,
     /// Tracked condition under which the row is enabled (`None` = always).
     enabled: Option<Enabled>,
     control: Option<AnyPiece>,
@@ -329,6 +355,7 @@ impl NativeRow {
             caption: None,
             icon: None,
             template_icon: false,
+            picture: None,
             style: Style::Item,
             first: false,
             chevron: false,
@@ -336,6 +363,7 @@ impl NativeRow {
             ripple: false,
             forward_click: false,
             stack: false,
+            tile: false,
             enabled: None,
             control: None,
         }
@@ -347,7 +375,29 @@ impl NativeRow {
         if let Some(e) = r.enabled.clone() {
             row.enabled = Some(Rc::new(move || e.get()));
         }
-        row
+        match &r.image {
+            Some(source) => row.picture(source),
+            None => row,
+        }
+    }
+    /// The leading picture, a rounded tile drawn untinted ([`Row::image`],
+    /// [`Group::image`]): a staged drawable by name, or encoded bytes.
+    fn picture(mut self, source: &day_spec::ImageSource) -> Self {
+        match source {
+            day_spec::ImageSource::Named(name) => {
+                self.icon = Some(name.clone());
+                self.template_icon = false;
+            }
+            day_spec::ImageSource::Bytes(bytes) => {
+                self.icon = None;
+                self.template_icon = false;
+                self.picture = Some(Picture(bytes.clone()));
+            }
+            // A decoded bitmap has no row form.
+            day_spec::ImageSource::Decoded(_) => return self,
+        }
+        self.tile = true;
+        self
     }
     fn caption(mut self, c: &TextSource) -> Self {
         self.caption = Some(c.clone());
@@ -415,6 +465,7 @@ impl Piece for NativeRow {
             (self.forward_click, F_FORWARD),
             (self.template_icon, F_TEMPLATE_ICON),
             (self.first, F_FIRST),
+            (self.tile, F_PICTURE),
         ] {
             if on {
                 flags |= bit;
@@ -427,6 +478,7 @@ impl Piece for NativeRow {
             title: title_src.initial(),
             caption: caption_initial.clone(),
             icon: self.icon.clone().unwrap_or_default(),
+            picture: self.picture.clone(),
             style: self.style,
             flags,
             enabled: self
@@ -440,7 +492,8 @@ impl Piece for NativeRow {
             Rc::new(RowLayout {
                 style: self.style,
                 first: self.first,
-                icon: self.icon.is_some(),
+                icon: self.icon.is_some() || self.tile,
+                picture: self.tile,
                 chevron: self.chevron,
                 stack: self.stack,
                 two_line: !caption_initial.is_empty(),
@@ -791,10 +844,35 @@ fn body(lines: Vec<AnyPiece>, id: day_core::ElementId) -> AnyPiece {
         .any()
 }
 
-/// The settings root as the Settings app's home: the About header, then one row per group with
-/// its icon and subtitle (one group: its rows inline under the header).
+/// A group's row on the root list: its picture or icon, the subtitle, a chevron.
+fn entry_row(e: RootEntry) -> AnyPiece {
+    let RootEntry {
+        id,
+        title,
+        subtitle,
+        icon,
+        image,
+        open,
+    } = e;
+    let mut row = NativeRow::new(Resolved(title)).chevron();
+    if let Some(sub) = &subtitle {
+        row = row.caption(sub);
+    }
+    if let Some(icon) = &icon {
+        row = row.icon(icon_drawable(icon), true);
+    }
+    if let Some(source) = &image {
+        row = row.picture(source);
+    }
+    row.on_tap(move || open())
+        .id(day_core::id!(prefs_group, id))
+        .any()
+}
+
+/// The settings root as the Settings app's home: the About header, a row per featured group,
+/// then one row per listed group with its icon and subtitle (one listed group: its rows inline).
 pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
-    let (about, groups) = root_entries(&inst);
+    let (about, featured, groups) = root_entries(&inst);
     let mut lines: Vec<AnyPiece> = Vec::new();
     if let Some(a) = about {
         let open = a.open.clone();
@@ -809,25 +887,11 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         }
         lines.push(row.on_tap(move || open()).id(day_core::id!(settings_about)).any());
     }
-    let visible = inst.visible_groups();
-    if let [g] = visible[..] {
+    lines.extend(featured.into_iter().map(entry_row));
+    if let Some(g) = inst.inline_group() {
         group_lines(&inst, g, &mut lines);
     } else {
-        for e in groups {
-            let open = e.open.clone();
-            let mut row = NativeRow::new(Resolved(e.title.clone())).chevron();
-            if let Some(sub) = &e.subtitle {
-                row = row.caption(sub);
-            }
-            if let Some(icon) = &e.icon {
-                row = row.icon(icon_drawable(icon), true);
-            }
-            lines.push(
-                row.on_tap(move || open())
-                    .id(day_core::id!(prefs_group, e.id.clone()))
-                    .any(),
-            );
-        }
+        lines.extend(groups.into_iter().map(entry_row));
     }
     Some(page(lines, day_core::id!(settings_root)))
 }
