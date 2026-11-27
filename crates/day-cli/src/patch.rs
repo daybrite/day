@@ -1755,10 +1755,94 @@ pub fn run(
 /// failure that follows is a wall of "expected `day_core::Piece`, found `day_core::Piece`", or
 /// worse, two `RENDERERS` slices and a widget that quietly renders as a placeholder. Asked of
 /// cargo here, once, before anything compiles, so the answer is one sentence naming both sources.
+/// [`crate::ops::build`] asks too, which covers every command that compiles (`day pack`,
+/// `day test`, `day relaunch`), not only the two that ask up front.
 ///
 /// Also the home of the `[package.metadata.day] compat` note: `0.*` accepts every Day 0.x
 /// release. Older `X.Y` notes still describe a tested minor and report a mismatch.
 pub fn verify_graph(project: &Project) -> Result<(), String> {
+    // One resolver run per project and process: `day build` and `day launch` ask before their
+    // first target, and every build after that (the next target, each `day pack` format)
+    // replays the answer.
+    static VERIFIED: std::sync::Mutex<BTreeMap<PathBuf, Result<(), String>>> =
+        std::sync::Mutex::new(BTreeMap::new());
+    let mut verified = VERIFIED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(known) = verified.get(&project.root) {
+        return known.clone();
+    }
+    let result = resolve_and_verify(project);
+    verified.insert(project.root.clone(), result.clone());
+    result
+}
+
+/// Every day crate outside the project that the resolved graph holds, with the
+/// `version from source` of each copy. The project's own packages are left out: an app or a
+/// piece named `day-…` is the thing being built, not a copy of a dependency.
+fn day_copies<'a>(
+    packages: &[&'a serde_json::Value],
+    root: &Path,
+) -> BTreeMap<&'a str, Vec<String>> {
+    let mut copies: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for pkg in packages {
+        let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+        if !name.starts_with("day") {
+            continue;
+        }
+        let manifest = pkg.get("manifest_path").and_then(|m| m.as_str());
+        if manifest.is_some_and(|m| Path::new(m).starts_with(root)) {
+            continue;
+        }
+        let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+        let source = match pkg.get("source").and_then(|s| s.as_str()) {
+            Some(s) => s.to_string(),
+            None => format!("path {}", manifest.unwrap_or("?")),
+        };
+        copies
+            .entry(name)
+            .or_default()
+            .push(format!("{version} from {source}"));
+    }
+    copies
+}
+
+/// The refusal for a graph that holds a day crate more than once: the first such crate with
+/// each of its copies, and the names of the rest. `None` when every crate has one copy.
+fn doubled_error(copies: &BTreeMap<&str, Vec<String>>) -> Option<String> {
+    let doubled: Vec<(&str, &Vec<String>)> = copies
+        .iter()
+        .filter(|(_, v)| v.len() > 1)
+        .map(|(n, v)| (*n, v))
+        .collect();
+    let (name, sources) = doubled.first()?;
+    let more = if doubled.len() > 1 {
+        format!(
+            " (and {} more: {})",
+            doubled.len() - 1,
+            doubled[1..]
+                .iter()
+                .map(|(n, _)| *n)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "{name} is in the dependency graph {} times{more}:\n  {}\n\
+         every crate that depends on day must take it from the same source: the published \
+         crates (a version requirement, which Cargo.lock pins), or one `[patch]` table that \
+         redirects them for the whole graph (`day patch --local <checkout>`, `--main`, \
+         `--git <fork>`, or `--day-src` for one build). A git dependency unifies only when \
+         its URL and ref both match, so a piece that still takes day from git (\
+         `git = \"{DAY_GIT}\"`) brings a second copy",
+        sources.len(),
+        sources.join("\n  "),
+    ))
+}
+
+fn resolve_and_verify(project: &Project) -> Result<(), String> {
     let mut cmd = Command::new("cargo");
     apply_day_src(&mut cmd);
     let out = cmd
@@ -1779,62 +1863,19 @@ pub fn verify_graph(project: &Project) -> Result<(), String> {
         .flatten()
         .collect();
 
-    // name → every distinct (version, source) the graph resolved for it.
-    let mut copies: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-    let mut day_version: Option<String> = None;
-    for pkg in &packages {
-        let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-        if !name.starts_with("day") {
-            continue;
-        }
-        let manifest = pkg.get("manifest_path").and_then(|m| m.as_str());
-        if manifest.is_some_and(|m| Path::new(m).starts_with(&project.root)) {
-            continue;
-        }
-        let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("?");
-        let source = match pkg.get("source").and_then(|s| s.as_str()) {
-            Some(s) => s.to_string(),
-            None => format!("path {}", manifest.unwrap_or("?")),
-        };
-        if name == DAY_PACKAGE {
-            day_version = Some(version.to_string());
-        }
-        copies
-            .entry(name)
-            .or_default()
-            .push(format!("{version} from {source}"));
+    if let Some(refusal) = doubled_error(&day_copies(&packages, &project.root)) {
+        return Err(refusal);
     }
-    let doubled: Vec<(&str, &Vec<String>)> = copies
+    // One copy of everything from here on, so the framework's version is the one entry's.
+    let day_version = packages
         .iter()
-        .filter(|(_, v)| v.len() > 1)
-        .map(|(n, v)| (*n, v))
-        .collect();
-    if let Some((name, sources)) = doubled.first() {
-        let more = if doubled.len() > 1 {
-            format!(
-                " (and {} more: {})",
-                doubled.len() - 1,
-                doubled[1..]
-                    .iter()
-                    .map(|(n, _)| *n)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        } else {
-            String::new()
-        };
-        return Err(format!(
-            "{name} is in the dependency graph {} times{more}:\n  {}\n\
-             every crate that depends on day must take it from the same source: the published \
-             crates (a version requirement, which Cargo.lock pins), or one `[patch]` table that \
-             redirects them for the whole graph (`day patch --local <checkout>`, `--main`, \
-             `--git <fork>`, or `--day-src` for one build). A git dependency unifies only when \
-             its URL and ref both match, so a piece that still takes day from git (\
-             `git = \"{DAY_GIT}\"`) brings a second copy",
-            sources.len(),
-            sources.join("\n  "),
-        ));
-    }
+        .filter(|pkg| {
+            let manifest = pkg.get("manifest_path").and_then(|m| m.as_str());
+            !manifest.is_some_and(|m| Path::new(m).starts_with(&project.root))
+        })
+        .find(|pkg| pkg.get("name").and_then(|n| n.as_str()) == Some(DAY_PACKAGE))
+        .and_then(|pkg| pkg.get("version").and_then(|v| v.as_str()))
+        .map(str::to_string);
 
     // The compat note accepts the pre-1.0 policy or an older tested-minor declaration.
     if let Some(day_version) = day_version {
@@ -2240,6 +2281,181 @@ mod tests {
         assert!(!compat_matches("0.*", "1.0.0"));
         assert!(compat_matches("0.6", "0.6.4"));
         assert!(!compat_matches("0.6", "0.7.0"));
+    }
+
+    /// A `cargo metadata` package entry, as far as the copy check reads one.
+    fn package(
+        name: &str,
+        version: &str,
+        source: Option<&str>,
+        manifest: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "version": version,
+            "source": source,
+            "manifest_path": manifest,
+        })
+    }
+
+    const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
+
+    fn refusal(packages: &[serde_json::Value]) -> Option<String> {
+        let packages: Vec<&serde_json::Value> = packages.iter().collect();
+        doubled_error(&day_copies(&packages, Path::new("/work/app")))
+    }
+
+    #[test]
+    fn one_copy_of_each_day_crate_passes() {
+        let packages = [
+            package(
+                "day-app",
+                "0.7.13",
+                Some(REGISTRY),
+                "/registry/day-app-0.7.13/Cargo.toml",
+            ),
+            package(
+                "day-core",
+                "0.7.13",
+                Some(REGISTRY),
+                "/registry/day-core-0.7.13/Cargo.toml",
+            ),
+            package(
+                "day-piece-lottie",
+                "0.5.4",
+                Some(REGISTRY),
+                "/registry/lottie/Cargo.toml",
+            ),
+        ];
+        assert_eq!(refusal(&packages), None);
+    }
+
+    #[test]
+    fn a_day_crate_from_two_sources_is_refused_with_both_named() {
+        // The same version from the registry and from a checkout is still two crates to rustc.
+        let packages = [
+            package(
+                "day-core",
+                "0.7.13",
+                Some(REGISTRY),
+                "/registry/day-core-0.7.13/Cargo.toml",
+            ),
+            package(
+                "day-core",
+                "0.7.13",
+                None,
+                "/checkout/day/crates/day-core/Cargo.toml",
+            ),
+            package(
+                "day-spec",
+                "0.7.13",
+                Some(REGISTRY),
+                "/registry/day-spec-0.7.13/Cargo.toml",
+            ),
+        ];
+        let message = refusal(&packages).expect("two copies of day-core");
+        assert!(
+            message.starts_with("day-core is in the dependency graph 2 times:"),
+            "{message}"
+        );
+        assert!(
+            message.contains(&format!("0.7.13 from {REGISTRY}")),
+            "{message}"
+        );
+        assert!(
+            message.contains("0.7.13 from path /checkout/day/crates/day-core/Cargo.toml"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_doubled_external_piece_is_refused_though_the_framework_has_one_copy() {
+        let git = "git+https://github.com/daybrite/day-piece-lottie?tag=v0.5.3#0123abc";
+        let packages = [
+            package(
+                "day-app",
+                "0.7.13",
+                Some(REGISTRY),
+                "/registry/day-app-0.7.13/Cargo.toml",
+            ),
+            package(
+                "day-piece-lottie",
+                "0.5.4",
+                Some(REGISTRY),
+                "/registry/lottie/Cargo.toml",
+            ),
+            package(
+                "day-piece-lottie",
+                "0.5.3",
+                Some(git),
+                "/git/lottie/Cargo.toml",
+            ),
+        ];
+        let message = refusal(&packages).expect("two copies of the piece");
+        assert!(
+            message.starts_with("day-piece-lottie is in the dependency graph 2 times:"),
+            "{message}"
+        );
+        assert!(message.contains(&format!("0.5.3 from {git}")), "{message}");
+    }
+
+    #[test]
+    fn every_doubled_crate_is_named() {
+        let packages = [
+            package(
+                "day-core",
+                "0.7.13",
+                Some(REGISTRY),
+                "/registry/day-core/Cargo.toml",
+            ),
+            package(
+                "day-core",
+                "0.7.13",
+                None,
+                "/checkout/day/crates/day-core/Cargo.toml",
+            ),
+            package(
+                "day-spec",
+                "0.7.13",
+                Some(REGISTRY),
+                "/registry/day-spec/Cargo.toml",
+            ),
+            package(
+                "day-spec",
+                "0.7.13",
+                None,
+                "/checkout/day/crates/day-spec/Cargo.toml",
+            ),
+        ];
+        let message = refusal(&packages).expect("two doubled crates");
+        assert!(
+            message.contains("times (and 1 more: day-spec):"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn other_crates_and_the_project_itself_are_not_counted() {
+        let packages = [
+            // Two `syn`s are Cargo's ordinary answer to incompatible requirements.
+            package(
+                "syn",
+                "2.0.119",
+                Some(REGISTRY),
+                "/registry/syn-2.0.119/Cargo.toml",
+            ),
+            package(
+                "syn",
+                "3.0.5",
+                Some(REGISTRY),
+                "/registry/syn-3.0.5/Cargo.toml",
+            ),
+            // The app being built, whose own name starts with `day`.
+            package("day-notes", "1.0.0", None, "/work/app/Cargo.toml"),
+        ];
+        let refs: Vec<&serde_json::Value> = packages.iter().collect();
+        assert!(day_copies(&refs, Path::new("/work/app")).is_empty());
+        assert_eq!(refusal(&packages), None);
     }
 
     fn fixture(dir: &Path, manifest: &str) -> Project {

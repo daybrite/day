@@ -660,6 +660,7 @@ pub fn build_for_device(
     let start = std::time::Instant::now();
     match target.kind {
         TargetKind::IosSim => {
+            crate::patch::verify_graph(project)?;
             let outcome = crate::mobile::build_ios_for(project, target, profile, start, true)?;
             Ok(outcome)
         }
@@ -712,6 +713,10 @@ pub fn build(
     target: &'static Target,
     profile: Profile,
 ) -> Result<BuildOutcome, String> {
+    // One copy of every day crate, whichever command got here. `day build` and `day launch`
+    // have asked already and this replays their answer; `day pack`, `day test` and
+    // `day relaunch` ask here.
+    crate::patch::verify_graph(project)?;
     if target.os == "macos" {
         let plist = project.root.join("platform/macos/Runner/Info.plist");
         crate::documents::sync_apple(project, &plist, false)?;
