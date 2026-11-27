@@ -184,6 +184,24 @@ export const apps = [
     hero: 'reading-alice',
   },
   {
+    id: 'Day-Plan',
+    label: 'Day Plan',
+    blurb:
+      'An offline planner for tasks and notes, with a My Day view, lists and groups, checklist steps and tags, kept in step between devices through WebDAV servers you choose.',
+    repo: 'https://github.com/Day-Plan/Day-Plan',
+    stores: {
+      apple: 'https://apps.apple.com/app/id6740916318',
+      google: 'https://play.google.com/store/apps/details?id=org.appfair.app.SkipNotes',
+    },
+    hero: 'planner',
+    order: ['planner', 'details', 'lists'],
+    labels: { planner: 'My Day', details: 'Task details', lists: 'Lists and groups' },
+    // The sidebar's views are routes (`day::routes!` in the app's src/navigation.rs) that web-dom
+    // mirrors into the URL hash. Each fragment was loaded against the published build. An open
+    // task's editor is a state inside a view, which a fragment cannot open on its own.
+    webRoutes: { planner: 'today', lists: 'organize', details: null },
+  },
+  {
     id: 'Games-Fair',
     label: 'Games Fair',
     blurb:

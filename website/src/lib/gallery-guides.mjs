@@ -5,6 +5,7 @@ const guides = {
   'Day-Skies': ['guide-http', 'Making HTTP requests'],
   'Day-Trader': ['reactivity', 'Updating the UI from state'],
   'Fleet-Reader': ['navigation', 'Building app navigation'],
+  'Day-Plan': ['guide-storage', 'Saving app data'],
   'Day-Sketch': ['rendering', 'Drawing and rendering'],
   'Games-Fair': ['rendering', 'Drawing and rendering'],
 };
