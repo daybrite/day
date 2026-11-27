@@ -1,10 +1,28 @@
+<h1 align="center">
+  <a href="https://daybrite.dev">
+    <img width="120" alt="Day" src="website/public/favicon.svg" />
+  </a>
+  <br />
+  Day
+</h1>
+
+<p align="center">
+
+[![Crates.io](https://img.shields.io/crates/v/day-cli.svg)](https://crates.io/crates/day-cli)
+[![Build Status](https://github.com/daybrite/day/actions/workflows/ci.yml/badge.svg)](https://github.com/daybrite/day/actions/workflows/ci.yml)
+[![Rust Version](https://img.shields.io/badge/rust-1.100%2B-blue.svg)](https://www.rust-lang.org)
+[![Edition](https://img.shields.io/badge/edition-2024-blue.svg)](https://doc.rust-lang.org/edition-guide/rust-2024/)
+[![Examples](https://img.shields.io/badge/Day-Examples-purple.svg)](https://daybrite.dev/examples/)
+
+</p>
+
 # Day
 
 Day is a Rust framework for building desktop and mobile apps with a platform-native user interface. Day apps are truly native apps, using the same underlying toolkits as the first-party apps created by the OS vendor. That is to say: on macOS it uses AppKit, UIKit on iOS, GTK or Qt on Linux, WinUI on Windows, and Material views on Android.
 
 The goal of the Day project is to facilitate the creation of apps that are indistinguishable — both in look and in feel — from the platform-native apps that come pre-installed with the operating system. In addition to being familiar to the user and efficient (both in terms of memory, application size, and battery use), Day apps also benefit from automatic platform integration and accessibility support.
 
-Read the [introductionary post](https://daybrite.dev/blog/new-day/) for more details about the motivation behind Day, and where it fits into the broader Rust ecosystem.
+Read the [introductory post](https://daybrite.dev/blog/new-day/) for more details about the motivation behind Day, and where it fits into the broader Rust ecosystem.
 
 [Documentation](https://daybrite.dev/docs/) · [App Gallery](https://daybrite.dev/gallery/) · [Rust API](https://docs.rs/day-app)
 
@@ -24,7 +42,7 @@ The starter app opens in a new window with a list you can add to and edit. Its n
 
 ## API tour
 
-Day provides a reactive and declarative API atop the underlying imperitive toolkit, which enables the same code to define the user interface across mobile and desktop platforms. It is conceptually similar to SwiftUI for iOS and macOS or Jetpack Compose for Android.
+Day provides a reactive and declarative API atop the underlying imperative toolkit, which enables the same code to define the user interface across mobile and desktop platforms. It is conceptually similar to SwiftUI for iOS and macOS or Jetpack Compose for Android.
 
 In the following example, a signal holds a "count" value and each press updates the signal and the label displays its new value. For localization, Day generates the text accessors from two messages in `resource/locales/en/app.ftl`.
 
