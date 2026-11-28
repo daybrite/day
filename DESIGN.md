@@ -147,7 +147,7 @@ the architecture-level view and the rationale.
 | day-piece-crash-reporter — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
 | document tabs — stable keys, resident pages, native window groups, and live chrome switching | [docs/navigation.md](docs/navigation.md#document-tabs), [docs/windows.md](docs/windows.md#document-window-tabs) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag; window properties (`state()`, content protection, frame, level, monitors, remembered frames, macOS tab groups) | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
-| settings and About — `day-piece-settings`: presentation over `day-part-preferences::Pref<T>`, groups/sections/rows, the Settings and About windows + menu items, the mobile navigation presentation, provider groups from other crates (the self-updater) | [docs/settings.md](docs/settings.md) | [§8.1](#81-the-toolkit-trait), [§15](#15-extensibility-pieces-parts-and-tweaks), [§17.1](#171-project-layout-day-new-output) |
+| settings and About — `day-piece-settings`: presentation over `day-part-preferences::Pref<T>`, groups/sections/rows, the Settings and About windows + menu items, the mobile navigation presentation, provider groups from other crates (the self-updater, the App Fair group), featured groups, live sections, group and row pictures | [docs/settings.md](docs/settings.md) | [§8.1](#81-the-toolkit-trait), [§15](#15-extensibility-pieces-parts-and-tweaks), [§17.1](#171-project-layout-day-new-output) |
 | window chrome — `WindowChrome` (frameless, overlay title bar), transparent and material backgrounds, placement, `.window_drag_region()` | [docs/window-chrome.md](docs/window-chrome.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | status items — menu-bar / tray items, Dock and taskbar progress, menu-bar apps, `KeepRunning`, `day::quit` | [docs/status-item.md](docs/status-item.md) | [§8.1](#81-the-toolkit-trait) |
 | toolchain & environment discovery | [docs/environment.md](docs/environment.md) | [§16](#16-the-day-cli) |
@@ -4799,6 +4799,19 @@ ArkUI; emulator acceptance remains in CI.
 > the zero-setup path on native targets; on wasm, and wherever order matters, the app names the
 > provider (`Preferences::provider(&UPDATES)`, `register_provider`). Normative:
 > [docs/settings.md](docs/settings.md#providers).
+>
+> **Provider groups (2026-11).** A group gained what a crate needs to contribute a page of its
+> own to every app that depends on it: `Group::featured()` (a card on the mobile settings root,
+> under the About header, which does not count toward the one-group-inline rule),
+> `Group::sections_with(build)` (sections read when the group's page is built and rebuilt when a
+> tracked read changes; a desktop Preferences window reads them when the page is first
+> selected), and `Group::image` / `Row::image` (a leading picture from encoded bytes, drawn
+> natively by the UIKit and Material arms and by the composed pages). A provider's `id` is
+> reserved for its group: `Preferences::install()` keeps one group per id, the provider's ahead
+> of an app's. The first provider outside this repository is
+> [day-piece-appfair](https://github.com/appfair/day-piece-appfair), whose `startup` also
+> registers lifecycle handlers. Normative:
+> [docs/settings.md](docs/settings.md#featured-groups-and-live-sections).
 >
 > **External repositories (2026-09).** `day-piece-lottie`, the layout example below, moved out of
 > this tree into [daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie) — the

@@ -195,8 +195,9 @@ Group::new("publisher", res::str::title())
   are tracked, and a change rebuilds the page while it is on screen. `build` runs when the page
   opens and not before, so it is also the place to start the download the page shows. A group
   with live sections is always a separate page: the mobile root lists it as a row even when it is
-  the only group. The GTK and Qt preferences windows read the sections once, when the window
-  opens.
+  the only group. A desktop Preferences window builds every page's declared rows when it opens,
+  and reads a page's live sections when that page is first selected. The GTK and Qt windows
+  then replace the live rows in place when something `build` read changes.
 
 ### The General group
 
@@ -357,6 +358,11 @@ on wasm, where linkme has no implementation, and anywhere explicit order matters
 [`.providers(Providers::None)`](https://docs.rs/day-piece-settings/latest/day_piece_settings/struct.Preferences.html#method.providers) and [`.without_provider("updates")`](https://docs.rs/day-piece-settings/latest/day_piece_settings/struct.Preferences.html#method.without_provider) opt out. A provider's
 strings live in its own private catalog ([localization](localization.md)); shared vocabulary
 (`day_settings_updates`, `day_check_for_updates`) is in the core catalog.
+
+A provider's `id` is reserved for its group. Group ids are unique, because the route
+`settings/<id>` and the group's entry on the settings root both resolve by id.
+[`install()`](https://docs.rs/day-piece-settings/latest/day_piece_settings/struct.Preferences.html#method.install) keeps one group per id: a provider's group ahead of an app's group under the same
+id, and otherwise the first one declared. It logs each group it leaves out as an error.
 
 A provider's `group` can be [featured](#featured-groups-and-live-sections) and carry live sections:
 [day-piece-appfair](https://github.com/appfair/day-piece-appfair), the App Fair group every App Fair app carries, is one. Its `startup` also

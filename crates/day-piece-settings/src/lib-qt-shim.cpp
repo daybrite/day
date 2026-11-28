@@ -322,7 +322,9 @@ int day_settings_qt_shell_add_page(void *host, const char *title, const char *ic
 
 // A section as a group on `page`: a titled QGroupBox, or a plain form for an untitled section
 // (KDE pages put top-level rows straight on the page). The footer is a dim label under the rows.
-void *day_settings_qt_page_add_group(void *host, int page, const char *title, const char *footer) {
+// The group goes ahead of `before`, a group of the same page, or at the page's end without one.
+void *day_settings_qt_page_insert_group(void *host, int page, void *before, const char *title,
+                                        const char *footer) {
     auto *shell = static_cast<DayShell *>(host);
     if (page < 0 || page >= shell->pages.size()) return nullptr;
     auto *g = new DayGroup();
@@ -339,9 +341,57 @@ void *day_settings_qt_page_add_group(void *host, int page, const char *title, co
     g->footer->setVisible(!f.isEmpty());
     auto *col = static_cast<QVBoxLayout *>(shell->pages[page]->layout());
     // Before the trailing stretch.
-    col->insertWidget(col->count() - 1, g->box);
+    int at = col->count() - 1;
+    if (auto *next = static_cast<DayGroup *>(before)) {
+        const int found = col->indexOf(next->box);
+        if (found >= 0) at = found;
+    }
+    col->insertWidget(at, g->box);
     shell->groups.push_back(g);
     return g;
+}
+
+// A group added after `day_settings_qt_shell_done` (a page's live sections) has had its last
+// row: its footer goes under the rows and its widgets are shown, which `shell_done` does for the
+// groups made before it.
+void day_settings_qt_group_done(void *group) {
+    auto *g = static_cast<DayGroup *>(group);
+    if (!g) return;
+    if (!g->footer->text().isEmpty()) g->form->addRow(g->footer);
+    else g->footer->hide();
+    g->box->show();
+    const auto children = g->box->findChildren<QWidget *>();
+    for (QWidget *w : children) w->show();
+}
+
+// Take `group` off its page, with its rows (`keys`, `n` of them). A Day control mounted in one
+// of its cells goes back under the host first: Day owns that widget and removes it itself. The
+// widgets are deleted once control returns to the event loop, because the change that replaces a
+// group can start from a signal one of its own rows is emitting.
+void day_settings_qt_group_remove(void *host, void *group, const uint64_t *keys, int n) {
+    auto *shell = static_cast<DayShell *>(host);
+    auto *g = static_cast<DayGroup *>(group);
+    if (!g) return;
+    for (int i = 0; i < n; ++i) {
+        auto it = shell->rows.find(keys[i]);
+        if (it == shell->rows.end()) continue;
+        if (DayCell *cell = it->cell) {
+            const auto mounted = cell->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly);
+            for (QWidget *w : mounted) {
+                w->hide();
+                w->setParent(shell);
+            }
+        }
+        shell->rows.erase(it);
+    }
+    shell->groups.removeOne(g);
+    if (!g->footer->parent()) delete g->footer;
+    g->box->hide();
+    if (QWidget *page = g->box->parentWidget()) {
+        if (page->layout()) page->layout()->removeWidget(g->box);
+    }
+    g->box->deleteLater();
+    delete g;
 }
 
 // A row of `group`'s form. `kind`: 0 a control cell as the field under `label`; 1 a button

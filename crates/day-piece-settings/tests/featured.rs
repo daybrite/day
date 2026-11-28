@@ -206,3 +206,65 @@ fn a_row_with_a_picture_keeps_its_id() {
     assert!(on_screen(&row("fleet")));
     assert!(on_screen(&row("account")));
 }
+
+fn provided_fair() -> Group {
+    Group::new("fair", "The Fair")
+        .featured()
+        .row(rows::note("Donate").id(row("donate")))
+}
+
+/// A provider named with `.provider(..)`. Declared without `provider!`, which would register
+/// it for every test in this binary.
+static FAIR: day_piece_settings::Provider = day_piece_settings::Provider {
+    id: "fair",
+    order: 800,
+    available: || true,
+    group: provided_fair,
+    startup: None,
+};
+
+/// A provider's id is reserved for its group. An app that already had a group under that id
+/// must not take the provider's route: the card opens the provider's page.
+#[test]
+fn a_provider_keeps_its_id_from_an_app_group() {
+    let prefs = || {
+        Preferences::new()
+            .presentation(Presentation::Navigation)
+            .providers(Providers::None)
+            .group(general())
+            .group(Group::new("fair", "Old").row(rows::note("Old").id(row("old"))))
+            .provider(&FAIR)
+    };
+    boot(move || {
+        prefs().install();
+        day_piece_settings::page()
+    });
+    assert!(on_screen(&group_entry("fair")), "the provider's card");
+    assert!(
+        on_screen(&row("units")),
+        "with the app's clashing group left out, its one other group is inline"
+    );
+
+    boot(move || prefs().install().group_page("fair"));
+    assert!(
+        on_screen(&row("donate")),
+        "the route resolves to the provider's group"
+    );
+    assert!(!on_screen(&row("old")), "the app's group is left out");
+}
+
+/// Two app groups under one id: the first keeps the id and its route.
+#[test]
+fn the_first_group_under_an_id_stays() {
+    boot(|| {
+        Preferences::new()
+            .presentation(Presentation::Navigation)
+            .providers(Providers::None)
+            .group(Group::new("apps", "Apps").row(rows::note("First").id(row("first"))))
+            .group(Group::new("apps", "Again").row(rows::note("Second").id(row("second"))))
+            .install()
+            .group_page("apps")
+    });
+    assert!(on_screen(&row("first")));
+    assert!(!on_screen(&row("second")));
+}

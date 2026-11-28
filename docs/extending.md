@@ -161,6 +161,28 @@ assets are read where they lie and nothing may be written into the app's source 
 backends with no native Lottie player it ships lottie-web and a host page this way, and composes
 [day-piece-webview](https://github.com/daybrite/day-piece-webview) to show them.
 
+A piece can name its files by generated constants, the way an app names its own
+([resources](resources.md)), so a renamed or missing file is a compile error. Keep the directory
+at `resource/assets/<crate-name>/`, declare that path in `assets`, and generate the constants in
+the crate's `build.rs`:
+
+```rust
+let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?);
+let out = std::path::PathBuf::from(std::env::var("OUT_DIR")?);
+let mut plan = day_build::plan_resources(&root)?;
+// The crate's strings stay in its private catalog (`day_build::generate_locales`).
+plan.strings.clear();
+plan.locales.clear();
+std::fs::write(out.join("day_resources.rs"), day_build::render(&plan))?;
+```
+
+`mod bundled { day::resources!(); }` in the crate then gives
+`bundled::res::assets::<crate_name>::<file>`. Each constant's value is the name the file is
+staged under, `<crate-name>/<file>`, because the directory's own name is the crate's. The
+generated code names the `day` umbrella crate, so the piece depends on `day-app`.
+[day-piece-appfair](https://github.com/appfair/day-piece-appfair) ships its mark and its bundled
+feed this way.
+
 ### Crates that wrap a piece: galleries of pages, pieces composing pieces
 
 `day build` switches on a piece's backend by adding `<crate>/<backend>` to the app's features, and

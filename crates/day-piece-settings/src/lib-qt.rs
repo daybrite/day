@@ -52,12 +52,20 @@ unsafe extern "C" {
         icon_spec: *const c_char,
         icon_fallback: c_int,
     ) -> c_int;
-    fn day_settings_qt_page_add_group(
+    fn day_settings_qt_page_insert_group(
         host: *mut c_void,
         page: c_int,
+        before: *mut c_void,
         title: *const c_char,
         footer: *const c_char,
     ) -> *mut c_void;
+    fn day_settings_qt_group_done(group: *mut c_void);
+    fn day_settings_qt_group_remove(
+        host: *mut c_void,
+        group: *mut c_void,
+        keys: *const u64,
+        n: c_int,
+    );
     fn day_settings_qt_group_add_row(
         host: *mut c_void,
         group: *mut c_void,
@@ -205,6 +213,10 @@ enum ShellPatch {
     /// 3 a note.
     RowText(u64, c_int, String),
     RowEnabled(u64, bool),
+    /// Replace the rows a page's live sections (`Group::sections_with`) put on it: the groups
+    /// the last patch of this kind added go, and these take their place, ahead of the page's
+    /// custom piece.
+    Live(String, Vec<ShellGroup>),
 }
 
 struct ShellState {
@@ -212,11 +224,32 @@ struct ShellState {
     host: *mut c_void,
     /// Page ids in list order.
     pages: Vec<String>,
-    groups: HashMap<u64, *mut c_void>,
+    groups: RefCell<HashMap<u64, *mut c_void>>,
     /// Each slot's cell by slot key.
-    cells: HashMap<u64, *mut c_void>,
+    cells: RefCell<HashMap<u64, *mut c_void>>,
+    /// Each page's trailing group, the one holding its custom piece: live groups go ahead of it.
+    custom_groups: HashMap<String, *mut c_void>,
+    /// What each page's live sections put on it, to take off at the next replacement.
+    live: RefCell<HashMap<String, LiveRows>>,
     /// Slots still to move into their cells.
     pending: RefCell<Vec<u64>>,
+}
+
+/// The native rows a page's live sections added.
+#[derive(Default)]
+struct LiveRows {
+    /// Each group with its key and its rows' keys.
+    groups: Vec<(u64, *mut c_void, Vec<u64>)>,
+    slots: Vec<u64>,
+}
+
+/// What [`add_groups`] made, for the shell's tables.
+#[derive(Default)]
+struct Added {
+    /// Each group with its key and its rows' keys.
+    groups: Vec<(u64, *mut c_void, Vec<u64>)>,
+    /// Each new slot's cell by slot key; the slots are still to move into them.
+    cells: Vec<(u64, *mut c_void)>,
 }
 
 day_core::tls_group! {
@@ -400,6 +433,71 @@ extern "C" fn on_fill(node: u64, key: u64, width: f64) {
     });
 }
 
+/// Realize `groups` on the page at `page`, ahead of the group `before` (null: at the page's
+/// end), recording what was made in `out`.
+fn add_groups(
+    host: *mut c_void,
+    page: c_int,
+    before: *mut c_void,
+    groups: &[ShellGroup],
+    out: &mut Added,
+) {
+    for g in groups {
+        // SAFETY: `host` is the live shell and `before` one of its groups or null; the strings
+        // are NUL-terminated and outlive the call. Main thread.
+        let group = unsafe {
+            day_settings_qt_page_insert_group(
+                host,
+                page,
+                before,
+                cstr(&g.title).as_ptr(),
+                cstr(&g.footer).as_ptr(),
+            )
+        };
+        for r in &g.rows {
+            let (kind, arrow, destructive, with_cell, slot) = match &r.shape {
+                RowShape::Field { slot } => (0, false, false, false, Some(*slot)),
+                RowShape::Button {
+                    arrow,
+                    destructive,
+                    slot,
+                } => (1, *arrow, *destructive, slot.is_some(), *slot),
+                RowShape::Link => (2, false, false, false, None),
+                RowShape::Note => (3, false, false, false, None),
+                RowShape::Fill { slot } => (4, false, false, false, Some(*slot)),
+            };
+            let (label, text) = match &r.shape {
+                RowShape::Field { .. } => (r.text.as_str(), ""),
+                _ => ("", r.text.as_str()),
+            };
+            // SAFETY: `host` is the live shell and `group` the group it just made; the strings
+            // are NUL-terminated and outlive the call. Main thread.
+            let cell = unsafe {
+                day_settings_qt_group_add_row(
+                    host,
+                    group,
+                    r.key,
+                    kind,
+                    cstr(label).as_ptr(),
+                    cstr(text).as_ptr(),
+                    cstr(&r.caption).as_ptr(),
+                    c_int::from(arrow),
+                    c_int::from(destructive),
+                    c_int::from(with_cell),
+                    c_int::from(r.enabled),
+                )
+            };
+            if let Some(slot) = slot
+                && !cell.is_null()
+            {
+                out.cells.push((slot, cell));
+            }
+        }
+        out.groups
+            .push((g.key, group, g.rows.iter().map(|r| r.key).collect()));
+    }
+}
+
 fn shell_make(_backend: &mut Qt, p: &ShellProps, id: NodeId) -> QtHandle {
     let sidebar = p.pages.len() > 1;
     // SAFETY (every shim call in this function): constructors and setters on widgets this
@@ -407,9 +505,8 @@ fn shell_make(_backend: &mut Qt, p: &ShellProps, id: NodeId) -> QtHandle {
     let host = unsafe {
         day_settings_qt_shell_new(id.0, c_int::from(sidebar), on_select, on_row, on_fill)
     };
-    let mut groups = HashMap::new();
-    let mut cells = HashMap::new();
-    let mut pending = Vec::new();
+    let mut added = Added::default();
+    let mut custom_groups = HashMap::new();
     let mut selected = 0;
     for (ix, page) in p.pages.iter().enumerate() {
         if page.id == p.selected {
@@ -423,53 +520,20 @@ fn shell_make(_backend: &mut Qt, p: &ShellProps, id: NodeId) -> QtHandle {
                 page.icon.1,
             )
         };
-        let add_group = |title: &str, footer: &str| unsafe {
-            day_settings_qt_page_add_group(host, index, cstr(title).as_ptr(), cstr(footer).as_ptr())
-        };
-        for g in &page.groups {
-            let group = add_group(&g.title, &g.footer);
-            groups.insert(g.key, group);
-            for r in &g.rows {
-                let (kind, arrow, destructive, with_cell, slot) = match &r.shape {
-                    RowShape::Field { slot } => (0, false, false, false, Some(*slot)),
-                    RowShape::Button {
-                        arrow,
-                        destructive,
-                        slot,
-                    } => (1, *arrow, *destructive, slot.is_some(), *slot),
-                    RowShape::Link => (2, false, false, false, None),
-                    RowShape::Note => (3, false, false, false, None),
-                    RowShape::Fill { slot } => (4, false, false, false, Some(*slot)),
-                };
-                let (label, text) = match &r.shape {
-                    RowShape::Field { .. } => (r.text.as_str(), ""),
-                    _ => ("", r.text.as_str()),
-                };
-                let cell = unsafe {
-                    day_settings_qt_group_add_row(
-                        host,
-                        group,
-                        r.key,
-                        kind,
-                        cstr(label).as_ptr(),
-                        cstr(text).as_ptr(),
-                        cstr(&r.caption).as_ptr(),
-                        c_int::from(arrow),
-                        c_int::from(destructive),
-                        c_int::from(with_cell),
-                        c_int::from(r.enabled),
-                    )
-                };
-                if let Some(slot) = slot
-                    && !cell.is_null()
-                {
-                    cells.insert(slot, cell);
-                    pending.push(slot);
-                }
-            }
-        }
+        add_groups(host, index, std::ptr::null_mut(), &page.groups, &mut added);
         if let Some(slot) = page.custom {
-            let group = add_group("", "");
+            // SAFETY: `host` is the shell made above and `index` the page just added to it;
+            // the strings are NUL-terminated and outlive the call. Main thread.
+            let group = unsafe {
+                day_settings_qt_page_insert_group(
+                    host,
+                    index,
+                    std::ptr::null_mut(),
+                    cstr("").as_ptr(),
+                    cstr("").as_ptr(),
+                )
+            };
+            custom_groups.insert(page.id.clone(), group);
             let cell = unsafe {
                 day_settings_qt_group_add_row(
                     host,
@@ -486,20 +550,21 @@ fn shell_make(_backend: &mut Qt, p: &ShellProps, id: NodeId) -> QtHandle {
                 )
             };
             if !cell.is_null() {
-                cells.insert(slot, cell);
-                pending.push(slot);
+                added.cells.push((slot, cell));
             }
         }
     }
     unsafe { day_settings_qt_shell_done(host, selected) };
-    SLOT_CELLS.with(|m| m.borrow_mut().extend(cells.iter().map(|(k, v)| (*k, *v))));
+    SLOT_CELLS.with(|m| m.borrow_mut().extend(added.cells.iter().copied()));
     let state = Rc::new(ShellState {
         node: id,
         host,
         pages: p.pages.iter().map(|pg| pg.id.clone()).collect(),
-        groups,
-        cells,
-        pending: RefCell::new(pending),
+        groups: RefCell::new(added.groups.iter().map(|(k, g, _)| (*k, *g)).collect()),
+        pending: RefCell::new(added.cells.iter().map(|(k, _)| *k).collect()),
+        cells: RefCell::new(added.cells.into_iter().collect()),
+        custom_groups,
+        live: RefCell::new(HashMap::new()),
     });
     SHELLS.with(|m| m.borrow_mut().insert(host as usize, state));
     QtHandle(host)
@@ -513,7 +578,7 @@ fn settle(st: &ShellState) {
         let Some(slot) = SLOT_WIDGETS.with(|m| m.borrow().get(k).copied()) else {
             return true;
         };
-        let Some(&cell) = st.cells.get(k) else {
+        let Some(cell) = st.cells.borrow().get(k).copied() else {
             return false;
         };
         // SAFETY: both are live widgets of this shell (the slot realized and mounted under
@@ -543,12 +608,12 @@ fn shell_update(_backend: &mut Qt, h: &QtHandle, patch: &ShellPatch) {
                 }
             }
             ShellPatch::GroupTitle(k, t) => {
-                if let Some(&g) = st.groups.get(k) {
+                if let Some(g) = st.groups.borrow().get(k).copied() {
                     day_settings_qt_group_set_title(g, cstr(t).as_ptr());
                 }
             }
             ShellPatch::GroupFooter(k, t) => {
-                if let Some(&g) = st.groups.get(k) {
+                if let Some(g) = st.groups.borrow().get(k).copied() {
                     day_settings_qt_group_set_footer(g, cstr(t).as_ptr());
                 }
             }
@@ -558,8 +623,59 @@ fn shell_update(_backend: &mut Qt, h: &QtHandle, patch: &ShellPatch) {
             ShellPatch::RowEnabled(k, on) => {
                 day_settings_qt_row_set_enabled(st.host, *k, c_int::from(*on));
             }
+            ShellPatch::Live(id, groups) => replace_live(&st, id, groups),
         }
     }
+}
+
+/// Take the rows a page's live sections added off the page and put `groups` in their place.
+fn replace_live(st: &ShellState, id: &str, groups: &[ShellGroup]) {
+    let Some(page) = st.pages.iter().position(|p| p == id) else {
+        return;
+    };
+    if let Some(old) = st.live.borrow_mut().remove(id) {
+        // The old cells go with their groups, so nothing may size or fill them again.
+        st.pending.borrow_mut().retain(|k| !old.slots.contains(k));
+        for k in &old.slots {
+            st.cells.borrow_mut().remove(k);
+            SLOT_CELLS.with(|m| m.borrow_mut().remove(k));
+        }
+        for (key, group, rows) in &old.groups {
+            st.groups.borrow_mut().remove(key);
+            // SAFETY: `group` is a group of this live shell that only this table names, and
+            // `rows` are its rows' keys. The shim hands any Day control mounted in its cells
+            // back to the host before the group's widgets go.
+            unsafe {
+                day_settings_qt_group_remove(st.host, *group, rows.as_ptr(), rows.len() as c_int);
+            }
+        }
+    }
+    let before = st
+        .custom_groups
+        .get(id)
+        .copied()
+        .unwrap_or(std::ptr::null_mut());
+    let mut added = Added::default();
+    add_groups(st.host, page as c_int, before, groups, &mut added);
+    for (_, group, _) in &added.groups {
+        // SAFETY: a group of this live shell, made just above with its last row added.
+        unsafe { day_settings_qt_group_done(*group) };
+    }
+    SLOT_CELLS.with(|m| m.borrow_mut().extend(added.cells.iter().copied()));
+    st.groups
+        .borrow_mut()
+        .extend(added.groups.iter().map(|(k, g, _)| (*k, *g)));
+    st.cells.borrow_mut().extend(added.cells.iter().copied());
+    st.pending
+        .borrow_mut()
+        .extend(added.cells.iter().map(|(k, _)| *k));
+    st.live.borrow_mut().insert(
+        id.to_owned(),
+        LiveRows {
+            slots: added.cells.iter().map(|(k, _)| *k).collect(),
+            groups: added.groups,
+        },
+    );
 }
 
 /// The shell's natural size: the list beside the widest page, and the tallest page's content at
@@ -581,13 +697,13 @@ fn shell_release(_backend: &mut Qt, h: &QtHandle) {
     if let Some(st) = SHELLS.with(|m| m.borrow_mut().remove(&(h.0 as usize))) {
         SLOT_CELLS.with(|m| {
             let mut m = m.borrow_mut();
-            for k in st.cells.keys() {
+            for k in st.cells.borrow().keys() {
                 m.remove(k);
             }
         });
         FILL_WIDTHS.with(|m| {
             let mut m = m.borrow_mut();
-            for k in st.cells.keys() {
+            for k in st.cells.borrow().keys() {
                 m.remove(k);
             }
         });
@@ -950,6 +1066,176 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
     }
 }
 
+/// The sections as shell groups, with their rows' controls as slots in `b`. A section with no
+/// available row is left out.
+fn shell_groups(inst: &Rc<Installed>, sections: &[Section], b: &mut ShellBuild) -> Vec<ShellGroup> {
+    let mut groups = Vec::new();
+    for s in sections {
+        let rows: Vec<&Row> = s.rows.iter().filter(|r| r.is_available()).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let gkey = next_key();
+        if let Some(t) = &s.title {
+            b.text(t, DynText::GroupTitle(gkey));
+        }
+        if let Some(f) = &s.footer {
+            b.text(f, DynText::GroupFooter(gkey));
+        }
+        let rows = rows
+            .into_iter()
+            .map(|r| shell_row(inst.clone(), r, b))
+            .collect();
+        groups.push(ShellGroup {
+            key: gkey,
+            title: s.title.as_ref().map_or_default(TextSource::initial),
+            footer: s.footer.as_ref().map_or_default(TextSource::initial),
+            rows,
+        });
+    }
+    groups
+}
+
+/// Localized titles, captions, section texts and notes follow the locale. Registered in the
+/// current scope.
+fn follow_texts(node: RNode, dyns: Vec<(TextSource, DynText)>) {
+    for (src, target) in dyns {
+        if let TextSource::Dyn(f) = src {
+            watch(
+                move || f(),
+                move |t, prev| {
+                    if prev.is_some() {
+                        let affects_size = true;
+                        with_tree(|tree| {
+                            tree.patch(node, Box::new(target.patch(t.clone())), affects_size);
+                        });
+                    }
+                },
+            );
+        }
+    }
+}
+
+/// Each gated row follows its gate. Registered in the current scope.
+fn follow_enabled(node: RNode, enabled: Vec<(u64, Reactive<bool>)>) {
+    for (k, sig) in enabled {
+        watch(
+            move || sig.get(),
+            move |on, _| {
+                with_tree(|t| t.patch(node, Box::new(ShellPatch::RowEnabled(k, *on)), false));
+            },
+        );
+    }
+}
+
+/// What activating a row runs, by row key. Shared, because a page's live rows come and go.
+type Actions = Rc<RefCell<HashMap<u64, Rc<dyn Fn()>>>>;
+/// The spanning slots the shell re-lays when their cells report a width.
+type Fills = Rc<RefCell<Vec<Rc<SlotShared>>>>;
+
+/// One build of a page's live sections: what to take out of the tree at the next.
+struct LiveBuilt {
+    scope: day_reactive::Scope,
+    slots: Vec<Rc<SlotShared>>,
+    actions: Vec<u64>,
+}
+
+impl LiveBuilt {
+    fn remove(self, actions: &Actions, fills: &Fills) {
+        self.scope.dispose();
+        actions
+            .borrow_mut()
+            .retain(|k, _| !self.actions.contains(k));
+        fills
+            .borrow_mut()
+            .retain(|f| !self.slots.iter().any(|s| s.key == f.key));
+        for slot in &self.slots {
+            FILL_WIDTHS.with(|m| m.borrow_mut().remove(&slot.key));
+            if let Some(n) = slot.node.get()
+                && with_tree(|t| t.node_exists(n))
+            {
+                with_tree(|t| t.remove_subtree(n));
+            }
+        }
+    }
+}
+
+/// Keep the rows of one page's live sections (`Group::sections_with`) current.
+///
+/// The sections are first read when their page is the one showing, so a window opened on
+/// another page reads nothing: a list that asks for its data when it is read (the App Fair
+/// page's) asks when the user selects it. From then on they are read again whenever something
+/// they read changes, and the page's live rows are replaced, each build in a scope of its own
+/// under the shell's.
+fn follow_live(node: RNode, inst: Rc<Installed>, g: &Group, actions: Actions, fills: Fills) {
+    let Some(live) = g.live.clone() else {
+        return;
+    };
+    let id = g.id;
+    let owner = day_reactive::Scope::current();
+    let selected = inst.selected;
+    let shown = Cell::new(false);
+    let built: RefCell<Option<LiveBuilt>> = RefCell::new(None);
+    day_reactive::bind_always(
+        move || {
+            if !shown.get() && selected.get() != id {
+                return None;
+            }
+            shown.set(true);
+            Some(live())
+        },
+        move |sections: Option<Vec<Section>>| {
+            let Some(sections) = sections else {
+                return;
+            };
+            let scope = owner.enter(day_reactive::Scope::child);
+            let mut b = ShellBuild::default();
+            let groups = scope.enter(|| shell_groups(&inst, &sections, &mut b));
+            let ShellBuild {
+                slots,
+                actions: added,
+                dyns,
+                enabled,
+            } = b;
+            // The native rows first. Replacing them hands the old rows' controls back to the
+            // host, which is where the removal below takes them from.
+            with_tree(|t| {
+                t.patch(
+                    node,
+                    Box::new(ShellPatch::Live(id.to_string(), groups)),
+                    true,
+                );
+            });
+            if let Some(old) = built.borrow_mut().take() {
+                old.remove(&actions, &fills);
+            }
+            let new = LiveBuilt {
+                scope,
+                slots: slots.iter().map(|s| s.shared.clone()).collect(),
+                actions: added.keys().copied().collect(),
+            };
+            fills.borrow_mut().extend(
+                new.slots
+                    .iter()
+                    .filter(|s| s.kind == SlotKind::Fill)
+                    .cloned(),
+            );
+            actions.borrow_mut().extend(added);
+            scope.enter(|| {
+                let mut cx = BuildCx::new(node);
+                for s in slots {
+                    let _ = s.build(&mut cx);
+                }
+                follow_texts(node, dyns);
+                follow_enabled(node, enabled);
+            });
+            // The shell's next measure settles the new slots into their cells.
+            with_tree(|t| t.mark_layout_dirty());
+            *built.borrow_mut() = Some(new);
+        },
+    );
+}
+
 struct Shell {
     inst: Rc<Installed>,
 }
@@ -960,38 +1246,9 @@ impl Piece for Shell {
         let mut b = ShellBuild::default();
         let mut pages = Vec::new();
         for g in inst.visible_groups() {
-            let mut groups = Vec::new();
-            // Live sections are read here, once per window: the shell's rows are fixed.
-            let sections = g.all_sections();
-            for s in &sections {
-                let rows: Vec<&Row> = s.rows.iter().filter(|r| r.is_available()).collect();
-                if rows.is_empty() {
-                    continue;
-                }
-                let gkey = next_key();
-                if let Some(t) = &s.title {
-                    b.text(t, DynText::GroupTitle(gkey));
-                }
-                if let Some(f) = &s.footer {
-                    b.text(f, DynText::GroupFooter(gkey));
-                }
-                let rows = rows
-                    .into_iter()
-                    .map(|r| shell_row(inst.clone(), r, &mut b))
-                    .collect();
-                groups.push(ShellGroup {
-                    key: gkey,
-                    title: s
-                        .title
-                        .as_ref()
-                        .map_or_default(TextSource::initial),
-                    footer: s
-                        .footer
-                        .as_ref()
-                        .map_or_default(TextSource::initial),
-                    rows,
-                });
-            }
+            // The declared sections are the page's fixed rows. Its live ones are read when
+            // the page is first shown (`follow_live`).
+            let groups = shell_groups(&inst, &g.sections, &mut b);
             let custom = g
                 .custom
                 .as_ref()
@@ -1018,11 +1275,14 @@ impl Piece for Shell {
             dyns,
             enabled,
         } = b;
-        let fills: Vec<Rc<SlotShared>> = slots
-            .iter()
-            .filter(|s| s.shared.kind == SlotKind::Fill)
-            .map(|s| s.shared.clone())
-            .collect();
+        let actions: Actions = Rc::new(RefCell::new(actions));
+        let fills: Fills = Rc::new(RefCell::new(
+            slots
+                .iter()
+                .filter(|s| s.shared.kind == SlotKind::Fill)
+                .map(|s| s.shared.clone())
+                .collect(),
+        ));
         let node = cx.native(
             SHELL_KIND,
             &ShellProps {
@@ -1043,18 +1303,26 @@ impl Piece for Shell {
             }
         });
         let i = inst.clone();
+        let fill_slots = fills.clone();
+        let row_actions = actions.clone();
         cx.on(node, move |ev| {
             if let Event::Custom { tag, text, .. } = ev {
                 match *tag {
                     SELECT_TAG => i.selected.set_if_changed(text.clone()),
                     ROW_TAG => {
-                        if let Some(run) = text.parse::<u64>().ok().and_then(|k| actions.get(&k)) {
+                        // Cloned out of the table: the action may replace a page's live rows,
+                        // which edits it.
+                        let run = text
+                            .parse::<u64>()
+                            .ok()
+                            .and_then(|k| row_actions.borrow().get(&k).cloned());
+                        if let Some(run) = run {
                             run();
                         }
                     }
                     FILL_TAG => {
                         let k = text.parse::<u64>().ok();
-                        for s in &fills {
+                        for s in fill_slots.borrow().iter() {
                             if k.is_some_and(|k| k != s.key) {
                                 continue;
                             }
@@ -1078,29 +1346,10 @@ impl Piece for Shell {
                 with_tree(|t| t.patch(node, Box::new(ShellPatch::Select(id)), false));
             },
         );
-        // Localized titles, captions, section texts and notes follow the locale.
-        for (src, target) in dyns {
-            if let TextSource::Dyn(f) = src {
-                watch(
-                    move || f(),
-                    move |t, prev| {
-                        if prev.is_some() {
-                            let affects_size = true;
-                            with_tree(|tree| {
-                                tree.patch(node, Box::new(target.patch(t.clone())), affects_size)
-                            });
-                        }
-                    },
-                );
-            }
-        }
-        for (k, sig) in enabled {
-            watch(
-                move || sig.get(),
-                move |on, _| {
-                    with_tree(|t| t.patch(node, Box::new(ShellPatch::RowEnabled(k, *on)), false));
-                },
-            );
+        follow_texts(node, dyns);
+        follow_enabled(node, enabled);
+        for g in inst.visible_groups() {
+            follow_live(node, inst.clone(), g, actions.clone(), fills.clone());
         }
         node
     }

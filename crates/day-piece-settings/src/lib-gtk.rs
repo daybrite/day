@@ -878,6 +878,10 @@ enum ShellPatch {
     RowSubtitle(u64, String),
     RowEnabled(u64, bool),
     Note(u64, String),
+    /// Replace the rows a page's live sections (`Group::sections_with`) put on it: the groups
+    /// the last patch of this kind added go, and these take their place, ahead of the page's
+    /// custom piece.
+    Live(String, Vec<ShellGroup>),
 }
 
 /// Where a slot goes once Day has mounted it into the host.
@@ -913,15 +917,39 @@ struct ShellState {
     node: NodeId,
     host: ShellHost,
     pages: HashMap<String, adw::PreferencesPage>,
-    groups: HashMap<u64, adw::PreferencesGroup>,
-    rows: HashMap<u64, adw::ActionRow>,
+    groups: RefCell<HashMap<u64, adw::PreferencesGroup>>,
+    rows: RefCell<HashMap<u64, adw::ActionRow>>,
     /// The custom rows, for their sensitivity.
-    custom_rows: HashMap<u64, adw::PreferencesRow>,
-    notes: HashMap<u64, gtk4::Label>,
+    custom_rows: RefCell<HashMap<u64, adw::PreferencesRow>>,
+    notes: RefCell<HashMap<u64, gtk4::Label>>,
+    /// Each page's trailing group, the one holding its custom piece: live groups go ahead of it.
+    custom_groups: HashMap<String, adw::PreferencesGroup>,
+    /// What each page's live sections put on it, to take off at the next replacement.
+    live: RefCell<HashMap<String, LiveRows>>,
     /// Slots still to move into their rows, by key.
     pending: RefCell<Vec<(u64, SlotTarget)>>,
     /// A programmatic page change in flight: no echo as a selection.
     suppress: Cell<bool>,
+}
+
+/// The native rows a page's live sections added, by key.
+#[derive(Default)]
+struct LiveRows {
+    groups: Vec<(u64, adw::PreferencesGroup)>,
+    rows: Vec<u64>,
+    slots: Vec<u64>,
+}
+
+/// What [`add_groups`] made, for the shell's tables.
+#[derive(Default)]
+struct Added {
+    groups: Vec<(u64, adw::PreferencesGroup)>,
+    rows: HashMap<u64, adw::ActionRow>,
+    custom_rows: HashMap<u64, adw::PreferencesRow>,
+    notes: HashMap<u64, gtk4::Label>,
+    /// The slots to move into the new rows: the suffix ones, then the filling ones.
+    pending: Vec<(u64, SlotTarget)>,
+    pending_fill: Vec<(u64, SlotTarget)>,
 }
 
 /// The open preferences shell, as the piece side registered it (`Shell::build`).
@@ -1195,14 +1223,63 @@ fn make_action_row(r: &ShellRow, node: NodeId) -> adw::ActionRow {
     row
 }
 
+/// Realize `groups` as `AdwPreferencesGroup`s at the end of `pp`, recording what was made in
+/// `out`. `node` is the shell's, which an activated row reports to.
+fn add_groups(pp: &adw::PreferencesPage, groups: &[ShellGroup], node: NodeId, out: &mut Added) {
+    for g in groups {
+        let group = adw::PreferencesGroup::new();
+        if !g.title.is_empty() {
+            group.set_title(&g.title);
+        }
+        if !g.description.is_empty() {
+            group.set_description(Some(&g.description));
+        }
+        for r in &g.rows {
+            match &r.kind {
+                ShellRowKind::Row { slot } => {
+                    let row = make_action_row(r, node);
+                    if let Some(slot) = slot {
+                        out.pending.push((*slot, SlotTarget::Suffix(row.clone())));
+                    }
+                    group.add(&row);
+                    out.rows.insert(r.key, row);
+                }
+                ShellRowKind::Custom { slot } => {
+                    let row = adw::PreferencesRow::new();
+                    row.set_activatable(false);
+                    row.set_sensitive(r.enabled);
+                    let host = SlotHost::new(true);
+                    host.set_hexpand(true);
+                    // The room an `AdwActionRow` keeps around its content.
+                    host.set_margin_start(12);
+                    host.set_margin_end(12);
+                    host.set_margin_top(6);
+                    host.set_margin_bottom(6);
+                    row.set_child(Some(&host));
+                    out.pending_fill.push((*slot, SlotTarget::Fill(host)));
+                    group.add(&row);
+                    out.custom_rows.insert(r.key, row);
+                }
+                ShellRowKind::Note => {
+                    let label = gtk4::Label::new(Some(&r.title));
+                    label.set_wrap(true);
+                    label.set_xalign(0.0);
+                    label.add_css_class("dim-label");
+                    label.add_css_class("caption");
+                    group.add(&label);
+                    out.notes.insert(r.key, label);
+                }
+            }
+        }
+        pp.add(&group);
+        out.groups.push((g.key, group));
+    }
+}
+
 fn shell_make(_backend: &mut Gtk, p: &ShellProps, id: NodeId) -> gtk4::Widget {
     let mut pages = HashMap::new();
-    let mut groups = HashMap::new();
-    let mut rows = HashMap::new();
-    let mut custom_rows = HashMap::new();
-    let mut notes = HashMap::new();
-    let mut pending = Vec::new();
-    let mut pending_fill: Vec<(u64, SlotTarget)> = Vec::new();
+    let mut custom_groups = HashMap::new();
+    let mut added = Added::default();
     for page in &p.pages {
         let pp = adw::PreferencesPage::new();
         pp.set_title(&page.title);
@@ -1210,61 +1287,15 @@ fn shell_make(_backend: &mut Gtk, p: &ShellProps, id: NodeId) -> gtk4::Widget {
         if let Some(icon) = &page.icon {
             pp.set_icon_name(Some(icon));
         }
-        for g in &page.groups {
-            let group = adw::PreferencesGroup::new();
-            if !g.title.is_empty() {
-                group.set_title(&g.title);
-            }
-            if !g.description.is_empty() {
-                group.set_description(Some(&g.description));
-            }
-            for r in &g.rows {
-                match &r.kind {
-                    ShellRowKind::Row { slot } => {
-                        let row = make_action_row(r, id);
-                        if let Some(slot) = slot {
-                            pending.push((*slot, SlotTarget::Suffix(row.clone())));
-                        }
-                        group.add(&row);
-                        rows.insert(r.key, row);
-                    }
-                    ShellRowKind::Custom { slot } => {
-                        let row = adw::PreferencesRow::new();
-                        row.set_activatable(false);
-                        row.set_sensitive(r.enabled);
-                        let host = SlotHost::new(true);
-                        host.set_hexpand(true);
-                        // The room an `AdwActionRow` keeps around its content.
-                        host.set_margin_start(12);
-                        host.set_margin_end(12);
-                        host.set_margin_top(6);
-                        host.set_margin_bottom(6);
-                        row.set_child(Some(&host));
-                        pending_fill.push((*slot, SlotTarget::Fill(host)));
-                        group.add(&row);
-                        custom_rows.insert(r.key, row);
-                    }
-                    ShellRowKind::Note => {
-                        let label = gtk4::Label::new(Some(&r.title));
-                        label.set_wrap(true);
-                        label.set_xalign(0.0);
-                        label.add_css_class("dim-label");
-                        label.add_css_class("caption");
-                        group.add(&label);
-                        notes.insert(r.key, label);
-                    }
-                }
-            }
-            pp.add(&group);
-            groups.insert(g.key, group);
-        }
+        add_groups(&pp, &page.groups, id, &mut added);
         if let Some(slot) = page.custom {
             let group = adw::PreferencesGroup::new();
             let host = SlotHost::new(true);
             host.set_hexpand(true);
             group.add(&host);
-            pending_fill.push((slot, SlotTarget::Fill(host)));
+            added.pending_fill.push((slot, SlotTarget::Fill(host)));
             pp.add(&group);
+            custom_groups.insert(page.id.clone(), group);
         }
         // The page's scrolled window propagates its natural height (so a dialog can size to
         // its content) and does not expand; in a stock preferences window its viewport is
@@ -1275,6 +1306,14 @@ fn shell_make(_backend: &mut Gtk, p: &ShellProps, id: NodeId) -> gtk4::Widget {
         }
         pages.insert(page.id.clone(), pp);
     }
+    let Added {
+        groups,
+        rows,
+        custom_rows,
+        notes,
+        mut pending,
+        pending_fill,
+    } = added;
     pending.extend(pending_fill);
     // The host: where Day mounts the slots before `settle` moves them into their rows. With the
     // dialog it shows nothing itself; the stack fallback fills it with the pages.
@@ -1337,10 +1376,12 @@ fn shell_make(_backend: &mut Gtk, p: &ShellProps, id: NodeId) -> gtk4::Widget {
         node: id,
         host: shell_host,
         pages,
-        groups,
-        rows,
-        custom_rows,
-        notes,
+        groups: RefCell::new(groups.into_iter().collect()),
+        rows: RefCell::new(rows),
+        custom_rows: RefCell::new(custom_rows),
+        notes: RefCell::new(notes),
+        custom_groups,
+        live: RefCell::new(HashMap::new()),
         pending: RefCell::new(pending),
         suppress: Cell::new(false),
     });
@@ -1442,39 +1483,109 @@ fn shell_update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &ShellPatch) {
             }
         }
         ShellPatch::GroupTitle(k, t) => {
-            if let Some(g) = st.groups.get(k) {
+            if let Some(g) = st.groups.borrow().get(k) {
                 g.set_title(t);
             }
         }
         ShellPatch::GroupDescription(k, t) => {
-            if let Some(g) = st.groups.get(k) {
+            if let Some(g) = st.groups.borrow().get(k) {
                 g.set_description((!t.is_empty()).then_some(t.as_str()));
             }
         }
         ShellPatch::RowTitle(k, t) => {
-            if let Some(r) = st.rows.get(k) {
+            if let Some(r) = st.rows.borrow().get(k) {
                 r.set_title(t);
             }
         }
         ShellPatch::RowSubtitle(k, t) => {
-            if let Some(r) = st.rows.get(k) {
+            if let Some(r) = st.rows.borrow().get(k) {
                 r.set_subtitle(t);
             }
         }
         ShellPatch::RowEnabled(k, on) => {
-            if let Some(r) = st.rows.get(k) {
+            if let Some(r) = st.rows.borrow().get(k) {
                 r.set_sensitive(*on);
             }
-            if let Some(r) = st.custom_rows.get(k) {
+            if let Some(r) = st.custom_rows.borrow().get(k) {
                 r.set_sensitive(*on);
             }
         }
         ShellPatch::Note(k, t) => {
-            if let Some(l) = st.notes.get(k) {
+            if let Some(l) = st.notes.borrow().get(k) {
                 l.set_text(t);
             }
         }
+        ShellPatch::Live(id, groups) => replace_live(&st, h, id, groups),
     }
+}
+
+/// Take the rows a page's live sections added off the page and put `groups` in their place.
+fn replace_live(st: &ShellState, host: &gtk4::Widget, id: &str, groups: &[ShellGroup]) {
+    let Some(pp) = st.pages.get(id) else {
+        return;
+    };
+    if let Some(old) = st.live.borrow_mut().remove(id) {
+        // The old rows' slots go back to the host before the rows are dropped. Day removes
+        // each slot from the host, where it mounted it, and a row dropped with a slot still
+        // in it would take the widget Day holds along.
+        st.pending
+            .borrow_mut()
+            .retain(|(k, _)| !old.slots.contains(k));
+        if let Some(fixed) = host.downcast_ref::<gtk4::Fixed>() {
+            for k in &old.slots {
+                if let Some(slot) = SLOT_WIDGETS.with(|m| m.borrow().get(k).cloned())
+                    && slot.parent().is_some_and(|parent| &parent != host)
+                {
+                    slot.unparent();
+                    fixed.put(&slot, 0.0, 0.0);
+                }
+            }
+        }
+        let mut known = st.groups.borrow_mut();
+        for (k, group) in &old.groups {
+            pp.remove(group);
+            known.remove(k);
+        }
+        for k in &old.rows {
+            st.rows.borrow_mut().remove(k);
+            st.custom_rows.borrow_mut().remove(k);
+            st.notes.borrow_mut().remove(k);
+        }
+    }
+    // `AdwPreferencesPage` only appends, and the page's custom piece stays last.
+    let custom = st.custom_groups.get(id);
+    if let Some(custom) = custom {
+        pp.remove(custom);
+    }
+    let mut added = Added::default();
+    add_groups(pp, groups, st.node, &mut added);
+    if let Some(custom) = custom {
+        pp.add(custom);
+    }
+    let live = LiveRows {
+        groups: added.groups.clone(),
+        rows: added
+            .rows
+            .keys()
+            .chain(added.custom_rows.keys())
+            .chain(added.notes.keys())
+            .copied()
+            .collect(),
+        slots: added
+            .pending
+            .iter()
+            .chain(&added.pending_fill)
+            .map(|(k, _)| *k)
+            .collect(),
+    };
+    st.groups.borrow_mut().extend(added.groups);
+    st.rows.borrow_mut().extend(added.rows);
+    st.custom_rows.borrow_mut().extend(added.custom_rows);
+    st.notes.borrow_mut().extend(added.notes);
+    st.pending
+        .borrow_mut()
+        .extend(added.pending.into_iter().chain(added.pending_fill));
+    st.live.borrow_mut().insert(id.to_owned(), live);
 }
 
 /// The shell's natural size: the widest page, and the tallest page's content at the proposed
@@ -1897,6 +2008,176 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
     }
 }
 
+/// The sections as shell groups, with their rows' controls as slots in `b`. A section with no
+/// available row is left out.
+fn shell_groups(inst: &Rc<Installed>, sections: &[Section], b: &mut ShellBuild) -> Vec<ShellGroup> {
+    let mut groups = Vec::new();
+    for s in sections {
+        let rows: Vec<&Row> = s.rows.iter().filter(|r| r.is_available()).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        let gkey = next_key();
+        if let Some(t) = &s.title {
+            b.text(t, DynText::GroupTitle(gkey));
+        }
+        if let Some(f) = &s.footer {
+            b.text(f, DynText::GroupDescription(gkey));
+        }
+        let rows = rows
+            .into_iter()
+            .map(|r| shell_row(inst.clone(), r, b))
+            .collect();
+        groups.push(ShellGroup {
+            key: gkey,
+            title: s.title.as_ref().map_or_default(TextSource::initial),
+            description: s.footer.as_ref().map_or_default(TextSource::initial),
+            rows,
+        });
+    }
+    groups
+}
+
+/// Localized titles, captions, section texts and notes follow the locale. Registered in the
+/// current scope.
+fn follow_texts(node: RNode, dyns: Vec<(TextSource, DynText)>) {
+    for (src, target) in dyns {
+        if let TextSource::Dyn(f) = src {
+            watch(
+                move || f(),
+                move |t, prev| {
+                    if prev.is_some() {
+                        let affects_size = true;
+                        with_tree(|tree| {
+                            tree.patch(node, Box::new(target.patch(t.clone())), affects_size);
+                        });
+                    }
+                },
+            );
+        }
+    }
+}
+
+/// Each gated row's sensitivity follows its gate. Registered in the current scope.
+fn follow_enabled(node: RNode, enabled: Vec<(u64, Reactive<bool>)>) {
+    for (k, sig) in enabled {
+        watch(
+            move || sig.get(),
+            move |on, _| {
+                with_tree(|t| t.patch(node, Box::new(ShellPatch::RowEnabled(k, *on)), false));
+            },
+        );
+    }
+}
+
+/// What activating a row runs, by row key. Shared, because a page's live rows come and go.
+type Actions = Rc<RefCell<HashMap<u64, Rc<dyn Fn()>>>>;
+/// The filling slots the shell re-lays when their hosts report a width.
+type Fills = Rc<RefCell<Vec<Rc<SlotShared>>>>;
+
+/// One build of a page's live sections: what to take out of the tree at the next.
+struct LiveBuilt {
+    scope: day_reactive::Scope,
+    slots: Vec<Rc<SlotShared>>,
+    actions: Vec<u64>,
+}
+
+impl LiveBuilt {
+    fn remove(self, actions: &Actions, fills: &Fills) {
+        self.scope.dispose();
+        actions
+            .borrow_mut()
+            .retain(|k, _| !self.actions.contains(k));
+        fills
+            .borrow_mut()
+            .retain(|f| !self.slots.iter().any(|s| s.key == f.key));
+        for slot in &self.slots {
+            FILL_WIDTHS.with(|m| m.borrow_mut().remove(&slot.key));
+            if let Some(n) = slot.node.get()
+                && with_tree(|t| t.node_exists(n))
+            {
+                with_tree(|t| t.remove_subtree(n));
+            }
+        }
+    }
+}
+
+/// Keep the rows of one page's live sections (`Group::sections_with`) current.
+///
+/// The sections are first read when their page is the one showing, so a window opened on
+/// another page reads nothing: a list that asks for its data when it is read (the App Fair
+/// page's) asks when the user selects it. From then on they are read again whenever something
+/// they read changes, and the page's live rows are replaced, each build in a scope of its own
+/// under the shell's, the way a sub-page's is.
+fn follow_live(node: RNode, inst: Rc<Installed>, g: &Group, actions: Actions, fills: Fills) {
+    let Some(live) = g.live.clone() else {
+        return;
+    };
+    let id = g.id;
+    let owner = day_reactive::Scope::current();
+    let selected = inst.selected;
+    let shown = Cell::new(false);
+    let built: RefCell<Option<LiveBuilt>> = RefCell::new(None);
+    day_reactive::bind_always(
+        move || {
+            if !shown.get() && selected.get() != id {
+                return None;
+            }
+            shown.set(true);
+            Some(live())
+        },
+        move |sections: Option<Vec<Section>>| {
+            let Some(sections) = sections else {
+                return;
+            };
+            let scope = owner.enter(day_reactive::Scope::child);
+            let mut b = ShellBuild::default();
+            let groups = scope.enter(|| shell_groups(&inst, &sections, &mut b));
+            let ShellBuild {
+                slots,
+                actions: added,
+                dyns,
+                enabled,
+            } = b;
+            // The native rows first. Replacing them hands the old rows' slots back to the
+            // host, which is where the removal below takes them from.
+            with_tree(|t| {
+                t.patch(
+                    node,
+                    Box::new(ShellPatch::Live(id.to_string(), groups)),
+                    true,
+                );
+            });
+            if let Some(old) = built.borrow_mut().take() {
+                old.remove(&actions, &fills);
+            }
+            let new = LiveBuilt {
+                scope,
+                slots: slots.iter().map(|s| s.shared.clone()).collect(),
+                actions: added.keys().copied().collect(),
+            };
+            fills.borrow_mut().extend(
+                new.slots
+                    .iter()
+                    .filter(|s| s.kind == SlotKind::Fill)
+                    .cloned(),
+            );
+            actions.borrow_mut().extend(added);
+            scope.enter(|| {
+                let mut cx = BuildCx::new(node);
+                for s in slots {
+                    let _ = s.build(&mut cx);
+                }
+                follow_texts(node, dyns);
+                follow_enabled(node, enabled);
+            });
+            // The shell's next measure settles the new slots into their rows.
+            with_tree(|t| t.mark_layout_dirty());
+            *built.borrow_mut() = Some(new);
+        },
+    );
+}
+
 struct Shell {
     inst: Rc<Installed>,
 }
@@ -1907,38 +2188,9 @@ impl Piece for Shell {
         let mut b = ShellBuild::default();
         let mut pages = Vec::new();
         for g in inst.visible_groups() {
-            let mut groups = Vec::new();
-            // Live sections are read here, once per window: the shell's rows are fixed.
-            let sections = g.all_sections();
-            for s in &sections {
-                let rows: Vec<&Row> = s.rows.iter().filter(|r| r.is_available()).collect();
-                if rows.is_empty() {
-                    continue;
-                }
-                let gkey = next_key();
-                if let Some(t) = &s.title {
-                    b.text(t, DynText::GroupTitle(gkey));
-                }
-                if let Some(f) = &s.footer {
-                    b.text(f, DynText::GroupDescription(gkey));
-                }
-                let rows = rows
-                    .into_iter()
-                    .map(|r| shell_row(inst.clone(), r, &mut b))
-                    .collect();
-                groups.push(ShellGroup {
-                    key: gkey,
-                    title: s
-                        .title
-                        .as_ref()
-                        .map_or_default(TextSource::initial),
-                    description: s
-                        .footer
-                        .as_ref()
-                        .map_or_default(TextSource::initial),
-                    rows,
-                });
-            }
+            // The declared sections are the page's fixed rows. Its live ones are read when
+            // the page is first shown (`follow_live`).
+            let groups = shell_groups(&inst, &g.sections, &mut b);
             let custom = g
                 .custom
                 .as_ref()
@@ -1963,7 +2215,8 @@ impl Piece for Shell {
             dyns,
             enabled,
         } = b;
-        let fills: Rc<RefCell<Vec<Rc<SlotShared>>>> = Rc::new(RefCell::new(
+        let actions: Actions = Rc::new(RefCell::new(actions));
+        let fills: Fills = Rc::new(RefCell::new(
             slots
                 .iter()
                 .filter(|s| s.shared.kind == SlotKind::Fill)
@@ -2005,12 +2258,19 @@ impl Piece for Shell {
         }
         let i = inst.clone();
         let fill_slots = fills.clone();
+        let row_actions = actions.clone();
         cx.on(node, move |ev| {
             if let Event::Custom { tag, text, .. } = ev {
                 match *tag {
                     SELECT_TAG => i.selected.set_if_changed(text.clone()),
                     ROW_TAG => {
-                        if let Some(run) = text.parse::<u64>().ok().and_then(|k| actions.get(&k)) {
+                        // Cloned out of the table: the action may replace a page's live rows,
+                        // which edits it.
+                        let run = text
+                            .parse::<u64>()
+                            .ok()
+                            .and_then(|k| row_actions.borrow().get(&k).cloned());
+                        if let Some(run) = run {
                             run();
                         }
                     }
@@ -2040,29 +2300,10 @@ impl Piece for Shell {
                 with_tree(|t| t.patch(node, Box::new(ShellPatch::Select(id)), false));
             },
         );
-        // Localized titles, captions, section texts and notes follow the locale.
-        for (src, target) in dyns {
-            if let TextSource::Dyn(f) = src {
-                watch(
-                    move || f(),
-                    move |t, prev| {
-                        if prev.is_some() {
-                            let affects_size = true;
-                            with_tree(|tree| {
-                                tree.patch(node, Box::new(target.patch(t.clone())), affects_size)
-                            });
-                        }
-                    },
-                );
-            }
-        }
-        for (k, sig) in enabled {
-            watch(
-                move || sig.get(),
-                move |on, _| {
-                    with_tree(|t| t.patch(node, Box::new(ShellPatch::RowEnabled(k, *on)), false));
-                },
-            );
+        follow_texts(node, dyns);
+        follow_enabled(node, enabled);
+        for g in inst.visible_groups() {
+            follow_live(node, inst.clone(), g, actions.clone(), fills.clone());
         }
         node
     }

@@ -812,7 +812,8 @@ impl About {
 /// in the link-time slice on native targets; on wasm (no linkme) and anywhere an explicit
 /// order matters, [`register_provider`] / [`Preferences::provider`] name it directly.
 pub struct Provider {
-    /// The group's route id; also used by [`Preferences::without_provider`].
+    /// The group's route id; also used by [`Preferences::without_provider`]. The id is reserved
+    /// for this group: an app's group under the same id is left out at install.
     pub id: &'static str,
     /// Sort key among the app's groups (apps default to 0, providers to 500).
     pub order: i32,
@@ -941,7 +942,8 @@ impl Preferences {
         self.about = Some(about);
         self
     }
-    /// Append a group.
+    /// Append a group. Ids are unique: [`Self::install`] keeps the first group under an id,
+    /// and a provider's group ahead of an app's (docs/settings.md "Providers").
     pub fn group(mut self, group: Group) -> Self {
         self.groups.push(group);
         self
@@ -983,7 +985,7 @@ impl Preferences {
     pub fn install(self) -> Prefs {
         let Preferences {
             about,
-            mut groups,
+            groups,
             providers,
             explicit,
             excluded,
@@ -1002,12 +1004,14 @@ impl Preferences {
             }
         }
         chosen.retain(|p| !excluded.contains(&p.id) && (p.available)());
+        let mut provided = Vec::new();
         for p in &chosen {
             if let Some(startup) = p.startup {
                 startup();
             }
-            groups.push((p.group)().order(p.order));
+            provided.push((p.group)().order(p.order));
         }
+        let mut groups = unique_groups(provided, groups);
         groups.sort_by_key(|g| g.order);
         let presentation = presentation.unwrap_or_else(default_presentation);
         let title = title.unwrap_or_else(|| TextSource::Dyn(Rc::new(platform_word)));
@@ -1060,6 +1064,46 @@ impl Preferences {
         register_route_controller(installed.clone());
         Prefs(installed)
     }
+}
+
+/// One group per id, which is what a route (`settings/<id>`) and a root entry resolve by. A
+/// provider's id is reserved for its group, so an app's group under the same id is left out;
+/// among the app's groups, and among the providers', the first under an id stays. Each group
+/// left out is logged as an error: it is a mistake in the declaration.
+fn unique_groups(provided: Vec<Group>, declared: Vec<Group>) -> Vec<Group> {
+    let mut reserved: Vec<Group> = Vec::with_capacity(provided.len());
+    for g in provided {
+        if reserved.iter().any(|kept| kept.id == g.id) {
+            log::error!(
+                "day-piece-settings: two providers contribute a group with the id {:?}; \
+                 the second is left out",
+                g.id
+            );
+        } else {
+            reserved.push(g);
+        }
+    }
+    // The app's groups stay ahead of the providers', the order a stable sort keeps for equal
+    // sort keys.
+    let mut groups: Vec<Group> = Vec::with_capacity(declared.len() + reserved.len());
+    for g in declared {
+        if reserved.iter().any(|kept| kept.id == g.id) {
+            log::error!(
+                "day-piece-settings: the group id {:?} belongs to a provider's group; the \
+                 app's group under that id is left out, give it another id",
+                g.id
+            );
+        } else if groups.iter().any(|kept| kept.id == g.id) {
+            log::error!(
+                "day-piece-settings: two groups have the id {:?}; the second is left out",
+                g.id
+            );
+        } else {
+            groups.push(g);
+        }
+    }
+    groups.append(&mut reserved);
+    groups
 }
 
 /// The installed declaration, shared by the handle and the free functions.
