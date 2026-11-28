@@ -60,6 +60,34 @@ pub fn render_png_padded(tree: &usvg::Tree, px: u32, pad: f32) -> Result<Vec<u8>
 /// 66/108 zone).
 #[must_use]
 pub fn content_bbox(tree: &usvg::Tree) -> Option<tiny_skia::Rect> {
-    let b = tree.root().abs_layer_bounding_box();
+    // `None` from usvg is a group with nothing to draw.
+    let b = tree.root().abs_layer_bounding_box()?;
     tiny_skia::Rect::from_xywh(b.x(), b.y(), b.width(), b.height())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn content_bbox_covers_the_art_and_its_stroke() {
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            <rect x="20" y="30" width="40" height="10" fill="#000" stroke="#000" stroke-width="4"/>
+        </svg>"##;
+        let b = content_bbox(&parse(svg).unwrap()).expect("a drawn rectangle");
+        assert_eq!(
+            (b.x(), b.y(), b.width(), b.height()),
+            (18.0, 28.0, 44.0, 14.0)
+        );
+    }
+
+    #[test]
+    fn content_bbox_is_none_for_art_that_draws_nothing() {
+        for svg in [
+            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"/>"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g/></svg>"#,
+        ] {
+            assert_eq!(content_bbox(&parse(svg.as_bytes()).unwrap()), None, "{svg}");
+        }
+    }
 }
