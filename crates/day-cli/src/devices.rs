@@ -385,12 +385,8 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
 /// check silently answered `None`.
 fn simulator_is_landscape(udid: &str) -> Option<bool> {
     let shot = std::env::temp_dir().join(format!("day-orient-{}.png", std::process::id()));
-    let mut capture = Command::new("xcrun");
-    capture
-        .args(["simctl", "io", udid, "screenshot", "--type=png"])
-        .arg(&shot);
-    let out = crate::ops::output_within(&mut capture, ORIENT_CALL_LIMIT)?;
-    if !out.status.success() {
+    // The shared capture, which also knows a simulator with two displays.
+    if crate::mobile::simulator_screenshot(udid, &shot).is_err() {
         let _ = std::fs::remove_file(&shot);
         return None;
     }
@@ -535,26 +531,8 @@ fn sims_from_simctl(parsed: &Value) -> Vec<Sim> {
 /// this profile's name.
 fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, String), CliError> {
     let sims = simulators()?;
-    let mut best: Option<(String, String, String)> = None;
-    for (name, udid, runtime) in &sims {
-        if !device_matches(device, name) {
-            continue;
-        }
-        if let Some(want) = os
-            && !runtime_matches(runtime, want)
-        {
-            continue;
-        }
-        // Newest runtime wins, so `os=iOS 26` lands on the highest 26.x present; on one runtime,
-        // the newest model.
-        let better = best.as_ref().is_none_or(|(_, n, r)| {
-            runtime.as_str() > r.as_str()
-                || (runtime.as_str() == r.as_str() && model_number(name) > model_number(n))
-        });
-        if better {
-            best = Some((udid.clone(), name.clone(), runtime.clone()));
-        }
-    }
+    let best = pick_simulator(&sims, device, os)
+        .map(|(name, udid, runtime)| (udid.clone(), name.clone(), runtime.clone()));
     best.ok_or_else(|| {
         // List the devices of the OS family that was asked for. Naming every simulator on the
         // machine buries an iOS request under a page of watchOS and tvOS devices, which makes the
@@ -586,6 +564,47 @@ fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, 
             listed.join("\n  ")
         ))
     })
+}
+
+/// The simulator a `--device`/`--os` request names among `sims` ([`resolve_simulator`]).
+///
+/// The newest runtime wins, so `os=iOS 26` lands on the highest 26.x present; on one runtime, the
+/// newest model. Runtimes are compared as versions. Compared as text, the build of a release
+/// that one device carries ("iOS 27.2.iPhone19.4", the iPhone Duo's) read as newer than the
+/// release itself, and a plain `iPhone` profile moved to the Duo, a device with two displays,
+/// on the day a runner image added it (2026-11-27). Asking for `iPhone Duo` still finds it.
+fn pick_simulator<'a>(sims: &'a [Sim], device: &str, os: Option<&str>) -> Option<&'a Sim> {
+    let mut best: Option<&Sim> = None;
+    for sim in sims {
+        let (name, _, runtime) = sim;
+        if !device_matches(device, name) {
+            continue;
+        }
+        if let Some(want) = os
+            && !runtime_matches(runtime, want)
+        {
+            continue;
+        }
+        let better = best.is_none_or(|(n, _, r)| {
+            let (new, old) = (runtime_version(runtime), runtime_version(r));
+            new > old || (new == old && model_number(name) > model_number(n))
+        });
+        if better {
+            best = Some(sim);
+        }
+    }
+    best
+}
+
+/// The version in a runtime label, as numbers: "iOS 27.2" is `[27, 2]`. Reading stops at the
+/// first part that is not a number, so a device's own build of a release
+/// ("iOS 27.2.iPhone19.4") is that release.
+fn runtime_version(label: &str) -> Vec<u32> {
+    let version = label.split_whitespace().nth(1).unwrap_or(label);
+    version
+        .split('.')
+        .map_while(|part| part.parse().ok())
+        .collect()
 }
 
 /// Does simulator `name` match the profile `pattern`: a prefix whose `*` segments stand for any
@@ -729,6 +748,19 @@ fn device_hub_touchless(udid: &str) -> Option<String> {
     (major < 18).then(|| runtime.clone())
 }
 
+/// How long one `simctl boot` may take. It answers within seconds on a developer's Mac. On
+/// GitHub's xcode-27 image a cold boot was measured at 72 s for an iPhone and 127 s for an iPad
+/// Pro 13-inch, so this is about twice the slowest boot that worked.
+///
+/// The limit exists because `simctl boot` has none: on 2026-11-27 it stopped answering for that
+/// iPad on a newer build of the same image. Three runs in a row it printed nothing for nine
+/// minutes, until the job around it was cancelled, which left a log with no reason in it.
+const SIM_BOOT_LIMIT: std::time::Duration = std::time::Duration::from_secs(240);
+
+/// How long `simctl bootstatus -b` may take to see a booting device through. A first boot
+/// migrates the device's data, which takes minutes on a hosted runner, never ten.
+const SIM_SETTLE_LIMIT: std::time::Duration = std::time::Duration::from_mins(10);
+
 pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
     let t = crate::targets::find(target)
         .ok_or_else(|| CliError::usage(format!("unknown target {target}")))?;
@@ -748,10 +780,14 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                 }
             };
             crate::ops::status("Booting", &format!("simulator {name}"));
-            let out = Command::new("xcrun")
-                .args(["simctl", "boot", &udid])
-                .output()
-                .map_err(|e| CliError::failure(format!("xcrun: {e}")))?;
+            let mut boot = Command::new("xcrun");
+            boot.args(["simctl", "boot", &udid]);
+            let out = crate::ops::output_within(&mut boot, SIM_BOOT_LIMIT).ok_or_else(|| {
+                CliError::failure(format!(
+                    "{name} did not boot: `xcrun simctl boot` had not returned after {}s",
+                    SIM_BOOT_LIMIT.as_secs()
+                ))
+            })?;
             let err = String::from_utf8_lossy(&out.stderr);
             // Already booted is the success this command means: the caller wanted a device it can
             // install onto, and there is one.
@@ -773,16 +809,21 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             // wait for into a failure. A wait that does not settle costs the window, nothing else.
             let required = spec.wait || spec.orientation.is_some();
             let settled = if required || !spec.headless {
-                match Command::new("xcrun")
-                    .args(["simctl", "bootstatus", &udid, "-b"])
-                    .status()
-                {
-                    Ok(st) if st.success() => true,
-                    Ok(_) if required => {
+                let mut status = Command::new("xcrun");
+                status.args(["simctl", "bootstatus", &udid, "-b"]);
+                // Under a limit, like the boot itself: `bootstatus` waits for as long as the
+                // device takes, and a device that never finishes would hold the caller for good.
+                match crate::ops::status_within(&mut status, SIM_SETTLE_LIMIT) {
+                    Some(st) if st.success() => true,
+                    Some(_) if required => {
                         return Err(CliError::failure(format!("{name} never finished booting")));
                     }
-                    Err(e) if required => {
-                        return Err(CliError::failure(format!("xcrun: {e}")));
+                    None if required => {
+                        return Err(CliError::failure(format!(
+                            "{name} did not finish booting: `xcrun simctl bootstatus` had not \
+                             returned after {}s",
+                            SIM_SETTLE_LIMIT.as_secs()
+                        )));
                     }
                     _ => false,
                 }
@@ -3048,6 +3089,35 @@ mod tests {
         assert_eq!(model_number("iPhone 17 Pro Max"), 17);
         assert_eq!(model_number("iPad Pro 13-inch (M4)"), 13);
         assert_eq!(model_number("iPhone SE"), 0);
+    }
+
+    #[test]
+    fn a_devices_own_build_of_a_release_is_not_a_newer_runtime() {
+        use super::{Sim, pick_simulator, runtime_version};
+        let sim = |name: &str, udid: &str, runtime: &str| -> Sim {
+            (name.to_string(), udid.to_string(), runtime.to_string())
+        };
+        // The iOS simulators of GitHub's xcode-27 image from 2026-11-23, in short.
+        let sims = [
+            sim("iPhone 17", "A", "iOS 27.2"),
+            sim("iPhone Duo", "B", "iOS 27.2.iPhone19.4"),
+            sim("iPhone 18 Pro", "C", "iOS 27.2"),
+            sim("iPhone 18 Pro Max", "D", "iOS 26.5"),
+        ];
+        let picked = |device: &str, os: Option<&str>| {
+            pick_simulator(&sims, device, os).map(|(_, udid, _)| udid.as_str())
+        };
+        assert_eq!(picked("iPhone", None), Some("C"));
+        assert_eq!(picked("iPhone", Some("iOS 27")), Some("C"));
+        assert_eq!(picked("iPhone Duo", None), Some("B"));
+        assert_eq!(picked("iPhone * Pro Max", None), Some("D"));
+        assert_eq!(picked("iPad", None), None);
+
+        assert_eq!(runtime_version("iOS 27.2"), [27, 2]);
+        assert_eq!(runtime_version("iOS 27.2.iPhone19.4"), [27, 2]);
+        // Numbers, where text would put 27.2 above 27.10.
+        assert!(runtime_version("iOS 27.10") > runtime_version("iOS 27.2"));
+        assert!(runtime_version("iOS 27.2.1") > runtime_version("iOS 27.2"));
     }
 
     use super::*;

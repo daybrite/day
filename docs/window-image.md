@@ -134,7 +134,9 @@ different goal, and it does **not** call this API directly.
   (`simctl io screenshot`, `adb exec-out screencap`, `hdc uitest screenCap`). It photographs the
   whole screen, status bar and system chrome included, which is what the published mobile
   galleries show; an in-process capture frames the app's view tree alone and would silently
-  re-crop all of them. On an Android emulator the whole screen stays free of system dialogs:
+  re-crop all of them. A simulator with two displays (iPhone Duo) is captured from the display
+  `simctl` marks primary, the cover display a closed device shows, since `simctl` refuses to
+  choose one itself. On an Android emulator the whole screen stays free of system dialogs:
   `day devices boot --wait` and `day launch` set `hide_error_dialogs=1` and
   `immersive_mode_confirmations=confirmed`, and each capture first closes an ANR dialog, a crash
   dialog, or the "Viewing full screen" hint left on screen before those settings landed

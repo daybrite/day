@@ -1858,6 +1858,58 @@ pub(crate) fn booted_sims() -> Vec<String> {
         .collect()
 }
 
+/// How long one `simctl io … screenshot` may take. It answers in under a second; a simulator
+/// that has stopped answering would otherwise hold a run for good.
+const SIM_CAPTURE_LIMIT: Duration = Duration::from_mins(1);
+
+/// Capture a simulator's screen to `path` as a PNG.
+///
+/// A simulator with two displays (iPhone Duo: the cover display, and the one inside the fold)
+/// makes `simctl` refuse the plain command: "Cannot choose between 2 displays. Specify one with
+/// --display", followed by the list. The capture is then taken from the display it marks
+/// `(primary)`, which is the cover display, the one a closed device shows. A simulator boots
+/// closed and nothing scriptable opens it, so that is the display a headless run uses.
+pub(crate) fn simulator_screenshot(udid: &str, path: &Path) -> Result<(), String> {
+    let capture = |display: Option<&str>| -> Result<(), String> {
+        let mut cmd = Command::new("xcrun");
+        cmd.args(["simctl", "io", udid, "screenshot", "--type=png"]);
+        if let Some(display) = display {
+            cmd.arg(format!("--display={display}"));
+        }
+        cmd.arg(path);
+        let out = crate::ops::output_within(&mut cmd, SIM_CAPTURE_LIMIT)
+            .ok_or_else(|| format!("no answer within {}s", SIM_CAPTURE_LIMIT.as_secs()))?;
+        if out.status.success() {
+            return Ok(());
+        }
+        Err(String::from_utf8_lossy(&out.stderr).into_owned())
+    };
+    let Err(refusal) = capture(None) else {
+        return Ok(());
+    };
+    let again = match primary_display(&refusal) {
+        Some(display) => capture(Some(&display)),
+        None => Err(refusal),
+    };
+    // All of what `simctl` said, on one line: its output is captured here, and its reason is
+    // what someone reading the log needs.
+    again.map_err(|why| {
+        let said: Vec<&str> = why.split_whitespace().collect();
+        format!("simctl screenshot failed: {}", said.join(" "))
+    })
+}
+
+/// The display to capture when `simctl` will not choose between several: the one its list marks
+/// `(primary)`, in lines that read `--display=1  LCD (primary) 1398x2034`. `None` for any other
+/// failure.
+fn primary_display(stderr: &str) -> Option<String> {
+    stderr.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("--display=")?;
+        let id = rest.split_whitespace().next()?;
+        rest.contains("(primary)").then(|| id.to_string())
+    })
+}
+
 /// Resolve `--ios-simulator` (a UDID or a device name) against the booted simulators.
 ///
 /// Matching is restricted to booted devices: a name that exists but is shut down is a
@@ -3722,6 +3774,26 @@ id = "org.example.Legacy-Mac"
         assert_eq!(android_build_abis(), vec!["x86_64"]);
         // SAFETY: as above; ENV_LOCK is still held.
         unsafe { std::env::remove_var("DAY_ANDROID_ABI") };
+    }
+}
+
+#[cfg(test)]
+mod simulator_capture_tests {
+    use super::primary_display;
+
+    #[test]
+    fn the_primary_display_is_read_from_the_refusal() {
+        // What `simctl io … screenshot` printed for an iPhone Duo on a hosted runner (2026-11-28).
+        let refusal = "An error was encountered processing the command \
+(domain=NSPOSIXErrorDomain, code=22):
+Cannot choose between 2 displays. Specify one with --display:
+    --display=3  LCD-1 (primary-1) 2007x2853
+    --display=1  LCD (primary) 1398x2034
+Invalid argument
+";
+        assert_eq!(primary_display(refusal).as_deref(), Some("1"));
+        assert_eq!(primary_display("Invalid device: 0000"), None);
+        assert_eq!(primary_display(""), None);
     }
 }
 

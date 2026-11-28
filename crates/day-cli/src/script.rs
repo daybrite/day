@@ -721,16 +721,7 @@ fn device_screenshot(target: &Target, path: &Path, ready: bool) -> Result<(), St
                 .map(str::to_string)
                 .or_else(|| crate::mobile::booted_sims().into_iter().next())
                 .unwrap_or_else(|| "booted".into());
-            let ok = Command::new("xcrun")
-                .args(["simctl", "io", &udid, "screenshot"])
-                .arg(path)
-                .status()
-                .is_ok_and(|s| s.success());
-            if ok {
-                Ok(())
-            } else {
-                Err("simctl screenshot failed".into())
-            }
+            crate::mobile::simulator_screenshot(&udid, path)
         }
         TargetKind::Android => {
             // Pin the device the runner forwarded to (`android_devices` is already narrowed to
