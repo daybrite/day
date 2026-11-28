@@ -63,6 +63,73 @@ fn word_starts(text: &str) -> Vec<usize> {
     starts
 }
 
+/// A snapshot of labeled items for repeated localized searches. Supply the labels in display
+/// order. Rebuild when the locale, items or their labels change.
+pub struct SearchIndex<T> {
+    locale: String,
+    entries: Vec<SearchEntry<T>>,
+}
+
+struct SearchEntry<T> {
+    item: T,
+    folded: String,
+    starts: Vec<usize>,
+}
+
+impl<T> SearchIndex<T> {
+    /// Segment and fold each label once. Items need neither a unique key nor a unique label.
+    pub fn new<S: AsRef<str>>(locale: &str, entries: impl IntoIterator<Item = (T, S)>) -> Self {
+        let entries = entries
+            .into_iter()
+            .map(|(item, label)| {
+                let label = label.as_ref();
+                let mut starts = word_starts(label);
+                let mut folded = String::with_capacity(label.len());
+                // Folding is context-independent but can change byte lengths (ß → ss). Translate
+                // each boundary into the folded string as we append the segment after it.
+                for i in 0..starts.len() {
+                    let start = starts[i];
+                    let end = starts.get(i + 1).copied().unwrap_or(label.len());
+                    starts[i] = folded.len();
+                    folded.push_str(&fold(locale, &label[start..end]));
+                }
+                SearchEntry {
+                    item,
+                    folded,
+                    starts,
+                }
+            })
+            .collect();
+        Self {
+            locale: locale.to_owned(),
+            entries,
+        }
+    }
+
+    /// Items matching the word-prefix rules of [`matches_search_in`], in input order.
+    pub fn matching(&self, query: &str) -> impl Iterator<Item = &T> {
+        let needle = fold(&self.locale, query.trim());
+        self.entries
+            .iter()
+            .filter(move |entry| {
+                entry
+                    .starts
+                    .iter()
+                    .any(|&start| entry.folded[start..].starts_with(&needle))
+            })
+            .map(|entry| &entry.item)
+    }
+
+    /// Items whose entire label starts with the folded query, for search completions.
+    pub fn matching_label_prefix(&self, query: &str) -> impl Iterator<Item = &T> {
+        let needle = fold(&self.locale, query.trim());
+        self.entries
+            .iter()
+            .filter(move |entry| entry.folded.starts_with(&needle))
+            .map(|entry| &entry.item)
+    }
+}
+
 /// Whether `text` matches `query` under `locale`'s rules (untracked: pass the locale explicitly).
 ///
 /// An empty or whitespace-only `query` matches everything, so an empty search box filters
@@ -103,6 +170,60 @@ pub fn matches_search(text: &str, query: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepared_matches_preserve_order_duplicates_and_original_word_boundaries() {
+        let labels = [
+            "Straße İki",
+            "Οδός καλή",
+            "Irmak",
+            "éclair",
+            "日本語入力",
+            "Canvas & shapes",
+            "Straße İki",
+            "",
+            "堆栈",
+        ];
+        for locale in ["de", "tr", "az", "ja", "zh-CN"] {
+            let index = SearchIndex::new(locale, labels.iter().enumerate());
+            for query in [
+                " ",
+                "STRASSE İ",
+                "iki",
+                "ı",
+                "i",
+                "οδόσ",
+                "ΚΑ",
+                "e",
+                "é",
+                "入力",
+                "語",
+                "canvas &",
+                " shapes ",
+                "堆栈",
+            ] {
+                let expected: Vec<_> = labels
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| matches_search_in(locale, s, query))
+                    .map(|(i, _)| i)
+                    .collect();
+                assert_eq!(
+                    index.matching(query).copied().collect::<Vec<_>>(),
+                    expected,
+                    "{locale}: {query}"
+                );
+            }
+            assert_eq!(
+                index
+                    .matching_label_prefix("STRASSE")
+                    .copied()
+                    .collect::<Vec<_>>(),
+                [0, 6]
+            );
+            assert_eq!(index.matching_label_prefix("shapes").count(), 0);
+        }
+    }
 
     /// The documented example, exactly: `s` finds every English title with a word starting in
     /// `s`, and no others.

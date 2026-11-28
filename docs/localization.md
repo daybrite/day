@@ -328,6 +328,15 @@ ICU4X segmentation supplies word boundaries for scripts that do not separate wor
 spaces. Unicode case folding handles cases such as `Straße` and `STRASSE`; Turkish and
 Azerbaijani use Turkic folding. Matching does not remove accents: `é` and `e` remain distinct.
 
+For a list filtered on every keystroke, build a
+[`SearchIndex`](https://docs.rs/day-localization/latest/day_localization/struct.SearchIndex.html)
+from the active locale and pairs of items and formatted labels. Keep it in a memo that reads
+the locale and label sources. Read the query outside that memo.
+[`matching`](https://docs.rs/day-localization/latest/day_localization/struct.SearchIndex.html#method.matching)
+folds the query once and returns matching items in their original order.
+For completions that must start at the beginning of a label, use
+[`matching_label_prefix`](https://docs.rs/day-localization/latest/day_localization/struct.SearchIndex.html#method.matching_label_prefix).
+
 ## Locale data
 
 The runtime accepts ICU4X 2.1 and newer compatible 2.x releases.

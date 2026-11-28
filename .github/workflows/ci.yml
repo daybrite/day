@@ -1449,7 +1449,7 @@ jobs:
         with:
           node-version: 24
       - name: Web shim regressions
-        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs scripts/ci/webdom-sensor-events-test.mjs scripts/ci/webdom-resources-test.mjs scripts/ci/webdom-list-reader-test.mjs
+        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs scripts/ci/webdom-sensor-events-test.mjs scripts/ci/webdom-resources-test.mjs scripts/ci/webdom-list-reader-test.mjs scripts/ci/webdom-datetime-test.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

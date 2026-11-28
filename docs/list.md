@@ -357,7 +357,9 @@ what happened:
 | a key that appears twice | a reload |
 | more than 512 changed rows at once | a reload |
 
-Appending one message to a 5,000-row timeline is therefore one inserted row, and a reply
+When a snapshot extends the previous keys with a new page of rows, Day checks key uniqueness
+in a single pass and emits the inserts directly. Appending one message to a 5,000-row timeline
+is therefore one inserted row, and a reply
 streamed into a row thirty times a second touches that row and no other. The scroll position
 and the native selection survive a splice; a reload keeps neither on some toolkits.
 

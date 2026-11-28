@@ -18,6 +18,8 @@ use std::rc::Rc;
 use day_spec::props::*;
 use day_spec::*;
 
+mod clock;
+
 // --- the opt-in native behavior: list and tree viewports, cover reports ----------------------
 //
 // A native list binds the rows it shows into cells by itself: on attach, after a reload, and
@@ -48,11 +50,10 @@ thread_local! {
     static NATIVE_EVENTS: RefCell<Vec<NativeEvent>> = RefCell::new(Vec::new());
     /// The primary window's size, which a presented cover fills.
     static MOCK_WINDOW: std::cell::Cell<Size> = const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
-    /// The mock's clock, in seconds: it moves only when a sleep is served (`post_delayed`), by
-    /// the time slept. Frames are stamped with it and the mock's animations are sampled at it,
-    /// so a test that pauses 400 ms finds every animation exactly 400 ms on.
+    /// Elapsed seconds for frame timestamps and animation sampling. Default sleeps advance
+    /// it immediately. In manual mode the probe advances it to each deadline.
     static MOCK_CLOCK: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
-    /// Frame requests waiting for the clock to move (the native-behavior mode only).
+    /// Frame requests waiting for the clock to move in native-behavior or manual mode.
     static FRAMES: RefCell<Vec<(u64, FrameCallback)>> = const { RefCell::new(Vec::new()) };
     static NEXT_FRAME: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// What the mock's animator gets wrong on purpose (`MockProbe::set_animation_flaw`).
@@ -632,6 +633,7 @@ pub struct MockState {
     pub dark: Option<bool>,
     /// Simulate native navigation that has not settled yet in engine tests.
     pub ui_busy: bool,
+    touch_tooltips: bool,
     next: u64,
     pub widgets: HashMap<u64, MockWidget>,
     pub log: Vec<String>,
@@ -800,6 +802,18 @@ pub struct MockProbe {
 impl MockToolkit {
     #[must_use]
     pub fn new() -> (Self, MockProbe) {
+        Self::with_clock(false)
+    }
+
+    /// Create a mock whose UI sleeps and display frames run only as [`MockProbe::advance`]
+    /// moves its clock. Each mock starts at zero with an empty queue on its test thread.
+    #[must_use]
+    pub fn new_with_manual_clock() -> (Self, MockProbe) {
+        Self::with_clock(true)
+    }
+
+    fn with_clock(manual: bool) -> (Self, MockProbe) {
+        clock::reset(manual);
         // A fresh mock starts with the viewport off and no lists from an earlier one.
         VIEWPORT_ROWS.with(|r| r.set(0));
         VIEWPORTS.with(|v| v.borrow_mut().clear());
@@ -1061,16 +1075,29 @@ impl MockProbe {
         ANIM_FLAW.with(|f| f.set(flaw));
     }
 
-    /// The mock's clock, in seconds: it moves by the time slept whenever a sleep is served.
+    /// The mock's elapsed time in seconds.
     #[must_use]
     pub fn now(&self) -> f64 {
         mock_now()
     }
 
-    /// Move the mock's clock on by `ms`, delivering the frames requested meanwhile, as a
-    /// sleep of that length does.
+    /// Move the mock's clock on by `ms`. In manual mode, deliver every timer and frame due
+    /// through that instant, including newly scheduled work. Zero serves already-due timers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if callbacks continually reschedule at the same instant (over 100,000 deliveries).
     pub fn advance(&self, ms: u32) {
-        frames_flush(ms);
+        if clock::enabled() {
+            clock::advance(ms);
+        } else {
+            frames_flush(ms);
+        }
+    }
+
+    /// Model a touch platform that shows tooltip help on a long press. Set before mounting.
+    pub fn set_touch_tooltips(&self, enabled: bool) {
+        self.state.borrow_mut().touch_tooltips = enabled;
     }
 
     pub fn list_recycle(&self, host: MockHandle, cell: MockHandle) {
@@ -1774,10 +1801,11 @@ impl Toolkit for MockToolkit {
     fn request_frame(&mut self, _host: &MockHandle, cb: FrameCallback) -> CancelFrame {
         // Pending for ever by default: unit tests inject a scheduler in day-core. The
         // native-behavior mode delivers frames as its clock moves (see `frames_flush`).
-        if VIEWPORT_ROWS.with(std::cell::Cell::get) == 0 {
+        if !clock::enabled() && VIEWPORT_ROWS.with(std::cell::Cell::get) == 0 {
             return Box::new(|| {});
         }
         let id = NEXT_FRAME.with(|n| n.replace(n.get() + 1));
+        clock::request_frame();
         FRAMES.with(|f| f.borrow_mut().push((id, cb)));
         Box::new(move || {
             let _ = FRAMES.try_with(|f| f.borrow_mut().retain(|(other, _)| *other != id));
@@ -3006,6 +3034,10 @@ impl Toolkit for MockToolkit {
             .borrow_mut()
             .log(format!("tooltip #{} {text:?}", h.0));
     }
+
+    fn needs_touch_tooltip(&self) -> bool {
+        self.state.borrow().touch_tooltips
+    }
     fn open_popover(
         &mut self,
         anchor: &MockHandle,
@@ -3753,6 +3785,10 @@ impl Platform for MockToolkit {
     }
 
     fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+        if clock::enabled() {
+            clock::schedule(ms, f);
+            return;
+        }
         // A sleep is where the opt-in list viewport binds (see `viewport_flush`).
         viewport_flush();
         // The default rides a helper thread home, which has no tree or task table: a sleep in

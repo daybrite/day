@@ -280,7 +280,7 @@ impl Runtime {
 
 crate::tls_group! {
     static RT: RefCell<Runtime> = RefCell::new(Runtime::new());
-
+    static VIRTUAL_TIMERS: std::cell::Cell<bool> = std::cell::Cell::new(false);
 }
 
 /// Per-drain re-run cap (§4.2): panic in debug, warn-and-defer in release.
@@ -896,6 +896,14 @@ pub fn on_main(f: impl FnOnce() + Send + 'static) {
 type DelayedPoster = Box<dyn Fn(u32, Box<dyn FnOnce() + Send>) + Send + Sync>;
 static DELAYED_POSTER: std::sync::OnceLock<DelayedPoster> = std::sync::OnceLock::new();
 
+/// Mock backend SPI. A virtual timer queue on this UI thread delivers in deadline order
+/// itself. Comparing its deadlines against the process's real clock would wake sleeps early.
+#[doc(hidden)]
+#[cfg(feature = "mock-clock")]
+pub fn set_virtual_timers(enabled: bool) {
+    VIRTUAL_TIMERS.with(|mode| mode.set(enabled));
+}
+
 /// Install the timer door (`Platform::post_delayed`). Backends call this once at startup.
 pub fn install_delayed_poster(
     post: impl Fn(u32, Box<dyn FnOnce() + Send>) + Send + Sync + 'static,
@@ -913,10 +921,13 @@ pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
     let Some(post) = DELAYED_POSTER.get() else {
         panic!("day-reactive: no delayed poster installed (backend not started)")
     };
+    #[cfg(all(feature = "mock-clock", not(target_arch = "wasm32")))]
+    if VIRTUAL_TIMERS.with(std::cell::Cell::get) {
+        return post(ms, Box::new(f));
+    }
     #[cfg(not(target_arch = "wasm32"))]
     post(ms, delayed::arm(ms, Box::new(f)));
-    // The browser has no monotonic clock in `std`, and `setTimeout` already fires in deadline
-    // order, so the closure goes to the timer as it is.
+    // The browser's setTimeout provides its own ordering.
     #[cfg(target_arch = "wasm32")]
     post(ms, Box::new(f));
 }

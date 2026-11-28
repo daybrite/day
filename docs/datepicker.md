@@ -49,8 +49,13 @@ column((
 The bound signal is **two-way**: a user pick writes it; the app writing it updates the native
 control. Values are **civil (zoneless)**: `DayDate { year, month, day }` (proleptic Gregorian,
 validated constructors, `Display`/`parse_iso` speak ISO-8601) and `DayTime { hour, minute,
-second }`. Day carries no time-zone database: an app that needs zoned instants attaches the zone
-itself ([`DayDate::today()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/struct.DayDate.html#method.today) derives from the system clock in UTC). Interchange across native
+second }`. For a departure date, due date, or time field, use
+[`DayDate::today_local()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/struct.DayDate.html#method.today_local) or
+[`DayTime::now_local()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/struct.DayTime.html#method.now_local).
+They use the device or browser time zone and its daylight-saving rules. For UTC use
+[`DayDate::today_utc()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/struct.DayDate.html#method.today_utc) or
+[`DayTime::now_utc()`](https://docs.rs/day-pieces/latest/day_pieces/datetime/struct.DayTime.html#method.now_utc).
+Each call reads the clock independently. Interchange across native
 boundaries is epoch days / seconds-of-day; every renderer pins its control's calendar to
 proleptic-Gregorian UTC so the civil value never shifts by zone, while the **locale stays the
 user's**: month and weekday names render localized by the platform.

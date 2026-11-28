@@ -70,6 +70,53 @@ pub fn now_epoch_secs() -> i64 {
 unsafe extern "C" {
     /// Seconds since the Unix epoch (fractional), from the browser's clock.
     fn day_datetime_now_secs() -> f64;
+    fn day_datetime_local_offset_secs(epoch_secs: f64) -> i32;
+}
+
+fn utc_at(secs: i64) -> (DayDate, DayTime) {
+    (
+        DayDate::from_epoch_days(secs.div_euclid(86_400)),
+        DayTime::from_seconds_of_day(secs),
+    )
+}
+
+#[cfg(target_arch = "wasm32")]
+fn local_at(secs: i64) -> (DayDate, DayTime) {
+    // SAFETY: the Day web shim returns the browser's offset at the supplied instant.
+    let offset = unsafe { day_datetime_local_offset_secs(secs as f64) };
+    utc_at(secs + i64::from(offset))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn local_at(secs: i64) -> (DayDate, DayTime) {
+    // time_t can be narrower than i64 (32-bit Android).
+    let Ok(timestamp) = i128::from(secs).try_into() else {
+        return utc_at(secs);
+    };
+    let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: both pointers are valid for the call. On success the CRT initialized tm.
+    let tm = unsafe {
+        #[cfg(unix)]
+        let ok = !libc::localtime_r(&raw const timestamp, tm.as_mut_ptr()).is_null();
+        #[cfg(windows)]
+        let ok = libc::localtime_s(tm.as_mut_ptr(), &raw const timestamp) == 0;
+        if !ok {
+            return utc_at(secs);
+        }
+        tm.assume_init()
+    };
+    (
+        DayDate {
+            year: tm.tm_year + 1900,
+            month: (tm.tm_mon + 1) as u8,
+            day: tm.tm_mday as u8,
+        },
+        DayTime {
+            hour: tm.tm_hour as u8,
+            minute: tm.tm_min as u8,
+            second: tm.tm_sec.min(59) as u8,
+        },
+    )
 }
 
 impl DayDate {
@@ -83,10 +130,17 @@ impl DayDate {
         }
     }
 
-    /// Today's date derived from the system clock in UTC (Day carries no time-zone database; an
-    /// app that must roll the date at local midnight should compute it with its own zone source).
-    pub fn today() -> Self {
-        Self::from_epoch_days(now_epoch_secs().div_euclid(86_400))
+    /// Today's calendar date in the device's time zone. Falls back to UTC if the host
+    /// cannot represent the current instant.
+    #[must_use]
+    pub fn today_local() -> Self {
+        local_at(now_epoch_secs()).0
+    }
+
+    /// Today's calendar date in UTC.
+    #[must_use]
+    pub fn today_utc() -> Self {
+        utc_at(now_epoch_secs()).0
     }
 
     /// Days since 1970-01-01 (negative before). The numeric interchange form across native
@@ -203,13 +257,17 @@ impl DayTime {
         }
     }
 
-    /// The current time of day from the system clock in UTC, the twin of [`DayDate::today`],
-    /// and carrying the same caveat: Day ships no time-zone database, so an app that needs local
-    /// wall-clock time should apply its own offset. Pair the two for a timestamp
-    /// (`Day-Showcase-2026-08-12-14-23-05.png`).
+    /// Current wall-clock time in the device's time zone, including its daylight-saving
+    /// rules. Falls back to UTC if the host cannot represent the current instant.
     #[must_use]
-    pub fn now() -> Self {
-        Self::from_seconds_of_day(now_epoch_secs().rem_euclid(86_400))
+    pub fn now_local() -> Self {
+        local_at(now_epoch_secs()).1
+    }
+
+    /// Current wall-clock time in UTC.
+    #[must_use]
+    pub fn now_utc() -> Self {
+        utc_at(now_epoch_secs()).1
     }
 
     /// Seconds since midnight, the numeric interchange form across native boundaries.
@@ -320,4 +378,59 @@ pub struct TimeProps {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TimePatch {
     SetTime(DayTime),
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod clock_tests {
+    use super::*;
+
+    #[test]
+    fn civil_clock_at_midnight_and_daylight_saving_transitions() {
+        // TZ is process-wide. Exercise the actual CRT converter in an isolated process.
+        if std::env::var_os("DAY_TEST_EASTERN_CLOCK").is_none() {
+            let test = format!(
+                "{}::civil_clock_at_midnight_and_daylight_saving_transitions",
+                module_path!().split_once("::").unwrap().1
+            );
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &test])
+                .env("DAY_TEST_EASTERN_CLOCK", "1")
+                .env(
+                    "TZ",
+                    if cfg!(windows) {
+                        "EST5EDT"
+                    } else {
+                        "EST5EDT,M3.2.0/2,M11.1.0/2"
+                    },
+                )
+                .output()
+                .unwrap();
+            let report = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && report.contains("1 passed"),
+                "{report} {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        for (date, time, local_date, local_time) in [
+            ("2024-01-01", "00:01", "2023-12-31", "19:01"),
+            ("2024-03-10", "06:59:59", "2024-03-10", "01:59:59"),
+            ("2024-03-10", "07:00", "2024-03-10", "03:00"),
+            ("2024-11-03", "05:30", "2024-11-03", "01:30"),
+            ("2024-11-03", "06:30", "2024-11-03", "01:30"),
+        ] {
+            let date = DayDate::parse_iso(date).unwrap();
+            let time = DayTime::parse_iso(time).unwrap();
+            let instant = date.to_epoch_days() * 86_400 + time.seconds_of_day();
+            assert_eq!(utc_at(instant), (date, time));
+            assert_eq!(
+                local_at(instant),
+                (
+                    DayDate::parse_iso(local_date).unwrap(),
+                    DayTime::parse_iso(local_time).unwrap()
+                )
+            );
+        }
+    }
 }

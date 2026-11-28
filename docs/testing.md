@@ -113,6 +113,21 @@ A bare Cargo build lacks the metadata needed to run those tests.
 The [VS Code extension](vscode.md) also runs tests from the Test Explorer and provides
 **Debug Test** on desktop targets.
 
+## Control time in a host test
+
+Construct the mock with
+[`MockToolkit::new_with_manual_clock()`](https://docs.rs/day-mock/latest/day_mock/struct.MockToolkit.html#method.new_with_manual_clock)
+when a test needs to inspect a UI before and after a deadline. Launch with that toolkit, trigger
+the action and call [`probe.advance(2999)`](https://docs.rs/day-mock/latest/day_mock/struct.MockProbe.html#method.advance)
+to inspect a three-second tooltip just before dismissal. Advance one more millisecond to observe
+the dismissal. For touch help, enable
+[`set_touch_tooltips`](https://docs.rs/day-mock/latest/day_mock/struct.MockProbe.html#method.set_touch_tooltips) before mounting the piece.
+
+The clock starts at zero. Each advance runs all due UI timers, including ones scheduled by
+other callbacks, in deadline order. Equal deadlines run in registration order. An advance of
+zero serves timers already due. Requested display frames arrive at 60 Hz on the same clock.
+The default mock still completes sleeps immediately.
+
 ## Inspect results
 
 Results and captures are written under:

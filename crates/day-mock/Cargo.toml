@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 day-spec = { workspace = true }
 day-async = { workspace = true }
+day-reactive = { workspace = true, features = ["mock-clock"] }
 
 [lints]
 workspace = true

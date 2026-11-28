@@ -591,6 +591,7 @@ name = "day-mock"
 version = "0.7.13"
 dependencies = [
  "day-async",
+ "day-reactive",
  "day-spec",
 ]
 
@@ -1023,6 +1024,7 @@ dependencies = [
  "day-fonts",
  "day-geometry",
  "day-process",
+ "libc",
  "log",
  "memmap2",
 ]

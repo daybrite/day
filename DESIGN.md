@@ -3292,7 +3292,8 @@ process is not supported.
 > row events no longer reloads on every change: the piece hands day-core the old and new key
 > tokens and `list_sync` diffs them (`diff_rows`: removals, then inserts and the fewest moves,
 > at most 512 deltas) into the `ListPatch::Splice` the hosts already apply, sectioned lists
-> included, since header rows are diffed with the items. It then rebinds the bound rows by
+> included, since header rows are diffed with the items. An append-only snapshot checks unique
+> keys in one pass and inserts the new suffix bottom-up, skipping move detection. It then rebinds the bound rows by
 > token (`list_refresh_rows`), which is how a changed value reaches a plain-data row without a
 > native reload. `ListSource::viewport` reports the first and last visible rows and the
 > distance to the end (`Cap::ListViewport`); `.visible_rows`, `.follow_end(threshold)` (which
@@ -3878,6 +3879,12 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
 ---
 
 ## §12 Localization (Fluent)
+
+For repeated localized searches, `SearchIndex<T>` in day-localization stores one folded label
+and its word starts in folded byte offsets per item. Building the index tracks whichever locale
+and labels the caller reads. Each query folds once and yields items in source order. Showcase
+shares one memoized index between sidebar filtering and whole-label prefix completions.
+See [Searching](docs/localization.md#searching-localized-match).
 
 ### §12.1 Files and keys
 
@@ -7769,6 +7776,12 @@ annotations, and ids throughout.
 
 ### §21.2 Milestones (each lands green CI + tests; forward dependencies eliminated)
 
+`MockToolkit::new_with_manual_clock` gives each test thread an initially empty timer queue.
+`MockProbe::advance` delivers UI timers by deadline and registration order and requested frames
+on a 60 Hz clock. The mock's queue owns virtual deadlines, so real elapsed time cannot release
+a pending sleep. The default mock continues to serve sleeps synchronously.
+See [testing](docs/testing.md#control-time-in-a-host-test).
+
 | # | scope | acceptance |
 |---|---|---|
 | M0 | workspace bootstrap; `day-reactive` (scoped signals/memos/effects/bind/watch/Setter, fixpoint drain, batching); `day-geometry`; `day-spec` v0; `day-mock` | unit/property tests: graph semantics, disposal-during-drain, disposed-handle rules, `Signal: !Send` compile-fail, setter-after-dispose, reentrancy (synthetic echo), batching |
@@ -8548,6 +8561,9 @@ existing ordinary-document behavior; inline/resource policies are unchanged.
 > `support()` reports Emulated there). Originally the first external piece covering every native renderer; now a core control. Values are civil/zoneless; controls are pinned to a Gregorian-UTC calendar with the
 > user's locale, so platforms localize month names while the value never shifts by zone; dayscript
 > drives every picker via the existing `input:` step (`Event::TextChanged` with ISO text).
+> `DayDate::today_local` and `DayTime::now_local` read the device time zone through the native
+> C runtime or the browser's offset at the instant being converted. `today_utc` and `now_utc`
+> use UTC. The date and time values themselves stay zoneless.
 
 ### B.9 Color picker (the piece that is native OR composed, per target and per call)
 

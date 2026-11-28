@@ -62,7 +62,7 @@ implement them, and this table proves it.
 | [`update_toolbar`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.update_toolbar) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`supports_lifecycle`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.supports_lifecycle) | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
 | [`set_tooltip`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.set_tooltip) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
-| [`needs_touch_tooltip`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.needs_touch_tooltip) | · | · | ✓ | · | · | · | · | ✓ | ✓ | · |
+| [`needs_touch_tooltip`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.needs_touch_tooltip) | · | · | ✓ | · | · | · | · | ✓ | ✓ | ✓ |
 | [`open_popover`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.open_popover) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`resize_popover`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.resize_popover) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | [`close_popover`](https://docs.rs/day-spec/latest/day_spec/trait.Toolkit.html#method.close_popover) | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

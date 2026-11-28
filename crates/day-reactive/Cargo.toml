@@ -7,6 +7,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+# The mock's virtual clock delivers timers in order without consulting Instant.
+mock-clock = []
+
 [dependencies]
 log = { workspace = true }
 slotmap = { workspace = true }

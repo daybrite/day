@@ -18,5 +18,8 @@ day-fonts = { workspace = true }
 # QResource, ArkUI rawfile) register their own opener and don't go through this.
 memmap2 = "0.9"
 
+[target.'cfg(any(unix, windows))'.dependencies]
+libc.workspace = true
+
 [lints]
 workspace = true

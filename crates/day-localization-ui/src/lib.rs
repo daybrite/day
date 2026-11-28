@@ -11,11 +11,11 @@
 
 // Re-export the engine so the app-facing API (`install_locales`, `set_locale`, …) is unchanged.
 pub use day_localization::{
-    Catalog, DateFields, FArg, IntoFArg, IntoNumberFArg, SigM, ValM, add_launch_locales, compare,
-    compare_in, format_catalog, format_date, format_date_in, format_decimal, format_decimal_in,
-    format_in, format_percent, format_percent_in, key, launch_locales, locale, matches_search,
-    matches_search_in, register_catalog, set_launch_locale, set_launch_locales, set_locale,
-    sort_localized, strip_isolates, t,
+    Catalog, DateFields, FArg, IntoFArg, IntoNumberFArg, SearchIndex, SigM, ValM,
+    add_launch_locales, compare, compare_in, format_catalog, format_date, format_date_in,
+    format_decimal, format_decimal_in, format_in, format_percent, format_percent_in, key,
+    launch_locales, locale, matches_search, matches_search_in, register_catalog, set_launch_locale,
+    set_launch_locales, set_locale, sort_localized, strip_isolates, t,
 };
 
 /// Register the app's locales (see [`day_localization::install`]) and fix the layout direction from the

@@ -265,7 +265,7 @@ pub mod conformance {
         Case::new()
             .proves(DATE_KIND)
             .page(|| {
-                let date = Signal::new(DayDate::new(2026, 1, 15).unwrap_or(DayDate::today()));
+                let date = Signal::new(DayDate::new(2026, 1, 15).unwrap_or(DayDate::today_local()));
                 column((
                     label(move || format!("date {}", date.get()))
                         .id(day_core::id!(datetime::value)),
@@ -286,7 +286,7 @@ pub mod conformance {
         Case::new()
             .proves(DATE_KIND)
             .page(|| {
-                let date = Signal::new(DayDate::new(2026, 6, 1).unwrap_or(DayDate::today()));
+                let date = Signal::new(DayDate::new(2026, 6, 1).unwrap_or(DayDate::today_local()));
                 let (lo, hi) = (DayDate::new(2026, 1, 1), DayDate::new(2026, 12, 31));
                 let mut picker = date_picker(date).compact();
                 if let (Some(lo), Some(hi)) = (lo, hi) {
@@ -310,7 +310,7 @@ pub mod conformance {
         Case::new()
             .proves(TIME_KIND)
             .page(|| {
-                let time = Signal::new(DayTime::new(9, 0, 0).unwrap_or(DayTime::now()));
+                let time = Signal::new(DayTime::new(9, 0, 0).unwrap_or(DayTime::now_local()));
                 column((
                     label(move || format!("time {}", time.get()))
                         .id(day_core::id!(datetime::value)),
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn today_is_valid() {
-        let t = DayDate::today();
+        let t = DayDate::today_local();
         assert!(DayDate::new(t.year, t.month, t.day).is_some());
         assert!(t.year >= 2026);
     }

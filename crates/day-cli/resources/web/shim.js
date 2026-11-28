@@ -853,6 +853,7 @@ const env = {
   // Seconds since the Unix epoch, for day-piece-datetime: wasm32-unknown-unknown has no clock of
   // its own, and `SystemTime::now()` traps there rather than failing.
   day_datetime_now_secs: () => Date.now() / 1000,
+  day_datetime_local_offset_secs: secs => -60 * new Date(secs * 1000).getTimezoneOffset(),
 
   day_dom_drag_source: (id) => installDragSource(id),
   day_dom_drop_target: (id) => installDropTarget(id),

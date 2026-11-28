@@ -360,6 +360,18 @@ pub fn diff_rows(old: &[u64], new: &[u64]) -> Option<Vec<RowDelta>> {
     if old.is_empty() || new.is_empty() {
         return None;
     }
+    if new.len() > old.len() && new.starts_with(old) {
+        let appended = new.len() - old.len();
+        if appended > SPLICE_MAX_DELTAS {
+            return None;
+        }
+        let mut seen = std::collections::HashSet::with_capacity(new.len());
+        if !new.iter().all(|&token| seen.insert(token)) {
+            return None;
+        }
+        // Place the new rows bottom-up, at the boundary of the unchanged prefix each time.
+        return Some(vec![RowDelta::Insert(old.len()); appended]);
+    }
     let mut new_at: HashMap<u64, usize> = HashMap::with_capacity(new.len());
     for (i, token) in new.iter().enumerate() {
         if new_at.insert(*token, i).is_some() {
@@ -1373,12 +1385,24 @@ mod tests {
     #[test]
     fn equal_lists_need_no_delta() {
         assert_eq!(diff_rows(&[1, 2, 3], &[1, 2, 3]), Some(Vec::new()));
+        assert_eq!(diff_rows(&[1, 1], &[1, 1]), Some(Vec::new()));
         assert_eq!(diff_rows(&[], &[]), Some(Vec::new()));
     }
 
     #[test]
     fn an_append_is_one_insert_at_the_end() {
         assert_eq!(check(&[1, 2, 3], &[1, 2, 3, 4]), vec![RowDelta::Insert(3)]);
+    }
+
+    #[test]
+    fn appending_a_page_keeps_sequential_insert_order_and_requires_unique_keys() {
+        assert_eq!(
+            check(&[3, 1], &[3, 1, 8, 4, 9]),
+            vec![RowDelta::Insert(2); 3]
+        );
+        assert_eq!(diff_rows(&[3, 3], &[3, 3, 8]), None);
+        assert_eq!(diff_rows(&[3, 1], &[3, 1, 8, 3]), None);
+        assert_eq!(diff_rows(&[3, 1], &[3, 1, 8, 8]), None);
     }
 
     #[test]

@@ -17,6 +17,79 @@ use std::assert_matches;
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
+fn manual_clock_long_press_extends_the_tooltip_until_the_latest_deadline() {
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new_with_manual_clock();
+    probe.set_touch_tooltips(true);
+    day_core::launch_with(mock, WindowOptions::default(), || {
+        button("Fixture").tooltip("Fixture hint").any()
+    });
+    // Gesture ownership is resolved on the first frame after mount.
+    probe.advance(17);
+    let (_, anchor) = probe.find_by_kind("day.button").pop().unwrap();
+    let press = || {
+        probe.emit(NodeId(anchor.node), Event::LongPress(day_spec::Point::ZERO));
+        flush_sync();
+    };
+    let closed = || {
+        probe
+            .log()
+            .iter()
+            .filter(|s| s.starts_with("close popover "))
+            .count()
+    };
+    press();
+    assert!(probe.log().iter().any(|s| s.starts_with("popover #")));
+    probe.advance(2000);
+    press();
+    probe.advance(2999);
+    assert_eq!(closed(), 0);
+    probe.advance(1);
+    flush_sync();
+    assert_eq!(closed(), 1);
+}
+
+#[test]
+fn manual_clock_orders_competing_sleeps_and_serves_new_timers_within_the_advance() {
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new_with_manual_clock();
+    day_core::launch_with(mock, WindowOptions::default(), || label("Fixture").any());
+    let log = Signal::new(Vec::new());
+    let after = |ms, tag| {
+        day_core::task(async move {
+            day_core::sleep(ms).await;
+            log.update(|l| l.push(tag));
+        })
+    };
+    after(100, "last");
+    after(20, "first at 20");
+    after(10, "aborted").abort();
+    after(0, "zero");
+    day_core::task(async move {
+        day_core::sleep(10).await;
+        log.update(|l| l.push("ten"));
+        day_core::sleep(10).await;
+        log.update(|l| l.push("second at 20"));
+    });
+    assert_eq!(log.get(), Vec::<&str>::new());
+    probe.advance(0);
+    assert_eq!(log.get(), ["zero"]);
+    probe.advance(19);
+    assert_eq!(log.get(), ["zero", "ten"]);
+    probe.advance(81);
+    assert_eq!(
+        log.get(),
+        ["zero", "ten", "first at 20", "second at 20", "last"]
+    );
+}
+
+#[test]
 fn popover_dismissal_belongs_to_one_opening_and_unmount_releases_it() {
     let shown = Signal::new(true);
     let open = Signal::new(false);

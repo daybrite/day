@@ -537,7 +537,7 @@ pub use day_localization_ui::{
 };
 // Search matching (docs/localization.md "Searching"): case-insensitive, at the start of any
 // word, with words found by the locale's own segmentation. `matches_search` tracks the locale.
-pub use day_localization_ui::{matches_search, matches_search_in};
+pub use day_localization_ui::{SearchIndex, matches_search, matches_search_in};
 // The current-locale Signal itself, for apps that show or branch on it (`locale().get()` is a
 // tracked read; `set_locale` in the prelude writes it).
 pub use day_localization_ui::locale;

@@ -162,6 +162,7 @@ dependencies = [
  "day-fonts",
  "day-geometry",
  "day-process",
+ "libc",
  "log",
  "memmap2",
 ]

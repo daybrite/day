@@ -41,7 +41,7 @@ mod search;
 pub use collate::{compare, compare_in, sort_localized};
 pub use datetime::{DateFields, format_date, format_date_in};
 pub use decimal::{format_decimal, format_decimal_in, format_percent, format_percent_in};
-pub use search::{matches_search, matches_search_in};
+pub use search::{SearchIndex, matches_search, matches_search_in};
 
 /// The built-in core catalog: standard UI strings the framework needs, per language. Apps override
 /// individual keys by defining them in their own catalog (see [`install`]).
